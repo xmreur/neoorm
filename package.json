@@ -1,6 +1,6 @@
 {
   "name": "neoorm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript-first PostgreSQL ORM with schema DSL, codegen, and typed relations",
   "license": "MIT",
   "repository": {
