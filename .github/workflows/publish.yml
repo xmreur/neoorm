@@ -21,8 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -39,7 +38,9 @@ jobs:
       - run: pnpm build
       - run: pnpm test
 
+      # Trusted Publisher requires npm >= 11.5.1 and must NOT use NODE_AUTH_TOKEN
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
       - name: Publish to npm
-        run: pnpm publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance --no-git-checks
