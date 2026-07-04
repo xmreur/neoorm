@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "TypeScript-first PostgreSQL ORM with schema DSL, codegen, and typed relations",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xmreur/neoorm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xmreur/neoorm/issues"
+  },
+  "homepage": "https://github.com/xmreur/neoorm#readme",
+  "packageManager": "pnpm@10.33.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

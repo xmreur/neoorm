@@ -4,3 +4,4 @@ dist/
 .env
 examples/blog/neoorm/
 examples/blog/neoorm-test-out/
+ignore/
