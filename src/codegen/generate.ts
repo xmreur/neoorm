@@ -118,9 +118,7 @@ function schemaImportPath(outDir: string, schemaPath: string): string {
   return toImportPath(outDir, schemaPath);
 }
 
-function packageImportPath(outDir: string, projectRoot: string): string {
-  return toImportPath(outDir, join(projectRoot, "dist/index.js"));
-}
+const NEOORM_PACKAGE = "neoorm";
 
 export function diffManifest(
   prev: Manifest | null,
@@ -186,12 +184,11 @@ export async function writeGeneratedFiles(
   manifest: Manifest,
   migrationSql: string[],
   schemaPath: string,
-  projectRoot: string,
 ): Promise<{ migrationName: string | null }> {
   await mkdir(outDir, { recursive: true });
   await writeFile(
     join(outDir, "manifest.ts"),
-    emitManifestTs(manifest, packageImportPath(outDir, projectRoot)),
+    emitManifestTs(manifest, NEOORM_PACKAGE),
     "utf-8",
   );
   await writeFile(
@@ -201,10 +198,7 @@ export async function writeGeneratedFiles(
   );
   await writeFile(
     join(outDir, "client.ts"),
-    emitClientTs(
-      schemaImportPath(outDir, schemaPath),
-      packageImportPath(outDir, projectRoot),
-    ),
+    emitClientTs(schemaImportPath(outDir, schemaPath), NEOORM_PACKAGE),
     "utf-8",
   );
   await writeSnapshot(outDir, manifest);
@@ -217,7 +211,6 @@ export async function writeGeneratedFiles(
 export async function generateFromSchema(
   schemaPath: string,
   outDir: string,
-  projectRoot?: string,
 ): Promise<{ manifest: Manifest; migrationName: string | null }> {
   const { schemaToManifest, validateManifest } = await import(
     "./schema-to-manifest.js"
@@ -233,8 +226,7 @@ export async function generateFromSchema(
 
   const prev = await readSnapshot(outDir);
   const { sql } = diffManifest(prev, manifest);
-  const root = projectRoot ?? process.cwd();
-  const { migrationName } = await writeGeneratedFiles(outDir, manifest, sql, schemaPath, root);
+  const { migrationName } = await writeGeneratedFiles(outDir, manifest, sql, schemaPath);
 
   return { manifest, migrationName };
 }

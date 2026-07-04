@@ -17,9 +17,11 @@ describe("codegen", () => {
     expect(manifest.tables["users"]).toBeDefined();
 
     const manifestContent = await readFile(join(outDir, "manifest.ts"), "utf-8");
+    expect(manifestContent).toContain('from "neoorm"');
     expect(manifestContent).toContain("export const manifest");
 
     const clientContent = await readFile(join(outDir, "client.ts"), "utf-8");
+    expect(clientContent).toContain('from "neoorm"');
     expect(clientContent).toContain("createNeoOrmClient");
     expect(clientContent).toContain("TypedNeoOrmClient");
     expect(clientContent).toContain("NeoOrmIncludes");
