@@ -1,10 +1,5 @@
 import type { Manifest, ManifestColumn, ManifestRelation, ManifestTable } from "../dialect/types.js";
-
-function pascalCase(str: string): string {
-  return str
-    .replace(/(^|_)([a-z])/g, (_, __, c: string) => c.toUpperCase())
-    .replace(/_/g, "");
-}
+import { effectiveRelations, pascalCase } from "./manifest-relations.js";
 
 function columnUnion(columns: ManifestColumn[]): string {
   if (columns.length === 0) return "never";
@@ -21,17 +16,6 @@ function orderByType(columns: ManifestColumn[]): string {
   if (columns.length === 0) return "Record<string, never>";
   const fields = columns.map((c) => `${c.tsName}?: OrderDirection`).join("; ");
   return `{ ${fields} }`;
-}
-
-function uniqueRelations(table: ManifestTable): ManifestRelation[] {
-  const seen = new Set<string>();
-  const result: ManifestRelation[] = [];
-  for (const rel of table.relations) {
-    if (seen.has(rel.name)) continue;
-    seen.add(rel.name);
-    result.push(rel);
-  }
-  return result;
 }
 
 function emitRelationIncludeType(
@@ -73,58 +57,6 @@ function emitTableWithType(
     .join("\n");
 
   return `export type ${typeName} = {\n${fields}\n};`;
-}
-
-function throughAccessors(manifest: Manifest): Set<string> {
-  return new Set(manifest.manyToMany.map((m) => m.throughAccessor));
-}
-
-/** User-facing relations: FK/inverse plus M2M aliases, excluding junction-table hops */
-function effectiveRelations(
-  manifest: Manifest,
-  table: ManifestTable,
-): ManifestRelation[] {
-  const through = throughAccessors(manifest);
-  const seen = new Set<string>();
-  const result: ManifestRelation[] = [];
-
-  for (const rel of uniqueRelations(table)) {
-    if (through.has(rel.targetAccessor)) continue;
-    if (seen.has(rel.name)) continue;
-    seen.add(rel.name);
-    result.push(rel);
-  }
-
-  for (const m2m of manifest.manyToMany) {
-    if (m2m.leftAccessor === table.accessor && !seen.has(m2m.as)) {
-      seen.add(m2m.as);
-      result.push({
-        name: m2m.as,
-        targetTable: m2m.rightTable,
-        targetAccessor: m2m.rightAccessor,
-        fkColumn: m2m.leftFkColumn,
-        fkSqlColumn: m2m.leftFkColumn,
-        targetColumn: "id",
-        cardinality: "many",
-        inverse: m2m.inverse,
-      });
-    }
-    if (m2m.rightAccessor === table.accessor && !seen.has(m2m.inverse)) {
-      seen.add(m2m.inverse);
-      result.push({
-        name: m2m.inverse,
-        targetTable: m2m.leftTable,
-        targetAccessor: m2m.leftAccessor,
-        fkColumn: m2m.rightFkColumn,
-        fkSqlColumn: m2m.rightFkColumn,
-        targetColumn: "id",
-        cardinality: "many",
-        inverse: m2m.as,
-      });
-    }
-  }
-
-  return result;
 }
 
 export function emitIncludesTs(manifest: Manifest): string {

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { Manifest } from "../dialect/types.js";
 import { postgresDialect } from "../dialect/postgres.js";
 import { emitIncludesTs } from "./emit-includes.js";
+import { emitModelsTs } from "./emit-models.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
 
 async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
@@ -100,9 +101,20 @@ import type { TypedNeoOrmClient } from "${packageImportPath}";
 import { manifest } from "./manifest.js";
 import { schema } from "${schemaImportPath}";
 import type { NeoOrmIncludes } from "./includes.js";
+import type { NeoOrmRowPayloads } from "./models.js";
 
-export const db: TypedNeoOrmClient<typeof schema._tables, NeoOrmIncludes> =
-  createNeoOrmClient<typeof schema._tables, NeoOrmIncludes>(manifest);
+export const db: TypedNeoOrmClient<
+  typeof schema._tables,
+  NeoOrmIncludes,
+  NeoOrmRowPayloads
+> = createNeoOrmClient<
+  typeof schema._tables,
+  NeoOrmIncludes,
+  NeoOrmRowPayloads
+>(manifest);
+
+export type * from "./models.js";
+export type * from "./includes.js";
 `;
 }
 
@@ -194,6 +206,11 @@ export async function writeGeneratedFiles(
   await writeFile(
     join(outDir, "includes.ts"),
     emitIncludesTs(manifest),
+    "utf-8",
+  );
+  await writeFile(
+    join(outDir, "models.ts"),
+    emitModelsTs(manifest),
     "utf-8",
   );
   await writeFile(

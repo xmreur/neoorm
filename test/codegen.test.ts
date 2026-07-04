@@ -30,6 +30,11 @@ describe("codegen", () => {
     expect(includesContent).toContain("export type UsersWith");
     expect(includesContent).toContain("profile?:");
 
+    const modelsContent = await readFile(join(outDir, "models.ts"), "utf-8");
+    expect(modelsContent).toContain("export type User = {");
+    expect(modelsContent).toContain("export type UserPayload =");
+    expect(modelsContent).toContain("export type NeoOrmRowPayloads =");
+
     await rm(outDir, { recursive: true, force: true });
   });
 });

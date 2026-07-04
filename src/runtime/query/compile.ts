@@ -142,6 +142,42 @@ export function buildFindManyQuery(
   return sql;
 }
 
+export function buildCountQuery(table: ManifestTable, whereSql: string): string {
+  let sql = `SELECT COUNT(*)::int AS count FROM ${quoteIdentifier(table.sqlName)}`;
+  if (whereSql) sql += ` ${whereSql}`;
+  return sql;
+}
+
+export function buildUpsertQuery(
+  table: ManifestTable,
+  insertKeys: string[],
+  updateKeys: string[],
+  conflictSqlColumns: readonly string[],
+): string {
+  const insertCols = insertKeys.map((k) => {
+    const col = table.columns.find((c) => c.tsName === k);
+    return quoteIdentifier(col?.sqlName ?? k);
+  });
+  const insertPlaceholders = insertKeys.map((_, i) => `$${i + 1}`).join(", ");
+  const selectCols = buildSelectColumns(table);
+
+  const conflictCols = conflictSqlColumns.map((c) => quoteIdentifier(c)).join(", ");
+
+  const updateSets =
+    updateKeys.length > 0
+      ? updateKeys.map((k) => {
+          const col = table.columns.find((c) => c.tsName === k);
+          const sqlCol = quoteIdentifier(col?.sqlName ?? k);
+          return `${sqlCol} = EXCLUDED.${sqlCol}`;
+        })
+      : conflictSqlColumns.map((c) => {
+          const sqlCol = quoteIdentifier(c);
+          return `${sqlCol} = EXCLUDED.${sqlCol}`;
+        });
+
+  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${updateSets.join(", ")} RETURNING ${selectCols}`;
+}
+
 export function buildInsertQuery(
   table: ManifestTable,
   dataKeys: string[],

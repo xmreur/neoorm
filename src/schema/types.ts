@@ -178,4 +178,29 @@ export type DeleteManyArgs<
   where?: WhereInput<TSchema[TAccessor]["_columns"]>;
 };
 
+export type FindUniqueArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = {
+  where: WhereInput<TSchema[TAccessor]["_columns"]>;
+  with?: WithInputMap<TSchema, TAccessor>;
+};
+
+export type CountArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = {
+  where?: WhereInput<TSchema[TAccessor]["_columns"]>;
+};
+
+export type UpsertArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = {
+  where: WhereInput<TSchema[TAccessor]["_columns"]>;
+  create: CreateInput<TSchema[TAccessor]["_columns"]>;
+  update: UpdateInput<TSchema[TAccessor]["_columns"]>;
+  with?: WithInputMap<TSchema, TAccessor>;
+};
+
 export type { WithInputMap, WithInclude, RelationAccessors, SelectInput, WithRelationOptions } from "./relation-types.js";

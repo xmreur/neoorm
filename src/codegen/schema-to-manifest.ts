@@ -93,7 +93,8 @@ function buildRelations(
 
     const [targetSqlName] = col.fkTarget.split(".");
     const targetAccessor = sqlNameToAccessor[targetSqlName!] ?? targetSqlName!;
-    const cardinality = col.unique ? "one" : "many";
+    // FK holder always resolves to one parent row (many-to-one / one-to-one)
+    const cardinality = "one" as const;
 
     const rel: ManifestRelation = {
       name: col.fkAs,

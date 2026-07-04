@@ -3,11 +3,13 @@ import type { Manifest } from "../dialect/types.js";
 import type { TableDef } from "../schema/table.js";
 import { createExecutor, compileQuery, type Executor } from "./executor.js";
 import { findMany, findFirst, findById } from "./query/find.js";
+import { countRecords, findUnique } from "./query/count.js";
 import { createRecord } from "./query/create.js";
+import { upsertRecord } from "./query/upsert.js";
 import { updateRecord, updateManyRecords, updateById } from "./query/update.js";
 import { deleteRecord, deleteManyRecords, deleteById } from "./query/delete.js";
 import type { WithInput } from "./query/find.js";
-import type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap } from "./types.js";
+import type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap } from "./types.js";
 
 export type TableRepository = {
   findMany(args?: {
@@ -22,12 +24,22 @@ export type TableRepository = {
     orderBy?: Record<string, string>;
     with?: Record<string, WithInput>;
   }): Promise<Record<string, unknown> | null>;
+  findUnique(args: {
+    where: Record<string, unknown>;
+    with?: Record<string, WithInput>;
+  }): Promise<Record<string, unknown> | null>;
   findById(
     id: string,
     args?: { with?: Record<string, WithInput> },
   ): Promise<Record<string, unknown> | null>;
   create(args: {
     data: Record<string, unknown>;
+    with?: Record<string, WithInput>;
+  }): Promise<Record<string, unknown>>;
+  upsert(args: {
+    where: Record<string, unknown>;
+    create: Record<string, unknown>;
+    update: Record<string, unknown>;
     with?: Record<string, WithInput>;
   }): Promise<Record<string, unknown>>;
   update(args: {
@@ -48,6 +60,7 @@ export type TableRepository = {
     with?: Record<string, WithInput>;
   }): Promise<Record<string, unknown> | null>;
   deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
+  count(args?: { where?: Record<string, unknown> }): Promise<number>;
   deleteById(id: string): Promise<Record<string, unknown> | null>;
 };
 
@@ -74,13 +87,16 @@ function createTableRepository(
   return {
     findMany: (args) => findMany(executor, manifest, accessor, args),
     findFirst: (args) => findFirst(executor, manifest, accessor, args),
+    findUnique: (args) => findUnique(executor, manifest, accessor, args),
     findById: (id, args) => findById(executor, manifest, accessor, id, args),
     create: (args) => createRecord(executor, manifest, accessor, args),
+    upsert: (args) => upsertRecord(executor, manifest, accessor, args),
     update: (args) => updateRecord(executor, manifest, accessor, args),
     updateMany: (args) => updateManyRecords(executor, manifest, accessor, args),
     updateById: (id, args) => updateById(executor, manifest, accessor, id, args),
     delete: (args) => deleteRecord(executor, manifest, accessor, args),
     deleteMany: (args) => deleteManyRecords(executor, manifest, accessor, args),
+    count: (args) => countRecords(executor, manifest, accessor, args),
     deleteById: (id) => deleteById(executor, manifest, accessor, id),
   };
 }
@@ -88,11 +104,12 @@ function createTableRepository(
 function buildClient<
   TTables extends Record<string, TableDef>,
   TIncludes extends Record<keyof TTables & string, unknown> = DefaultWithMap<TTables>,
+  TRowPayloads extends Record<keyof TTables & string, Record<string, unknown>> = DefaultRowPayloadMap<TTables>,
 >(
   executor: Executor,
   manifest: Manifest,
   disconnect: () => Promise<void>,
-): TypedNeoOrmClient<TTables, TIncludes> {
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
   const client = {
     sql<T = Record<string, unknown>>(
       strings: TemplateStringsArray,
@@ -107,7 +124,7 @@ function buildClient<
     },
 
     $disconnect: disconnect,
-  } as TypedNeoOrmClient<TTables, TIncludes>;
+  } as TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
 
   for (const accessor of Object.keys(manifest.tables)) {
     (client as Record<string, TableRepository>)[accessor] = createTableRepository(
@@ -123,10 +140,11 @@ function buildClient<
 export function createNeoOrmClient<
   TTables extends Record<string, TableDef>,
   TIncludes extends Record<keyof TTables & string, unknown> = DefaultWithMap<TTables>,
+  TRowPayloads extends Record<keyof TTables & string, Record<string, unknown>> = DefaultRowPayloadMap<TTables>,
 >(
   manifest: Manifest,
   connectionString?: string,
-): TypedNeoOrmClient<TTables, TIncludes> {
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
   const url = connectionString ?? process.env["DATABASE_URL"];
   if (!url) {
     throw new Error("DATABASE_URL is required");
@@ -135,7 +153,7 @@ export function createNeoOrmClient<
   const pool = new Pool({ connectionString: url });
   const executor = createExecutor(pool);
 
-  return buildClient<TTables, TIncludes>(executor, manifest, async () => {
+  return buildClient<TTables, TIncludes, TRowPayloads>(executor, manifest, async () => {
     await pool.end();
   });
 }
@@ -143,15 +161,16 @@ export function createNeoOrmClient<
 export function createNeoOrmClientFromPool<
   TTables extends Record<string, TableDef>,
   TIncludes extends Record<keyof TTables & string, unknown> = DefaultWithMap<TTables>,
+  TRowPayloads extends Record<keyof TTables & string, Record<string, unknown>> = DefaultRowPayloadMap<TTables>,
 >(
   manifest: Manifest,
   pool: Pool,
-): TypedNeoOrmClient<TTables, TIncludes> {
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
   const executor = createExecutor(pool);
 
-  return buildClient<TTables, TIncludes>(executor, manifest, async () => {
+  return buildClient<TTables, TIncludes, TRowPayloads>(executor, manifest, async () => {
     await pool.end();
   });
 }
 
-export type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap } from "./types.js";
+export type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap } from "./types.js";
