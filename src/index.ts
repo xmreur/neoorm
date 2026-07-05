@@ -23,13 +23,15 @@ export { generateFromSchema, summarizeGenerateOutcome, formatGenerateSummary } f
 export type { GenerateResult, GenerateSummary, GenerateStatus } from "./codegen/generate.js";
 export { schemaToManifest, validateManifest } from "./codegen/schema-to-manifest.js";
 
-export { migrateDeploy, dbPush, applySql, migrateStatus, migrateReset, resetDatabaseSchema, computeMigrationStatus, formatMigrateStatus, listMigrationsOnDisk, listAppliedMigrations } from "./migrate/runner.js";
+export { migrateDeploy, migrateDown, revertMigration, dbPush, applySql, migrateStatus, migrateReset, resetDatabaseSchema, computeMigrationStatus, formatMigrateStatus, listMigrationsOnDisk, listAppliedMigrations } from "./migrate/runner.js";
 export type { DbPushOptions, DbPushResult, MigrationRecord, MigrationStatus } from "./migrate/runner.js";
 export { introspectToManifest } from "./introspect/to-manifest.js";
 export {
   diffManifest,
   formatDestructiveWarnings,
   resolveMigrationSql,
+  buildDownSql,
+  emptyManifest,
   explainNoMigrationSql,
 } from "./codegen/diff-manifest.js";
 export { NeoOrmQueryError, formatQueryError } from "./runtime/errors.js";

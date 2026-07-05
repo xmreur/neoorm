@@ -56,6 +56,18 @@ describe("neoorm init", () => {
     expect(migrationSql).toContain('CREATE TABLE "users"');
     expect(migrationSql).toContain('CREATE TABLE "posts"');
 
+    const downSql = await readFile(
+      join(migrationsRoot, migrationDirs[0]!, "down.sql"),
+      "utf-8",
+    );
+    expect(downSql).toContain('DROP TABLE');
+
+    const snapshotBefore = await readFile(
+      join(migrationsRoot, migrationDirs[0]!, "snapshot.before.json"),
+      "utf-8",
+    );
+    expect(JSON.parse(snapshotBefore)).toEqual({ version: 1, tables: {}, manyToMany: [] });
+
     const config = await readFile(join(tmpDir, "neoorm.config.ts"), "utf-8");
     expect(config).toContain('schema: "./schema.ts"');
     expect(config).toContain('out: "./neoorm"');

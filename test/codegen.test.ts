@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateFromSchema } from "../src/codegen/generate.js";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { rm } from "node:fs/promises";
 
 describe("codegen", () => {
   const outDir = join(import.meta.dirname, "../examples/blog/neoorm-test-out");
@@ -35,6 +34,19 @@ describe("codegen", () => {
     expect(modelsContent).toContain("export type User = {");
     expect(modelsContent).toContain("export type UserPayload =");
     expect(modelsContent).toContain("export type NeoOrmRowPayloads =");
+
+    const migrationsDir = join(outDir, "migrations");
+    const migrationDirs = await readdir(migrationsDir);
+    if (migrationDirs.length > 0) {
+      const migrationDir = join(migrationsDir, migrationDirs[0]!);
+      const downSql = await readFile(join(migrationDir, "down.sql"), "utf-8");
+      expect(downSql.length).toBeGreaterThan(0);
+      const snapshotBefore = await readFile(
+        join(migrationDir, "snapshot.before.json"),
+        "utf-8",
+      );
+      expect(JSON.parse(snapshotBefore)).toBeDefined();
+    }
 
     await rm(outDir, { recursive: true, force: true });
   });

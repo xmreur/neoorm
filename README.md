@@ -610,6 +610,7 @@ Nested `create` calls inside a transaction do not start a separate transaction. 
 | `neoorm migrate dev` | Apply pending migrations, then generate a new one if the schema changed |
 | `neoorm migrate deploy` | Apply pending migrations |
 | `neoorm migrate status` | List applied vs pending migrations |
+| `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
 | `neoorm migrate reset --force` | Drop public schema and re-apply migrations (local dev) |
 | `neoorm db push` | Push the current snapshot schema to the database |
 | `neoorm db pull` | Introspect the database into a schema file |
@@ -644,6 +645,25 @@ neoorm migrate reset --force
 ```
 
 Drops the `public` schema and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop the schema without re-applying.
+
+### Rolling back migrations
+
+```bash
+neoorm migrate down
+neoorm migrate down --steps 2
+```
+
+Rolls back the most recently applied migration(s) by running each migration folder's `down.sql`, removing the ledger entry from `_neoorm_migrations`, and restoring `snapshot.json` from `snapshot.before.json` (the manifest state before that migration was applied).
+
+`down.sql` and `snapshot.before.json` are written automatically when `neoorm generate` or `neoorm migrate dev` creates a migration. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration.
+
+Legacy migrations without `down.sql` cannot be rolled back — re-generate the migration or add `down.sql` manually.
+
+Migration folders are not deleted on rollback (same as Prisma). Re-run `neoorm migrate deploy` to re-apply rolled-back migrations.
+
+After rollback, `schema.ts` may still describe a newer schema than the restored snapshot; `neoorm migrate dev` may generate a new forward migration. `db push` and `migrate down` are independent — push ignores the migration ledger.
+
+For a full wipe during local development, use `neoorm migrate reset --force` instead.
 
 `generate` creates migration SQL only when the schema diff produces DDL changes (new tables/columns, column renames via `.map()`, etc.).
 

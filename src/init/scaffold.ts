@@ -124,7 +124,8 @@ export function formatInitNextSteps(
     "Next steps:",
     "  1. cp .env.example .env  # set DATABASE_URL",
     "  2. neoorm migrate deploy",
-    `  3. import { db } from "./${clientImport}"`,
+    "  3. neoorm migrate down   # roll back last migration in dev",
+    `  4. import { db } from "./${clientImport}"`,
     `     # schema: ${schemaImport}`,
   ];
 }

@@ -7,6 +7,8 @@ import {
   diffManifest,
   formatDestructiveWarnings,
   resolveMigrationSql,
+  buildDownSql,
+  emptyManifest,
 } from "./diff-manifest.js";
 import {
   summarizeGenerateOutcome,
@@ -198,6 +200,8 @@ export {
   diffManifest,
   formatDestructiveWarnings,
   resolveMigrationSql,
+  buildDownSql,
+  emptyManifest,
   explainNoMigrationSql,
   columnsEqual,
   columnSqlType,
@@ -208,7 +212,11 @@ export { summarizeGenerateOutcome, formatGenerateSummary } from "./generate-summ
 export async function writeMigration(
   outDir: string,
   sql: string[],
-  name?: string,
+  options?: {
+    name?: string;
+    prev?: Manifest | null;
+    next?: Manifest;
+  },
 ): Promise<string | null> {
   if (sql.length === 0) return null;
 
@@ -219,10 +227,22 @@ export async function writeMigration(
     .toISOString()
     .replace(/[-:T.Z]/g, "")
     .slice(0, 14);
-  const migrationName = name ?? `${timestamp}_migration`;
+  const migrationName = options?.name ?? `${timestamp}_migration`;
   const migrationDir = join(migrationsDir, migrationName);
   await mkdir(migrationDir, { recursive: true });
   await writeFile(join(migrationDir, "migration.sql"), sql.join("\n\n"), "utf-8");
+
+  if (options?.next) {
+    const prev = options.prev ?? null;
+    const downSql = buildDownSql(prev, options.next);
+    await writeFile(join(migrationDir, "down.sql"), downSql.join("\n\n"), "utf-8");
+    const snapshotBefore = prev ?? emptyManifest();
+    await writeFile(
+      join(migrationDir, "snapshot.before.json"),
+      JSON.stringify(snapshotBefore, null, 2),
+      "utf-8",
+    );
+  }
 
   return migrationName;
 }
@@ -232,6 +252,7 @@ export async function writeGeneratedFiles(
   manifest: Manifest,
   migrationSql: string[],
   schemaPath: string,
+  prev: Manifest | null,
 ): Promise<{ migrationName: string | null }> {
   await mkdir(outDir, { recursive: true });
   await writeFile(
@@ -256,7 +277,10 @@ export async function writeGeneratedFiles(
   );
   await writeSnapshot(outDir, manifest);
 
-  const migrationName = await writeMigration(outDir, migrationSql);
+  const migrationName = await writeMigration(outDir, migrationSql, {
+    prev,
+    next: manifest,
+  });
 
   return { migrationName };
 }
@@ -315,6 +339,7 @@ export async function generateFromSchema(
     manifest,
     migrationSql,
     schemaPath,
+    prev,
   );
 
   const summary = summarizeGenerateOutcome({
