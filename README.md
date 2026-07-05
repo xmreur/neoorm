@@ -12,7 +12,44 @@ Requires Node.js 20+ and PostgreSQL.
 
 ## Quick start
 
-**1. Define a schema** (`schema.ts`):
+**1. Scaffold a new project**
+
+```bash
+npx neoorm init
+```
+
+This creates `neoorm.config.ts`, `schema.ts`, `.env.example`, generates `neoorm/client.ts` (and related files), and writes the first migration under `neoorm/migrations/`.
+
+**2. Set your database URL**
+
+```bash
+cp .env.example .env
+# edit DATABASE_URL in .env
+```
+
+**3. Apply migrations**
+
+```bash
+npx neoorm migrate deploy
+```
+
+**4. Query**
+
+```ts
+import { db } from "./neoorm/client.js";
+
+const user = await db.users.findById(userId, {
+  with: {
+    posts: { orderBy: { createdAt: "desc" }, limit: 10 },
+  },
+});
+```
+
+### Manual setup
+
+If you prefer to write files yourself instead of `neoorm init`:
+
+**Define a schema** (`schema.ts`):
 
 ```ts
 import { defineSchema, table, uuid, text, timestamp, fk } from "neoorm/schema";
@@ -55,18 +92,6 @@ npx neoorm generate
 ```
 
 This writes `client.ts`, `manifest.ts`, `models.ts`, `includes.ts`, and migration SQL when the schema changed.
-
-**4. Query**
-
-```ts
-import { db } from "./neoorm/client.js";
-
-const user = await db.users.findById(userId, {
-  with: {
-    posts: { orderBy: { createdAt: "desc" }, limit: 10 },
-  },
-});
-```
 
 ## Schema DSL
 
@@ -441,6 +466,7 @@ Nested `create` calls inside a transaction do not start a separate transaction. 
 
 | Command | Description |
 |---------|-------------|
+| `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example`, generate client, and first migration |
 | `neoorm generate` | Emit manifest, typed client, models, includes, and migrations |
 | `neoorm migrate dev` | Apply pending migrations, then generate a new one if the schema changed |
 | `neoorm migrate deploy` | Apply pending migrations |

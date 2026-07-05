@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { Pool } from "pg";
 import { loadConfig } from "../config.js";
 import { generateFromSchema, formatGenerateSummary } from "../codegen/generate.js";
+import { runInit, formatInitNextSteps } from "../init/scaffold.js";
 import {
   migrateDeploy,
   migrateReset,
@@ -21,6 +22,52 @@ program
   .name("neoorm")
   .description("NeoOrm CLI")
   .version("0.1.0");
+
+program
+  .command("init")
+  .description("Scaffold neoorm.config.ts, schema.ts, .env.example, and run initial generate")
+  .option("--force", "Overwrite existing scaffold files")
+  .option("--schema <path>", "Schema file path", "./schema.ts")
+  .option("--out <dir>", "Generated output directory", "./neoorm")
+  .action(async (options: { force?: boolean; schema: string; out: string }) => {
+    const cwd = process.cwd();
+
+    try {
+      const result = await runInit({
+        cwd,
+        schemaPath: options.schema,
+        outDir: options.out,
+        ...(options.force ? { force: true } : {}),
+      });
+
+      if (result.written.length > 0) {
+        console.log("Scaffolded:");
+        for (const file of result.written) {
+          console.log(`  + ${file}`);
+        }
+      }
+      if (result.skipped.length > 0) {
+        console.log("Skipped (already exists):");
+        for (const file of result.skipped) {
+          console.log(`  - ${file}`);
+        }
+      }
+
+      for (const line of formatGenerateSummary(result.summary, result.outDir)) {
+        console.log(line);
+      }
+      for (const warning of result.warnings) {
+        console.warn(`Warning: ${warning}`);
+      }
+
+      for (const line of formatInitNextSteps(cwd, options.schema, options.out)) {
+        console.log(line);
+      }
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  });
 
 program
   .command("generate")
