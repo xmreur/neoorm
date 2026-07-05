@@ -289,7 +289,7 @@ export function resolveUniqueConstraintName(
 }
 
 function emitCreateExtensions(extensions: readonly string[]): string[] {
-  return extensions.map((ext) => `CREATE EXTENSION IF NOT EXISTS ${ext};`);
+  return extensions.map((ext) => `CREATE EXTENSION IF NOT EXISTS ${q(ext)};`);
 }
 
 export function emitCreateEnumTypes(

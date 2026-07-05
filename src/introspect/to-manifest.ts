@@ -6,7 +6,7 @@ import type {
   ManifestTable,
 } from "../dialect/types.js";
 import { toCamelCase } from "../utils/case.js";
-import { findIntrospectColumnType } from "../plugins/registry.js";
+import { collectExtensions, findIntrospectColumnType, getPluginRegistry } from "../plugins/registry.js";
 import { pgStorageSqlType, resolvePgSchemaName } from "../dialect/postgres.js";
 import {
   queryColumns,
@@ -280,9 +280,8 @@ export async function introspectToManifest(
     manifestTables[table.accessor] = table;
   }
 
-  const relevantExtensions = extensions.filter((ext) =>
-    ["postgis", "citext"].includes(ext),
-  );
+  const knownExtensions = new Set(collectExtensions(getPluginRegistry()));
+  const relevantExtensions = extensions.filter((ext) => knownExtensions.has(ext));
 
   const manifestEnumTypes = Object.fromEntries(
     Object.entries(enumTypes).map(([name, values]) => [name, { values }]),

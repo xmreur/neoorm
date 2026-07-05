@@ -368,15 +368,19 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 
   const enumTypes = finalizeEnumColumns(manifestTables, enumMode);
 
+  const pluginExtensions = collectExtensionsForKinds(
+    Object.values(manifestTables).flatMap((table) => table.columns.map((col) => col.kind)),
+  );
+  const userExtensions = schema._extensions ?? [];
+  const extensions = [...new Set([...pluginExtensions, ...userExtensions])];
+
   return {
     version: 1,
     tables: manifestTables,
     manyToMany,
     enumMode,
     ...(enumTypes ? { enumTypes } : {}),
-    extensions: collectExtensionsForKinds(
-      Object.values(manifestTables).flatMap((table) => table.columns.map((col) => col.kind)),
-    ),
+    extensions,
   };
 }
 

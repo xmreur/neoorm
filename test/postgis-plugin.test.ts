@@ -49,7 +49,7 @@ describe("postgis plugin", () => {
     const manifest = postgisManifest();
     const { sql, isInitial } = diffManifest(null, manifest);
     expect(isInitial).toBe(true);
-    expect(sql[0]).toBe("CREATE EXTENSION IF NOT EXISTS postgis;");
+    expect(sql[0]).toBe('CREATE EXTENSION IF NOT EXISTS "postgis";');
     expect(sql.some((s) => s.includes("geometry(Point,4326)"))).toBe(true);
   });
 });

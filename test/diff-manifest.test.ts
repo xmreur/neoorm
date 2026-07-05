@@ -72,7 +72,7 @@ describe("diffManifest", () => {
     const { sql, isInitial, destructive } = diffManifest(null, next);
     expect(isInitial).toBe(true);
     expect(destructive).toEqual([]);
-    expect(sql[0]).toBe("CREATE EXTENSION IF NOT EXISTS postgis;");
+    expect(sql[0]).toBe('CREATE EXTENSION IF NOT EXISTS "postgis";');
     expect(sql.some((s) => s.includes('CREATE TABLE "users"'))).toBe(true);
     expect(sql.some((s) => s.includes('CREATE INDEX "users_emailIdx_idx"'))).toBe(true);
   });
@@ -424,7 +424,7 @@ describe("diffManifest", () => {
     );
 
     const { sql } = diffManifest(prev, next);
-    expect(sql.some((s) => s.includes("CREATE EXTENSION IF NOT EXISTS postgis"))).toBe(true);
+    expect(sql.some((s) => s.includes('CREATE EXTENSION IF NOT EXISTS "postgis"'))).toBe(true);
   });
 });
 
