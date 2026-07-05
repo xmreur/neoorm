@@ -135,7 +135,7 @@ export type TypedTableRepository<
   updateById<W extends TWith | undefined = undefined>(
     id: string,
     args: {
-      data: UpdateInput<TSchema[TAccessor]["_columns"]>;
+      data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
       with?: W;
     },
   ): Promise<TRowPayload | null>;

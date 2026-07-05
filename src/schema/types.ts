@@ -1,8 +1,18 @@
 import type { ColumnBuilder } from "./column.js";
-import type { FkBuilder } from "./relation.js";
 import type { ColumnDef, TableDef } from "./table.js";
 import type { InferColumnValue } from "./column-where.js";
-import type { WithInputMap, WhereInput, OrderByInput, OrderDirection } from "./relation-types.js";
+import type {
+  ConnectInput,
+  ConnectOrCreateItem,
+  InferInsertRow,
+  InferSelectRow,
+  RelationCreateMap,
+  RelationUpdateMap,
+  WithInputMap,
+  WhereInput,
+  OrderByInput,
+  OrderDirection,
+} from "./relation-types.js";
 
 type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
   ? M extends { primary: true }
@@ -10,34 +20,15 @@ type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
     : false
   : false;
 
-type IsRequired<T> = T extends ColumnBuilder<unknown, infer M>
-  ? M extends { nullable: false; primary: true }
-    ? false
-    : M extends { nullable: false }
-      ? true
-      : false
-  : T extends FkBuilder
-    ? T["_meta"] extends { nullable: false }
-      ? true
-      : false
-    : false;
-
-export type InferSelectRow<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns]: InferColumnValue<TColumns[K]>;
-};
-
-export type InferInsertRow<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns as IsPrimary<TColumns[K]> extends true ? never : K]?: InferColumnValue<
-    TColumns[K]
-  >;
-} & {
-  [K in keyof TColumns as IsRequired<TColumns[K]> extends true ? K : never]: InferColumnValue<
-    TColumns[K]
-  >;
-};
+/** Expands mapped types so IDEs surface keys for autocomplete */
+type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
 export type { InferColumnValue, WhereOperators, ColumnWhereInput } from "./column-where.js";
 export type {
+  ConnectInput,
+  ConnectOrCreateItem,
+  InferInsertRow,
+  InferSelectRow,
   WhereInput,
   LogicalWhereInput,
   RelationWhereMap,
@@ -49,26 +40,20 @@ export type {
   RelationAccessors,
   SelectInput,
   WithRelationOptions,
+  RelationCreateMap,
+  RelationUpdateMap,
 } from "./relation-types.js";
-
-export type ConnectInput<TColumns extends Record<string, ColumnDef>> = {
-  id: InferColumnValue<TColumns[keyof TColumns & string]>;
-};
-
-export type ConnectOrCreateItem<TColumns extends Record<string, ColumnDef>> = {
-  where: Partial<InferSelectRow<TColumns>>;
-  create: InferInsertRow<TColumns>;
-};
 
 export type RelationWriteInput = {
   connect?: { id: string };
   connectOrCreate?: ConnectOrCreateItem<Record<string, ColumnDef>>[];
 };
 
-export type CreateInput<TColumns extends Record<string, ColumnDef>> =
-  Partial<InferInsertRow<TColumns>> & {
-    [key: string]: unknown;
-  };
+export type CreateInput<
+  TColumns extends Record<string, ColumnDef>,
+  TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string = keyof TSchema & string,
+> = Expand<InferInsertRow<TColumns> & RelationCreateMap<TSchema, TAccessor>>;
 
 /** @deprecated Use WithInputMap for typed relation includes */
 export type WithInput = boolean | {
@@ -109,24 +94,28 @@ export type CreateArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  data: CreateInput<TSchema[TAccessor]["_columns"]>;
+  data: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
 
-export type UpdateInput<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns as IsPrimary<TColumns[K]> extends true ? never : K]?: InferColumnValue<
-    TColumns[K]
-  >;
-} & {
-  [key: string]: unknown;
-};
+export type UpdateInput<
+  TColumns extends Record<string, ColumnDef>,
+  TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string = keyof TSchema & string,
+> = Expand<
+  {
+    [K in keyof TColumns as IsPrimary<TColumns[K]> extends true ? never : K]?: InferColumnValue<
+      TColumns[K]
+    >;
+  } & RelationUpdateMap<TSchema, TAccessor>
+>;
 
 export type UpdateArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
   where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
-  data: UpdateInput<TSchema[TAccessor]["_columns"]>;
+  data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
 
@@ -135,7 +124,7 @@ export type UpdateManyArgs<
   TAccessor extends keyof TSchema & string,
 > = {
   where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
-  data: UpdateInput<TSchema[TAccessor]["_columns"]>;
+  data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
 
 export type DeleteArgs<
@@ -173,7 +162,7 @@ export type UpsertArgs<
   TAccessor extends keyof TSchema & string,
 > = {
   where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
-  create: CreateInput<TSchema[TAccessor]["_columns"]>;
-  update: UpdateInput<TSchema[TAccessor]["_columns"]>;
+  create: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+  update: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
