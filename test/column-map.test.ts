@@ -54,6 +54,7 @@ describe("column map", () => {
     const users = manifest.tables["users"]!;
 
     const { sql } = compileWhere(
+      manifest,
       users,
       { emailAddress: { contains: "@" } },
       postgresDialect,

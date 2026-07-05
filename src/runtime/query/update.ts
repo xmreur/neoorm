@@ -46,6 +46,7 @@ export async function updateRecord(
   }
 
   const { sql: whereSql, params: whereParams } = compileWhere(
+    manifest,
     table,
     args.where,
     postgresDialect,
@@ -87,6 +88,7 @@ export async function updateManyRecords(
   }
 
   const { sql: whereSql, params: whereParams } = compileWhere(
+    manifest,
     table,
     args.where,
     postgresDialect,

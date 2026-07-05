@@ -4,6 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { schema } from "../examples/blog/schema.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import type { NeoOrmIncludes } from "../examples/blog/neoorm/includes.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
 
@@ -27,7 +28,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("findMany and findById", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     const user = await db.users.create({
       data: { email: "test@example.com", name: "Test User" },
@@ -42,7 +43,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("create with connect and connectOrCreate", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: "author@example.com", name: "Author" },
@@ -73,7 +74,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("raw sql tagged template", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     const rows = await db.sql<{ email: string }>`
       SELECT email FROM users LIMIT 1
@@ -83,7 +84,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("update and delete", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     const user = await db.users.create({
       data: { email: "mutate@example.com", name: "Before" },
@@ -110,7 +111,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("commits multi-table interactive transaction", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     const email = `tx-commit-${Date.now()}@example.com`;
 
@@ -138,7 +139,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("rolls back failed transaction", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     const email = `tx-rollback-${Date.now()}@example.com`;
 
@@ -155,7 +156,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("rejects writes in read-only transaction", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
     await expect(
       db.$transaction(

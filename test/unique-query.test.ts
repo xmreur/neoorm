@@ -43,7 +43,7 @@ describe("findUnique / count / upsert SQL", () => {
   });
 
   it("builds count query", () => {
-    const { sql: whereSql } = compileWhere(users, { email: "a@b.c" }, postgresDialect);
+    const { sql: whereSql } = compileWhere(manifest, users, { email: "a@b.c" }, postgresDialect);
     const query = buildCountQuery(users, whereSql);
     expect(query).toContain("SELECT COUNT(*)::int AS count");
     expect(query).toContain('FROM "users"');

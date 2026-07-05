@@ -26,6 +26,12 @@ export async function exampleQueries() {
     },
   });
 
+  const usersWithPublishedPosts = await db.users.findMany({
+    where: {
+      posts: { some: { published: true } },
+    },
+  });
+
   const posts = await db.posts.findMany({
     where: { published: true },
     orderBy: { createdAt: "desc" },
@@ -87,7 +93,7 @@ export async function exampleQueries() {
     ORDER BY post_count DESC
   `;
 
-  return { users, user, post, posts, newPost, rows };
+  return { users, usersWithPublishedPosts, user, post, posts, newPost, rows };
 }
 
 export async function exampleMutations() {

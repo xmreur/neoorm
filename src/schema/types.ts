@@ -1,17 +1,8 @@
 import type { ColumnBuilder } from "./column.js";
 import type { FkBuilder } from "./relation.js";
 import type { ColumnDef, TableDef } from "./table.js";
-import type { WithInputMap } from "./relation-types.js";
-
-type InferColumnValue<T> = T extends ColumnBuilder<infer V, infer M>
-  ? M extends { nullable: false }
-    ? V
-    : V | null
-  : T extends FkBuilder
-    ? T["_meta"] extends { nullable: false }
-      ? string
-      : string | null
-    : never;
+import type { InferColumnValue } from "./column-where.js";
+import type { WithInputMap, WhereInput, OrderByInput, OrderDirection } from "./relation-types.js";
 
 type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
   ? M extends { primary: true }
@@ -45,36 +36,20 @@ export type InferInsertRow<TColumns extends Record<string, ColumnDef>> = {
   >;
 };
 
-export type WhereOperators<T> = T extends string
-  ? {
-      equals?: T;
-      contains?: T;
-      startsWith?: T;
-      endsWith?: T;
-      in?: readonly T[];
-    }
-  : T extends number | boolean | Date
-    ? {
-        equals?: T;
-        gt?: T;
-        gte?: T;
-        lt?: T;
-        lte?: T;
-        in?: readonly T[];
-      }
-    : { equals?: T };
-
-export type WhereInput<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns]?: InferColumnValue<TColumns[K]> | WhereOperators<
-    InferColumnValue<TColumns[K]>
-  >;
-};
-
-export type OrderDirection = "asc" | "desc";
-
-export type OrderByInput<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns]?: OrderDirection;
-};
+export type { InferColumnValue, WhereOperators, ColumnWhereInput } from "./column-where.js";
+export type {
+  WhereInput,
+  LogicalWhereInput,
+  RelationWhereMap,
+  ManyRelationFilter,
+  OrderDirection,
+  OrderByInput,
+  WithInputMap,
+  WithInclude,
+  RelationAccessors,
+  SelectInput,
+  WithRelationOptions,
+} from "./relation-types.js";
 
 export type ConnectInput<TColumns extends Record<string, ColumnDef>> = {
   id: InferColumnValue<TColumns[keyof TColumns & string]>;
@@ -111,7 +86,7 @@ export type FindManyArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where?: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   orderBy?: OrderByInput<TSchema[TAccessor]["_columns"]>;
   limit?: number;
   offset?: number;
@@ -150,7 +125,7 @@ export type UpdateArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   data: UpdateInput<TSchema[TAccessor]["_columns"]>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
@@ -159,7 +134,7 @@ export type UpdateManyArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where?: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   data: UpdateInput<TSchema[TAccessor]["_columns"]>;
 };
 
@@ -167,7 +142,7 @@ export type DeleteArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
 
@@ -175,14 +150,14 @@ export type DeleteManyArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where?: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
 
 export type FindUniqueArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
 
@@ -190,17 +165,15 @@ export type CountArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where?: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
 
 export type UpsertArgs<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
 > = {
-  where: WhereInput<TSchema[TAccessor]["_columns"]>;
+  where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
   create: CreateInput<TSchema[TAccessor]["_columns"]>;
   update: UpdateInput<TSchema[TAccessor]["_columns"]>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
-
-export type { WithInputMap, WithInclude, RelationAccessors, SelectInput, WithRelationOptions } from "./relation-types.js";

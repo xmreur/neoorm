@@ -52,6 +52,7 @@ describe("query compilation", () => {
     const manifest = blogManifest();
     const posts = manifest.tables["posts"]!;
     const { sql, params } = compileWhere(
+      manifest,
       posts,
       { published: true },
       postgresDialect,
@@ -65,6 +66,7 @@ describe("query compilation", () => {
     const manifest = blogManifest();
     const posts = manifest.tables["posts"]!;
     const { sql, params } = compileWhere(
+      manifest,
       posts,
       { title: { contains: "ORM" } },
       postgresDialect,

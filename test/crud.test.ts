@@ -14,7 +14,7 @@ describe("update/delete SQL compilation", () => {
   const posts = manifest.tables["posts"]!;
 
   it("builds update query with offset where params", () => {
-    const { sql: whereSql } = compileWhere(users, { id: "user_1" }, postgresDialect);
+    const { sql: whereSql } = compileWhere(manifest, users, { id: "user_1" }, postgresDialect);
     const query = buildUpdateQuery(users, ["name"], whereSql);
     expect(query).toContain('SET "name" = $1');
     expect(query).toContain('WHERE "id" = $2');
@@ -22,7 +22,7 @@ describe("update/delete SQL compilation", () => {
   });
 
   it("builds delete query", () => {
-    const { sql: whereSql } = compileWhere(posts, { published: false }, postgresDialect);
+    const { sql: whereSql } = compileWhere(manifest, posts, { published: false }, postgresDialect);
     const query = buildDeleteQuery(posts, whereSql);
     expect(query).toContain("DELETE FROM");
     expect(query).toContain("RETURNING");
