@@ -62,4 +62,6 @@ export type {
   OutgoingFkRelations,
   InverseRelations,
   JunctionM2MRelations,
+  RelationCreateMap,
+  RelationUpdateMap,
 } from "./relation-types.js";

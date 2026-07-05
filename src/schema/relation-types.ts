@@ -1,7 +1,60 @@
 import type { FkBuilder, FkMeta } from "./relation.js";
 import type { ColumnBuilder } from "./column.js";
 import type { ColumnDef, TableDef } from "./table.js";
-import type { ColumnWhereInput } from "./column-where.js";
+import type { ColumnWhereInput, InferColumnValue } from "./column-where.js";
+
+type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
+  ? M extends { primary: true }
+    ? true
+    : false
+  : false;
+
+type IsRequired<T> = T extends ColumnBuilder<unknown, infer M>
+  ? M extends { nullable: false; primary: true }
+    ? false
+    : M extends { defaultNow: true }
+      ? false
+      : M extends { defaultValue: unknown }
+        ? false
+        : M extends { nullable: false }
+          ? true
+          : false
+  : T extends FkBuilder
+    ? T["_meta"] extends { nullable: false }
+      ? true
+      : false
+    : false;
+
+export type InferSelectRow<TColumns extends Record<string, ColumnDef>> = {
+  [K in keyof TColumns]: InferColumnValue<TColumns[K]>;
+};
+
+export type InferInsertRow<TColumns extends Record<string, ColumnDef>> = {
+  [K in keyof TColumns as IsPrimary<TColumns[K]> extends true ? never : K]?: InferColumnValue<
+    TColumns[K]
+  >;
+} & {
+  [K in keyof TColumns as IsRequired<TColumns[K]> extends true ? K : never]: InferColumnValue<
+    TColumns[K]
+  >;
+};
+
+type PrimaryIdValue<TColumns extends Record<string, ColumnDef>> = {
+  [K in keyof TColumns]: TColumns[K] extends ColumnBuilder<unknown, infer M>
+    ? M extends { primary: true }
+      ? InferColumnValue<TColumns[K]>
+      : never
+    : never;
+}[keyof TColumns & string];
+
+export type ConnectInput<TColumns extends Record<string, ColumnDef>> = {
+  id: [PrimaryIdValue<TColumns>] extends [never] ? string : PrimaryIdValue<TColumns>;
+};
+
+export type ConnectOrCreateItem<TColumns extends Record<string, ColumnDef>> = {
+  where: Partial<InferSelectRow<TColumns>>;
+  create: InferInsertRow<TColumns>;
+};
 
 export type OrderDirection = "asc" | "desc";
 
@@ -351,3 +404,96 @@ export type WhereInput<
 > = LogicalWhereInput<TColumns, TSchema, TAccessor> &
   ColumnWhereInput<TColumns> &
   RelationWhereMap<TSchema, TAccessor>;
+
+type ConnectWriteForAccessor<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = TAccessor extends keyof TSchema & string
+  ? { connect: ConnectInput<TSchema[TAccessor]["_columns"]> }
+  : never;
+
+type OutgoingFkRelationCreateMap<
+  TSchema extends Record<string, TableDef>,
+  TColumns extends Record<string, ColumnDef>,
+> = {
+  [K in keyof TColumns & string as TColumns[K] extends FkBuilder
+    ? TColumns[K]["_meta"] extends FkMeta
+      ? TColumns[K]["_meta"] extends { as: infer As extends string; target: `${infer Sql}.${string}` }
+        ? SqlNameToAccessor<TSchema, Sql> extends keyof TSchema & string
+          ? As
+          : never
+        : never
+      : never
+    : never]?: TColumns[K] extends FkBuilder
+    ? TColumns[K]["_meta"] extends FkMeta
+      ? TColumns[K]["_meta"]["target"] extends `${infer Sql}.${string}`
+        ? SqlNameToAccessor<TSchema, Sql> extends infer Acc extends keyof TSchema & string
+          ? Acc extends keyof TSchema & string
+            ? ConnectWriteForAccessor<TSchema, Acc>
+            : never
+          : never
+        : never
+      : never
+    : never;
+};
+
+type ConnectOrCreateWriteForAccessor<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = TAccessor extends keyof TSchema & string
+  ? { connectOrCreate: ConnectOrCreateItem<TSchema[TAccessor]["_columns"]>[] }
+  : never;
+
+type JunctionM2MCreateEntry<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  TThroughAccessor extends keyof TSchema & string,
+> = {
+  [C in FkColumnNames<TSchema[TThroughAccessor]["_columns"]> as OtherFkTarget<
+    TSchema,
+    TThroughAccessor,
+    TAccessor,
+    C
+  > extends infer Target extends keyof TSchema & string
+    ? Target
+    : never]?: OtherFkTarget<
+    TSchema,
+    TThroughAccessor,
+    TAccessor,
+    C
+  > extends infer Target extends keyof TSchema & string
+    ? Target extends keyof TSchema & string
+      ? ConnectOrCreateWriteForAccessor<TSchema, Target>
+      : never
+    : never;
+};
+
+type JunctionM2MRelationCreateMap<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+  {
+    [K in keyof TSchema & string]: K extends TAccessor
+      ? never
+      : [IsThroughTable<TSchema[K]["_columns"]>] extends [true]
+        ? [HasFkTo<TSchema, K, TAccessor>] extends [true]
+          ? JunctionM2MCreateEntry<TSchema, TAccessor, K>
+          : never
+        : never;
+  }[keyof TSchema & string]
+>;
+
+/** Typed relation writes for create (connect / connectOrCreate only). */
+export type RelationCreateMap<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = Expand<
+  OutgoingFkRelationCreateMap<TSchema, TSchema[TAccessor]["_columns"]> &
+    JunctionM2MRelationCreateMap<TSchema, TAccessor>
+>;
+
+/** Typed relation writes for update (outgoing FK connect only). */
+export type RelationUpdateMap<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = Expand<OutgoingFkRelationCreateMap<TSchema, TSchema[TAccessor]["_columns"]>>;
