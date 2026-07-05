@@ -7,12 +7,17 @@ type PostsCreate = CreateInput<Schema["posts"]["_columns"], Schema, "posts">;
 type UsersCreate = CreateInput<Schema["users"]["_columns"], Schema, "users">;
 type PostsUpdate = UpdateInput<Schema["posts"]["_columns"], Schema, "posts">;
 type PostsWhere = WhereInput<Schema["posts"]["_columns"], Schema, "posts">;
+type ProfilesUpdate = UpdateInput<Schema["profiles"]["_columns"], Schema, "profiles">;
 
 function expectPostsCreate(value: PostsCreate): void {
   void value;
 }
 
 function expectPostsUpdate(value: PostsUpdate): void {
+  void value;
+}
+
+function expectProfilesUpdate(value: ProfilesUpdate): void {
   void value;
 }
 
@@ -54,6 +59,15 @@ expectPostsCreate({
   },
 });
 
+expectPostsCreate({
+  title: "NeoORM",
+  body: "FK-first relations.",
+  authorId: "user_1",
+  comments: {
+    create: [{ body: "Hello", author: { connect: { id: "user_1" } } }],
+  },
+});
+
 const validUserMinimal: UsersCreate = {
   email: "test@example.com",
 };
@@ -63,6 +77,27 @@ expectPostsUpdate({
   author: { connect: { id: "user_2" } },
 });
 
+expectPostsUpdate({
+  tags: {
+    set: [{ id: "tag_1" }],
+    connectOrCreate: [{ where: { slug: "orm" }, create: { slug: "orm", name: "ORM" } }],
+  },
+});
+
+expectPostsUpdate({
+  comments: {
+    create: [{ body: "Updated comment", author: { connect: { id: "user_1" } } }],
+    set: [{ id: "comment_1" }],
+    disconnect: [{ id: "comment_2" }],
+  },
+});
+
+// @ts-expect-error -- disconnect not allowed on non-nullable outgoing FK
+expectPostsUpdate({ author: { disconnect: true } });
+
+// @ts-expect-error -- disconnect not allowed on non-nullable profile user FK
+expectProfilesUpdate({ user: { disconnect: true } });
+
 // @ts-expect-error -- unknown scalar field
 expectPostsCreate({ title: "NeoORM", body: "FK-first relations.", authorId: "user_1", typoTitle: "nope" });
 
@@ -71,11 +106,5 @@ expectPostsCreate({ title: "NeoORM", body: "FK-first relations.", authors: { con
 
 // @ts-expect-error -- missing required scalar body
 expectPostsCreate({ title: "NeoORM", authorId: "user_1" });
-
-// @ts-expect-error -- inverse relation write not supported on create
-expectPostsCreate({ title: "NeoORM", body: "FK-first relations.", authorId: "user_1", comments: { connect: { id: "comment_1" } } });
-
-// @ts-expect-error -- M2M connectOrCreate not supported on update
-expectPostsUpdate({ tags: { connectOrCreate: [{ where: { slug: "orm" }, create: { slug: "orm", name: "ORM" } }] } });
 
 void validUserMinimal;

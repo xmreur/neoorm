@@ -257,6 +257,55 @@ manyToMany(schema.posts, schema.tags, {
 });
 ```
 
+## Relation writes
+
+`create` and `update` accept nested relation writes alongside scalar fields. Relation-only updates are supported (no scalar `SET` required).
+
+| Relation kind | Operations |
+|---------------|------------|
+| **To-one** (outgoing FK) | `connect`, `create`, `disconnect` (nullable FK only) |
+| **One-to-many** (inverse) | `create`, `connect`, `disconnect`, `set` |
+| **Many-to-many** | `connect`, `connectOrCreate`, `disconnect`, `set` |
+
+```ts
+// To-one on update
+await db.posts.update({
+  where: { id: postId },
+  data: { author: { connect: { id: userId } } },
+});
+
+// Nested create on one-to-many (full nested relation writes inside create items)
+await db.posts.update({
+  where: { id: postId },
+  data: {
+    comments: {
+      create: [{ body: "Hi", author: { connect: { id: userId } } }],
+      connect: [{ id: commentId }],
+      disconnect: [{ id: oldCommentId }], // or `true` to unlink all
+      set: [{ id: commentId }],           // replace all links
+    },
+  },
+});
+
+// M2M on create or update
+await db.posts.update({
+  where: { id: postId },
+  data: {
+    tags: {
+      connect: [{ id: tagId }],
+      set: [{ id: tagId }],
+      connectOrCreate: [
+        { where: { slug: "orm" }, create: { slug: "orm", name: "ORM" } },
+      ],
+    },
+  },
+});
+```
+
+Within a single relation field, operations run in order: `disconnect` → `set` → `connect` / `connectOrCreate` → `create`. Mixing `set` with `connect` or `create` is discouraged — `set` replaces the full link set.
+
+`updateMany` does not support relation writes. Nested `delete` on relations is not supported yet.
+
 ## Where clauses
 
 `findMany`, `findFirst`, `findUnique`, `count`, `update`, `updateMany`, `delete`, and `deleteMany` all accept a typed `where` argument.

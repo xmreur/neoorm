@@ -47,6 +47,9 @@ export type {
 export type RelationWriteInput = {
   connect?: { id: string };
   connectOrCreate?: ConnectOrCreateItem<Record<string, ColumnDef>>[];
+  disconnect?: true | { id: string } | { id: string }[];
+  set?: { id: string }[];
+  create?: Record<string, unknown> | Record<string, unknown>[];
 };
 
 export type CreateInput<

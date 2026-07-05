@@ -462,9 +462,17 @@ export const citextPlugin: NeoOrmPlugin = {
   columnTypes: [citextType],
 };
 
+type IdColumnMeta = {
+  kind: "id";
+  nullable: false;
+  unique: false;
+  primary: true;
+  defaultNow: false;
+};
+
 export const id = {
-  primary(): ColumnBuilder<string> {
-    return idType.createBuilder() as ColumnBuilder<string>;
+  primary(): ColumnBuilder<string, IdColumnMeta> {
+    return idType.createBuilder() as ColumnBuilder<string, IdColumnMeta>;
   },
 };
 

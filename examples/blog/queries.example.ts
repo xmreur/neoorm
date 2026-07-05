@@ -169,6 +169,32 @@ export async function exampleMutations() {
     },
   });
 
+  const withRelationWrites = await db.posts.update({
+    where: { title: "NeoORM" },
+    data: {
+      comments: {
+        create: [
+          {
+            body: "Added via relation write",
+            author: { connect: { id: "user_1" } },
+          },
+        ],
+      },
+      tags: {
+        set: [{ id: "tag_1" }],
+      },
+    },
+    with: { comments: true, tags: true },
+  });
+
+  const relationOnlyUpdate = await db.posts.update({
+    where: { title: "NeoORM" },
+    data: {
+      tags: { disconnect: [{ id: "tag_1" }] },
+    },
+    with: { tags: true },
+  });
+
   const seeded = await db.tags.createMany({
     data: [
       { slug: "batch-a", name: "Batch A" },
@@ -192,6 +218,8 @@ export async function exampleMutations() {
     count,
     priceUpdate,
     publishPost,
+    withRelationWrites,
+    relationOnlyUpdate,
     seeded,
     deleted,
     deletedCount,

@@ -2,16 +2,29 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Pool } from "pg";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { schema } from "../examples/blog/schema.js";
+import { getManyToManyRegistry, manyToMany } from "../src/schema/many-to-many.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import type { NeoOrmIncludes } from "../examples/blog/neoorm/includes.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
 
+function ensureBlogManyToManyRegistry(): void {
+  if (getManyToManyRegistry().length > 0) return;
+  manyToMany(schema.posts, schema.tags, {
+    through: schema.postTags,
+    left: "post",
+    right: "tag",
+    as: "tags",
+    inverse: "posts",
+  });
+}
+
 describe.skipIf(!DATABASE_URL)("integration", () => {
   let pool: Pool;
 
   beforeAll(async () => {
+    ensureBlogManyToManyRegistry();
     pool = new Pool({ connectionString: DATABASE_URL });
     const manifest = schemaToManifest(schema);
 
@@ -72,17 +85,89 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     expect(Array.isArray(post["tags"])).toBe(true);
   });
 
-  it("raw sql tagged template", async () => {
+  it("update with nested create, M2M set, and relation-only writes", async () => {
     const manifest = schemaToManifest(schema);
     const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
-    const rows = await db.sql<{ email: string }>`
-      SELECT email FROM users LIMIT 1
-    `;
-    expect(rows.length).toBeGreaterThanOrEqual(0);
+    const author = await db.users.create({
+      data: { email: `rel-writes-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    const post = await db.posts.create({
+      data: {
+        title: "Relation writes",
+        body: "Before update",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+      },
+    });
+
+    const tagA = await db.tags.create({
+      data: { slug: `tag-a-${Date.now()}`, name: "Tag A" },
+    });
+    const tagB = await db.tags.create({
+      data: { slug: `tag-b-${Date.now()}`, name: "Tag B" },
+    });
+
+    const updated = await db.posts.update({
+      where: { id: post["id"] as string },
+      data: {
+        comments: {
+          create: [
+            {
+              body: "Nested on update",
+              author: { connect: { id: author["id"] as string } },
+            },
+          ],
+        },
+        tags: { set: [{ id: tagA["id"] as string }, { id: tagB["id"] as string }] },
+      },
+      with: { comments: true, tags: true },
+    });
+
+    expect(updated?.["comments"]).toHaveLength(1);
+    expect(updated?.["tags"]).toHaveLength(2);
+
+    const relationOnly = await db.posts.update({
+      where: { id: post["id"] as string },
+      data: {
+        tags: { disconnect: [{ id: tagB["id"] as string }] },
+      },
+      with: { tags: true },
+    });
+
+    expect(relationOnly?.["tags"]).toHaveLength(1);
   });
 
-  it("createMany inserts multiple rows in one statement", async () => {
+  it("rejects disconnect on non-nullable to-one relation", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `disconnect-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    const post = await db.posts.create({
+      data: {
+        title: "Disconnect test",
+        body: "Body",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+      },
+    });
+
+    await expect(
+      db.posts.update({
+        where: { id: post["id"] as string },
+        data: {
+          // @ts-expect-error -- disconnect not allowed on non-nullable outgoing FK
+          author: { disconnect: true },
+        },
+      }),
+    ).rejects.toThrow(/not nullable/);
+  });
+
+  it("raw sql tagged template", async () => {
     const manifest = schemaToManifest(schema);
     const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
 
