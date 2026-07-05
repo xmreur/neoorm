@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import type { Manifest } from "../dialect/types.js";
 import type { TableDef } from "../schema/table.js";
+import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import { createExecutor, compileQuery, type Executor } from "./executor.js";
 import { findMany, findFirst, findById } from "./query/find.js";
 import { countRecords, findUnique } from "./query/count.js";
@@ -145,6 +146,8 @@ export function createNeoOrmClient<
   manifest: Manifest,
   connectionString?: string,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+  ensurePlugins(manifest);
+
   const url = connectionString ?? process.env["DATABASE_URL"];
   if (!url) {
     throw new Error("DATABASE_URL is required");
@@ -166,6 +169,8 @@ export function createNeoOrmClientFromPool<
   manifest: Manifest,
   pool: Pool,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+  ensurePlugins(manifest);
+
   const executor = createExecutor(pool);
 
   return buildClient<TTables, TIncludes, TRowPayloads>(executor, manifest, async () => {

@@ -7,6 +7,7 @@ import { postgresDialect } from "../dialect/postgres.js";
 import { emitIncludesTs } from "./emit-includes.js";
 import { emitModelsTs } from "./emit-models.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
+import type { NeoOrmPlugin } from "../plugins/types.js";
 
 async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
   const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
@@ -32,9 +33,33 @@ async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
   return [];
 }
 
+async function resolvePluginRegistry(): Promise<NeoOrmPlugin[]> {
+  const { getPluginRegistry } = await import("../plugins/registry.js");
+  const fromDist = getPluginRegistry();
+  if (fromDist.length > 1) {
+    return [...fromDist];
+  }
+
+  try {
+    const codegenDir = dirname(fileURLToPath(import.meta.url));
+    const { getPluginRegistry: getSrcRegistry } = await import(
+      join(codegenDir, "../../src/plugins/registry.js")
+    );
+    const fromSrc = getSrcRegistry();
+    if (fromSrc.length > 1) {
+      return [...fromSrc];
+    }
+  } catch {
+    // src/ not available in published package — dist registry is authoritative
+  }
+
+  return [...fromDist];
+}
+
 export async function loadSchemaModule(schemaPath: string): Promise<{
   schema: import("../schema/define-schema.js").SchemaDef<Record<string, import("../schema/table.js").TableDef>>;
   manyToMany: ManyToManyDef[];
+  plugins: NeoOrmPlugin[];
 }> {
   const { pathToFileURL } = await import("node:url");
   const { register } = await import("tsx/esm/api");
@@ -54,8 +79,9 @@ export async function loadSchemaModule(schemaPath: string): Promise<{
   }
 
   const manyToMany = await resolveManyToManyDefs();
+  const plugins = await resolvePluginRegistry();
 
-  return { schema, manyToMany };
+  return { schema, manyToMany, plugins };
 }
 
 export function hashManifest(manifest: Manifest): string {
@@ -137,8 +163,12 @@ export function diffManifest(
   next: Manifest,
 ): { isInitial: boolean; sql: string[] } {
   if (!prev) {
-    const sql = Object.values(next.tables).map((t) =>
-      postgresDialect.emitCreateTable(t),
+    const sql: string[] = [];
+    for (const ext of next.extensions ?? []) {
+      sql.push(`CREATE EXTENSION IF NOT EXISTS ${ext};`);
+    }
+    sql.push(
+      ...Object.values(next.tables).map((t) => postgresDialect.emitCreateTable(t)),
     );
     return { isInitial: true, sql };
   }
@@ -233,8 +263,8 @@ export async function generateFromSchema(
     "./schema-to-manifest.js"
   );
 
-  const { schema, manyToMany } = await loadSchemaModule(schemaPath);
-  const manifest = schemaToManifest(schema, manyToMany);
+  const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
+  const manifest = schemaToManifest(schema, manyToMany, plugins);
 
   const errors = validateManifest(manifest);
   if (errors.length > 0) {

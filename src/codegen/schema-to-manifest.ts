@@ -14,6 +14,8 @@ import type {
 import { getManyToManyRegistry } from "../schema/many-to-many.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
 import { toSnakeCase } from "../utils/case.js";
+import { collectExtensionsForKinds, getColumnType, getPluginRegistry } from "../plugins/registry.js";
+import type { NeoOrmPlugin } from "../plugins/types.js";
 
 function isFkBuilder(col: ColumnDef): col is FkBuilder {
   return "_meta" in col && col._meta.kind === "fk";
@@ -56,6 +58,9 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
   };
   if (meta.defaultValue !== undefined) {
     result.defaultValue = meta.defaultValue;
+  }
+  if (meta.typeOptions !== undefined) {
+    result.typeOptions = meta.typeOptions;
   }
   return result;
 }
@@ -118,6 +123,7 @@ function buildRelations(
 export function schemaToManifest<T extends Record<string, TableDef>>(
   schema: { readonly _tables: T },
   m2mDefs: readonly ManyToManyDef[] = getManyToManyRegistry(),
+  plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
 ): Manifest {
   const tables = schema._tables;
   const sqlNameToAccessor: Record<string, string> = {};
@@ -251,6 +257,9 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
     version: 1,
     tables: manifestTables,
     manyToMany,
+    extensions: collectExtensionsForKinds(
+      Object.values(manifestTables).flatMap((table) => table.columns.map((col) => col.kind)),
+    ),
   };
 }
 
@@ -275,6 +284,13 @@ export function validateManifest(manifest: Manifest): string[] {
             `FK ${table.accessor}.${col.tsName} references unknown table ${targetTable}`,
           );
         }
+        continue;
+      }
+
+      if (col.kind !== "fk" && !getColumnType(col.kind)) {
+        errors.push(
+          `Unknown column kind "${col.kind}" on ${table.accessor}.${col.tsName}. Import the plugin that provides this type.`,
+        );
       }
     }
   }

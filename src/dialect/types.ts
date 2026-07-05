@@ -1,4 +1,5 @@
-export type ColumnKindMeta = "id" | "text" | "bool" | "int" | "timestamp" | "fk";
+export type CoreColumnKind = "id" | "text" | "bool" | "int" | "timestamp" | "fk";
+export type ColumnKindMeta = CoreColumnKind | (string & {});
 
 export type ManifestColumn = {
   tsName: string;
@@ -9,6 +10,7 @@ export type ManifestColumn = {
   primary: boolean;
   defaultValue?: unknown;
   defaultNow: boolean;
+  typeOptions?: Record<string, unknown>;
   fkTarget?: string;
   fkAs?: string;
   fkInverse?: string;
@@ -61,6 +63,7 @@ export type Manifest = {
   version: 1;
   tables: Record<string, ManifestTable>;
   manyToMany: ManifestManyToMany[];
+  extensions?: string[];
 };
 
 export type CompiledQuery = {

@@ -27,10 +27,18 @@
       "types": "./dist/schema/index.d.ts",
       "default": "./dist/schema/index.js"
     },
-    "./sql": {
-      "types": "./dist/sql/index.d.ts",
-      "default": "./dist/sql/index.js"
-    }
+        "./sql": {
+            "types": "./dist/sql/index.d.ts",
+            "default": "./dist/sql/index.js"
+        },
+        "./plugins": {
+            "types": "./dist/plugins/index.d.ts",
+            "default": "./dist/plugins/index.js"
+        },
+        "./plugins/postgis": {
+            "types": "./dist/plugins/postgis/index.d.ts",
+            "default": "./dist/plugins/postgis/index.js"
+        }
   },
   "files": [
     "dist",

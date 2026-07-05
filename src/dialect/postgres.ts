@@ -5,6 +5,7 @@ import type {
   OperatorMap,
   TableDiff,
 } from "./types.js";
+import { getColumnTypeOrThrow } from "../plugins/registry.js";
 
 function q(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -23,22 +24,28 @@ const whereOperators: OperatorMap = {
 };
 
 function columnType(col: ManifestColumn): string {
-  switch (col.kind) {
-    case "id":
-    case "text":
-    case "fk":
-      return "TEXT";
-    case "bool":
-      return "BOOLEAN";
-    case "int":
-      return "INTEGER";
-    case "timestamp":
-      return "TIMESTAMPTZ";
-    default: {
-      const _exhaustive: never = col.kind;
-      return _exhaustive;
-    }
+  if (col.kind === "fk") {
+    return "TEXT";
   }
+  return getColumnTypeOrThrow(col.kind).columnType(col);
+}
+
+function formatDefaultValue(col: ManifestColumn): string | null {
+  if (col.defaultNow) {
+    return defaultNowExpression();
+  }
+  if (col.defaultValue === undefined) {
+    return null;
+  }
+
+  const plugin = getColumnTypeOrThrow(col.kind);
+  if (plugin.formatDefault) {
+    return plugin.formatDefault(col, col.defaultValue);
+  }
+
+  return typeof col.defaultValue === "string"
+    ? `'${col.defaultValue.replace(/'/g, "''")}'`
+    : String(col.defaultValue);
 }
 
 function columnDef(col: ManifestColumn): string {
@@ -51,14 +58,9 @@ function columnDef(col: ManifestColumn): string {
     if (col.unique) parts.push("UNIQUE");
   }
 
-  if (col.defaultNow) {
-    parts.push(`DEFAULT ${defaultNowExpression()}`);
-  } else if (col.defaultValue !== undefined) {
-    const val =
-      typeof col.defaultValue === "string"
-        ? `'${col.defaultValue.replace(/'/g, "''")}'`
-        : String(col.defaultValue);
-    parts.push(`DEFAULT ${val}`);
+  const defaultSql = formatDefaultValue(col);
+  if (defaultSql !== null) {
+    parts.push(`DEFAULT ${defaultSql}`);
   }
 
   return parts.join(" ");

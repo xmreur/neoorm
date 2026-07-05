@@ -1,4 +1,5 @@
-export type ColumnKind = "id" | "text" | "bool" | "int" | "timestamp" | "fk";
+export type CoreColumnKind = "id" | "text" | "bool" | "int" | "timestamp" | "fk";
+export type ColumnKind = CoreColumnKind | (string & {});
 
 export type ColumnMeta = {
   kind: ColumnKind;
@@ -7,6 +8,7 @@ export type ColumnMeta = {
   primary: boolean;
   defaultValue?: unknown;
   defaultNow: boolean;
+  typeOptions?: Record<string, unknown> | undefined;
 };
 
 export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
@@ -19,8 +21,7 @@ export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
   primary(): ColumnBuilder<TValue, Omit<TMeta, "primary"> & { primary: true }>;
 };
 
-function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
-  kind: ColumnKind,
+export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
   meta: TMeta,
 ): ColumnBuilder<TValue, TMeta> {
   const builder: ColumnBuilder<TValue, TMeta> = {
@@ -28,31 +29,26 @@ function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
     _meta: meta,
     notNull() {
       return createColumnBuilder<TValue, Omit<TMeta, "nullable"> & { nullable: false }>(
-        kind,
         { ...meta, nullable: false } as Omit<TMeta, "nullable"> & { nullable: false },
       );
     },
     unique() {
       return createColumnBuilder<TValue, Omit<TMeta, "unique"> & { unique: true }>(
-        kind,
         { ...meta, unique: true } as Omit<TMeta, "unique"> & { unique: true },
       );
     },
     default(value: TValue) {
       return createColumnBuilder<TValue, Omit<TMeta, "defaultValue"> & { defaultValue: TValue }>(
-        kind,
         { ...meta, defaultValue: value } as Omit<TMeta, "defaultValue"> & { defaultValue: TValue },
       );
     },
     defaultNow() {
       return createColumnBuilder<TValue, Omit<TMeta, "defaultNow"> & { defaultNow: true }>(
-        kind,
         { ...meta, defaultNow: true } as Omit<TMeta, "defaultNow"> & { defaultNow: true },
       );
     },
     primary() {
       return createColumnBuilder<TValue, Omit<TMeta, "primary"> & { primary: true }>(
-        kind,
         { ...meta, primary: true } as Omit<TMeta, "primary"> & { primary: true },
       );
     },
@@ -60,54 +56,4 @@ function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
   return builder;
 }
 
-export const id = {
-  primary(): ColumnBuilder<string, ColumnMeta & { primary: true; nullable: false }> {
-    return createColumnBuilder<string, ColumnMeta & { primary: true; nullable: false }>("id", {
-      kind: "id",
-      nullable: false,
-      unique: false,
-      primary: true,
-      defaultNow: false,
-    });
-  },
-};
-
-export function text(): ColumnBuilder<string | null> {
-  return createColumnBuilder<string | null, ColumnMeta>("text", {
-    kind: "text",
-    nullable: true,
-    unique: false,
-    primary: false,
-    defaultNow: false,
-  });
-}
-
-export function bool(): ColumnBuilder<boolean | null> {
-  return createColumnBuilder<boolean | null, ColumnMeta>("bool", {
-    kind: "bool",
-    nullable: true,
-    unique: false,
-    primary: false,
-    defaultNow: false,
-  });
-}
-
-export function int(): ColumnBuilder<number | null> {
-  return createColumnBuilder<number | null, ColumnMeta>("int", {
-    kind: "int",
-    nullable: true,
-    unique: false,
-    primary: false,
-    defaultNow: false,
-  });
-}
-
-export function timestamp(): ColumnBuilder<Date | null> {
-  return createColumnBuilder<Date | null, ColumnMeta>("timestamp", {
-    kind: "timestamp",
-    nullable: true,
-    unique: false,
-    primary: false,
-    defaultNow: false,
-  });
-}
+export { id, text, bool, int, timestamp } from "../plugins/builtin.js";

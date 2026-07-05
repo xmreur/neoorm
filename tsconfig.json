@@ -18,7 +18,9 @@
         "paths": {
             "neoorm": ["./src/index.ts"],
             "neoorm/schema": ["./src/schema/index.ts"],
-            "neoorm/sql": ["./src/sql/index.ts"]
+            "neoorm/sql": ["./src/sql/index.ts"],
+            "neoorm/plugins": ["./src/plugins/index.ts"],
+            "neoorm/plugins/postgis": ["./src/plugins/postgis/index.ts"]
         }
     },
     "include": [

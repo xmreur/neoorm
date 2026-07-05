@@ -1,5 +1,7 @@
 import type { Dialect, ManifestColumn, ManifestTable, WhereOperator } from "../../dialect/types.js";
 import { quoteIdentifier } from "../../dialect/postgres.js";
+import { getColumnType } from "../../plugins/registry.js";
+import type { PluginWhereOperator } from "../../plugins/types.js";
 
 export type WhereClause = {
   sql: string;
@@ -23,6 +25,34 @@ const operatorParamTransform: Partial<
   endsWith: (v) => `%${String(v)}`,
 };
 
+function pluginWhereOperators(col: ManifestColumn): Record<string, PluginWhereOperator> {
+  if (col.kind === "fk") return {};
+  return getColumnType(col.kind)?.whereOperators ?? {};
+}
+
+function serializeColumnValue(col: ManifestColumn, value: unknown): unknown {
+  if (col.kind === "fk") return value;
+  const plugin = getColumnType(col.kind);
+  if (plugin?.serializeValue) {
+    return plugin.serializeValue(col, value);
+  }
+  return value;
+}
+
+function buildValuePlaceholder(col: ManifestColumn | undefined, paramIndex: number): string {
+  if (!col || col.kind === "fk") return `$${paramIndex}`;
+  const plugin = getColumnType(col.kind);
+  if (plugin?.writeExpression) {
+    return plugin.writeExpression(col, paramIndex);
+  }
+  return `$${paramIndex}`;
+}
+
+function buildSetExpression(col: ManifestColumn | undefined, paramIndex: number): string {
+  const sqlCol = quoteIdentifier(col?.sqlName ?? "");
+  return `${sqlCol} = ${buildValuePlaceholder(col, paramIndex)}`;
+}
+
 export function compileWhere(
   table: ManifestTable,
   where: Record<string, unknown> | undefined,
@@ -42,16 +72,17 @@ export function compileWhere(
     if (!col) continue;
 
     const sqlCol = quoteIdentifier(col.sqlName);
+    const spatialOps = pluginWhereOperators(col);
 
     if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
       conditions.push(dialect.whereOperators.equals(sqlCol, paramIndex));
-      params.push(rawValue);
+      params.push(serializeColumnValue(col, rawValue));
       paramIndex++;
       continue;
     }
 
-    const hasOperator = Object.keys(rawValue).some((k) =>
-      k in dialect.whereOperators,
+    const hasOperator = Object.keys(rawValue).some(
+      (k) => k in dialect.whereOperators || k in spatialOps,
     );
 
     if (!hasOperator) {
@@ -62,6 +93,15 @@ export function compileWhere(
     }
 
     for (const [op, value] of Object.entries(rawValue)) {
+      if (op in spatialOps) {
+        const operator = spatialOps[op]!;
+        const compiled = operator.compile(sqlCol, value, col, paramIndex);
+        conditions.push(compiled.sql);
+        params.push(...compiled.params);
+        paramIndex += compiled.params.length;
+        continue;
+      }
+
       if (!(op in dialect.whereOperators)) continue;
       const operator = op as WhereOperator;
       const transform = operatorParamTransform[operator];
@@ -105,13 +145,24 @@ export function normalizeSelectColumns(
     .map(([key]) => key);
 }
 
+function selectExpression(col: ManifestColumn): string {
+  if (col.kind === "fk") {
+    return quoteIdentifier(col.sqlName);
+  }
+  const plugin = getColumnType(col.kind);
+  if (plugin?.selectExpression) {
+    return plugin.selectExpression(col);
+  }
+  return quoteIdentifier(col.sqlName);
+}
+
 export function buildSelectColumns(table: ManifestTable, select?: readonly string[]): string {
   const cols =
     select && select.length > 0
       ? table.columns.filter((c) => select.includes(c.tsName))
       : table.columns;
 
-  return cols.map((c) => quoteIdentifier(c.sqlName)).join(", ");
+  return cols.map((c) => selectExpression(c)).join(", ");
 }
 
 export function buildFindByIdQuery(
@@ -158,7 +209,12 @@ export function buildUpsertQuery(
     const col = table.columns.find((c) => c.tsName === k);
     return quoteIdentifier(col?.sqlName ?? k);
   });
-  const insertPlaceholders = insertKeys.map((_, i) => `$${i + 1}`).join(", ");
+  const insertPlaceholders = insertKeys
+    .map((k, i) => {
+      const col = table.columns.find((c) => c.tsName === k);
+      return buildValuePlaceholder(col, i + 1);
+    })
+    .join(", ");
   const selectCols = buildSelectColumns(table);
 
   const conflictCols = conflictSqlColumns.map((c) => quoteIdentifier(c)).join(", ");
@@ -186,7 +242,12 @@ export function buildInsertQuery(
     const col = table.columns.find((c) => c.tsName === k);
     return quoteIdentifier(col?.sqlName ?? k);
   });
-  const placeholders = dataKeys.map((_, i) => `$${i + 1}`).join(", ");
+  const placeholders = dataKeys
+    .map((k, i) => {
+      const col = table.columns.find((c) => c.tsName === k);
+      return buildValuePlaceholder(col, i + 1);
+    })
+    .join(", ");
   const selectCols = buildSelectColumns(table);
 
   return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${cols.join(", ")}) VALUES (${placeholders}) RETURNING ${selectCols}`;
@@ -199,7 +260,7 @@ export function buildUpdateQuery(
 ): string {
   const sets = dataKeys.map((k, i) => {
     const col = table.columns.find((c) => c.tsName === k);
-    return `${quoteIdentifier(col?.sqlName ?? k)} = $${i + 1}`;
+    return buildSetExpression(col, i + 1);
   });
   const selectCols = buildSelectColumns(table);
   const whereOffset = dataKeys.length;
@@ -242,7 +303,7 @@ export function buildUpdateManyQuery(
 ): string {
   const sets = dataKeys.map((k, i) => {
     const col = table.columns.find((c) => c.tsName === k);
-    return `${quoteIdentifier(col?.sqlName ?? k)} = $${i + 1}`;
+    return buildSetExpression(col, i + 1);
   });
   const whereOffset = dataKeys.length;
 
@@ -268,7 +329,7 @@ export function dataToSqlValues(
     if (!col || col.primary) continue;
     if (value === undefined) continue;
     keys.push(key);
-    values.push(value);
+    values.push(serializeColumnValue(col, value));
   }
 
   return { keys, values };
@@ -278,7 +339,15 @@ export function rowToTs(table: ManifestTable, row: Record<string, unknown>): Rec
   const result: Record<string, unknown> = {};
   for (const col of table.columns) {
     if (col.sqlName in row) {
-      result[col.tsName] = row[col.sqlName];
+      const raw = row[col.sqlName];
+      if (col.kind === "fk") {
+        result[col.tsName] = raw;
+        continue;
+      }
+      const plugin = getColumnType(col.kind);
+      result[col.tsName] = plugin?.deserializeValue
+        ? plugin.deserializeValue(col, raw)
+        : raw;
     }
   }
   return result;
