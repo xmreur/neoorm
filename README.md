@@ -328,6 +328,26 @@ posts: table(
 
 `columnNaming` affects SQL column names only. TypeScript keys stay exactly as written in the schema, and `.map("exact_name")` still overrides the strategy for individual columns.
 
+### PostgreSQL extensions
+
+Declare PostgreSQL extensions that migrations should create with `CREATE EXTENSION IF NOT EXISTS`. This is useful for extensions that are not tied to a registered column type plugin, or when you want to ensure an extension is created even if no plugin column is currently used.
+
+```ts
+export const schema = defineSchema(
+  {
+    users: table("users", {
+      id: uuid().primary(),
+      search: text().notNull(),
+    }),
+  },
+  {
+    extensions: ["uuid-ossp", "pg_trgm"],
+  },
+);
+```
+
+Column type plugins (for example PostGIS or `citext`) still register their required extensions automatically, so you only need to list extensions here that are not covered by a plugin. Hyphenated names are quoted automatically in the generated SQL.
+
 ### Indexes and composite keys
 
 ```ts
