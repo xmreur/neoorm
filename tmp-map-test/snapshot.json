@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "tables": {
+    "users": {
+      "accessor": "users",
+      "sqlName": "users",
+      "columns": [
+        {
+          "tsName": "id",
+          "sqlName": "id",
+          "kind": "id",
+          "nullable": false,
+          "unique": false,
+          "primary": true,
+          "defaultNow": false
+        },
+        {
+          "tsName": "emailAddress",
+          "sqlName": "email",
+          "kind": "text",
+          "nullable": false,
+          "unique": false,
+          "primary": false,
+          "defaultNow": false
+        }
+      ],
+      "relations": [],
+      "indexes": [],
+      "primaryKey": [
+        "id"
+      ]
+    }
+  },
+  "manyToMany": [],
+  "extensions": []
+}

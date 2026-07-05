@@ -86,6 +86,23 @@ export type DefaultRowPayloadMap<TTables extends Record<string, TableDef>> = {
   [K in keyof TTables & string]: Record<string, unknown>;
 };
 
+export type TransactionIsolationLevel =
+  | "ReadUncommitted"
+  | "ReadCommitted"
+  | "RepeatableRead"
+  | "Serializable";
+
+export type TransactionOptions = {
+  isolationLevel?: TransactionIsolationLevel;
+  readOnly?: boolean;
+};
+
+export type TransactionClient<
+  TTables extends Record<string, TableDef>,
+  TIncludes extends Record<keyof TTables & string, unknown> = DefaultWithMap<TTables>,
+  TRowPayloads extends Record<keyof TTables & string, Record<string, unknown>> = DefaultRowPayloadMap<TTables>,
+> = TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
+
 export type TypedTableRepository<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
@@ -141,6 +158,18 @@ export type TypedNeoOrmClient<
   ): Promise<T[]>;
   execute(query: { text: string; params: unknown[] }): Promise<Record<string, unknown>[]>;
   $disconnect(): Promise<void>;
+  $transaction<T>(
+    fn: (tx: TransactionClient<TTables, TIncludes, TRowPayloads>) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T>;
+  $transaction<T extends readonly unknown[]>(
+    steps: {
+      [K in keyof T]: (
+        tx: TransactionClient<TTables, TIncludes, TRowPayloads>,
+      ) => Promise<T[K]>;
+    } & readonly unknown[],
+    options?: TransactionOptions,
+  ): Promise<T>;
 } & {
   [K in keyof TTables & string]: TypedTableRepository<
     TTables,

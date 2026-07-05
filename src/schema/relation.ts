@@ -15,6 +15,7 @@ export type FkBuilder = {
   readonly _meta: FkMeta;
   notNull(): FkBuilder;
   unique(): FkBuilder;
+  map(name: string): FkBuilder;
 };
 
 export type FkOptions = {
@@ -38,16 +39,21 @@ export function fk(target: string, options: FkOptions): FkBuilder {
     ...(options.onDelete !== undefined ? { onDelete: options.onDelete } : {}),
   };
 
-  const builder: FkBuilder = {
-    _type: null as string | null,
-    _meta: meta,
-    notNull() {
-      return fk(target, { ...options, nullable: false });
-    },
-    unique() {
-      return fk(target, { ...options, unique: true });
-    },
-  };
+  function withMeta(next: FkMeta): FkBuilder {
+    return {
+      _type: null as string | null,
+      _meta: next,
+      notNull() {
+        return withMeta({ ...next, nullable: false });
+      },
+      unique() {
+        return withMeta({ ...next, unique: true });
+      },
+      map(name: string) {
+        return withMeta({ ...next, mapName: name });
+      },
+    };
+  }
 
-  return builder;
+  return withMeta(meta);
 }

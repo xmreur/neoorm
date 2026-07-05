@@ -117,3 +117,40 @@ export async function exampleMutations() {
 
   return { updated, updatedById, count, deleted, deletedCount, deletedUser };
 }
+
+export async function exampleTransactions() {
+  const [author, post] = await db.$transaction([
+    (tx) =>
+      tx.users.create({
+        data: { email: "author@transaction.example", name: "Tx Author" },
+      }),
+    (tx) =>
+      tx.posts.create({
+        data: {
+          title: "Transactional post",
+          body: "Created via batch transaction",
+          published: true,
+          author: { connect: { id: "user_1" } },
+        },
+      }),
+  ]);
+
+  await db.$transaction(async (tx) => {
+    const user = await tx.users.create({
+      data: { email: "rollback@transaction.example", name: "Rollback" },
+    });
+
+    await tx.posts.create({
+      data: {
+        title: "Should roll back",
+        body: "This write is rolled back with the user",
+        published: false,
+        author: { connect: { id: user["id"] as string } },
+      },
+    });
+
+    throw new Error("intentional rollback");
+  }).catch(() => undefined);
+
+  return { author, post };
+}

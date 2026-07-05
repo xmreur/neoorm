@@ -24,14 +24,22 @@ program
     const schemaPath = resolve(cwd, config.schema);
     const outDir = resolve(cwd, config.out);
 
-    const { migrationName } = await generateFromSchema(schemaPath, outDir);
+    const { migrationName, schemaChanged, warnings } = await generateFromSchema(
+      schemaPath,
+      outDir,
+    );
 
     console.log(`Generated client at ${outDir}/client.ts`);
     console.log(`Generated manifest at ${outDir}/manifest.ts`);
     if (migrationName) {
       console.log(`Created migration: ${migrationName}`);
+    } else if (schemaChanged) {
+      console.log("Manifest updated (no migration SQL needed)");
     } else {
       console.log("No schema changes detected");
+    }
+    for (const warning of warnings) {
+      console.warn(`Warning: ${warning}`);
     }
   });
 
@@ -62,7 +70,10 @@ program
         if (subcommand === "dev") {
           const { generateFromSchema } = await import("../codegen/generate.js");
           const schemaPath = resolve(cwd, config.schema);
-          const { migrationName } = await generateFromSchema(schemaPath, outDir);
+          const { migrationName, warnings } = await generateFromSchema(schemaPath, outDir);
+          for (const warning of warnings) {
+            console.warn(`Warning: ${warning}`);
+          }
           if (migrationName) {
             await migrateDeploy(pool, join(outDir, "migrations"));
             console.log(`Created and applied: ${migrationName}`);

@@ -3,6 +3,10 @@ import { createColumnBuilder } from "../schema/column.js";
 import type { ManifestColumn } from "../dialect/types.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
+export type UuidOptions = {
+  version?: 4 | 7;
+};
+
 function scalarTsType(col: ManifestColumn, base: string): string {
   return col.nullable ? `${base} | null` : base;
 }
@@ -120,9 +124,36 @@ const timestampType: ColumnTypePlugin = {
   },
 };
 
+const uuidType: ColumnTypePlugin = {
+  kind: "uuid",
+  createBuilder(options?: Record<string, unknown>) {
+    const version = options?.version === 4 ? 4 : 7;
+    return createColumnBuilder<
+      string | null,
+      ColumnMeta & { kind: "uuid"; typeOptions: { version: 4 | 7 } }
+    >({
+      kind: "uuid",
+      nullable: true,
+      unique: false,
+      primary: false,
+      defaultNow: false,
+      typeOptions: { version },
+    });
+  },
+  columnType() {
+    return "UUID";
+  },
+  columnTsType(col) {
+    return scalarTsType(col, "string");
+  },
+  introspect(_pgDataType, udtName) {
+    return udtName === "uuid";
+  },
+};
+
 export const builtinPlugin: NeoOrmPlugin = {
   name: "builtin",
-  columnTypes: [idType, textType, boolType, intType, timestampType],
+  columnTypes: [idType, textType, boolType, intType, timestampType, uuidType],
 };
 
 export const id = {
@@ -145,4 +176,10 @@ export function int(): ColumnBuilder<number | null> {
 
 export function timestamp(): ColumnBuilder<Date | null> {
   return timestampType.createBuilder() as ColumnBuilder<Date | null>;
+}
+
+export function uuid(options?: UuidOptions): ColumnBuilder<string | null> {
+  return uuidType.createBuilder(options as Record<string, unknown> | undefined) as ColumnBuilder<
+    string | null
+  >;
 }

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Manifest } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import {
@@ -8,11 +7,7 @@ import {
 } from "./compile.js";
 import { assertUniqueWhere } from "./unique.js";
 import { loadRelations, type WithInput } from "./find.js";
-
-function generateId(tableAccessor: string): string {
-  const prefix = tableAccessor.replace(/s$/, "").slice(0, 4);
-  return `${prefix}_${randomUUID().slice(0, 8)}`;
-}
+import { fillMissingPrimaryKeys } from "./primary-key.js";
 
 export async function upsertRecord(
   executor: Executor,
@@ -31,15 +26,9 @@ export async function upsertRecord(
   const constraint = assertUniqueWhere(table, args.where, "upsert");
 
   const createData = { ...args.create, ...args.where };
-  if (!createData["id"]) {
-    createData["id"] = generateId(tableAccessor);
-  }
+  fillMissingPrimaryKeys(table, createData);
 
   const { keys: insertKeys, values: insertValues } = dataToSqlValues(table, createData);
-  if (!insertKeys.includes("id") && createData["id"] !== undefined) {
-    insertKeys.unshift("id");
-    insertValues.unshift(createData["id"]);
-  }
 
   const updateKeys = Object.keys(args.update).filter((key) => {
     const col = table.columns.find((c) => c.tsName === key);

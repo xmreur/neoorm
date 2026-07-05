@@ -91,6 +91,7 @@ export type TableDiff = {
   create?: ManifestTable;
   addColumns?: ManifestColumn[];
   dropColumns?: string[];
+  renameColumns?: Array<{ from: string; to: string }>;
 };
 
 export type Dialect = {

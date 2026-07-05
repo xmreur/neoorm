@@ -2,12 +2,14 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, relative, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type { Manifest } from "../dialect/types.js";
+import type { Manifest, ManifestColumn, TableDiff } from "../dialect/types.js";
 import { postgresDialect } from "../dialect/postgres.js";
 import { emitIncludesTs } from "./emit-includes.js";
 import { emitModelsTs } from "./emit-models.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
+import type { ColumnDef } from "../schema/table.js";
+import { toSnakeCase } from "../utils/case.js";
 
 async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
   const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
@@ -89,6 +91,32 @@ export function hashManifest(manifest: Manifest): string {
     .update(JSON.stringify(manifest))
     .digest("hex")
     .slice(0, 16);
+}
+
+export function collectRedundantMapWarnings(
+  schema: {
+    readonly _tables: Record<
+      string,
+      { readonly _columns: Record<string, ColumnDef> }
+    >;
+  },
+): string[] {
+  const warnings: string[] = [];
+
+  for (const [accessor, table] of Object.entries(schema._tables)) {
+    for (const [tsName, col] of Object.entries(table._columns)) {
+      if (!("_meta" in col) || !col._meta.mapName) continue;
+
+      const defaultName = toSnakeCase(tsName);
+      if (col._meta.mapName === defaultName) {
+        warnings.push(
+          `${accessor}.${tsName}.map("${col._meta.mapName}") matches the default snake_case SQL name — remove .map() or use a different name to rename the column`,
+        );
+      }
+    }
+  }
+
+  return warnings;
 }
 
 export async function readSnapshot(outDir: string): Promise<Manifest | null> {
@@ -184,14 +212,32 @@ export function diffManifest(
     } else {
       const prevTable = prev.tables[accessor]!;
       const nextTable = next.tables[accessor]!;
-      const prevCols = new Set(prevTable.columns.map((c) => c.sqlName));
-      const addColumns = nextTable.columns.filter(
-        (c) => !prevCols.has(c.sqlName),
-      );
-      if (addColumns.length > 0) {
-        sql.push(
-          ...postgresDialect.emitAlterTable(nextTable, { addColumns }),
-        );
+      const prevByTs = new Map(prevTable.columns.map((c) => [c.tsName, c]));
+      const prevSqlNames = new Set(prevTable.columns.map((c) => c.sqlName));
+
+      const renameColumns: Array<{ from: string; to: string }> = [];
+      const addColumns: ManifestColumn[] = [];
+
+      for (const nextCol of nextTable.columns) {
+        const prevCol = prevByTs.get(nextCol.tsName);
+        if (prevCol) {
+          if (prevCol.sqlName !== nextCol.sqlName) {
+            renameColumns.push({ from: prevCol.sqlName, to: nextCol.sqlName });
+          }
+        } else if (!prevSqlNames.has(nextCol.sqlName)) {
+          addColumns.push(nextCol);
+        }
+      }
+
+      if (renameColumns.length > 0 || addColumns.length > 0) {
+        const diff: TableDiff = {};
+        if (renameColumns.length > 0) {
+          diff.renameColumns = renameColumns;
+        }
+        if (addColumns.length > 0) {
+          diff.addColumns = addColumns;
+        }
+        sql.push(...postgresDialect.emitAlterTable(nextTable, diff));
       }
     }
   }
@@ -255,16 +301,24 @@ export async function writeGeneratedFiles(
   return { migrationName };
 }
 
+export type GenerateResult = {
+  manifest: Manifest;
+  migrationName: string | null;
+  schemaChanged: boolean;
+  warnings: string[];
+};
+
 export async function generateFromSchema(
   schemaPath: string,
   outDir: string,
-): Promise<{ manifest: Manifest; migrationName: string | null }> {
+): Promise<GenerateResult> {
   const { schemaToManifest, validateManifest } = await import(
     "./schema-to-manifest.js"
   );
 
   const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
   const manifest = schemaToManifest(schema, manyToMany, plugins);
+  const warnings = collectRedundantMapWarnings(schema);
 
   const errors = validateManifest(manifest);
   if (errors.length > 0) {
@@ -272,8 +326,9 @@ export async function generateFromSchema(
   }
 
   const prev = await readSnapshot(outDir);
+  const schemaChanged = !prev || hashManifest(prev) !== hashManifest(manifest);
   const { sql } = diffManifest(prev, manifest);
   const { migrationName } = await writeGeneratedFiles(outDir, manifest, sql, schemaPath);
 
-  return { manifest, migrationName };
+  return { manifest, migrationName, schemaChanged, warnings };
 }

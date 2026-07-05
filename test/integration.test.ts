@@ -107,4 +107,65 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     const remaining = await db.users.findById(user["id"] as string);
     expect(remaining).toBeNull();
   });
+
+  it("commits multi-table interactive transaction", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+
+    const email = `tx-commit-${Date.now()}@example.com`;
+
+    const result = await db.$transaction(async (tx) => {
+      const user = await tx.users.create({
+        data: { email, name: "Tx User" },
+      });
+      const post = await tx.posts.create({
+        data: {
+          title: "Tx Post",
+          body: "Created inside a transaction",
+          published: true,
+          author: { connect: { id: user["id"] as string } },
+        },
+      });
+      return { user, post };
+    });
+
+    expect(result.user["email"]).toBe(email);
+    expect(result.post["title"]).toBe("Tx Post");
+
+    const found = await db.users.findFirst({ where: { email } });
+    expect(found?.["name"]).toBe("Tx User");
+  });
+
+  it("rolls back failed transaction", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+
+    const email = `tx-rollback-${Date.now()}@example.com`;
+
+    await expect(
+      db.$transaction(async (tx) => {
+        await tx.users.create({ data: { email, name: "Tx User" } });
+        throw new Error("abort");
+      }),
+    ).rejects.toThrow("abort");
+
+    const found = await db.users.findFirst({ where: { email } });
+    expect(found).toBeNull();
+  });
+
+  it("rejects writes in read-only transaction", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables>(manifest, pool);
+
+    await expect(
+      db.$transaction(
+        async (tx) => {
+          await tx.users.create({
+            data: { email: `readonly-${Date.now()}@example.com`, name: "Nope" },
+          });
+        },
+        { readOnly: true },
+      ),
+    ).rejects.toThrow();
+  });
 });

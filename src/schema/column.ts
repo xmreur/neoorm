@@ -1,4 +1,11 @@
-export type CoreColumnKind = "id" | "text" | "bool" | "int" | "timestamp" | "fk";
+export type CoreColumnKind =
+  | "id"
+  | "text"
+  | "bool"
+  | "int"
+  | "timestamp"
+  | "uuid"
+  | "fk";
 export type ColumnKind = CoreColumnKind | (string & {});
 
 export type ColumnMeta = {
@@ -9,6 +16,7 @@ export type ColumnMeta = {
   defaultValue?: unknown;
   defaultNow: boolean;
   typeOptions?: Record<string, unknown> | undefined;
+  mapName?: string | undefined;
 };
 
 export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
@@ -19,6 +27,7 @@ export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
   default(value: TValue): ColumnBuilder<TValue, Omit<TMeta, "defaultValue"> & { defaultValue: TValue }>;
   defaultNow(): ColumnBuilder<TValue, Omit<TMeta, "defaultNow"> & { defaultNow: true }>;
   primary(): ColumnBuilder<TValue, Omit<TMeta, "primary"> & { primary: true }>;
+  map(name: string): ColumnBuilder<TValue, Omit<TMeta, "mapName"> & { mapName: string }>;
 };
 
 export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
@@ -52,8 +61,13 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
         { ...meta, primary: true } as Omit<TMeta, "primary"> & { primary: true },
       );
     },
+    map(name: string) {
+      return createColumnBuilder<TValue, Omit<TMeta, "mapName"> & { mapName: string }>(
+        { ...meta, mapName: name } as Omit<TMeta, "mapName"> & { mapName: string },
+      );
+    },
   };
   return builder;
 }
 
-export { id, text, bool, int, timestamp } from "../plugins/builtin.js";
+export { id, text, bool, int, timestamp, uuid } from "../plugins/builtin.js";

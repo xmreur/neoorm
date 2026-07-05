@@ -25,12 +25,19 @@ function isColumnBuilder(col: ColumnDef): col is ColumnBuilder<unknown> {
   return "_meta" in col && col._meta.kind !== "fk";
 }
 
+function resolveSqlName(tsName: string, col: ColumnDef): string {
+  if ("_meta" in col && col._meta.mapName) {
+    return col._meta.mapName;
+  }
+  return toSnakeCase(tsName);
+}
+
 function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
   if (isFkBuilder(col)) {
     const meta = col._meta;
     const result: ManifestColumn = {
       tsName,
-      sqlName: toSnakeCase(tsName),
+      sqlName: resolveSqlName(tsName, col),
       kind: "fk",
       nullable: meta.nullable,
       unique: meta.unique,
@@ -49,7 +56,7 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
   const meta = col._meta;
   const result: ManifestColumn = {
     tsName,
-    sqlName: toSnakeCase(tsName),
+    sqlName: resolveSqlName(tsName, col),
     kind: meta.kind,
     nullable: meta.nullable,
     unique: meta.unique,
@@ -67,6 +74,7 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
 
 function extrasToManifest(
   extras: Record<string, TableExtra>,
+  columns: Record<string, ColumnDef>,
 ): { indexes: ManifestIndex[]; primaryKey: string[] } {
   const indexes: ManifestIndex[] = [];
   let primaryKey: string[] = [];
@@ -75,11 +83,11 @@ function extrasToManifest(
     if (extra.kind === "index") {
       indexes.push({
         name,
-        columns: extra.columns.map(toSnakeCase),
+        columns: extra.columns.map((tsName) => resolveSqlName(tsName, columns[tsName]!)),
         unique: extra.unique,
       });
     } else if (extra.kind === "primaryKey") {
-      primaryKey = extra.columns.map(toSnakeCase);
+      primaryKey = extra.columns.map((tsName) => resolveSqlName(tsName, columns[tsName]!));
     }
   }
 
@@ -139,7 +147,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
       columnToManifest(name, col),
     );
 
-    const { indexes, primaryKey } = extrasToManifest(tableDef._extras);
+    const { indexes, primaryKey } = extrasToManifest(tableDef._extras, tableDef._columns);
 
     const pk =
       primaryKey.length > 0

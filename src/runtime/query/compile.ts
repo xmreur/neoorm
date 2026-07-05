@@ -320,13 +320,15 @@ export function buildUpdateManyQuery(
 export function dataToSqlValues(
   table: ManifestTable,
   data: Record<string, unknown>,
+  options?: { excludePrimary?: boolean },
 ): { keys: string[]; values: unknown[] } {
   const keys: string[] = [];
   const values: unknown[] = [];
 
   for (const [key, value] of Object.entries(data)) {
     const col = table.columns.find((c) => c.tsName === key);
-    if (!col || col.primary) continue;
+    if (!col) continue;
+    if (options?.excludePrimary && col.primary) continue;
     if (value === undefined) continue;
     keys.push(key);
     values.push(serializeColumnValue(col, value));

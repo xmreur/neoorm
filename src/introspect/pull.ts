@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { toCamelCase } from "../utils/case.js";
+import { toCamelCase, toSnakeCase } from "../utils/case.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
 
 type ColumnInfo = {
@@ -67,13 +67,22 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
 
       if (fk) {
         const relName = tsName.replace(/Id$/, "");
-        blockLines.push(
+        let def = [
           `    ${tsName}: fk("${fk.foreign_table_name}.${fk.foreign_column_name}", {`,
           `      as: "${relName}",`,
           `      inverse: "${accessor}",`,
           `      nullable: ${col.is_nullable === "YES"},`,
-          `    }),`,
-        );
+          `    })`,
+        ].join("\n");
+        def = appendMapModifier(def, tsName, col.column_name);
+        blockLines.push(`${def},`);
+      } else if (col.column_name === "id" && col.udt_name === "uuid") {
+        const version = col.column_default?.includes("gen_random_uuid") ? 4 : 7;
+        const def =
+          version === 4
+            ? `    id: uuid({ version: 4 }).primary(),`
+            : `    id: uuid().primary(),`;
+        blockLines.push(def);
       } else if (col.column_name === "id") {
         blockLines.push(`    id: id.primary(),`);
       } else {
@@ -84,14 +93,23 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
             pluginColumnImports.add(pluginType.kind === "geography" ? "geography" : pluginType.kind === "point" ? "point" : "geometry");
           }
           let def = `    ${tsName}: ${pluginType.kind}()`;
+          if (pluginType.kind === "uuid") {
+            const version = col.column_default?.includes("gen_random_uuid") ? 4 : 7;
+            def =
+              version === 4
+                ? `    ${tsName}: uuid({ version: 4 })`
+                : `    ${tsName}: uuid()`;
+          }
           if (col.is_nullable === "NO") def += `.notNull()`;
           if (col.column_default?.includes("now()")) def += `.defaultNow()`;
+          def = appendMapModifier(def, tsName, col.column_name);
           blockLines.push(`${def},`);
         } else {
           const kind = pgTypeToKind(col.data_type);
           let def = `    ${tsName}: ${kind}()`;
           if (col.is_nullable === "NO") def += `.notNull()`;
           if (col.column_default?.includes("now()")) def += `.defaultNow()`;
+          def = appendMapModifier(def, tsName, col.column_name);
           blockLines.push(`${def},`);
         }
       }
@@ -110,6 +128,7 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
     `  bool,`,
     `  int,`,
     `  timestamp,`,
+    `  uuid,`,
     `  fk,`,
     `  index,`,
     `  primaryKey,`,
@@ -133,6 +152,13 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
   lines.push(`});`, ``);
 
   return lines.join("\n");
+}
+
+function appendMapModifier(def: string, tsName: string, sqlName: string): string {
+  if (sqlName === toSnakeCase(tsName)) {
+    return def;
+  }
+  return `${def}.map("${sqlName}")`;
 }
 
 function pgTypeToKind(dataType: string): string {

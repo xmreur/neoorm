@@ -8,11 +8,7 @@ import {
   rowToTs,
 } from "./compile.js";
 import { loadRelations, type WithInput } from "./find.js";
-
-function generateId(tableAccessor: string): string {
-  const prefix = tableAccessor.replace(/s$/, "").slice(0, 4);
-  return `${prefix}_${randomUUID().slice(0, 8)}`;
-}
+import { fillMissingPrimaryKeys } from "./primary-key.js";
 
 async function resolveConnectOrCreate(
   executor: Executor,
@@ -43,15 +39,9 @@ async function resolveConnectOrCreate(
     }
 
     const createData = { ...item.create };
-    if (!createData["id"]) {
-      createData["id"] = generateId(targetAccessor);
-    }
+    fillMissingPrimaryKeys(targetTable, createData);
 
     const { keys, values } = dataToSqlValues(targetTable, createData);
-    if (!keys.includes("id")) {
-      keys.unshift("id");
-      values.unshift(createData["id"]);
-    }
 
     const sql = buildInsertQuery(targetTable, keys);
     const row = await executor.queryOne(sql, values);
@@ -92,13 +82,15 @@ async function insertJunctionRows(
       }
     }
 
+    fillMissingPrimaryKeys(throughTable, data);
+
     const { keys, values } = dataToSqlValues(throughTable, data);
     const sql = buildInsertQuery(throughTable, keys);
     await executor.query(sql, values);
   }
 }
 
-export async function createRecord(
+async function runCreate(
   executor: Executor,
   manifest: Manifest,
   tableAccessor: string,
@@ -110,98 +102,106 @@ export async function createRecord(
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-  return executor.transaction(async (tx) => {
-    const scalarData: Record<string, unknown> = {};
-    const relationWrites: Array<{
-      relationName: string;
-      type: "connect" | "connectOrCreate";
-      value: unknown;
-    }> = [];
+  const scalarData: Record<string, unknown> = {};
+  const relationWrites: Array<{
+    relationName: string;
+    type: "connect" | "connectOrCreate";
+    value: unknown;
+  }> = [];
 
-    for (const [key, value] of Object.entries(args.data)) {
-      const col = table.columns.find((c) => c.tsName === key);
-      if (col) {
-        scalarData[key] = value;
-        continue;
-      }
+  for (const [key, value] of Object.entries(args.data)) {
+    const col = table.columns.find((c) => c.tsName === key);
+    if (col) {
+      scalarData[key] = value;
+      continue;
+    }
 
-      const rel = table.relations.find((r) => r.name === key);
-      if (rel && value && typeof value === "object") {
-        const relValue = value as Record<string, unknown>;
-        if ("connect" in relValue) {
-          relationWrites.push({ relationName: key, type: "connect", value: relValue["connect"] });
-        } else if ("connectOrCreate" in relValue) {
-          relationWrites.push({
-            relationName: key,
-            type: "connectOrCreate",
-            value: relValue["connectOrCreate"],
-          });
-        }
+    const rel = table.relations.find((r) => r.name === key);
+    if (rel && value && typeof value === "object") {
+      const relValue = value as Record<string, unknown>;
+      if ("connect" in relValue) {
+        relationWrites.push({ relationName: key, type: "connect", value: relValue["connect"] });
+      } else if ("connectOrCreate" in relValue) {
+        relationWrites.push({
+          relationName: key,
+          type: "connectOrCreate",
+          value: relValue["connectOrCreate"],
+        });
       }
     }
+  }
 
-    if (!scalarData["id"]) {
-      scalarData["id"] = generateId(tableAccessor);
-    }
+  fillMissingPrimaryKeys(table, scalarData);
 
-    for (const write of relationWrites) {
-      if (write.type === "connect") {
-        const connect = write.value as { id: string };
-        const rel = table.relations.find((r) => r.name === write.relationName);
-        if (rel && rel.cardinality === "one") {
-          scalarData[rel.fkColumn] = connect.id;
-        }
+  for (const write of relationWrites) {
+    if (write.type === "connect") {
+      const connect = write.value as { id: string };
+      const rel = table.relations.find((r) => r.name === write.relationName);
+      if (rel && rel.cardinality === "one") {
+        scalarData[rel.fkColumn] = connect.id;
       }
     }
+  }
 
-    const { keys, values } = dataToSqlValues(table, scalarData);
-    if (!keys.includes("id")) {
-      keys.unshift("id");
-      values.unshift(scalarData["id"]);
-    }
+  const { keys, values } = dataToSqlValues(table, scalarData);
 
-    const insertSql = buildInsertQuery(table, keys);
-    const row = await tx.queryOne(insertSql, values);
-    if (!row) throw new Error("Insert failed");
+  const insertSql = buildInsertQuery(table, keys);
+  const row = await executor.queryOne(insertSql, values);
+  if (!row) throw new Error("Insert failed");
 
-    const result = rowToTs(table, row);
-    const recordId = String(result["id"]);
+  const result = rowToTs(table, row);
+  const recordId = String(result["id"]);
 
-    for (const write of relationWrites) {
-      if (write.type === "connectOrCreate") {
-        const m2m = manifest.manyToMany.find(
-          (m) =>
-            (m.leftAccessor === tableAccessor && m.as === write.relationName) ||
-            (m.rightAccessor === tableAccessor && m.inverse === write.relationName),
+  for (const write of relationWrites) {
+    if (write.type === "connectOrCreate") {
+      const m2m = manifest.manyToMany.find(
+        (m) =>
+          (m.leftAccessor === tableAccessor && m.as === write.relationName) ||
+          (m.rightAccessor === tableAccessor && m.inverse === write.relationName),
+      );
+
+      if (m2m) {
+        const isLeft = m2m.leftAccessor === tableAccessor;
+        const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
+        const items = write.value as Array<{
+          where: Record<string, unknown>;
+          create: Record<string, unknown>;
+        }>;
+        const ids = await resolveConnectOrCreate(executor, manifest, targetAccessor, items);
+
+        await insertJunctionRows(
+          executor,
+          manifest,
+          m2m.throughAccessor,
+          m2m.leftFkColumn,
+          m2m.rightFkColumn,
+          recordId,
+          ids,
         );
-
-        if (m2m) {
-          const isLeft = m2m.leftAccessor === tableAccessor;
-          const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
-          const items = write.value as Array<{
-            where: Record<string, unknown>;
-            create: Record<string, unknown>;
-          }>;
-          const ids = await resolveConnectOrCreate(tx, manifest, targetAccessor, items);
-
-          await insertJunctionRows(
-            tx,
-            manifest,
-            m2m.throughAccessor,
-            m2m.leftFkColumn,
-            m2m.rightFkColumn,
-            recordId,
-            ids,
-          );
-        }
       }
     }
+  }
 
-    if (args.with) {
-      const [withLoaded] = await loadRelations(tx, manifest, table, [result], args.with);
-      return withLoaded ?? result;
-    }
+  if (args.with) {
+    const [withLoaded] = await loadRelations(executor, manifest, table, [result], args.with);
+    return withLoaded ?? result;
+  }
 
-    return result;
-  });
+  return result;
+}
+
+export async function createRecord(
+  executor: Executor,
+  manifest: Manifest,
+  tableAccessor: string,
+  args: {
+    data: Record<string, unknown>;
+    with?: Record<string, WithInput>;
+  },
+): Promise<Record<string, unknown>> {
+  if (executor.inTransaction) {
+    return runCreate(executor, manifest, tableAccessor, args);
+  }
+
+  return executor.transaction((tx) => runCreate(tx, manifest, tableAccessor, args));
 }

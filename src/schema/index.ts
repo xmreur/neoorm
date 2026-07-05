@@ -1,4 +1,5 @@
-export { id, text, bool, int, timestamp } from "./column.js";
+export { id, text, bool, int, timestamp, uuid } from "./column.js";
+export type { UuidOptions } from "../plugins/builtin.js";
 export type { ColumnBuilder, ColumnKind, ColumnMeta } from "./column.js";
 
 export { fk } from "./relation.js";

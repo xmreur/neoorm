@@ -110,6 +110,14 @@ function emitCreateTable(table: ManifestTable): string {
 function emitAlterTable(_table: ManifestTable, diff: TableDiff): string[] {
   const stmts: string[] = [];
 
+  if (diff.renameColumns) {
+    for (const { from, to } of diff.renameColumns) {
+      stmts.push(
+        `ALTER TABLE ${q(_table.sqlName)} RENAME COLUMN ${q(from)} TO ${q(to)};`,
+      );
+    }
+  }
+
   if (diff.addColumns) {
     for (const col of diff.addColumns) {
       stmts.push(

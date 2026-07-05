@@ -40,7 +40,7 @@ export async function updateRecord(
     }
   }
 
-  const { keys, values } = dataToSqlValues(table, scalarData);
+  const { keys, values } = dataToSqlValues(table, scalarData, { excludePrimary: true });
   if (keys.length === 0) {
     throw new Error("Update requires at least one scalar field");
   }
@@ -81,7 +81,7 @@ export async function updateManyRecords(
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-  const { keys, values } = dataToSqlValues(table, args.data);
+  const { keys, values } = dataToSqlValues(table, args.data, { excludePrimary: true });
   if (keys.length === 0) {
     throw new Error("Update requires at least one scalar field");
   }

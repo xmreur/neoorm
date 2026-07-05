@@ -10,7 +10,7 @@ import { upsertRecord } from "./query/upsert.js";
 import { updateRecord, updateManyRecords, updateById } from "./query/update.js";
 import { deleteRecord, deleteManyRecords, deleteById } from "./query/delete.js";
 import type { WithInput } from "./query/find.js";
-import type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap } from "./types.js";
+import type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap, TransactionClient, TransactionOptions } from "./types.js";
 
 export type TableRepository = {
   findMany(args?: {
@@ -110,7 +110,10 @@ function buildClient<
   executor: Executor,
   manifest: Manifest,
   disconnect: () => Promise<void>,
+  options?: { transactional?: boolean },
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+  const transactional = options?.transactional ?? false;
+
   const client = {
     sql<T = Record<string, unknown>>(
       strings: TemplateStringsArray,
@@ -124,7 +127,50 @@ function buildClient<
       return executor.query(query.text, query.params);
     },
 
-    $disconnect: disconnect,
+    $disconnect: transactional
+      ? async () => {
+          throw new Error("Cannot disconnect inside a transaction");
+        }
+      : disconnect,
+
+    $transaction<T>(
+      fnOrSteps:
+        | ((tx: TransactionClient<TTables, TIncludes, TRowPayloads>) => Promise<T>)
+        | ReadonlyArray<
+            (tx: TransactionClient<TTables, TIncludes, TRowPayloads>) => Promise<unknown>
+          >,
+      txOptions?: TransactionOptions,
+    ): Promise<T> {
+      if (transactional) {
+        throw new Error("Nested transactions are not supported");
+      }
+
+      if (typeof fnOrSteps === "function") {
+        return executor.transaction(async (txExecutor) => {
+          const tx = buildClient<TTables, TIncludes, TRowPayloads>(
+            txExecutor,
+            manifest,
+            disconnect,
+            { transactional: true },
+          );
+          return fnOrSteps(tx);
+        }, txOptions);
+      }
+
+      return executor.transaction(async (txExecutor) => {
+        const tx = buildClient<TTables, TIncludes, TRowPayloads>(
+          txExecutor,
+          manifest,
+          disconnect,
+          { transactional: true },
+        );
+        const results: unknown[] = [];
+        for (const step of fnOrSteps) {
+          results.push(await step(tx));
+        }
+        return results as T;
+      }, txOptions);
+    },
   } as TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
 
   for (const accessor of Object.keys(manifest.tables)) {
@@ -178,4 +224,12 @@ export function createNeoOrmClientFromPool<
   });
 }
 
-export type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap } from "./types.js";
+export type {
+  TypedNeoOrmClient,
+  TypedTableRepository,
+  DefaultWithMap,
+  DefaultRowPayloadMap,
+  TransactionClient,
+  TransactionOptions,
+  TransactionIsolationLevel,
+} from "./types.js";
