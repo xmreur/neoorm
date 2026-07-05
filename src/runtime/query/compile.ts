@@ -11,6 +11,7 @@ import { quoteIdentifier } from "../../dialect/postgres.js";
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
+import { primaryKeySqlName, requireScalarPrimaryKey, targetRelationPkSql } from "./primary-key.js";
 
 export type WhereClause = {
   sql: string;
@@ -61,7 +62,7 @@ function defaultColumnRef(col: ManifestColumn): string {
 }
 
 function parentPkRef(table: ManifestTable): string {
-  const pkSql = table.primaryKey[0] ?? "id";
+  const pkSql = primaryKeySqlName(table);
   return `${quoteIdentifier(table.sqlName)}.${quoteIdentifier(pkSql)}`;
 }
 
@@ -187,7 +188,7 @@ function compileRelationCondition(
     const parentFkRef = parentFkCol
       ? `${quoteIdentifier(parentTable.sqlName)}.${quoteIdentifier(parentFkCol.sqlName)}`
       : `${quoteIdentifier(parentTable.sqlName)}.${quoteIdentifier(relation.fkSqlColumn)}`;
-    const targetPkSql = targetTable.primaryKey[0] ?? "id";
+    const targetPkSql = targetRelationPkSql(targetTable, relation);
     const joinCond = `${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${parentFkRef}`;
     const whereParts = [joinCond];
     if (nested.sql) whereParts.push(nested.sql);
@@ -237,7 +238,7 @@ function compileRelationCondition(
     const junctionAlias = "_jt";
     const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
     const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
-    const targetPkSql = targetTable.primaryKey[0] ?? "id";
+    const targetPkSql = targetRelationPkSql(targetTable);
     fromClause = `${quoteIdentifier(throughTable.sqlName)} AS ${quoteIdentifier(junctionAlias)} INNER JOIN ${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)} ON ${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${quoteIdentifier(junctionAlias)}.${quoteIdentifier(targetFkCol)}`;
     whereParts = [
       `${quoteIdentifier(junctionAlias)}.${quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable)}`,
@@ -466,12 +467,9 @@ export function buildSelectColumns(table: ManifestTable, select?: readonly strin
   return cols.map((c) => selectExpression(c)).join(", ");
 }
 
-export function buildFindByIdQuery(
-  table: ManifestTable,
-  idColumn = "id",
-): string {
-  const col = table.columns.find((c) => c.tsName === idColumn);
-  const sqlCol = col ? quoteIdentifier(col.sqlName) : quoteIdentifier("id");
+export function buildFindByIdQuery(table: ManifestTable): string {
+  const { sqlName } = requireScalarPrimaryKey(table);
+  const sqlCol = quoteIdentifier(sqlName);
   const selectCols = buildSelectColumns(table);
   return `SELECT ${selectCols} FROM ${quoteIdentifier(table.sqlName)} WHERE ${sqlCol} = $1`;
 }

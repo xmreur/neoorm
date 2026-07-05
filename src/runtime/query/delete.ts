@@ -1,6 +1,6 @@
 import type { Manifest } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
-import { postgresDialect } from "../../dialect/postgres.js";
+import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
 import {
   buildDeleteQuery,
   buildDeleteManyQuery,
@@ -8,6 +8,7 @@ import {
   rowToTs,
 } from "./compile.js";
 import { loadRelations, type WithInput } from "./find.js";
+import { primaryKeySqlName, requireScalarPrimaryKey } from "./primary-key.js";
 
 export async function deleteRecord(
   executor: Executor,
@@ -65,7 +66,8 @@ export async function deleteManyRecords(
   );
 
   const query = buildDeleteManyQuery(table, whereSql);
-  const result = await executor.query(`${query} RETURNING id`, params);
+  const pkSql = quoteIdentifier(primaryKeySqlName(table));
+  const result = await executor.query(`${query} RETURNING ${pkSql}`, params);
   return result.length;
 }
 
@@ -75,5 +77,9 @@ export async function deleteById(
   tableAccessor: string,
   id: string,
 ): Promise<Record<string, unknown> | null> {
-  return deleteRecord(executor, manifest, tableAccessor, { where: { id } });
+  const table = manifest.tables[tableAccessor];
+  if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+  const { tsName } = requireScalarPrimaryKey(table);
+  return deleteRecord(executor, manifest, tableAccessor, { where: { [tsName]: id } });
 }

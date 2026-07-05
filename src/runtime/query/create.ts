@@ -8,7 +8,7 @@ import {
   rowToTs,
 } from "./compile.js";
 import { loadRelations, type WithInput } from "./find.js";
-import { fillMissingPrimaryKeys } from "./primary-key.js";
+import { fillMissingPrimaryKeys, primaryKeySqlName, requireScalarPrimaryKey, rowScalarPkValue } from "./primary-key.js";
 import {
   applyToOnePreWrites,
   executeRelationWrites,
@@ -51,7 +51,7 @@ export async function runCreate(
   if (!row) throw new Error("Insert failed");
 
   const result = rowToTs(table, row);
-  const recordId = String(result["id"]);
+  const recordId = rowScalarPkValue(result, table);
 
   await executeRelationWrites(
     executor,

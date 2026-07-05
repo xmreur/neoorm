@@ -1,4 +1,5 @@
 import type { ManifestTable } from "../../dialect/types.js";
+import { primaryKeyTsNames } from "./primary-key.js";
 
 export type UniqueConstraint = {
   sqlColumns: readonly string[];
@@ -14,12 +15,6 @@ function matchesKeys(keys: readonly string[], whereKeyList: readonly string[]): 
     keys.length === whereKeyList.length &&
     keys.every((key) => whereKeyList.includes(key))
   );
-}
-
-function primaryKeyTsNames(table: ManifestTable): string[] {
-  return table.primaryKey
-    .map((sqlName) => table.columns.find((c) => c.sqlName === sqlName)?.tsName)
-    .filter((name): name is string => name !== undefined);
 }
 
 export function resolveUniqueConstraint(

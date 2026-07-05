@@ -10,6 +10,12 @@ import {
   rowToTs,
   rowsToTs,
 } from "./compile.js";
+import {
+  primaryKeyTsNames,
+  requireScalarPrimaryKey,
+  rowPkKey,
+  targetRelationPkSql,
+} from "./primary-key.js";
 
 export type WithInput = boolean | {
   select?: readonly string[] | Record<string, boolean | undefined>;
@@ -76,7 +82,7 @@ async function loadOneRelation(
   const targetTable = manifest.tables[relation.targetAccessor];
   if (!targetTable) return;
 
-  const parentIds = parentRows.map((r) => r["id"]).filter(Boolean);
+  const parentIds = parentRows.map((r) => rowPkKey(r, parentTable)).filter(Boolean);
 
   if (relation.cardinality === "one") {
     const fkValues = parentRows
@@ -86,16 +92,17 @@ async function loadOneRelation(
     if (fkValues.length === 0) return;
 
     const placeholders = fkValues.map((_, i) => `$${i + 1}`).join(", ");
-    const idCol = quoteIdentifier("id");
+    const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable, relation));
     const selectCols = columnsForSelect(targetTable, withSpec);
+    const targetPkTsName = primaryKeyTsNames(targetTable)[0]!;
 
     const rows = await executor.query(
-      `SELECT ${selectCols} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${idCol} IN (${placeholders})`,
+      `SELECT ${selectCols} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${targetPkCol} IN (${placeholders})`,
       fkValues,
     );
 
     const mapped = rowsToTs(targetTable, rows);
-    const byId = new Map(mapped.map((r) => [r["id"], r]));
+    const byId = new Map(mapped.map((r) => [String(r[targetPkTsName]), r]));
 
     for (const parent of parentRows) {
       const fkVal = parent[relation.fkColumn];
@@ -130,8 +137,8 @@ async function loadOneRelation(
     }
 
     for (const parent of parentRows) {
-      const id = String(parent["id"]);
-      parent[relationName] = grouped.get(id) ?? [];
+      const parentKey = rowPkKey(parent, parentTable);
+      parent[relationName] = grouped.get(parentKey) ?? [];
     }
 
     if (nestedSpec?.with) {
@@ -187,18 +194,19 @@ async function loadM2MRelation(
   const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
   const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
 
-  const parentIds = parentRows.map((r) => r["id"]).filter(Boolean);
+  const parentIds = parentRows.map((r) => rowPkKey(r, parentTable)).filter(Boolean);
   if (parentIds.length === 0) return;
 
   const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
   const selectCols = targetTable.columns
     .map((c) => quoteIdentifier(c.sqlName))
     .join(", ");
+  const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable));
 
   const sql = `
     SELECT t.*, j.${quoteIdentifier(parentFkCol)} AS _parent_id
     FROM ${quoteIdentifier(throughTable.sqlName)} j
-    JOIN ${quoteIdentifier(targetTable.sqlName)} t ON t.${quoteIdentifier("id")} = j.${quoteIdentifier(targetFkCol)}
+    JOIN ${quoteIdentifier(targetTable.sqlName)} t ON t.${targetPkCol} = j.${quoteIdentifier(targetFkCol)}
     WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})
   `.trim();
 
@@ -213,8 +221,8 @@ async function loadM2MRelation(
   }
 
   for (const parent of parentRows) {
-    const id = String(parent["id"]);
-    parent[relationName] = grouped.get(id) ?? [];
+    const parentKey = rowPkKey(parent, parentTable);
+    parent[relationName] = grouped.get(parentKey) ?? [];
   }
 }
 
@@ -292,8 +300,10 @@ export async function findById(
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
+  const { tsName } = requireScalarPrimaryKey(table);
+
   const findArgs: Parameters<typeof findMany>[3] = {
-    where: { id },
+    where: { [tsName]: id },
     limit: 1,
   };
   if (args?.with !== undefined) {
