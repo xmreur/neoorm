@@ -1,4 +1,5 @@
 import type { Manifest, ManifestRelation, ManifestTable } from "../dialect/types.js";
+import { primaryKeySqlName } from "../runtime/query/primary-key.js";
 
 export function pascalCase(str: string): string {
   return str
@@ -23,6 +24,12 @@ function uniqueRelations(table: ManifestTable): ManifestRelation[] {
     result.push(rel);
   }
   return result;
+}
+
+function m2mTargetColumn(manifest: Manifest, targetAccessor: string): string {
+  const targetTable = manifest.tables[targetAccessor];
+  if (!targetTable || targetTable.primaryKey.length === 0) return "";
+  return primaryKeySqlName(targetTable);
 }
 
 function throughAccessors(manifest: Manifest): Set<string> {
@@ -54,7 +61,7 @@ export function effectiveRelations(
         targetAccessor: m2m.rightAccessor,
         fkColumn: m2m.leftFkColumn,
         fkSqlColumn: m2m.leftFkColumn,
-        targetColumn: "id",
+        targetColumn: m2mTargetColumn(manifest, m2m.rightAccessor),
         cardinality: "many",
         inverse: m2m.inverse,
       });
@@ -67,7 +74,7 @@ export function effectiveRelations(
         targetAccessor: m2m.leftAccessor,
         fkColumn: m2m.rightFkColumn,
         fkSqlColumn: m2m.rightFkColumn,
-        targetColumn: "id",
+        targetColumn: m2mTargetColumn(manifest, m2m.leftAccessor),
         cardinality: "many",
         inverse: m2m.as,
       });

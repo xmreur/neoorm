@@ -16,6 +16,7 @@ import {
   hasPostRelationWrites,
   splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
+import { primaryKeySqlName, requireScalarPrimaryKey, rowScalarPkValue } from "./primary-key.js";
 
 async function runUpdate(
   executor: Executor,
@@ -85,7 +86,7 @@ async function runUpdate(
     result = rowToTs(table, row);
   }
 
-  const recordId = String(result["id"]);
+  const recordId = rowScalarPkValue(result, table);
 
   await executeRelationWrites(
     executor,
@@ -162,7 +163,8 @@ export async function updateManyRecords(
   );
 
   const query = buildUpdateManyQuery(table, keys, whereSql);
-  const result = await executor.query(`${query} RETURNING id`, [...values, ...whereParams]);
+  const pkSql = quoteIdentifier(primaryKeySqlName(table));
+  const result = await executor.query(`${query} RETURNING ${pkSql}`, [...values, ...whereParams]);
   return result.length;
 }
 
@@ -176,8 +178,12 @@ export async function updateById(
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown> | null> {
+  const table = manifest.tables[tableAccessor];
+  if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+  const { tsName } = requireScalarPrimaryKey(table);
   return updateRecord(executor, manifest, tableAccessor, {
-    where: { id },
+    where: { [tsName]: id },
     data: args.data,
     ...(args.with !== undefined ? { with: args.with } : {}),
   });

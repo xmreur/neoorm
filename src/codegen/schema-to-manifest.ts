@@ -17,6 +17,7 @@ import { toSnakeCase } from "../utils/case.js";
 import { collectExtensionsForKinds, getColumnType, getPluginRegistry } from "../plugins/registry.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { resolveIndexSqlName } from "../dialect/postgres.js";
+import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
 
 export type SchemaToManifestOptions = {
   enumMode?: "check" | "union" | "native";
@@ -160,17 +161,17 @@ function extrasToManifest(
 
 function buildRelations(
   columns: ManifestColumn[],
-  accessorMap: Record<string, string>,
   sqlNameToAccessor: Record<string, string>,
+  manifestTables: Record<string, ManifestTable>,
 ): ManifestRelation[] {
   const relations: ManifestRelation[] = [];
 
   for (const col of columns) {
     if (col.kind !== "fk" || !col.fkTarget || !col.fkAs) continue;
 
-    const [targetSqlName] = col.fkTarget.split(".");
+    const [targetSqlName, colRef] = col.fkTarget.split(".");
     const targetAccessor = sqlNameToAccessor[targetSqlName!] ?? targetSqlName!;
-    // FK holder always resolves to one parent row (many-to-one / one-to-one)
+    const targetTable = manifestTables[targetAccessor];
     const cardinality = "one" as const;
 
     const rel: ManifestRelation = {
@@ -179,7 +180,9 @@ function buildRelations(
       targetAccessor,
       fkColumn: col.tsName,
       fkSqlColumn: col.sqlName,
-      targetColumn: "id",
+      targetColumn: targetTable
+        ? resolveFkTargetSqlColumn(targetTable, colRef)
+        : (colRef ?? ""),
       cardinality,
       inverse: col.fkInverse ?? col.fkAs,
     };
@@ -224,16 +227,18 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
         ? primaryKey
         : columns.filter((c) => c.primary).map((c) => c.sqlName);
 
-    const relations = buildRelations(columns, {}, sqlNameToAccessor);
-
     manifestTables[accessor] = {
       accessor,
       sqlName: tableDef._tableName,
       columns,
-      relations,
+      relations: [],
       indexes,
       primaryKey: pk,
     };
+  }
+
+  for (const table of Object.values(manifestTables)) {
+    table.relations = buildRelations(table.columns, sqlNameToAccessor, manifestTables);
   }
 
   for (const table of Object.values(manifestTables)) {
@@ -255,7 +260,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
         targetAccessor: table.accessor,
         fkColumn: rel.fkColumn,
         fkSqlColumn: rel.fkSqlColumn,
-        targetColumn: rel.targetColumn,
+        targetColumn: table.primaryKey[0] ?? rel.targetColumn,
         cardinality: rel.cardinality === "one" ? "many" : "one",
         inverse: rel.name,
       });
@@ -304,27 +309,27 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
     const leftTable = manifestTables[m2m.leftAccessor];
     const rightTable = manifestTables[m2m.rightAccessor];
 
-    if (leftTable) {
+    if (leftTable && rightTable) {
       leftTable.relations.push({
         name: m2m.as,
         targetTable: m2m.rightTable,
         targetAccessor: m2m.rightAccessor,
         fkColumn: m2m.leftFkColumn,
         fkSqlColumn: m2m.leftFkColumn,
-        targetColumn: "id",
+        targetColumn: rightTable.primaryKey[0] ?? "",
         cardinality: "many",
         inverse: m2m.inverse,
       });
     }
 
-    if (rightTable) {
+    if (rightTable && leftTable) {
       rightTable.relations.push({
         name: m2m.inverse,
         targetTable: m2m.leftTable,
         targetAccessor: m2m.leftAccessor,
         fkColumn: m2m.rightFkColumn,
         fkSqlColumn: m2m.rightFkColumn,
-        targetColumn: "id",
+        targetColumn: leftTable.primaryKey[0] ?? "",
         cardinality: "many",
         inverse: m2m.as,
       });

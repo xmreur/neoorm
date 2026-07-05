@@ -1,8 +1,13 @@
 import type { Manifest, ManifestManyToMany, ManifestRelation, ManifestTable } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import { quoteIdentifier } from "../../dialect/postgres.js";
-import { fillMissingPrimaryKeys } from "./primary-key.js";
-import { buildInsertQuery, dataToSqlValues } from "./compile.js";
+import {
+  fillMissingPrimaryKeys,
+  primaryKeySqlName,
+  rowScalarPkValue,
+  targetRelationPkSql,
+} from "./primary-key.js";
+import { buildInsertQuery, dataToSqlValues, rowToTs } from "./compile.js";
 import type { WithInput } from "./find.js";
 
 const RELATION_WRITE_KEYS = [
@@ -117,6 +122,8 @@ export async function resolveConnectOrCreate(
   const targetTable = manifest.tables[targetAccessor];
   if (!targetTable) throw new Error(`Unknown table: ${targetAccessor}`);
 
+  const pkSql = quoteIdentifier(primaryKeySqlName(targetTable));
+
   for (const item of items) {
     const whereKey = Object.keys(item.where)[0];
     const whereVal = item.where[whereKey!];
@@ -125,12 +132,12 @@ export async function resolveConnectOrCreate(
       const col = targetTable.columns.find((c) => c.tsName === whereKey);
       const sqlCol = col ? quoteIdentifier(col.sqlName) : quoteIdentifier(whereKey);
       const existing = await executor.queryOne(
-        `SELECT id FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${sqlCol} = $1 LIMIT 1`,
+        `SELECT ${pkSql} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${sqlCol} = $1 LIMIT 1`,
         [whereVal],
       );
 
       if (existing) {
-        ids.push(String(existing["id"]));
+        ids.push(rowScalarPkValue(rowToTs(targetTable, existing), targetTable));
         continue;
       }
     }
@@ -141,7 +148,7 @@ export async function resolveConnectOrCreate(
     const { keys, values } = dataToSqlValues(targetTable, createData);
     const sql = buildInsertQuery(targetTable, keys);
     const row = await executor.queryOne(sql, values);
-    if (row) ids.push(String(row["id"]));
+    if (row) ids.push(rowScalarPkValue(rowToTs(targetTable, row), targetTable));
   }
 
   return ids;
@@ -268,8 +275,9 @@ async function connectInverseMany(
 
   const fkCol = childFkColumnMeta(targetTable, relation);
   const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
+  const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable, relation));
   await executor.query(
-    `UPDATE ${quoteIdentifier(targetTable.sqlName)} SET ${quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${quoteIdentifier("id")} IN (${placeholders})`,
+    `UPDATE ${quoteIdentifier(targetTable.sqlName)} SET ${quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
     [parentId, ...childIds],
   );
 }
@@ -294,7 +302,8 @@ async function disconnectInverseMany(
 
   if (childIds && childIds.length > 0) {
     const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
-    sql += ` AND ${quoteIdentifier("id")} IN (${placeholders})`;
+    const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable, relation));
+    sql += ` AND ${targetPkCol} IN (${placeholders})`;
     params.push(...childIds);
   }
 
@@ -345,7 +354,9 @@ async function executeToOneWrite(
     const created = await runCreate(executor, manifest, rel.targetAccessor, {
       data: value["create"] as Record<string, unknown>,
     });
-    scalarData[rel.fkColumn] = created["id"];
+    const targetTable = manifest.tables[rel.targetAccessor];
+    if (!targetTable) throw new Error(`Unknown table: ${rel.targetAccessor}`);
+    scalarData[rel.fkColumn] = rowScalarPkValue(created, targetTable);
   }
 }
 
