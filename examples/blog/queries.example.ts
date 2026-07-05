@@ -266,5 +266,20 @@ export async function exampleTransactions() {
     throw new Error("intentional rollback");
   }).catch(() => undefined);
 
+  await db.$transaction(async (tx) => {
+    await tx.users.create({
+      data: { email: "savepoint-outer@transaction.example", name: "Savepoint Outer" },
+    });
+
+    await tx
+      .$transaction(async (nested) => {
+        await nested.users.create({
+          data: { email: "savepoint-inner@transaction.example", name: "Savepoint Inner" },
+        });
+        throw new Error("intentional nested rollback");
+      })
+      .catch(() => undefined);
+  });
+
   return { author, post };
 }

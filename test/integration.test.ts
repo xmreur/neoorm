@@ -267,4 +267,26 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
       ),
     ).rejects.toThrow();
   });
+
+  it("nested transaction failure rolls back only the savepoint", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const outerEmail = `tx-nested-outer-${Date.now()}@example.com`;
+    const innerEmail = `tx-nested-inner-${Date.now()}@example.com`;
+
+    await db.$transaction(async (tx) => {
+      await tx.users.create({ data: { email: outerEmail, name: "Outer" } });
+
+      await expect(
+        tx.$transaction(async (nested) => {
+          await nested.users.create({ data: { email: innerEmail, name: "Inner" } });
+          throw new Error("nested abort");
+        }),
+      ).rejects.toThrow("nested abort");
+    });
+
+    expect(await db.users.findFirst({ where: { email: outerEmail } })).not.toBeNull();
+    expect(await db.users.findFirst({ where: { email: innerEmail } })).toBeNull();
+  });
 });
