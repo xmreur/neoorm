@@ -9,6 +9,7 @@ import {
 } from "./primary-key.js";
 import { buildInsertQuery, dataToSqlValues, rowToTs } from "./compile.js";
 import type { WithInput } from "./find.js";
+import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 
 const RELATION_WRITE_KEYS = [
   "connect",
@@ -20,7 +21,7 @@ const RELATION_WRITE_KEYS = [
 
 export type CreateRunner = (
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     data: Record<string, unknown>;
@@ -114,10 +115,11 @@ export function splitScalarsAndRelationWrites(
 
 export async function resolveConnectOrCreate(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   targetAccessor: string,
   items: Array<{ where: Record<string, unknown>; create: Record<string, unknown> }>,
 ): Promise<string[]> {
+  const { manifest } = runtime;
   const ids: string[] = [];
   const targetTable = manifest.tables[targetAccessor];
   if (!targetTable) throw new Error(`Unknown table: ${targetAccessor}`);
@@ -131,7 +133,10 @@ export async function resolveConnectOrCreate(
     if (whereKey && whereVal !== undefined) {
       const col = targetTable.columns.find((c) => c.tsName === whereKey);
       const sqlCol = col ? quoteIdentifier(col.sqlName) : quoteIdentifier(whereKey);
-      const existing = await executor.queryOne(
+      const existing = await runQueryOne(
+        executor,
+        runtime,
+        { operation: "select", tableAccessor: targetAccessor },
         `SELECT ${pkSql} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${sqlCol} = $1 LIMIT 1`,
         [whereVal],
       );
@@ -147,7 +152,13 @@ export async function resolveConnectOrCreate(
 
     const { keys, values } = dataToSqlValues(targetTable, createData);
     const sql = buildInsertQuery(targetTable, keys);
-    const row = await executor.queryOne(sql, values);
+    const row = await runQueryOne(
+      executor,
+      runtime,
+      { operation: "insert", tableAccessor: targetAccessor },
+      sql,
+      values,
+    );
     if (row) ids.push(rowScalarPkValue(rowToTs(targetTable, row), targetTable));
   }
 
@@ -156,12 +167,13 @@ export async function resolveConnectOrCreate(
 
 async function insertM2MLinks(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   m2m: ManifestManyToMany,
   parentAccessor: string,
   parentId: string,
   otherIds: string[],
 ): Promise<void> {
+  const { manifest } = runtime;
   const throughTable = manifest.tables[m2m.throughAccessor];
   if (!throughTable) return;
 
@@ -178,7 +190,10 @@ async function insertM2MLinks(
     const leftId = isLeft ? parentId : otherId;
     const rightId = isLeft ? otherId : parentId;
 
-    const existing = await executor.queryOne(
+    const existing = await runQueryOne(
+      executor,
+      runtime,
+      { operation: "select", tableAccessor: throughTable.accessor },
       `SELECT 1 FROM ${quoteIdentifier(throughTable.sqlName)} WHERE ${quoteIdentifier(leftCol.sqlName)} = $1 AND ${quoteIdentifier(rightCol.sqlName)} = $2 LIMIT 1`,
       [leftId, rightId],
     );
@@ -200,36 +215,44 @@ async function insertM2MLinks(
 
     const { keys, values } = dataToSqlValues(throughTable, data);
     const sql = buildInsertQuery(throughTable, keys);
-    await executor.query(sql, values);
+    await runQuery(
+      executor,
+      runtime,
+      { operation: "insert", tableAccessor: throughTable.accessor },
+      sql,
+      values,
+    );
   }
 }
 
 async function insertJunctionRows(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   throughAccessor: string,
   leftFkCol: string,
   rightFkCol: string,
   leftId: string,
   rightIds: string[],
 ): Promise<void> {
+  const { manifest } = runtime;
   const m2m = manifest.manyToMany.find((m) => m.throughAccessor === throughAccessor);
   if (!m2m) {
     throw new Error(`Unknown junction table: ${throughAccessor}`);
   }
   const parentAccessor =
     m2m.leftFkColumn === leftFkCol ? m2m.leftAccessor : m2m.rightAccessor;
-  await insertM2MLinks(executor, manifest, m2m, parentAccessor, leftId, rightIds);
+  await insertM2MLinks(executor, runtime, m2m, parentAccessor, leftId, rightIds);
 }
 
 async function deleteJunctionRows(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   m2m: ManifestManyToMany,
   parentAccessor: string,
   parentId: string,
   rightIds?: string[],
 ): Promise<void> {
+  const { manifest } = runtime;
   const throughTable = manifest.tables[m2m.throughAccessor];
   if (!throughTable) return;
 
@@ -250,7 +273,13 @@ async function deleteJunctionRows(
     params.push(...rightIds);
   }
 
-  await executor.query(sql, params);
+  await runQuery(
+    executor,
+    runtime,
+    { operation: "delete", tableAccessor: throughTable.accessor },
+    sql,
+    params,
+  );
 }
 
 function childFkColumnMeta(targetTable: ManifestTable, relation: ManifestRelation) {
@@ -265,18 +294,22 @@ function childFkColumnMeta(targetTable: ManifestTable, relation: ManifestRelatio
 
 async function connectInverseMany(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   relation: ManifestRelation,
   parentId: string,
   childIds: string[],
 ): Promise<void> {
+  const { manifest } = runtime;
   const targetTable = manifest.tables[relation.targetAccessor];
   if (!targetTable || childIds.length === 0) return;
 
   const fkCol = childFkColumnMeta(targetTable, relation);
   const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
   const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable, relation));
-  await executor.query(
+  await runQuery(
+    executor,
+    runtime,
+    { operation: "update", tableAccessor: relation.targetAccessor },
     `UPDATE ${quoteIdentifier(targetTable.sqlName)} SET ${quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
     [parentId, ...childIds],
   );
@@ -284,11 +317,12 @@ async function connectInverseMany(
 
 async function disconnectInverseMany(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   relation: ManifestRelation,
   parentId: string,
   childIds: string[] | undefined,
 ): Promise<void> {
+  const { manifest } = runtime;
   const targetTable = manifest.tables[relation.targetAccessor];
   if (!targetTable) return;
 
@@ -307,29 +341,36 @@ async function disconnectInverseMany(
     params.push(...childIds);
   }
 
-  await executor.query(sql, params);
+  await runQuery(
+    executor,
+    runtime,
+    { operation: "update", tableAccessor: relation.targetAccessor },
+    sql,
+    params,
+  );
 }
 
 async function setInverseMany(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   relation: ManifestRelation,
   parentId: string,
   childIds: string[],
 ): Promise<void> {
-  await disconnectInverseMany(executor, manifest, relation, parentId, undefined);
-  await connectInverseMany(executor, manifest, relation, parentId, childIds);
+  await disconnectInverseMany(executor, runtime, relation, parentId, undefined);
+  await connectInverseMany(executor, runtime, relation, parentId, childIds);
 }
 
 async function executeToOneWrite(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   table: ManifestTable,
   scalarData: Record<string, unknown>,
   relationName: string,
   value: Record<string, unknown>,
   runCreate: CreateRunner,
 ): Promise<void> {
+  const { manifest } = runtime;
   const rel = findRelation(table, relationName);
   if (!rel || rel.cardinality !== "one") return;
 
@@ -351,7 +392,7 @@ async function executeToOneWrite(
   }
 
   if ("create" in value) {
-    const created = await runCreate(executor, manifest, rel.targetAccessor, {
+    const created = await runCreate(executor, runtime, rel.targetAccessor, {
       data: value["create"] as Record<string, unknown>,
     });
     const targetTable = manifest.tables[rel.targetAccessor];
@@ -362,7 +403,7 @@ async function executeToOneWrite(
 
 export async function applyToOnePreWrites(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   table: ManifestTable,
   scalarData: Record<string, unknown>,
   relationWrites: ParsedRelationWrite[],
@@ -373,7 +414,7 @@ export async function applyToOnePreWrites(
     if (!rel || rel.cardinality !== "one") continue;
     await executeToOneWrite(
       executor,
-      manifest,
+      runtime,
       table,
       scalarData,
       write.relationName,
@@ -385,12 +426,13 @@ export async function applyToOnePreWrites(
 
 async function executeM2MWrite(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   parentId: string,
   relationName: string,
   value: Record<string, unknown>,
 ): Promise<void> {
+  const { manifest } = runtime;
   const m2m = findM2M(manifest, tableAccessor, relationName);
   if (!m2m) return;
 
@@ -400,18 +442,18 @@ async function executeM2MWrite(
   if ("disconnect" in value) {
     const disconnect = value["disconnect"];
     if (disconnect === true) {
-      await deleteJunctionRows(executor, manifest, m2m, tableAccessor, parentId);
+      await deleteJunctionRows(executor, runtime, m2m, tableAccessor, parentId);
     } else {
       const ids = normalizeIdList(disconnect);
-      await deleteJunctionRows(executor, manifest, m2m, tableAccessor, parentId, ids);
+      await deleteJunctionRows(executor, runtime, m2m, tableAccessor, parentId, ids);
     }
   }
 
   if ("set" in value) {
     const ids = normalizeIdList(value["set"]);
-    await deleteJunctionRows(executor, manifest, m2m, tableAccessor, parentId);
+    await deleteJunctionRows(executor, runtime, m2m, tableAccessor, parentId);
     if (ids.length > 0) {
-      await insertM2MLinks(executor, manifest, m2m, tableAccessor, parentId, ids);
+      await insertM2MLinks(executor, runtime, m2m, tableAccessor, parentId, ids);
     }
     return;
   }
@@ -419,7 +461,7 @@ async function executeM2MWrite(
   if ("connect" in value) {
     const ids = normalizeIdList(value["connect"]);
     if (ids.length > 0) {
-      await insertM2MLinks(executor, manifest, m2m, tableAccessor, parentId, ids);
+      await insertM2MLinks(executor, runtime, m2m, tableAccessor, parentId, ids);
     }
   }
 
@@ -428,22 +470,23 @@ async function executeM2MWrite(
       where: Record<string, unknown>;
       create: Record<string, unknown>;
     }>;
-    const ids = await resolveConnectOrCreate(executor, manifest, targetAccessor, items);
+    const ids = await resolveConnectOrCreate(executor, runtime, targetAccessor, items);
     if (ids.length > 0) {
-      await insertM2MLinks(executor, manifest, m2m, tableAccessor, parentId, ids);
+      await insertM2MLinks(executor, runtime, m2m, tableAccessor, parentId, ids);
     }
   }
 }
 
 async function executeInverseManyWrite(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   table: ManifestTable,
   parentId: string,
   relationName: string,
   value: Record<string, unknown>,
   runCreate: CreateRunner,
 ): Promise<void> {
+  const { manifest } = runtime;
   const rel = findRelation(table, relationName);
   if (!rel || rel.cardinality !== "many" || findM2M(manifest, table.accessor, relationName)) {
     return;
@@ -452,28 +495,28 @@ async function executeInverseManyWrite(
   if ("disconnect" in value) {
     const disconnect = value["disconnect"];
     if (disconnect === true) {
-      await disconnectInverseMany(executor, manifest, rel, parentId, undefined);
+      await disconnectInverseMany(executor, runtime, rel, parentId, undefined);
     } else {
       const ids = normalizeIdList(disconnect);
-      await disconnectInverseMany(executor, manifest, rel, parentId, ids);
+      await disconnectInverseMany(executor, runtime, rel, parentId, ids);
     }
   }
 
   if ("set" in value) {
     const ids = normalizeIdList(value["set"]);
-    await setInverseMany(executor, manifest, rel, parentId, ids);
+    await setInverseMany(executor, runtime, rel, parentId, ids);
     return;
   }
 
   if ("connect" in value) {
     const ids = normalizeIdList(value["connect"]);
-    await connectInverseMany(executor, manifest, rel, parentId, ids);
+    await connectInverseMany(executor, runtime, rel, parentId, ids);
   }
 
   if ("create" in value) {
     const items = normalizeCreateList(value["create"]);
     for (const item of items) {
-      await runCreate(executor, manifest, rel.targetAccessor, {
+      await runCreate(executor, runtime, rel.targetAccessor, {
         data: {
           ...item,
           [rel.fkColumn]: parentId,
@@ -485,18 +528,19 @@ async function executeInverseManyWrite(
 
 export async function executeRelationWrites(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   parentId: string,
   relationWrites: ParsedRelationWrite[],
   runCreate: CreateRunner,
 ): Promise<void> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
   for (const write of relationWrites) {
     if (findM2M(manifest, tableAccessor, write.relationName)) {
-      await executeM2MWrite(executor, manifest, tableAccessor, parentId, write.relationName, write.value);
+      await executeM2MWrite(executor, runtime, tableAccessor, parentId, write.relationName, write.value);
       continue;
     }
 
@@ -507,7 +551,7 @@ export async function executeRelationWrites(
 
     await executeInverseManyWrite(
       executor,
-      manifest,
+      runtime,
       table,
       parentId,
       write.relationName,

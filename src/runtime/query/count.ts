@@ -1,4 +1,3 @@
-import type { Manifest } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import {
@@ -7,15 +6,17 @@ import {
 } from "./compile.js";
 import { assertUniqueWhere } from "./unique.js";
 import { findFirst } from "./find.js";
+import { type QueryRuntime, runQueryOne } from "./execute.js";
 
 export async function countRecords(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args?: {
     where?: Record<string, unknown>;
   },
 ): Promise<number> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -26,25 +27,32 @@ export async function countRecords(
     postgresDialect,
   );
   const query = buildCountQuery(table, whereSql);
-  const row = await executor.queryOne<{ count: number }>(query, params);
+  const row = await runQueryOne<{ count: number }>(
+    executor,
+    runtime,
+    { operation: "select", tableAccessor },
+    query,
+    params,
+  );
   return row?.count ?? 0;
 }
 
 export async function findUnique(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     where: Record<string, unknown>;
     with?: Record<string, import("./find.js").WithInput>;
   },
 ): Promise<Record<string, unknown> | null> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
   assertUniqueWhere(table, args.where, "findUnique");
 
-  return findFirst(executor, manifest, tableAccessor, {
+  return findFirst(executor, runtime, tableAccessor, {
     where: args.where,
     ...(args.with !== undefined ? { with: args.with } : {}),
   });

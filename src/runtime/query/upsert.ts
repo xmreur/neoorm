@@ -1,4 +1,3 @@
-import type { Manifest } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import {
   buildUpsertQuery,
@@ -8,10 +7,11 @@ import {
 import { assertUniqueWhere } from "./unique.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
+import { type QueryRuntime, runQueryOne } from "./execute.js";
 
 export async function upsertRecord(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     where: Record<string, unknown>;
@@ -20,6 +20,7 @@ export async function upsertRecord(
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown>> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -41,13 +42,18 @@ export async function upsertRecord(
     updateKeys,
     constraint.sqlColumns,
   );
-  const row = await executor.queryOne(upsertSql, insertValues);
-  if (!row) throw new Error("Upsert failed");
+  const row = await runQueryOne(
+    executor,
+    runtime,
+    { operation: "upsert", tableAccessor },
+    upsertSql,
+    insertValues,
+  );
 
-  const result = rowToTs(table, row);
+  const result = rowToTs(table, row!);
 
   if (args.with) {
-    const [withLoaded] = await loadRelations(executor, manifest, table, [result], args.with);
+    const [withLoaded] = await loadRelations(executor, runtime, table, [result], args.with);
     return withLoaded ?? result;
   }
 
