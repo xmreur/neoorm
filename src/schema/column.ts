@@ -58,7 +58,9 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
     },
     primary() {
       return createColumnBuilder<TValue, Omit<TMeta, "primary"> & { primary: true }>(
-        { ...meta, primary: true } as Omit<TMeta, "primary"> & { primary: true },
+        { ...meta, primary: true, nullable: false } as Omit<TMeta, "primary"> & {
+          primary: true;
+        },
       );
     },
     map(name: string) {

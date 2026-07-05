@@ -40,6 +40,7 @@ describe("uuid column", () => {
     const users = requireUsersTable(manifest);
     const idCol = users.columns.find((c) => c.tsName === "id");
     expect(idCol?.kind).toBe("uuid");
+    expect(idCol?.nullable).toBe(false);
     expect(idCol?.typeOptions).toEqual({ version: 7 });
   });
 

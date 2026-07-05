@@ -3,6 +3,12 @@ import { join } from "node:path";
 import type { Pool } from "pg";
 import type { Manifest } from "../dialect/types.js";
 import { postgresDialect } from "../dialect/postgres.js";
+import {
+  diffManifest,
+  formatDestructiveWarnings,
+  resolveMigrationSql,
+} from "../codegen/diff-manifest.js";
+import { introspectToManifest } from "../introspect/to-manifest.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
 
@@ -36,6 +42,26 @@ export async function listPendingMigrations(
   }
 
   return entries.filter((e) => !applied.has(e)).sort();
+}
+
+export async function applySql(pool: Pool, sql: string[]): Promise<void> {
+  if (sql.length === 0) {
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const statement of sql) {
+      await client.query(statement);
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export async function applyMigration(
@@ -77,17 +103,52 @@ export async function migrateDeploy(
   return pending;
 }
 
-export async function dbPush(pool: Pool, manifest: Manifest): Promise<void> {
-  for (const table of Object.values(manifest.tables)) {
-    const sql = postgresDialect.emitCreateTable(table);
-    try {
-      await pool.query(sql);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes("already exists")) {
-        continue;
-      }
-      throw err;
-    }
+export type DbPushResult = {
+  appliedStatements: number;
+  destructiveBlocked: DestructiveChange[];
+};
+
+export type DbPushOptions = {
+  acceptDataLoss?: boolean;
+};
+
+type DestructiveChange = import("../dialect/types.js").DestructiveChange;
+
+export async function dbPush(
+  pool: Pool,
+  target: Manifest,
+  options: DbPushOptions = {},
+): Promise<DbPushResult> {
+  const live = await introspectToManifest(pool);
+  const manifestDiff = diffManifest(live, target);
+  const { sql, blocked } = resolveMigrationSql(
+    manifestDiff,
+    live,
+    target,
+    options.acceptDataLoss ?? false,
+  );
+
+  await applySql(pool, sql);
+
+  return {
+    appliedStatements: sql.length,
+    destructiveBlocked: blocked,
+  };
+}
+
+export function dbPushWarnings(blocked: DestructiveChange[]): string[] {
+  if (blocked.length === 0) {
+    return [];
   }
+  const warnings = formatDestructiveWarnings(blocked);
+  if (blocked.some((change) => change.kind === "alter_column_type_manual")) {
+    warnings.push(
+      "Some type changes cannot be applied automatically and were skipped.",
+    );
+  } else {
+    warnings.push(
+      "Destructive changes were not applied. Re-run with --accept-data-loss to apply them.",
+    );
+  }
+  return warnings;
 }

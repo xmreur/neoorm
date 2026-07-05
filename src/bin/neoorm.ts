@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { Pool } from "pg";
 import { loadConfig } from "../config.js";
 import { generateFromSchema } from "../codegen/generate.js";
-import { migrateDeploy, dbPush } from "../migrate/runner.js";
+import { migrateDeploy, dbPush, dbPushWarnings } from "../migrate/runner.js";
 import { introspectPostgres } from "../introspect/pull.js";
 import { writeFile } from "node:fs/promises";
 
@@ -18,21 +18,27 @@ program
 program
   .command("generate")
   .description("Generate manifest, client, and migrations from schema")
-  .action(async () => {
+  .option(
+    "--accept-data-loss",
+    "Include destructive schema changes in generated migrations",
+  )
+  .action(async (options: { acceptDataLoss?: boolean }) => {
     const cwd = process.cwd();
     const config = await loadConfig(cwd);
     const schemaPath = resolve(cwd, config.schema);
     const outDir = resolve(cwd, config.out);
 
-    const { migrationName, schemaChanged, warnings } = await generateFromSchema(
-      schemaPath,
-      outDir,
-    );
+    const { migrationName, schemaChanged, warnings, destructiveBlocked } =
+      await generateFromSchema(schemaPath, outDir, {
+        ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+      });
 
     console.log(`Generated client at ${outDir}/client.ts`);
     console.log(`Generated manifest at ${outDir}/manifest.ts`);
     if (migrationName) {
       console.log(`Created migration: ${migrationName}`);
+    } else if (destructiveBlocked) {
+      console.log("Destructive schema changes detected — no migration written");
     } else if (schemaChanged) {
       console.log("Manifest updated (no migration SQL needed)");
     } else {
@@ -47,7 +53,11 @@ program
   .command("migrate")
   .description("Run migrations")
   .argument("[subcommand]", "dev | deploy")
-  .action(async (subcommand) => {
+  .option(
+    "--accept-data-loss",
+    "Include destructive schema changes in generated migrations",
+  )
+  .action(async (subcommand, options: { acceptDataLoss?: boolean }) => {
     const cwd = process.cwd();
     const config = await loadConfig(cwd);
     const outDir = resolve(cwd, config.out);
@@ -70,13 +80,20 @@ program
         if (subcommand === "dev") {
           const { generateFromSchema } = await import("../codegen/generate.js");
           const schemaPath = resolve(cwd, config.schema);
-          const { migrationName, warnings } = await generateFromSchema(schemaPath, outDir);
+          const { migrationName, warnings, destructiveBlocked } =
+            await generateFromSchema(schemaPath, outDir, {
+              ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+            });
           for (const warning of warnings) {
             console.warn(`Warning: ${warning}`);
           }
           if (migrationName) {
             await migrateDeploy(pool, join(outDir, "migrations"));
             console.log(`Created and applied: ${migrationName}`);
+          } else if (destructiveBlocked) {
+            console.log(
+              "Destructive schema changes detected — no migration created",
+            );
           }
         }
       } else {
@@ -93,7 +110,11 @@ program
   .description("Database utilities")
   .argument("<subcommand>", "push | pull")
   .option("-o, --output <file>", "Output file for pull", "schema.pulled.ts")
-  .action(async (subcommand, options: { output?: string }) => {
+  .option(
+    "--accept-data-loss",
+    "Apply destructive schema changes when pushing to the database",
+  )
+  .action(async (subcommand, options: { output?: string; acceptDataLoss?: boolean }) => {
     const cwd = process.cwd();
     const config = await loadConfig(cwd);
     const pool = new Pool({ connectionString: config.datasource.url });
@@ -107,8 +128,21 @@ program
           console.error("Run neoorm generate first");
           process.exit(1);
         }
-        await dbPush(pool, manifest);
-        console.log("Database schema pushed");
+        const { appliedStatements, destructiveBlocked } = await dbPush(
+          pool,
+          manifest,
+          { ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}) },
+        );
+        for (const warning of dbPushWarnings(destructiveBlocked)) {
+          console.warn(`Warning: ${warning}`);
+        }
+        if (appliedStatements === 0 && destructiveBlocked.length === 0) {
+          console.log("Database schema is up to date");
+        } else {
+          console.log(
+            `Database schema pushed (${appliedStatements} statement(s) applied)`,
+          );
+        }
       } else if (subcommand === "pull") {
         const content = await introspectPostgres(pool);
         const outputPath = resolve(cwd, options.output ?? "schema.pulled.ts");
