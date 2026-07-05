@@ -1,5 +1,14 @@
-import type { Dialect, ManifestColumn, ManifestTable, WhereOperator } from "../../dialect/types.js";
+import type {
+  Dialect,
+  Manifest,
+  ManifestColumn,
+  ManifestManyToMany,
+  ManifestRelation,
+  ManifestTable,
+  WhereOperator,
+} from "../../dialect/types.js";
 import { quoteIdentifier } from "../../dialect/postgres.js";
+import { effectiveRelations } from "../../codegen/manifest-relations.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
 
@@ -7,6 +16,14 @@ export type WhereClause = {
   sql: string;
   params: unknown[];
 };
+
+type CompiledNode = {
+  sql: string;
+  params: unknown[];
+  nextParamIndex: number;
+};
+
+const PARAMLESS_OPERATORS = new Set<WhereOperator>(["isNull", "isNotNull"]);
 
 function isOperatorObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -39,6 +56,355 @@ function serializeColumnValue(col: ManifestColumn, value: unknown): unknown {
   return value;
 }
 
+function defaultColumnRef(col: ManifestColumn): string {
+  return quoteIdentifier(col.sqlName);
+}
+
+function parentPkRef(table: ManifestTable): string {
+  const pkSql = table.primaryKey[0] ?? "id";
+  return `${quoteIdentifier(table.sqlName)}.${quoteIdentifier(pkSql)}`;
+}
+
+function findM2M(
+  manifest: Manifest,
+  tableAccessor: string,
+  relationName: string,
+): ManifestManyToMany | undefined {
+  return manifest.manyToMany.find(
+    (m) =>
+      (m.leftAccessor === tableAccessor && m.as === relationName) ||
+      (m.rightAccessor === tableAccessor && m.inverse === relationName),
+  );
+}
+
+function compileColumnCondition(
+  col: ManifestColumn,
+  rawValue: unknown,
+  dialect: Dialect,
+  paramIndex: number,
+  columnRef: (col: ManifestColumn) => string,
+): CompiledNode {
+  const sqlCol = columnRef(col);
+  const spatialOps = pluginWhereOperators(col);
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let nextParamIndex = paramIndex;
+
+  if (rawValue === null) {
+    conditions.push(dialect.whereOperators.isNull(sqlCol, nextParamIndex));
+    return { sql: conditions.join(" AND "), params, nextParamIndex };
+  }
+
+  if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
+    conditions.push(dialect.whereOperators.equals(sqlCol, nextParamIndex));
+    params.push(serializeColumnValue(col, rawValue));
+    nextParamIndex++;
+    return { sql: conditions.join(" AND "), params, nextParamIndex };
+  }
+
+  const hasOperator = Object.keys(rawValue).some(
+    (k) => k in dialect.whereOperators || k in spatialOps,
+  );
+
+  if (!hasOperator) {
+    conditions.push(dialect.whereOperators.equals(sqlCol, nextParamIndex));
+    params.push(rawValue);
+    nextParamIndex++;
+    return { sql: conditions.join(" AND "), params, nextParamIndex };
+  }
+
+  for (const [op, value] of Object.entries(rawValue)) {
+    if (op in spatialOps) {
+      const operator = spatialOps[op]!;
+      const compiled = operator.compile(sqlCol, value, col, nextParamIndex);
+      conditions.push(compiled.sql);
+      params.push(...compiled.params);
+      nextParamIndex += compiled.params.length;
+      continue;
+    }
+
+    if (!(op in dialect.whereOperators)) continue;
+    const operator = op as WhereOperator;
+    if (PARAMLESS_OPERATORS.has(operator)) {
+      conditions.push(dialect.whereOperators[operator](sqlCol, nextParamIndex));
+      continue;
+    }
+    const transform = operatorParamTransform[operator];
+    const paramValue =
+      operator === "in" || operator === "notIn"
+        ? Array.isArray(value)
+          ? value.map((item) => serializeColumnValue(col, item))
+          : value
+        : transform
+          ? transform(value)
+          : serializeColumnValue(col, value);
+    conditions.push(dialect.whereOperators[operator](sqlCol, nextParamIndex));
+    params.push(paramValue);
+    nextParamIndex++;
+  }
+
+  return { sql: conditions.join(" AND "), params, nextParamIndex };
+}
+
+function compileExistsSubquery(
+  existsSql: string,
+  negate: boolean,
+): string {
+  return negate ? `NOT EXISTS (${existsSql})` : `EXISTS (${existsSql})`;
+}
+
+function compileRelationCondition(
+  manifest: Manifest,
+  parentTable: ManifestTable,
+  relation: ManifestRelation,
+  rawValue: unknown,
+  dialect: Dialect,
+  paramIndex: number,
+): CompiledNode {
+  const m2m = findM2M(manifest, parentTable.accessor, relation.name);
+  const targetTable = manifest.tables[relation.targetAccessor];
+  if (!targetTable) {
+    return { sql: "", params: [], nextParamIndex: paramIndex };
+  }
+
+  if (relation.cardinality === "one") {
+    if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
+      return { sql: "", params: [], nextParamIndex: paramIndex };
+    }
+
+    const relAlias = "_rel";
+    const columnRef = (col: ManifestColumn) =>
+      `${quoteIdentifier(relAlias)}.${quoteIdentifier(col.sqlName)}`;
+    const nested = compileWhereNode(
+      manifest,
+      targetTable,
+      rawValue,
+      dialect,
+      paramIndex,
+      columnRef,
+    );
+    const parentFkCol = parentTable.columns.find((c) => c.tsName === relation.fkColumn);
+    const parentFkRef = parentFkCol
+      ? `${quoteIdentifier(parentTable.sqlName)}.${quoteIdentifier(parentFkCol.sqlName)}`
+      : `${quoteIdentifier(parentTable.sqlName)}.${quoteIdentifier(relation.fkSqlColumn)}`;
+    const targetPkSql = targetTable.primaryKey[0] ?? "id";
+    const joinCond = `${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${parentFkRef}`;
+    const whereParts = [joinCond];
+    if (nested.sql) whereParts.push(nested.sql);
+    const existsSql = `SELECT 1 FROM ${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
+    return {
+      sql: compileExistsSubquery(existsSql, false),
+      params: nested.params,
+      nextParamIndex: nested.nextParamIndex,
+    };
+  }
+
+  if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
+    return { sql: "", params: [], nextParamIndex: paramIndex };
+  }
+
+  const mode = (["some", "every", "none"] as const).find((k) => k in rawValue);
+  if (!mode) {
+    return { sql: "", params: [], nextParamIndex: paramIndex };
+  }
+
+  const nestedWhere = rawValue[mode];
+  if (!isOperatorObject(nestedWhere) && nestedWhere !== undefined) {
+    return { sql: "", params: [], nextParamIndex: paramIndex };
+  }
+
+  const relAlias = "_rel";
+  const columnRef = (col: ManifestColumn) =>
+    `${quoteIdentifier(relAlias)}.${quoteIdentifier(col.sqlName)}`;
+  const nested = compileWhereNode(
+    manifest,
+    targetTable,
+    (nestedWhere ?? {}) as Record<string, unknown>,
+    dialect,
+    paramIndex,
+    columnRef,
+  );
+
+  let fromClause: string;
+  let whereParts: string[];
+
+  if (m2m) {
+    const isLeft = m2m.leftAccessor === parentTable.accessor;
+    const throughTable = manifest.tables[m2m.throughAccessor];
+    if (!throughTable) {
+      return { sql: "", params: [], nextParamIndex: paramIndex };
+    }
+    const junctionAlias = "_jt";
+    const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
+    const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
+    const targetPkSql = targetTable.primaryKey[0] ?? "id";
+    fromClause = `${quoteIdentifier(throughTable.sqlName)} AS ${quoteIdentifier(junctionAlias)} INNER JOIN ${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)} ON ${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${quoteIdentifier(junctionAlias)}.${quoteIdentifier(targetFkCol)}`;
+    whereParts = [
+      `${quoteIdentifier(junctionAlias)}.${quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable)}`,
+    ];
+    if (nested.sql) whereParts.push(nested.sql);
+  } else {
+    fromClause = `${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)}`;
+    whereParts = [
+      `${quoteIdentifier(relAlias)}.${quoteIdentifier(relation.fkSqlColumn)} = ${parentPkRef(parentTable)}`,
+    ];
+    if (nested.sql) whereParts.push(nested.sql);
+  }
+
+  const existsSql = `SELECT 1 FROM ${fromClause} WHERE ${whereParts.join(" AND ")}`;
+
+  if (mode === "some") {
+    return {
+      sql: compileExistsSubquery(existsSql, false),
+      params: nested.params,
+      nextParamIndex: nested.nextParamIndex,
+    };
+  }
+
+  if (mode === "none") {
+    return {
+      sql: compileExistsSubquery(existsSql, true),
+      params: nested.params,
+      nextParamIndex: nested.nextParamIndex,
+    };
+  }
+
+  const everyWhereParts = [...whereParts];
+  if (nested.sql) {
+    everyWhereParts.push(`NOT (${nested.sql})`);
+  } else {
+    everyWhereParts.push("FALSE");
+  }
+  const everySql = `SELECT 1 FROM ${fromClause} WHERE ${everyWhereParts.join(" AND ")}`;
+  return {
+    sql: compileExistsSubquery(everySql, true),
+    params: nested.params,
+    nextParamIndex: nested.nextParamIndex,
+  };
+}
+
+function compileWhereNode(
+  manifest: Manifest,
+  table: ManifestTable,
+  where: Record<string, unknown>,
+  dialect: Dialect,
+  startParamIndex: number,
+  columnRef: (col: ManifestColumn) => string = defaultColumnRef,
+): CompiledNode {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let paramIndex = startParamIndex;
+
+  const relations = new Map(
+    effectiveRelations(manifest, table).map((rel) => [rel.name, rel]),
+  );
+
+  for (const [key, value] of Object.entries(where)) {
+    if (key === "AND" && Array.isArray(value)) {
+      const parts: string[] = [];
+      for (const item of value) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        const compiled = compileWhereNode(
+          manifest,
+          table,
+          item as Record<string, unknown>,
+          dialect,
+          paramIndex,
+          columnRef,
+        );
+        if (compiled.sql) parts.push(`(${compiled.sql})`);
+        params.push(...compiled.params);
+        paramIndex = compiled.nextParamIndex;
+      }
+      if (parts.length > 0) conditions.push(`(${parts.join(" AND ")})`);
+      continue;
+    }
+
+    if (key === "OR" && Array.isArray(value)) {
+      const parts: string[] = [];
+      for (const item of value) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        const compiled = compileWhereNode(
+          manifest,
+          table,
+          item as Record<string, unknown>,
+          dialect,
+          paramIndex,
+          columnRef,
+        );
+        if (compiled.sql) parts.push(`(${compiled.sql})`);
+        params.push(...compiled.params);
+        paramIndex = compiled.nextParamIndex;
+      }
+      if (parts.length > 0) conditions.push(`(${parts.join(" OR ")})`);
+      continue;
+    }
+
+    if (key === "NOT" && isOperatorObject(value)) {
+      const compiled = compileWhereNode(
+        manifest,
+        table,
+        value,
+        dialect,
+        paramIndex,
+        columnRef,
+      );
+      if (compiled.sql) conditions.push(`NOT (${compiled.sql})`);
+      params.push(...compiled.params);
+      paramIndex = compiled.nextParamIndex;
+      continue;
+    }
+
+    const relation = relations.get(key);
+    if (relation) {
+      const compiled = compileRelationCondition(
+        manifest,
+        table,
+        relation,
+        value,
+        dialect,
+        paramIndex,
+      );
+      if (compiled.sql) conditions.push(compiled.sql);
+      params.push(...compiled.params);
+      paramIndex = compiled.nextParamIndex;
+      continue;
+    }
+
+    const col = table.columns.find((c) => c.tsName === key);
+    if (!col) continue;
+
+    const compiled = compileColumnCondition(col, value, dialect, paramIndex, columnRef);
+    if (compiled.sql) conditions.push(compiled.sql);
+    params.push(...compiled.params);
+    paramIndex = compiled.nextParamIndex;
+  }
+
+  return {
+    sql: conditions.join(" AND "),
+    params,
+    nextParamIndex: paramIndex,
+  };
+}
+
+export function compileWhere(
+  manifest: Manifest,
+  table: ManifestTable,
+  where: Record<string, unknown> | undefined,
+  dialect: Dialect,
+  startParamIndex = 1,
+): WhereClause {
+  if (!where || Object.keys(where).length === 0) {
+    return { sql: "", params: [] };
+  }
+
+  const result = compileWhereNode(manifest, table, where, dialect, startParamIndex);
+  return {
+    sql: result.sql ? `WHERE ${result.sql}` : "",
+    params: result.params,
+  };
+}
+
 function buildValuePlaceholder(col: ManifestColumn | undefined, paramIndex: number): string {
   if (!col || col.kind === "fk") return `$${paramIndex}`;
   const plugin = getColumnType(col.kind);
@@ -51,71 +417,6 @@ function buildValuePlaceholder(col: ManifestColumn | undefined, paramIndex: numb
 function buildSetExpression(col: ManifestColumn | undefined, paramIndex: number): string {
   const sqlCol = quoteIdentifier(col?.sqlName ?? "");
   return `${sqlCol} = ${buildValuePlaceholder(col, paramIndex)}`;
-}
-
-export function compileWhere(
-  table: ManifestTable,
-  where: Record<string, unknown> | undefined,
-  dialect: Dialect,
-  startParamIndex = 1,
-): WhereClause {
-  if (!where || Object.keys(where).length === 0) {
-    return { sql: "", params: [] };
-  }
-
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  let paramIndex = startParamIndex;
-
-  for (const [tsKey, rawValue] of Object.entries(where)) {
-    const col = table.columns.find((c) => c.tsName === tsKey);
-    if (!col) continue;
-
-    const sqlCol = quoteIdentifier(col.sqlName);
-    const spatialOps = pluginWhereOperators(col);
-
-    if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
-      conditions.push(dialect.whereOperators.equals(sqlCol, paramIndex));
-      params.push(serializeColumnValue(col, rawValue));
-      paramIndex++;
-      continue;
-    }
-
-    const hasOperator = Object.keys(rawValue).some(
-      (k) => k in dialect.whereOperators || k in spatialOps,
-    );
-
-    if (!hasOperator) {
-      conditions.push(dialect.whereOperators.equals(sqlCol, paramIndex));
-      params.push(rawValue);
-      paramIndex++;
-      continue;
-    }
-
-    for (const [op, value] of Object.entries(rawValue)) {
-      if (op in spatialOps) {
-        const operator = spatialOps[op]!;
-        const compiled = operator.compile(sqlCol, value, col, paramIndex);
-        conditions.push(compiled.sql);
-        params.push(...compiled.params);
-        paramIndex += compiled.params.length;
-        continue;
-      }
-
-      if (!(op in dialect.whereOperators)) continue;
-      const operator = op as WhereOperator;
-      const transform = operatorParamTransform[operator];
-      const paramValue = transform ? transform(value) : value;
-      conditions.push(dialect.whereOperators[operator](sqlCol, paramIndex));
-      params.push(paramValue);
-      paramIndex++;
-    }
-  }
-
-  return {
-    sql: conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "",
-    params,
-  };
 }
 
 export function compileOrderBy(

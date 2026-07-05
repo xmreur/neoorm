@@ -84,7 +84,10 @@ export type WhereOperator =
   | "gte"
   | "lt"
   | "lte"
-  | "in";
+  | "in"
+  | "notIn"
+  | "isNull"
+  | "isNotNull";
 
 export type OperatorMap = Record<
   WhereOperator,

@@ -20,6 +20,7 @@ export async function countRecords(
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
   const { sql: whereSql, params } = compileWhere(
+    manifest,
     table,
     args?.where,
     postgresDialect,

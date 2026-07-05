@@ -22,6 +22,7 @@ export async function deleteRecord(
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
   const { sql: whereSql, params } = compileWhere(
+    manifest,
     table,
     args.where,
     postgresDialect,
@@ -57,6 +58,7 @@ export async function deleteManyRecords(
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
   const { sql: whereSql, params } = compileWhere(
+    manifest,
     table,
     args?.where,
     postgresDialect,

@@ -25,6 +25,9 @@ const whereOperators: OperatorMap = {
   lt: (col, i) => `${col} < $${i}`,
   lte: (col, i) => `${col} <= $${i}`,
   in: (col, i) => `${col} = ANY($${i})`,
+  notIn: (col, i) => `NOT (${col} = ANY($${i}))`,
+  isNull: (col) => `${col} IS NULL`,
+  isNotNull: (col) => `${col} IS NOT NULL`,
 };
 
 function columnType(col: ManifestColumn, manifest?: Manifest): string {

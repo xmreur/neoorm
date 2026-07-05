@@ -158,6 +158,94 @@ manyToMany(schema.posts, schema.tags, {
 });
 ```
 
+## Where clauses
+
+`findMany`, `findFirst`, `findUnique`, `count`, `update`, `updateMany`, `delete`, and `deleteMany` all accept a typed `where` argument.
+
+### Column filters
+
+Equality shorthand and explicit operators:
+
+```ts
+// equality
+await db.posts.findMany({ where: { published: true } });
+
+// operators
+await db.posts.findFirst({
+  where: {
+    title: { contains: "ORM" },
+    views: { gte: 100 },
+    id: { in: ["post_1", "post_2"] },
+  },
+});
+```
+
+String columns support `equals`, `contains`, `startsWith`, `endsWith`, `in`, and `notIn`. Numeric, boolean, and date columns support `equals`, `gt`, `gte`, `lt`, `lte`, `in`, and `notIn`. All nullable columns also support `isNull` and `isNotNull`.
+
+```ts
+await db.users.findMany({
+  where: {
+    name: null,                    // shorthand for IS NULL
+    email: { isNotNull: true },
+    id: { notIn: ["user_1", "user_2"] },
+  },
+});
+```
+
+### Logical combinators
+
+Top-level `AND`, `OR`, and `NOT` keys combine conditions. Multiple sibling keys still imply `AND`:
+
+```ts
+await db.users.findMany({
+  where: {
+    OR: [
+      { email: { contains: "@example.com" } },
+      { email: { contains: "@test.com" } },
+    ],
+    NOT: { name: { isNull: true } },
+    createdAt: { gte: new Date("2025-01-01") },
+  },
+});
+```
+
+### Relation filters
+
+Relation names come from `fk(..., { as: "author", inverse: "posts" })` and `manyToMany(..., { as: "tags" })` — they are not the FK column names on the table.
+
+| Pattern | Use for |
+|---------|---------|
+| `authorId: "user_1"` | Filter by FK column value |
+| `author: { email: "a@b.c" }` | Filter by related record (to-one) |
+| `posts: { some: { ... } }` | At least one related record matches (to-many) |
+| `posts: { every: { ... } }` | All related records match (to-many) |
+| `posts: { none: { ... } }` | No related records match (to-many) |
+
+```ts
+// users who have at least one published post
+await db.users.findMany({
+  where: {
+    posts: { some: { published: true } },
+  },
+});
+
+// posts whose author has a verified email
+await db.posts.findMany({
+  where: {
+    author: { email: { contains: "@" } },
+  },
+});
+
+// posts tagged "orm" (many-to-many via junction table)
+await db.posts.findMany({
+  where: {
+    tags: { some: { slug: "orm" } },
+  },
+});
+```
+
+Relation filters compile to SQL `EXISTS` subqueries, so they work with `findMany`, `count`, `updateMany`, and `deleteMany` without duplicate rows.
+
 ## Transactions
 
 ```ts

@@ -23,6 +23,7 @@ describe("postgis where operators", () => {
     };
 
     const { sql, params } = compileWhere(
+      manifest,
       places,
       { location: { intersects: polygon } },
       postgresDialect,
@@ -42,6 +43,7 @@ describe("postgis where operators", () => {
     };
 
     const { sql } = compileWhere(
+      manifest,
       places,
       { location: { within: polygon } },
       postgresDialect,
@@ -56,6 +58,7 @@ describe("postgis where operators", () => {
     const point = { type: "Point", coordinates: [0, 0] };
 
     const { sql, params } = compileWhere(
+      manifest,
       places,
       { location: { dWithin: { geometry: point, distance: 500 } } },
       postgresDialect,
