@@ -14,6 +14,7 @@ import type {
   OrderDirection,
   CursorInput,
   ScalarPkName,
+  SelectInput,
 } from "./relation-types.js";
 
 type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
@@ -52,6 +53,9 @@ export type {
   WithRelationOptions,
   RelationCreateMap,
   RelationUpdateMap,
+  RelationCountInput,
+  InferWithResult,
+  ApplySelect,
 } from "./relation-types.js";
 
 export type RelationWriteInput = {
@@ -89,6 +93,7 @@ export type FindManyArgs<
   orderBy?: OrderByInput<TSchema[TAccessor]["_columns"]>;
   limit?: number;
   offset?: number;
+  distinct?: SelectInput<TSchema[TAccessor]["_columns"]>;
   with?: WithInputMap<TSchema, TAccessor>;
 };
 
@@ -122,6 +127,11 @@ export type CreateManyArgs<
 > = {
   data: CreateManyInput<TSchema[TAccessor]["_columns"]>[];
 };
+
+export type CreateManyAndReturnArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = CreateManyArgs<TSchema, TAccessor>;
 
 export type UpdateInput<
   TColumns extends Record<string, ColumnDef>,
@@ -183,6 +193,42 @@ export type CountArgs<
 > = {
   where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
+
+type AggregateFieldSelect<TColumns extends Record<string, ColumnDef>> = Expand<{
+  [K in keyof TColumns & string]?: true;
+}>;
+
+type InferAggregateBucket<TSelect> = TSelect extends Record<string, true>
+  ? { [K in keyof TSelect & string]: number | null }
+  : Record<string, never>;
+
+export type AggregateArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = {
+  where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+  _count?: true;
+  _avg?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+  _sum?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+  _min?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+  _max?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+};
+
+export type InferAggregateResult<TArgs> = Expand<
+  (TArgs extends { _count: true } ? { _count: number } : Record<string, never>) &
+    (TArgs extends { _avg: infer S extends Record<string, true> }
+      ? { _avg: InferAggregateBucket<S> }
+      : Record<string, never>) &
+    (TArgs extends { _sum: infer S extends Record<string, true> }
+      ? { _sum: InferAggregateBucket<S> }
+      : Record<string, never>) &
+    (TArgs extends { _min: infer S extends Record<string, true> }
+      ? { _min: InferAggregateBucket<S> }
+      : Record<string, never>) &
+    (TArgs extends { _max: infer S extends Record<string, true> }
+      ? { _max: InferAggregateBucket<S> }
+      : Record<string, never>)
+>;
 
 export type PaginateArgs<
   TSchema extends Record<string, TableDef>,

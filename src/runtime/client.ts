@@ -5,7 +5,8 @@ import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import { createExecutor, compileQuery, type Executor } from "./executor.js";
 import { findMany, findFirst, findById } from "./query/find.js";
 import { countRecords, findUnique } from "./query/count.js";
-import { createRecord, createManyRecords } from "./query/create.js";
+import { createRecord, createManyRecords, createManyAndReturnRecords } from "./query/create.js";
+import { aggregateRecords } from "./query/aggregate.js";
 import { upsertRecord } from "./query/upsert.js";
 import { updateRecord, updateManyRecords, updateById } from "./query/update.js";
 import { deleteRecord, deleteManyRecords, deleteById } from "./query/delete.js";
@@ -26,6 +27,7 @@ export type TableRepository = {
     orderBy?: Record<string, string>;
     limit?: number;
     offset?: number;
+    distinct?: readonly string[] | Record<string, boolean | undefined>;
     with?: Record<string, WithInput>;
   }): Promise<Record<string, unknown>[]>;
   findFirst(args?: {
@@ -48,6 +50,9 @@ export type TableRepository = {
   createMany(args: {
     data: Record<string, unknown>[];
   }): Promise<number>;
+  createManyAndReturn(args: {
+    data: Record<string, unknown>[];
+  }): Promise<Record<string, unknown>[]>;
   upsert(args: {
     where: Record<string, unknown>;
     create: Record<string, unknown>;
@@ -73,6 +78,14 @@ export type TableRepository = {
   }): Promise<Record<string, unknown> | null>;
   deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
   count(args?: { where?: Record<string, unknown> }): Promise<number>;
+  aggregate(args: {
+    where?: Record<string, unknown>;
+    _count?: true;
+    _avg?: Record<string, true>;
+    _sum?: Record<string, true>;
+    _min?: Record<string, true>;
+    _max?: Record<string, true>;
+  }): Promise<Record<string, unknown>>;
   deleteById(id: string): Promise<Record<string, unknown> | null>;
   paginate(args: {
     where?: Record<string, unknown>;
@@ -114,6 +127,7 @@ function createTableRepository(
     findById: (id, args) => findById(executor, runtime, accessor, id, args),
     create: (args) => createRecord(executor, runtime, accessor, args),
     createMany: (args) => createManyRecords(executor, runtime, accessor, args),
+    createManyAndReturn: (args) => createManyAndReturnRecords(executor, runtime, accessor, args),
     upsert: (args) => upsertRecord(executor, runtime, accessor, args),
     update: (args) => updateRecord(executor, runtime, accessor, args),
     updateMany: (args) => updateManyRecords(executor, runtime, accessor, args),
@@ -121,6 +135,7 @@ function createTableRepository(
     delete: (args) => deleteRecord(executor, runtime, accessor, args),
     deleteMany: (args) => deleteManyRecords(executor, runtime, accessor, args),
     count: (args) => countRecords(executor, runtime, accessor, args),
+    aggregate: (args) => aggregateRecords(executor, runtime, accessor, args),
     deleteById: (id) => deleteById(executor, runtime, accessor, id),
     paginate: (args) => paginateRecords(executor, runtime, accessor, args),
   };

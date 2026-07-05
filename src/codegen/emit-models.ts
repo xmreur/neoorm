@@ -95,7 +95,8 @@ function emitWithIncludesType(manifest: Manifest, table: ManifestTable): string 
     .join(" &\n");
 
   return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName} &
-${includeParts};`;
+${includeParts} &
+  IncludeCount<W>;`;
 }
 
 export function emitModelsTs(manifest: Manifest): string {
@@ -110,15 +111,36 @@ export function emitModelsTs(manifest: Manifest): string {
     `import type { ${withTypeNames.join(", ")} } from "./includes.js";`,
     "",
     ...emitGeoJsonTypes(manifest),
+    "type SelectKeys<S> = S extends readonly (infer K extends PropertyKey)[]",
+    "  ? K",
+    "  : S extends Record<string, unknown>",
+    "    ? { [K in keyof S]: S[K] extends true ? K : never }[keyof S]",
+    "    : never;",
+    "",
+    "type ApplySelect<Row extends Record<string, unknown>, S> = Pick<",
+    "  Row,",
+    "  SelectKeys<S> & keyof Row",
+    ">;",
+    "",
     "type IncludeRelation<",
     "  W,",
     "  Key extends PropertyKey,",
     "  Cardinality extends \"one\" | \"many\",",
-    "  TModel,",
-    "> = W extends { [K in Key]?: unknown }",
-    "  ? Cardinality extends \"many\"",
-    "    ? { [P in Key]: TModel[] }",
-    "    : { [P in Key]: TModel | null }",
+    "  TModel extends Record<string, unknown>,",
+    "> = W extends { [K in Key]?: infer Inc }",
+    "  ? Inc extends { select: infer S }",
+    "    ? Cardinality extends \"many\"",
+    "      ? { [P in Key]: ApplySelect<TModel, S>[] }",
+    "      : { [P in Key]: ApplySelect<TModel, S> | null }",
+    "    : Cardinality extends \"many\"",
+    "      ? { [P in Key]: TModel[] }",
+    "      : { [P in Key]: TModel | null }",
+    "  : {};",
+    "",
+    "type IncludeCount<W> = W extends { _count: infer C }",
+    "  ? C extends Record<string, unknown>",
+    "    ? { _count: { [K in keyof C & string]: number } }",
+    "    : {}",
     "  : {};",
     "",
   ];

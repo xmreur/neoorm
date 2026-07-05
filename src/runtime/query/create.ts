@@ -94,7 +94,43 @@ export async function createManyRecords(
     data: Record<string, unknown>[];
   },
 ): Promise<number> {
-  if (args.data.length === 0) return 0;
+  const prepared = prepareCreateManyRows(runtime, tableAccessor, args.data);
+  if (!prepared) return 0;
+
+  const { table, dataKeys, valueRows, values } = prepared;
+  const sql = buildInsertManyQuery(table, dataKeys, valueRows);
+  const result = await runQuery(executor, runtime, { operation: "insert", tableAccessor }, sql, values);
+  return result.length;
+}
+
+export async function createManyAndReturnRecords(
+  executor: Executor,
+  runtime: QueryRuntime,
+  tableAccessor: string,
+  args: {
+    data: Record<string, unknown>[];
+  },
+): Promise<Record<string, unknown>[]> {
+  const prepared = prepareCreateManyRows(runtime, tableAccessor, args.data);
+  if (!prepared) return [];
+
+  const { table, dataKeys, valueRows, values } = prepared;
+  const sql = buildInsertManyQuery(table, dataKeys, valueRows);
+  const rows = await runQuery(executor, runtime, { operation: "insert", tableAccessor }, sql, values);
+  return rows.map((row) => rowToTs(table, row));
+}
+
+function prepareCreateManyRows(
+  runtime: QueryRuntime,
+  tableAccessor: string,
+  data: Record<string, unknown>[],
+): {
+  table: NonNullable<QueryRuntime["manifest"]["tables"][string]>;
+  dataKeys: string[];
+  valueRows: string[];
+  values: unknown[];
+} | null {
+  if (data.length === 0) return null;
 
   const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
@@ -102,7 +138,7 @@ export async function createManyRecords(
 
   const scalarRows: Record<string, unknown>[] = [];
 
-  for (const item of args.data) {
+  for (const item of data) {
     const scalarData: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(item)) {
@@ -139,7 +175,5 @@ export async function createManyRecords(
   });
 
   const { valueRows, values } = buildInsertManyValueRows(table, dataKeys, rowValues);
-  const sql = buildInsertManyQuery(table, dataKeys, valueRows);
-  const result = await runQuery(executor, runtime, { operation: "insert", tableAccessor }, sql, values);
-  return result.length;
+  return { table, dataKeys, valueRows, values };
 }

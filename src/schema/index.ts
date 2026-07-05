@@ -44,6 +44,7 @@ export type {
   CreateArgs,
   CreateInput,
   CreateManyArgs,
+  CreateManyAndReturnArgs,
   CreateManyInput,
   DeleteArgs,
   DeleteManyArgs,
@@ -52,6 +53,8 @@ export type {
   FindManyArgs,
   FindUniqueArgs,
   CountArgs,
+  AggregateArgs,
+  InferAggregateResult,
   UpsertArgs,
   PaginateArgs,
   PaginateResult,
@@ -78,6 +81,9 @@ export type {
   WithRelationOptions,
   SelectInput,
   RelationAccessors,
+  RelationCountInput,
+  InferWithResult,
+  ApplySelect,
 } from "./types.js";
 
 export type {

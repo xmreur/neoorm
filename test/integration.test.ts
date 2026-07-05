@@ -6,6 +6,7 @@ import { getManyToManyRegistry, manyToMany } from "../src/schema/many-to-many.js
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import type { NeoOrmIncludes } from "../examples/blog/neoorm/includes.js";
+import type { NeoOrmRowPayloads } from "../examples/blog/neoorm/models.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
 
@@ -41,7 +42,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("findMany and findById", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const user = await db.users.create({
       data: { email: "test@example.com", name: "Test User" },
@@ -56,7 +57,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("create with connect and connectOrCreate", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: "author@example.com", name: "Author" },
@@ -87,7 +88,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("update with nested create, M2M set, and relation-only writes", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `rel-writes-${Date.now()}@example.com`, name: "Author" },
@@ -141,7 +142,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("update with nested delete on inverse one-to-many", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `delete-comment-${Date.now()}@example.com`, name: "Author" },
@@ -175,8 +176,8 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
       with: { comments: true },
     });
 
-    expect(updated?.["comments"]).toHaveLength(1);
-    expect((updated?.["comments"] as { body: string }[])[0]?.body).toBe("Keep");
+    expect((updated?.["comments"] as unknown as { body: string }[])).toHaveLength(1);
+    expect((updated?.["comments"] as unknown as { body: string }[])[0]?.body).toBe("Keep");
 
     const deletedComment = await db.comments.findById(toDelete.id);
     expect(deletedComment).toBeNull();
@@ -184,7 +185,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("updateMany applies M2M relation writes per matched parent", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `update-many-m2m-${Date.now()}@example.com`, name: "Author" },
@@ -223,13 +224,13 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
     const withTagsA = await db.posts.findById(postA["id"] as string, { with: { tags: true } });
     const withTagsB = await db.posts.findById(postB["id"] as string, { with: { tags: true } });
-    expect((withTagsA?.["tags"] as { id: string }[])?.map((t) => t.id)).toContain(tag["id"]);
-    expect((withTagsB?.["tags"] as { id: string }[])?.map((t) => t.id)).toContain(tag["id"]);
+    expect((withTagsA?.["tags"] as unknown as { id: string }[])?.map((t) => t.id)).toContain(tag["id"]);
+    expect((withTagsB?.["tags"] as unknown as { id: string }[])?.map((t) => t.id)).toContain(tag["id"]);
   });
 
   it("update with M2M delete removes tag row and junction link", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `delete-tag-${Date.now()}@example.com`, name: "Author" },
@@ -268,7 +269,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("rejects disconnect on non-nullable to-one relation", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `disconnect-${Date.now()}@example.com`, name: "Author" },
@@ -296,7 +297,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("raw sql tagged template", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const count = await db.users.createMany({
       data: [
@@ -307,9 +308,27 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     expect(count).toBe(2);
   });
 
+  it("createManyAndReturn returns inserted rows", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
+
+    const ts = Date.now();
+    const rows = await db.users.createManyAndReturn({
+      data: [
+        { email: `return-1-${ts}@example.com`, name: "Return One" },
+        { email: `return-2-${ts}@example.com`, name: "Return Two" },
+      ],
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.["id"]).toBeTruthy();
+    expect(rows[0]?.["email"]).toBe(`return-1-${ts}@example.com`);
+    expect(rows[1]?.["email"]).toBe(`return-2-${ts}@example.com`);
+  });
+
   it("update and delete", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const user = await db.users.create({
       data: { email: "mutate@example.com", name: "Before" },
@@ -336,7 +355,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("commits multi-table interactive transaction", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const email = `tx-commit-${Date.now()}@example.com`;
 
@@ -364,7 +383,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("rolls back failed transaction", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const email = `tx-rollback-${Date.now()}@example.com`;
 
@@ -381,7 +400,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("rejects writes in read-only transaction", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     await expect(
       db.$transaction(
@@ -397,7 +416,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("nested transaction failure rolls back only the savepoint", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const outerEmail = `tx-nested-outer-${Date.now()}@example.com`;
     const innerEmail = `tx-nested-inner-${Date.now()}@example.com`;
@@ -419,7 +438,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("paginates posts with keyset cursor", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `paginate-${Date.now()}@example.com`, name: "Pager" },
@@ -474,7 +493,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
   it("auto-updates updatedAt on update and updateMany", async () => {
     const manifest = schemaToManifest(schema);
-    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
 
     const author = await db.users.create({
       data: { email: `updated-at-${Date.now()}@example.com`, name: "Author" },
@@ -524,5 +543,60 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     const refreshedSibling = await db.posts.findById(sibling["id"] as string);
     expect(refreshedSibling?.["published"]).toBe(false);
     expect(refreshedSibling?.["updatedAt"]).not.toBe(sibling["updatedAt"]);
+  });
+
+  it("_count on relations in with", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `count-with-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    for (let i = 0; i < 3; i++) {
+      await db.posts.create({
+        data: {
+          title: `count-post-${Date.now()}-${i}`,
+          body: "body",
+          published: true,
+          author: { connect: { id: author["id"] as string } },
+        },
+      });
+    }
+
+    const users = await db.users.findMany({
+      where: { id: author["id"] as string },
+      with: { _count: { posts: true } },
+    });
+
+    expect(users[0]?.["_count"]).toEqual({ posts: 3 });
+  });
+
+  it("aggregate returns count and avg", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes, NeoOrmRowPayloads>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `aggregate-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    await db.posts.create({
+      data: {
+        title: `aggregate-post-${Date.now()}`,
+        body: "body",
+        published: true,
+        views: 10,
+        author: { connect: { id: author["id"] as string } },
+      },
+    });
+
+    const stats = await db.posts.aggregate({
+      where: { authorId: author["id"] as string },
+      _count: true,
+      _avg: { views: true },
+    });
+
+    expect(stats["_count"]).toBeGreaterThanOrEqual(1);
+    expect(stats["_avg"]).toEqual({ views: 10 });
   });
 });
