@@ -22,6 +22,12 @@ type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
     : false
   : false;
 
+type IsUpdatedAt<T> = T extends ColumnBuilder<unknown, infer M>
+  ? M extends { updatedAt: true }
+    ? true
+    : false
+  : false;
+
 /** Expands mapped types so IDEs surface keys for autocomplete */
 type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
@@ -122,9 +128,11 @@ export type UpdateInput<
   TAccessor extends keyof TSchema & string = keyof TSchema & string,
 > = Expand<
   {
-    [K in keyof TColumns as IsPrimary<TColumns[K]> extends true ? never : K]?: InferColumnValue<
-      TColumns[K]
-    >;
+    [K in keyof TColumns as IsPrimary<TColumns[K]> extends true
+      ? never
+      : IsUpdatedAt<TColumns[K]> extends true
+        ? never
+        : K]?: InferColumnValue<TColumns[K]>;
   } & RelationUpdateMap<TSchema, TAccessor>
 >;
 

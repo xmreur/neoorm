@@ -16,6 +16,7 @@ import {
   splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
 import { primaryKeySqlName, requireScalarPrimaryKey, rowScalarPkValue } from "./primary-key.js";
+import { stripUpdatedAtFromData, updatedAtSetExpressions } from "./updated-at.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 
 async function runUpdate(
@@ -59,7 +60,9 @@ async function runUpdate(
     throw new Error("Update requires a where clause");
   }
 
+  stripUpdatedAtFromData(table, scalarData);
   const { keys, values } = dataToSqlValues(table, scalarData, { excludePrimary: true });
+  const exprSets = updatedAtSetExpressions(table);
   const needsRelationWrites = hasPostRelationWrites(
     table,
     manifest,
@@ -67,13 +70,13 @@ async function runUpdate(
     relationWrites,
   );
 
-  if (keys.length === 0 && !needsRelationWrites) {
+  if (keys.length === 0 && !needsRelationWrites && exprSets.length === 0) {
     throw new Error("Update requires at least one scalar field or relation write");
   }
 
   let result: Record<string, unknown> | null;
 
-  if (keys.length === 0) {
+  if (keys.length === 0 && exprSets.length === 0) {
     const selectSql = `SELECT * FROM ${quoteIdentifier(table.sqlName)} WHERE ${whereSql} LIMIT 1`;
     const row = await runQueryOne(
       executor,
@@ -85,7 +88,7 @@ async function runUpdate(
     if (!row) return null;
     result = rowToTs(table, row);
   } else {
-    const query = buildUpdateQuery(table, keys, whereSql);
+    const query = buildUpdateQuery(table, keys, whereSql, exprSets);
     const row = await runQueryOne(
       executor,
       runtime,
@@ -163,8 +166,11 @@ export async function updateManyRecords(
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-  const { keys, values } = dataToSqlValues(table, args.data, { excludePrimary: true });
-  if (keys.length === 0) {
+  const updateData = { ...args.data };
+  stripUpdatedAtFromData(table, updateData);
+  const { keys, values } = dataToSqlValues(table, updateData, { excludePrimary: true });
+  const exprSets = updatedAtSetExpressions(table);
+  if (keys.length === 0 && exprSets.length === 0) {
     throw new Error("Update requires at least one scalar field");
   }
 
@@ -175,7 +181,7 @@ export async function updateManyRecords(
     postgresDialect,
   );
 
-  const query = buildUpdateManyQuery(table, keys, whereSql);
+  const query = buildUpdateManyQuery(table, keys, whereSql, exprSets);
   const pkSql = quoteIdentifier(primaryKeySqlName(table));
   const result = await runQuery(
     executor,

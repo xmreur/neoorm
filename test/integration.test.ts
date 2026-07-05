@@ -344,4 +344,58 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     expect(page3.hasMore).toBe(false);
     expect(page3.nextCursor).toBeNull();
   });
+
+  it("auto-updates updatedAt on update and updateMany", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `updated-at-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    const post = await db.posts.create({
+      data: {
+        title: `updated-at-post-${Date.now()}`,
+        body: "body",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+        createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      },
+    });
+
+    const originalUpdatedAt = post["updatedAt"] as string;
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updated = await db.posts.updateById(post["id"] as string, {
+      data: {
+        title: `${post["title"] as string}-edited`,
+        // @ts-expect-error — verify runtime strips user-provided updatedAt
+        updatedAt: "1999-01-01T00:00:00.000Z",
+      },
+    });
+
+    expect(updated?.["updatedAt"]).not.toBe(originalUpdatedAt);
+    expect(updated?.["updatedAt"]).not.toBe("1999-01-01T00:00:00.000Z");
+
+    const sibling = await db.posts.create({
+      data: {
+        title: `updated-at-sibling-${Date.now()}`,
+        body: "body",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+      },
+    });
+
+    const count = await db.posts.updateMany({
+      where: { authorId: author["id"] as string },
+      data: { published: false },
+    });
+
+    expect(count).toBeGreaterThanOrEqual(2);
+
+    const refreshedSibling = await db.posts.findById(sibling["id"] as string);
+    expect(refreshedSibling?.["published"]).toBe(false);
+    expect(refreshedSibling?.["updatedAt"]).not.toBe(sibling["updatedAt"]);
+  });
 });

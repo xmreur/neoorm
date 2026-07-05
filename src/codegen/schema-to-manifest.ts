@@ -84,6 +84,16 @@ function isColumnBuilder(col: ColumnDef): col is ColumnBuilder<unknown> {
   return "_meta" in col && col._meta.kind !== "fk";
 }
 
+const UPDATED_AT_COLUMN_KINDS = new Set(["timestamp"]);
+
+function validateUpdatedAtColumn(tsName: string, kind: string): void {
+  if (!UPDATED_AT_COLUMN_KINDS.has(kind)) {
+    throw new Error(
+      `Column "${tsName}": .updatedAt() is only supported on timestamp columns (got "${kind}")`,
+    );
+  }
+}
+
 function resolveSqlName(tsName: string, col: ColumnDef): string {
   if ("_meta" in col && col._meta.mapName) {
     return col._meta.mapName;
@@ -102,6 +112,7 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
       unique: meta.unique,
       primary: meta.primary,
       defaultNow: meta.defaultNow,
+      ...("updatedAt" in meta && meta.updatedAt === true ? { updatedAt: true as const } : {}),
       fkTarget: meta.target,
       fkAs: meta.as,
       fkInverse: meta.inverse,
@@ -113,6 +124,9 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
   }
 
   const meta = col._meta;
+  if ("updatedAt" in meta && meta.updatedAt === true) {
+    validateUpdatedAtColumn(tsName, meta.kind);
+  }
   const result: ManifestColumn = {
     tsName,
     sqlName: resolveSqlName(tsName, col),
@@ -121,6 +135,7 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
     unique: meta.unique,
     primary: meta.primary,
     defaultNow: meta.defaultNow,
+    ...("updatedAt" in meta && meta.updatedAt === true ? { updatedAt: true as const } : {}),
   };
   if (meta.defaultValue !== undefined) {
     result.defaultValue = meta.defaultValue;

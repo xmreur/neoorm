@@ -117,7 +117,16 @@ Column field names use camelCase in TypeScript. By default, SQL column names are
 | `text()` | `TEXT` | `string \| null` | |
 | `bool()` | `BOOLEAN` | `boolean \| null` | |
 | `int()` | `INTEGER` | `number \| null` | |
-| `timestamp()` | `TIMESTAMPTZ` | `Date \| null` | Use `.defaultNow()` for `DEFAULT NOW()` |
+| `timestamp()` | `TIMESTAMPTZ` | `Date \| null` | Use `.defaultNow()` for `DEFAULT NOW()`; use `.updatedAt()` for auto-update on ORM writes |
+
+Pair audit timestamps on mutable tables:
+
+```ts
+createdAt: timestamp().notNull().defaultNow(),
+updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+```
+
+`.updatedAt()` is ORM metadata only (no DB trigger). `update`, `updateById`, `updateMany`, and `upsert` always set the column to `NOW()` in SQL; user-provided values in `data` are ignored.
 | `json()` | `JSON` | `unknown \| null` | Generic: `json<MyType>()` |
 | `jsonb()` | `JSONB` | `unknown \| null` | Generic: `jsonb<MyType>()` |
 | `decimal()` / `numeric()` | `NUMERIC` or `NUMERIC(p,s)` | `string \| null` | Use strings to avoid float precision loss |
@@ -127,7 +136,7 @@ Column field names use camelCase in TypeScript. By default, SQL column names are
 | `intArray()` | `INTEGER[]` | `number[] \| null` | |
 | `citext()` | `CITEXT` | `string \| null` | Case-insensitive text; requires `citext` extension |
 
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.primary()`, and `.map(name)`.
+All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.updatedAt()` (timestamp only), `.primary()`, and `.map(name)`.
 
 Foreign keys use `fk("target_table.target_column", { as, inverse, nullable?, onDelete? })`.
 

@@ -177,6 +177,9 @@ const timestampType: ColumnTypePlugin = {
       pgDataType === "time without time zone"
     );
   },
+  updatedAtExpression() {
+    return "NOW()";
+  },
 };
 
 const uuidType: ColumnTypePlugin = {

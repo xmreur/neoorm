@@ -22,6 +22,7 @@ export const schema = defineSchema({
     email: text().notNull().unique(),
     name: text(),
     createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow().updatedAt(),
   }),
 
   profiles: table("profiles", {
@@ -57,6 +58,7 @@ export const schema = defineSchema({
       metadata: jsonb<Record<string, unknown>>(),
       price: decimal({ precision: 10, scale: 2 }),
       createdAt: timestamp().notNull().defaultNow(),
+      updatedAt: timestamp().notNull().defaultNow().updatedAt(),
     },
     (t) => ({
       authorIdx: index().on(t.authorId),

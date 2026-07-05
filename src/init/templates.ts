@@ -21,6 +21,7 @@ export const schema = defineSchema({
     id: id.primary(),
     email: text().notNull().unique(),
     createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow().updatedAt(),
   }),
 
   posts: table("posts", {
@@ -32,6 +33,7 @@ export const schema = defineSchema({
     }),
     title: text().notNull(),
     createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow().updatedAt(),
   }),
 });
 `;
