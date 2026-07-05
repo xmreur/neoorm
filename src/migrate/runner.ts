@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { Manifest } from "../dialect/types.js";
@@ -12,6 +12,17 @@ import { introspectToManifest } from "../introspect/to-manifest.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
 
+export type MigrationRecord = {
+  name: string;
+  appliedAt: Date;
+};
+
+export type MigrationStatus = {
+  applied: MigrationRecord[];
+  pending: string[];
+  orphanApplied: string[];
+};
+
 export async function ensureMigrationsTable(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} (
@@ -22,18 +33,23 @@ export async function ensureMigrationsTable(pool: Pool): Promise<void> {
   `);
 }
 
-export async function getAppliedMigrations(pool: Pool): Promise<Set<string>> {
+export async function listAppliedMigrations(pool: Pool): Promise<MigrationRecord[]> {
   await ensureMigrationsTable(pool);
-  const result = await pool.query(
-    `SELECT name FROM ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} ORDER BY id`,
+  const result = await pool.query<{ name: string; applied_at: Date }>(
+    `SELECT name, applied_at FROM ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} ORDER BY id`,
   );
-  return new Set(result.rows.map((r) => r.name as string));
+  return result.rows.map((row) => ({
+    name: row.name,
+    appliedAt: row.applied_at,
+  }));
 }
 
-export async function listPendingMigrations(
-  migrationsDir: string,
-  applied: Set<string>,
-): Promise<string[]> {
+export async function getAppliedMigrations(pool: Pool): Promise<Set<string>> {
+  const applied = await listAppliedMigrations(pool);
+  return new Set(applied.map((record) => record.name));
+}
+
+export async function listMigrationsOnDisk(migrationsDir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(migrationsDir);
@@ -41,7 +57,126 @@ export async function listPendingMigrations(
     return [];
   }
 
-  return entries.filter((e) => !applied.has(e)).sort();
+  const migrations: string[] = [];
+  for (const entry of entries) {
+    const entryPath = join(migrationsDir, entry);
+    try {
+      const entryStat = await stat(entryPath);
+      if (!entryStat.isDirectory()) {
+        continue;
+      }
+      await readFile(join(entryPath, "migration.sql"), "utf-8");
+      migrations.push(entry);
+    } catch {
+      // skip entries without migration.sql
+    }
+  }
+
+  return migrations.sort();
+}
+
+export function computeMigrationStatus(
+  diskMigrations: string[],
+  applied: MigrationRecord[],
+): MigrationStatus {
+  const appliedNames = new Set(applied.map((record) => record.name));
+  const diskSet = new Set(diskMigrations);
+  const pending = diskMigrations.filter((name) => !appliedNames.has(name));
+  const orphanApplied = applied
+    .map((record) => record.name)
+    .filter((name) => !diskSet.has(name));
+
+  return { applied, pending, orphanApplied };
+}
+
+export async function migrateStatus(
+  pool: Pool,
+  migrationsDir: string,
+): Promise<MigrationStatus> {
+  const [applied, diskMigrations] = await Promise.all([
+    listAppliedMigrations(pool),
+    listMigrationsOnDisk(migrationsDir),
+  ]);
+  return computeMigrationStatus(diskMigrations, applied);
+}
+
+export function formatMigrateStatus(
+  status: MigrationStatus,
+  migrationsDir: string,
+): string[] {
+  const lines: string[] = [`Migration status (${migrationsDir})`, ""];
+
+  lines.push("Applied:");
+  if (status.applied.length === 0) {
+    lines.push("  (none)");
+  } else {
+    for (const record of status.applied) {
+      const appliedAt = record.appliedAt.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
+      lines.push(`  ✓ ${record.name.padEnd(28)} ${appliedAt}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("Pending:");
+  if (status.pending.length === 0) {
+    lines.push("  (none)");
+  } else {
+    for (const name of status.pending) {
+      lines.push(`  ○ ${name}`);
+    }
+  }
+
+  if (status.orphanApplied.length > 0) {
+    lines.push("");
+    lines.push("Warnings:");
+    for (const name of status.orphanApplied) {
+      lines.push(`  ! Applied migration missing on disk: ${name}`);
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    `Summary: ${status.applied.length} applied, ${status.pending.length} pending`,
+  );
+
+  return lines;
+}
+
+export async function resetDatabaseSchema(pool: Pool): Promise<void> {
+  await pool.query(`
+    DROP SCHEMA public CASCADE;
+    CREATE SCHEMA public;
+    GRANT ALL ON SCHEMA public TO PUBLIC;
+  `);
+}
+
+export async function migrateReset(
+  pool: Pool,
+  migrationsDir: string,
+  options: { force: boolean; skipApply?: boolean },
+): Promise<{ reapplied: string[] }> {
+  if (!options.force) {
+    throw new Error(
+      "migrate reset requires --force. This drops the public schema and all data.",
+    );
+  }
+
+  await resetDatabaseSchema(pool);
+
+  if (options.skipApply) {
+    return { reapplied: [] };
+  }
+
+  const reapplied = await migrateDeploy(pool, migrationsDir);
+  return { reapplied };
+}
+
+export async function listPendingMigrations(
+  migrationsDir: string,
+  applied: Set<string>,
+): Promise<string[]> {
+  const diskMigrations = await listMigrationsOnDisk(migrationsDir);
+  return diskMigrations.filter((name) => !applied.has(name));
 }
 
 export async function applySql(pool: Pool, sql: string[]): Promise<void> {

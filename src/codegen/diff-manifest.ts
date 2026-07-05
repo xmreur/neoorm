@@ -721,6 +721,76 @@ export function resolveMigrationSql(
   };
 }
 
+function relationsSignature(manifest: Manifest): string {
+  const parts: string[] = [];
+  for (const table of Object.values(manifest.tables)) {
+    for (const rel of table.relations) {
+      parts.push(
+        `${table.sqlName}:${rel.name}:${rel.inverse}:${rel.targetAccessor}:${rel.cardinality}`,
+      );
+    }
+  }
+  return parts.sort().join("|");
+}
+
+export function explainNoMigrationSql(
+  prev: Manifest | null,
+  next: Manifest,
+  diff: ManifestDiff,
+): string[] {
+  const reasons: string[] = [];
+
+  if (!prev) {
+    return ["Initial schema — run generate again if no migration was expected."];
+  }
+
+  for (const change of diff.destructive) {
+    if (
+      change.kind === "alter_column_type_manual" ||
+      change.kind === "alter_enum_manual"
+    ) {
+      reasons.push(formatDestructiveWarnings([change])[0]!);
+    }
+  }
+
+  if (prev.enumMode !== next.enumMode) {
+    reasons.push(
+      `enumMode changed (${prev.enumMode ?? "check"} → ${next.enumMode ?? "check"}) — no DDL emitted`,
+    );
+  }
+
+  const prevExtensions = new Set(prev.extensions ?? []);
+  const addedExtensions = (next.extensions ?? []).filter((ext) => !prevExtensions.has(ext));
+  if (
+    addedExtensions.length === 0 &&
+    JSON.stringify(prev.extensions ?? []) !== JSON.stringify(next.extensions ?? [])
+  ) {
+    reasons.push("extensions metadata changed — no new CREATE EXTENSION statements");
+  }
+
+  if (JSON.stringify(prev.manyToMany) !== JSON.stringify(next.manyToMany)) {
+    reasons.push("manyToMany relation metadata changed — no DDL emitted");
+  }
+
+  if (relationsSignature(prev) !== relationsSignature(next)) {
+    reasons.push("relation names or inverses changed — no DDL emitted");
+  }
+
+  if (diff.destructive.length > 0 && diff.sql.length === 0) {
+    reasons.push(
+      "Destructive changes detected; safe subset produced no SQL. Re-run with --accept-data-loss or write a manual migration.",
+    );
+  }
+
+  if (reasons.length === 0) {
+    reasons.push(
+      "Manifest updated for codegen; database schema is already compatible.",
+    );
+  }
+
+  return reasons;
+}
+
 export function formatDestructiveWarnings(
   destructive: DestructiveChange[],
 ): string[] {

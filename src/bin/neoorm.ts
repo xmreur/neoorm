@@ -3,8 +3,15 @@ import { Command } from "commander";
 import { join, resolve } from "node:path";
 import { Pool } from "pg";
 import { loadConfig } from "../config.js";
-import { generateFromSchema } from "../codegen/generate.js";
-import { migrateDeploy, dbPush, dbPushWarnings } from "../migrate/runner.js";
+import { generateFromSchema, formatGenerateSummary } from "../codegen/generate.js";
+import {
+  migrateDeploy,
+  migrateReset,
+  migrateStatus,
+  formatMigrateStatus,
+  dbPush,
+  dbPushWarnings,
+} from "../migrate/runner.js";
 import { introspectPostgres } from "../introspect/pull.js";
 import { writeFile } from "node:fs/promises";
 
@@ -28,22 +35,13 @@ program
     const schemaPath = resolve(cwd, config.schema);
     const outDir = resolve(cwd, config.out);
 
-    const { migrationName, schemaChanged, warnings, destructiveBlocked } =
-      await generateFromSchema(schemaPath, outDir, {
-        ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
-        ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
-      });
+    const { warnings, summary } = await generateFromSchema(schemaPath, outDir, {
+      ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+      ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
+    });
 
-    console.log(`Generated client at ${outDir}/client.ts`);
-    console.log(`Generated manifest at ${outDir}/manifest.ts`);
-    if (migrationName) {
-      console.log(`Created migration: ${migrationName}`);
-    } else if (destructiveBlocked) {
-      console.log("Destructive schema changes detected — no migration written");
-    } else if (schemaChanged) {
-      console.log("Manifest updated (no migration SQL needed)");
-    } else {
-      console.log("No schema changes detected");
+    for (const line of formatGenerateSummary(summary, outDir)) {
+      console.log(line);
     }
     for (const warning of warnings) {
       console.warn(`Warning: ${warning}`);
@@ -53,59 +51,101 @@ program
 program
   .command("migrate")
   .description("Run migrations")
-  .argument("[subcommand]", "dev | deploy")
+  .argument("[subcommand]", "dev | deploy | status | reset")
   .option(
     "--accept-data-loss",
     "Include destructive schema changes in generated migrations",
   )
-  .action(async (subcommand, options: { acceptDataLoss?: boolean }) => {
-    const cwd = process.cwd();
-    const config = await loadConfig(cwd);
-    const outDir = resolve(cwd, config.out);
-    const migrationsDir = join(outDir, "migrations");
+  .option("--force", "Required for reset — drops the public schema and all data")
+  .option("--skip-apply", "With reset, only drop schema without re-applying migrations")
+  .action(
+    async (
+      subcommand,
+      options: {
+        acceptDataLoss?: boolean;
+        force?: boolean;
+        skipApply?: boolean;
+      },
+    ) => {
+      const cwd = process.cwd();
+      const config = await loadConfig(cwd);
+      const outDir = resolve(cwd, config.out);
+      const migrationsDir = join(outDir, "migrations");
 
-    const pool = new Pool({ connectionString: config.datasource.url });
+      const pool = new Pool({ connectionString: config.datasource.url });
 
-    try {
-      if (subcommand === "deploy" || subcommand === "dev") {
-        const applied = await migrateDeploy(pool, migrationsDir);
-        if (applied.length === 0) {
-          console.log("No pending migrations");
-        } else {
-          console.log(`Applied ${applied.length} migration(s):`);
-          for (const name of applied) {
-            console.log(`  - ${name}`);
+      try {
+        if (subcommand === "status") {
+          const status = await migrateStatus(pool, migrationsDir);
+          for (const line of formatMigrateStatus(status, migrationsDir)) {
+            console.log(line);
           }
+          return;
         }
 
-        if (subcommand === "dev") {
-          const { generateFromSchema } = await import("../codegen/generate.js");
-          const schemaPath = resolve(cwd, config.schema);
-          const { migrationName, warnings, destructiveBlocked } =
-            await generateFromSchema(schemaPath, outDir, {
-              ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
-              ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
-            });
-          for (const warning of warnings) {
-            console.warn(`Warning: ${warning}`);
+        if (subcommand === "reset") {
+          const { reapplied } = await migrateReset(pool, migrationsDir, {
+            force: options.force ?? false,
+            ...(options.skipApply ? { skipApply: true } : {}),
+          });
+          console.log("✓ Database schema reset (public schema dropped and recreated)");
+          if (options.skipApply) {
+            console.log("  Skipped re-applying migrations (--skip-apply)");
+          } else if (reapplied.length === 0) {
+            console.log("  No migrations on disk to apply");
+          } else {
+            console.log(`  Re-applied ${reapplied.length} migration(s):`);
+            for (const name of reapplied) {
+              console.log(`    - ${name}`);
+            }
           }
-          if (migrationName) {
-            await migrateDeploy(pool, join(outDir, "migrations"));
-            console.log(`Created and applied: ${migrationName}`);
-          } else if (destructiveBlocked) {
-            console.log(
-              "Destructive schema changes detected — no migration created",
+          return;
+        }
+
+        if (subcommand === "deploy" || subcommand === "dev") {
+          const applied = await migrateDeploy(pool, migrationsDir);
+          if (applied.length === 0) {
+            console.log("No pending migrations");
+          } else {
+            console.log(`Applied ${applied.length} migration(s):`);
+            for (const name of applied) {
+              console.log(`  - ${name}`);
+            }
+          }
+
+          if (subcommand === "dev") {
+            const schemaPath = resolve(cwd, config.schema);
+            const { warnings, summary, migrationName } = await generateFromSchema(
+              schemaPath,
+              outDir,
+              {
+                ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+                ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
+              },
             );
+            for (const line of formatGenerateSummary(summary, outDir)) {
+              console.log(line);
+            }
+            for (const warning of warnings) {
+              console.warn(`Warning: ${warning}`);
+            }
+            if (migrationName) {
+              const newlyApplied = await migrateDeploy(pool, join(outDir, "migrations"));
+              if (newlyApplied.length > 0) {
+                console.log(`Applied new migration: ${newlyApplied.join(", ")}`);
+              }
+            }
           }
+          return;
         }
-      } else {
-        console.error("Usage: neoorm migrate dev | deploy");
+
+        console.error("Usage: neoorm migrate dev | deploy | status | reset");
         process.exit(1);
+      } finally {
+        await pool.end();
       }
-    } finally {
-      await pool.end();
-    }
-  });
+    },
+  );
 
 program
   .command("db")
@@ -133,7 +173,8 @@ program
         const { appliedStatements, destructiveBlocked } = await dbPush(
           pool,
           manifest,
-          { ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}) },
+          { ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+          },
         );
         for (const warning of dbPushWarnings(destructiveBlocked)) {
           console.warn(`Warning: ${warning}`);

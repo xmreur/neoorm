@@ -381,10 +381,43 @@ Nested `create` calls inside a transaction do not start a separate transaction.
 | `neoorm generate` | Emit manifest, typed client, models, includes, and migrations |
 | `neoorm migrate dev` | Apply pending migrations, then generate a new one if the schema changed |
 | `neoorm migrate deploy` | Apply pending migrations |
+| `neoorm migrate status` | List applied vs pending migrations |
+| `neoorm migrate reset --force` | Drop public schema and re-apply migrations (local dev) |
 | `neoorm db push` | Push the current snapshot schema to the database |
 | `neoorm db pull` | Introspect the database into a schema file |
 
-`generate` always rewrites generated TypeScript files. Migration SQL is created only when the schema diff produces changes (new tables/columns, column renames via `.map()`).
+### Generate outcomes
+
+`neoorm generate` always refreshes generated TypeScript files (`client.ts`, `manifest.ts`, `models.ts`, etc.). It prints one of four outcomes:
+
+| Outcome | Meaning |
+|---------|---------|
+| **Schema unchanged** | Snapshot hash matches — no manifest or migration changes |
+| **Client regenerated** | Manifest changed but no database DDL was needed (e.g. `enumMode`, relation metadata) |
+| **Migration created** | New `migrations/<timestamp>/migration.sql` written |
+| **Migration blocked** | Destructive or manual changes prevented writing SQL |
+
+When migration is blocked or skipped, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL, or write a manual migration for unsupported type changes.
+
+```bash
+neoorm generate --accept-data-loss
+```
+
+### Migration status and reset
+
+```bash
+neoorm migrate status
+```
+
+Shows applied migrations (with timestamps), pending folders on disk, and warnings for drift (applied in DB but missing on disk).
+
+```bash
+neoorm migrate reset --force
+```
+
+Drops the `public` schema and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop the schema without re-applying.
+
+`generate` creates migration SQL only when the schema diff produces DDL changes (new tables/columns, column renames via `.map()`, etc.).
 
 ## Plugins
 
