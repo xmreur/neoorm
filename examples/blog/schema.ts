@@ -107,8 +107,6 @@ export const schema = defineSchema({
       pk: primaryKey(t.postId, t.tagId),
     }),
   ),
-}, {
-    columnNaming: "camelCase",
 });
 
 manyToMany(schema.posts, schema.tags, {
