@@ -189,12 +189,20 @@ export async function exampleMutations() {
             author: { connect: { id: "user_1" } },
           },
         ],
+        delete: [{ id: "comment_to_remove" }],
       },
       tags: {
         set: [{ id: "tag_1" }],
       },
     },
     with: { comments: true, tags: true },
+  });
+
+  const updateManyWithRelations = await db.posts.updateMany({
+    where: { published: true },
+    data: {
+      tags: { connect: [{ id: "tag_1" }] },
+    },
   });
 
   const relationOnlyUpdate = await db.posts.update({
@@ -229,6 +237,7 @@ export async function exampleMutations() {
     priceUpdate,
     publishPost,
     withRelationWrites,
+    updateManyWithRelations,
     relationOnlyUpdate,
     seeded,
     deleted,

@@ -298,8 +298,8 @@ manyToMany(schema.posts, schema.tags, {
 | Relation kind | Operations |
 |---------------|------------|
 | **To-one** (outgoing FK) | `connect`, `create`, `disconnect` (nullable FK only) |
-| **One-to-many** (inverse) | `create`, `connect`, `disconnect`, `set` |
-| **Many-to-many** | `connect`, `connectOrCreate`, `disconnect`, `set` |
+| **One-to-many** (inverse) | `create`, `connect`, `disconnect`, `set`, `delete` |
+| **Many-to-many** | `connect`, `connectOrCreate`, `disconnect`, `set`, `delete` |
 
 ```ts
 // To-one on update
@@ -317,6 +317,7 @@ await db.posts.update({
       connect: [{ id: commentId }],
       disconnect: [{ id: oldCommentId }], // or `true` to unlink all
       set: [{ id: commentId }],           // replace all links
+      delete: [{ id: commentId }],        // or `true` to delete all linked children
     },
   },
 });
@@ -331,14 +332,22 @@ await db.posts.update({
       connectOrCreate: [
         { where: { slug: "orm" }, create: { slug: "orm", name: "ORM" } },
       ],
+      delete: [{ id: tagId }], // removes junction links, then deletes tag rows
     },
+  },
+});
+
+// updateMany applies scalar SET once, then nested writes per matched parent
+await db.posts.updateMany({
+  where: { published: true },
+  data: {
+    status: "archived",
+    tags: { connect: [{ id: tagId }] },
   },
 });
 ```
 
-Within a single relation field, operations run in order: `disconnect` → `set` → `connect` / `connectOrCreate` → `create`. Mixing `set` with `connect` or `create` is discouraged — `set` replaces the full link set.
-
-`updateMany` does not support relation writes. Nested `delete` on relations is not supported yet.
+Within a single relation field, operations run in order: `delete` → `disconnect` → `set` → `connect` / `connectOrCreate` → `create`. Mixing `set` with `connect` or `create` is discouraged — `set` replaces the full link set.
 
 ## Cursor pagination
 

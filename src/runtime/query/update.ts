@@ -153,6 +153,98 @@ export async function updateRecord(
   return executor.transaction((tx) => runUpdate(tx, runtime, tableAccessor, args));
 }
 
+async function runUpdateMany(
+  executor: Executor,
+  runtime: QueryRuntime,
+  tableAccessor: string,
+  args: {
+    where?: Record<string, unknown>;
+    data: Record<string, unknown>;
+  },
+): Promise<number> {
+  const { manifest } = runtime;
+  const table = manifest.tables[tableAccessor];
+  if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+  const { scalarData, relationWrites } = splitScalarsAndRelationWrites(
+    manifest,
+    tableAccessor,
+    table,
+    args.data,
+  );
+
+  await applyToOnePreWrites(
+    executor,
+    runtime,
+    table,
+    scalarData,
+    relationWrites,
+    runCreate,
+  );
+
+  stripUpdatedAtFromData(table, scalarData);
+  const { keys, values } = dataToSqlValues(table, scalarData, { excludePrimary: true });
+  const exprSets = updatedAtSetExpressions(table);
+  const needsPostRelationWrites = hasPostRelationWrites(
+    table,
+    manifest,
+    tableAccessor,
+    relationWrites,
+  );
+
+  if (keys.length === 0 && exprSets.length === 0 && !needsPostRelationWrites) {
+    throw new Error("Update requires at least one scalar field or relation write");
+  }
+
+  const { sql: whereSql, params: whereParams } = compileWhere(
+    manifest,
+    table,
+    args.where,
+    postgresDialect,
+  );
+
+  const pkSql = quoteIdentifier(primaryKeySqlName(table));
+  let parentIds: string[] = [];
+
+  if (keys.length > 0 || exprSets.length > 0) {
+    const query = buildUpdateManyQuery(table, keys, whereSql, exprSets);
+    const rows = await runQuery(
+      executor,
+      runtime,
+      { operation: "update", tableAccessor },
+      `${query} RETURNING ${pkSql}`,
+      [...values, ...whereParams],
+    );
+    parentIds = rows.map((row) => rowScalarPkValue(rowToTs(table, row), table));
+  } else {
+    let selectSql = `SELECT ${pkSql} FROM ${quoteIdentifier(table.sqlName)}`;
+    if (whereSql) selectSql += ` ${whereSql}`;
+    const rows = await runQuery(
+      executor,
+      runtime,
+      { operation: "select", tableAccessor },
+      selectSql,
+      whereParams,
+    );
+    parentIds = rows.map((row) => rowScalarPkValue(rowToTs(table, row), table));
+  }
+
+  if (needsPostRelationWrites) {
+    for (const parentId of parentIds) {
+      await executeRelationWrites(
+        executor,
+        runtime,
+        tableAccessor,
+        parentId,
+        relationWrites,
+        runCreate,
+      );
+    }
+  }
+
+  return parentIds.length;
+}
+
 export async function updateManyRecords(
   executor: Executor,
   runtime: QueryRuntime,
@@ -166,31 +258,24 @@ export async function updateManyRecords(
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-  const updateData = { ...args.data };
-  stripUpdatedAtFromData(table, updateData);
-  const { keys, values } = dataToSqlValues(table, updateData, { excludePrimary: true });
-  const exprSets = updatedAtSetExpressions(table);
-  if (keys.length === 0 && exprSets.length === 0) {
-    throw new Error("Update requires at least one scalar field");
+  const { relationWrites } = splitScalarsAndRelationWrites(
+    manifest,
+    tableAccessor,
+    table,
+    args.data,
+  );
+  const needsTransaction = hasPostRelationWrites(
+    table,
+    manifest,
+    tableAccessor,
+    relationWrites,
+  );
+
+  if (executor.inTransaction || !needsTransaction) {
+    return runUpdateMany(executor, runtime, tableAccessor, args);
   }
 
-  const { sql: whereSql, params: whereParams } = compileWhere(
-    manifest,
-    table,
-    args.where,
-    postgresDialect,
-  );
-
-  const query = buildUpdateManyQuery(table, keys, whereSql, exprSets);
-  const pkSql = quoteIdentifier(primaryKeySqlName(table));
-  const result = await runQuery(
-    executor,
-    runtime,
-    { operation: "update", tableAccessor },
-    `${query} RETURNING ${pkSql}`,
-    [...values, ...whereParams],
-  );
-  return result.length;
+  return executor.transaction((tx) => runUpdateMany(tx, runtime, tableAccessor, args));
 }
 
 export async function updateById(

@@ -135,6 +135,10 @@ type ToManyRelationWrite<
     | true
     | ConnectInput<TSchema[TChildAccessor]["_columns"]>
     | ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
+  delete?:
+    | true
+    | ConnectInput<TSchema[TChildAccessor]["_columns"]>
+    | ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
   set?: ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
 };
 

@@ -139,6 +139,133 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     expect(relationOnly?.["tags"]).toHaveLength(1);
   });
 
+  it("update with nested delete on inverse one-to-many", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `delete-comment-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    const post = await db.posts.create({
+      data: {
+        title: "Delete comment test",
+        body: "Body",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+        comments: {
+          create: [
+            { body: "Keep", author: { connect: { id: author["id"] as string } } },
+            { body: "Remove", author: { connect: { id: author["id"] as string } } },
+          ],
+        },
+      },
+      with: { comments: true },
+    });
+
+    const comments = post["comments"] as { id: string; body: string }[];
+    expect(comments).toHaveLength(2);
+    const toDelete = comments.find((c) => c.body === "Remove")!;
+
+    const updated = await db.posts.update({
+      where: { id: post["id"] as string },
+      data: {
+        comments: { delete: [{ id: toDelete.id }] },
+      },
+      with: { comments: true },
+    });
+
+    expect(updated?.["comments"]).toHaveLength(1);
+    expect((updated?.["comments"] as { body: string }[])[0]?.body).toBe("Keep");
+
+    const deletedComment = await db.comments.findById(toDelete.id);
+    expect(deletedComment).toBeNull();
+  });
+
+  it("updateMany applies M2M relation writes per matched parent", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `update-many-m2m-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    const tag = await db.tags.create({
+      data: { slug: `update-many-tag-${Date.now()}`, name: "Shared Tag" },
+    });
+
+    const prefix = `update-many-m2m-${Date.now()}`;
+    const postA = await db.posts.create({
+      data: {
+        title: `${prefix}-a`,
+        body: "A",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+      },
+    });
+    const postB = await db.posts.create({
+      data: {
+        title: `${prefix}-b`,
+        body: "B",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+      },
+    });
+
+    const count = await db.posts.updateMany({
+      where: { title: { startsWith: prefix } },
+      data: {
+        tags: { connect: [{ id: tag["id"] as string }] },
+      },
+    });
+
+    expect(count).toBe(2);
+
+    const withTagsA = await db.posts.findById(postA["id"] as string, { with: { tags: true } });
+    const withTagsB = await db.posts.findById(postB["id"] as string, { with: { tags: true } });
+    expect((withTagsA?.["tags"] as { id: string }[])?.map((t) => t.id)).toContain(tag["id"]);
+    expect((withTagsB?.["tags"] as { id: string }[])?.map((t) => t.id)).toContain(tag["id"]);
+  });
+
+  it("update with M2M delete removes tag row and junction link", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `delete-tag-${Date.now()}@example.com`, name: "Author" },
+    });
+
+    const tag = await db.tags.create({
+      data: { slug: `delete-tag-${Date.now()}`, name: "Ephemeral" },
+    });
+
+    const post = await db.posts.create({
+      data: {
+        title: "M2M delete test",
+        body: "Body",
+        published: true,
+        author: { connect: { id: author["id"] as string } },
+        tags: { connect: [{ id: tag["id"] as string }] },
+      },
+      with: { tags: true },
+    });
+
+    expect((post["tags"] as unknown[]).length).toBe(1);
+
+    await db.posts.update({
+      where: { id: post["id"] as string },
+      data: {
+        tags: { delete: [{ id: tag["id"] as string }] },
+      },
+    });
+
+    const refreshed = await db.posts.findById(post["id"] as string, { with: { tags: true } });
+    expect(refreshed?.["tags"]).toHaveLength(0);
+
+    const deletedTag = await db.tags.findById(tag["id"] as string);
+    expect(deletedTag).toBeNull();
+  });
+
   it("rejects disconnect on non-nullable to-one relation", async () => {
     const manifest = schemaToManifest(schema);
     const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
