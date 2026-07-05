@@ -1,30 +1,14 @@
 import type { Pool } from "pg";
 import { toCamelCase, toSnakeCase } from "../utils/case.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
-
-type ColumnInfo = {
-  column_name: string;
-  data_type: string;
-  udt_name: string;
-  is_nullable: string;
-  column_default: string | null;
-};
-
-type FkInfo = {
-  column_name: string;
-  foreign_table_name: string;
-  foreign_column_name: string;
-};
+import {
+  queryColumns,
+  queryForeignKeys,
+  queryTables,
+} from "./queries.js";
 
 export async function introspectPostgres(pool: Pool): Promise<string> {
-  const tablesResult = await pool.query<{ table_name: string }>(`
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_type = 'BASE TABLE'
-      AND table_name NOT LIKE '_neoorm_%'
-    ORDER BY table_name
-  `);
+  const tables = await queryTables(pool);
 
   const pluginImports = new Set<string>();
   const pluginColumnImports = new Set<string>();
@@ -32,36 +16,18 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
 
   const tableBlocks: string[] = [];
 
-  for (const { table_name } of tablesResult.rows) {
-    const colsResult = await pool.query<ColumnInfo>(`
-      SELECT column_name, data_type, udt_name, is_nullable, column_default
-      FROM information_schema.columns
-      WHERE table_schema = 'public' AND table_name = $1
-      ORDER BY ordinal_position
-    `, [table_name]);
+  for (const { table_name } of tables) {
+    const cols = await queryColumns(pool, table_name);
+    const fks = await queryForeignKeys(pool, table_name);
 
-    const fkResult = await pool.query<FkInfo>(`
-      SELECT
-        kcu.column_name,
-        ccu.table_name AS foreign_table_name,
-        ccu.column_name AS foreign_column_name
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-      JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = tc.constraint_name
-      WHERE tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_name = $1
-    `, [table_name]);
+    const fkMap = new Map(fks.map((r) => [r.column_name, r]));
 
-    const fkMap = new Map(
-      fkResult.rows.map((r) => [r.column_name, r]),
+    const accessor = toCamelCase(
+      table_name.endsWith("s") ? table_name : `${table_name}s`,
     );
-
-    const accessor = toCamelCase(table_name.endsWith("s") ? table_name : `${table_name}s`);
     const blockLines: string[] = [`  ${accessor}: table("${table_name}", {`];
 
-    for (const col of colsResult.rows) {
+    for (const col of cols) {
       const tsName = toCamelCase(col.column_name);
       const fk = fkMap.get(col.column_name);
 
@@ -88,9 +54,19 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
       } else {
         const pluginType = findIntrospectColumnType(col.data_type, col.udt_name);
         if (pluginType) {
-          if (pluginType.kind === "geometry" || pluginType.kind === "geography" || pluginType.kind === "point") {
+          if (
+            pluginType.kind === "geometry" ||
+            pluginType.kind === "geography" ||
+            pluginType.kind === "point"
+          ) {
             needsPostgisSideEffect = true;
-            pluginColumnImports.add(pluginType.kind === "geography" ? "geography" : pluginType.kind === "point" ? "point" : "geometry");
+            pluginColumnImports.add(
+              pluginType.kind === "geography"
+                ? "geography"
+                : pluginType.kind === "point"
+                  ? "point"
+                  : "geometry",
+            );
           }
           let def = `    ${tsName}: ${pluginType.kind}()`;
           if (pluginType.kind === "uuid") {
@@ -140,7 +116,9 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
   }
 
   if (pluginColumnImports.size > 0) {
-    lines.push(`import { ${[...pluginColumnImports].sort().join(", ")} } from "neoorm/plugins/postgis";`);
+    lines.push(
+      `import { ${[...pluginColumnImports].sort().join(", ")} } from "neoorm/plugins/postgis";`,
+    );
   }
 
   for (const pluginImport of pluginImports) {

@@ -15,6 +15,9 @@ export type ManifestColumn = {
   fkAs?: string;
   fkInverse?: string;
   onDelete?: string;
+  fkConstraintName?: string;
+  uniqueConstraintName?: string;
+  storageSqlType?: string;
 };
 
 export type ManifestRelation = {
@@ -48,6 +51,7 @@ export type ManifestIndex = {
   name: string;
   columns: readonly string[];
   unique: boolean;
+  sqlName?: string;
 };
 
 export type ManifestTable = {
@@ -87,19 +91,77 @@ export type OperatorMap = Record<
   (sqlColumn: string, paramIndex: number) => string
 >;
 
+export type ColumnAlter = {
+  sqlName: string;
+  setType?: ManifestColumn;
+  fromSqlType?: string;
+  setNullable?: boolean;
+  setDefault?: ManifestColumn | null;
+  setUnique?: boolean;
+  dropUniqueConstraint?: string;
+};
+
+export type FkChange = {
+  column: string;
+  add?: { target: string; onDelete?: string; constraintName?: string };
+  drop?: string;
+};
+
 export type TableDiff = {
-  create?: ManifestTable;
+  table: ManifestTable;
+  create?: boolean;
+  drop?: boolean;
   addColumns?: ManifestColumn[];
   dropColumns?: string[];
   renameColumns?: Array<{ from: string; to: string }>;
+  alterColumns?: ColumnAlter[];
+  addIndexes?: ManifestIndex[];
+  dropIndexes?: string[];
+  fkChanges?: FkChange[];
+  manifest?: Manifest;
+};
+
+export type DestructiveChangeKind =
+  | "drop_table"
+  | "drop_column"
+  | "alter_column_type"
+  | "alter_column_type_manual"
+  | "drop_index"
+  | "drop_fk"
+  | "alter_primary_key";
+
+export type DestructiveChange = {
+  kind: DestructiveChangeKind;
+  table: string;
+  detail: string;
+  sql: string;
+};
+
+export type ManifestDiff = {
+  isInitial: boolean;
+  sql: string[];
+  destructive: DestructiveChange[];
+};
+
+export type CreateTableOptions = {
+  inlineForeignKeys?: boolean;
+  manifest?: Manifest;
 };
 
 export type Dialect = {
   readonly name: string;
   quoteIdentifier(name: string): string;
-  columnType(col: ManifestColumn): string;
-  emitCreateTable(table: ManifestTable): string;
+  columnType(col: ManifestColumn, manifest?: Manifest): string;
+  resolveIndexSqlName(tableSqlName: string, index: ManifestIndex): string;
+  emitCreateExtensions(extensions: readonly string[]): string[];
+  emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
+  emitDropTable(table: ManifestTable): string;
+  emitCreateIndex(table: ManifestTable, index: ManifestIndex): string;
+  emitDropIndex(indexName: string): string;
+  emitDropConstraint(tableSqlName: string, constraintName: string): string;
   emitAlterTable(table: ManifestTable, diff: TableDiff): string[];
+  emitAlterColumn(table: ManifestTable, alter: ColumnAlter, manifest?: Manifest): string[];
+  emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string;
   whereOperators: OperatorMap;
   defaultNowExpression(): string;
 };

@@ -1,6 +1,10 @@
 import type {
+  ColumnAlter,
+  CreateTableOptions,
   Dialect,
+  Manifest,
   ManifestColumn,
+  ManifestIndex,
   ManifestTable,
   OperatorMap,
   TableDiff,
@@ -23,11 +27,77 @@ const whereOperators: OperatorMap = {
   in: (col, i) => `${col} = ANY($${i})`,
 };
 
-function columnType(col: ManifestColumn): string {
+function columnType(col: ManifestColumn, manifest?: Manifest): string {
+  return resolveColumnSqlType(col, manifest);
+}
+
+export function resolveColumnSqlType(
+  col: ManifestColumn,
+  manifest?: Manifest,
+): string {
+  if (col.storageSqlType) {
+    return col.storageSqlType;
+  }
+
+  if (col.kind === "fk" && col.fkTarget && manifest) {
+    const [tableSql, colSql] = col.fkTarget.split(".");
+    const targetTable = Object.values(manifest.tables).find(
+      (table) => table.sqlName === tableSql,
+    );
+    const targetCol = targetTable?.columns.find(
+      (column) => column.sqlName === colSql,
+    );
+    if (targetCol) {
+      return resolveColumnSqlType(targetCol, manifest);
+    }
+  }
+
   if (col.kind === "fk") {
     return "TEXT";
   }
+
   return getColumnTypeOrThrow(col.kind).columnType(col);
+}
+
+export function pgStorageSqlType(dataType: string, udtName: string): string {
+  if (udtName === "uuid") {
+    return "UUID";
+  }
+  switch (dataType) {
+    case "boolean":
+      return "BOOLEAN";
+    case "integer":
+    case "bigint":
+    case "smallint":
+      return "INTEGER";
+    case "timestamp with time zone":
+      return "TIMESTAMPTZ";
+    case "timestamp without time zone":
+      return "TIMESTAMP";
+    case "text":
+    case "character varying":
+      return "TEXT";
+    default:
+      return "TEXT";
+  }
+}
+
+function columnDef(col: ManifestColumn, manifest?: Manifest): string {
+  const parts = [q(col.sqlName), columnType(col, manifest)];
+
+  if (col.primary) {
+    parts.push("PRIMARY KEY");
+  } else {
+    if (!col.nullable) parts.push("NOT NULL");
+    if (col.unique) parts.push("UNIQUE");
+  }
+
+  const defaultSql = formatDefaultValue(col);
+  if (defaultSql !== null) {
+    parts.push(`DEFAULT ${defaultSql}`);
+  }
+
+  return parts.join(" ");
 }
 
 function formatDefaultValue(col: ManifestColumn): string | null {
@@ -48,36 +118,100 @@ function formatDefaultValue(col: ManifestColumn): string | null {
     : String(col.defaultValue);
 }
 
-function columnDef(col: ManifestColumn): string {
-  const parts = [q(col.sqlName), columnType(col)];
-
-  if (col.primary) {
-    parts.push("PRIMARY KEY");
-  } else {
-    if (!col.nullable) parts.push("NOT NULL");
-    if (col.unique) parts.push("UNIQUE");
-  }
-
-  const defaultSql = formatDefaultValue(col);
-  if (defaultSql !== null) {
-    parts.push(`DEFAULT ${defaultSql}`);
-  }
-
-  return parts.join(" ");
-}
-
 function defaultNowExpression(): string {
   return "NOW()";
 }
 
-function emitCreateTable(table: ManifestTable): string {
+export function typeCastUsing(
+  sqlName: string,
+  fromType: string,
+  toType: string,
+): string | undefined {
+  const col = q(sqlName);
+  const from = fromType.toUpperCase();
+  const to = toType.toUpperCase();
+  if (from === to) {
+    return undefined;
+  }
+  if (from === "TEXT" && to === "UUID") {
+    return `${col}::uuid`;
+  }
+  if (from === "UUID" && to === "TEXT") {
+    return `${col}::text`;
+  }
+  if (from === "INTEGER" && to === "TEXT") {
+    return `${col}::text`;
+  }
+  if (from === "TEXT" && to === "INTEGER") {
+    return `${col}::integer`;
+  }
+  if (from === "BOOLEAN" && to === "TEXT") {
+    return `${col}::text`;
+  }
+  if (from === "TEXT" && to === "BOOLEAN") {
+    return `${col}::boolean`;
+  }
+  if (
+    (from === "TIMESTAMP WITH TIME ZONE" || from === "TIMESTAMPTZ") &&
+    (to === "TIMESTAMP WITHOUT TIME ZONE" || to === "TIMESTAMP")
+  ) {
+    return `${col}::timestamp`;
+  }
+  if (
+    (from === "TIMESTAMP WITHOUT TIME ZONE" || from === "TIMESTAMP") &&
+    (to === "TIMESTAMP WITH TIME ZONE" || to === "TIMESTAMPTZ")
+  ) {
+    return `${col}::timestamptz`;
+  }
+  return undefined;
+}
+
+export function canAutoCastType(fromType: string, toType: string): boolean {
+  return typeCastUsing("x", fromType, toType) !== undefined;
+}
+
+export function resolveIndexSqlName(
+  tableSqlName: string,
+  index: ManifestIndex,
+): string {
+  if (index.sqlName) {
+    return index.sqlName;
+  }
+  const suffix = index.unique ? "_key" : "_idx";
+  return `${tableSqlName}_${index.name}${suffix}`;
+}
+
+export function resolveFkConstraintName(
+  tableSqlName: string,
+  columnSqlName: string,
+): string {
+  return `${tableSqlName}_${columnSqlName}_fkey`;
+}
+
+export function resolveUniqueConstraintName(
+  tableSqlName: string,
+  columnSqlName: string,
+): string {
+  return `${tableSqlName}_${columnSqlName}_key`;
+}
+
+function emitCreateExtensions(extensions: readonly string[]): string[] {
+  return extensions.map((ext) => `CREATE EXTENSION IF NOT EXISTS ${ext};`);
+}
+
+function emitCreateTable(
+  table: ManifestTable,
+  options: CreateTableOptions = {},
+): string {
+  const inlineForeignKeys = options.inlineForeignKeys ?? true;
+  const manifest = options.manifest;
   const lines: string[] = [];
 
   for (const col of table.columns) {
     if (col.primary && table.primaryKey.length <= 1) {
-      lines.push(`  ${columnDef(col)}`);
+      lines.push(`  ${columnDef(col, manifest)}`);
     } else if (!col.primary) {
-      lines.push(`  ${columnDef(col)}`);
+      lines.push(`  ${columnDef(col, manifest)}`);
     }
   }
 
@@ -93,13 +227,17 @@ function emitCreateTable(table: ManifestTable): string {
     }
   }
 
-  for (const col of table.columns) {
-    if (col.kind === "fk" && col.fkTarget) {
-      const [targetTable, targetCol] = col.fkTarget.split(".");
-      const onDelete = col.onDelete ? ` ON DELETE ${col.onDelete.toUpperCase()}` : "";
-      lines.push(
-        `  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${q(targetTable!)}(${q(targetCol!)})${onDelete}`,
-      );
+  if (inlineForeignKeys) {
+    for (const col of table.columns) {
+      if (col.kind === "fk" && col.fkTarget) {
+        const [targetTable, targetCol] = col.fkTarget.split(".");
+        const onDelete = col.onDelete
+          ? ` ON DELETE ${col.onDelete.toUpperCase()}`
+          : "";
+        lines.push(
+          `  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${q(targetTable!)}(${q(targetCol!)})${onDelete}`,
+        );
+      }
     }
   }
 
@@ -107,13 +245,123 @@ function emitCreateTable(table: ManifestTable): string {
   return `CREATE TABLE ${q(table.sqlName)} (\n${body}\n);`;
 }
 
-function emitAlterTable(_table: ManifestTable, diff: TableDiff): string[] {
+function emitDropTable(table: ManifestTable): string {
+  return `DROP TABLE ${q(table.sqlName)};`;
+}
+
+function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
+  const indexName = resolveIndexSqlName(table.sqlName, index);
+  const cols = index.columns.map((c) => q(c)).join(", ");
+  const unique = index.unique ? "UNIQUE " : "";
+  return `CREATE ${unique}INDEX ${q(indexName)} ON ${q(table.sqlName)} (${cols});`;
+}
+
+function emitDropIndex(indexName: string): string {
+  return `DROP INDEX IF EXISTS ${q(indexName)};`;
+}
+
+function emitDropConstraint(tableSqlName: string, constraintName: string): string {
+  return `ALTER TABLE ${q(tableSqlName)} DROP CONSTRAINT ${q(constraintName)};`;
+}
+
+function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {
+  if (!col.fkTarget) {
+    throw new Error(`FK column "${col.sqlName}" is missing fkTarget`);
+  }
+  const [targetTable, targetCol] = col.fkTarget.split(".");
+  const constraintName =
+    col.fkConstraintName ?? resolveFkConstraintName(table.sqlName, col.sqlName);
+  const onDelete = col.onDelete ? ` ON DELETE ${col.onDelete.toUpperCase()}` : "";
+  return `ALTER TABLE ${q(table.sqlName)} ADD CONSTRAINT ${q(constraintName)} FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${q(targetTable!)}(${q(targetCol!)})${onDelete};`;
+}
+
+function emitAlterColumn(
+  table: ManifestTable,
+  alter: ColumnAlter,
+  manifest?: Manifest,
+): string[] {
   const stmts: string[] = [];
+  const tableName = q(table.sqlName);
+  const colName = q(alter.sqlName);
+
+  if (alter.setType) {
+    const typeSql = columnType(alter.setType, manifest);
+    const using =
+      alter.fromSqlType !== undefined
+        ? typeCastUsing(alter.sqlName, alter.fromSqlType, typeSql)
+        : undefined;
+    const usingClause = using ? ` USING ${using}` : "";
+    stmts.push(
+      `ALTER TABLE ${tableName} ALTER COLUMN ${colName} TYPE ${typeSql}${usingClause};`,
+    );
+  }
+
+  if (alter.setNullable !== undefined) {
+    stmts.push(
+      alter.setNullable
+        ? `ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP NOT NULL;`
+        : `ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET NOT NULL;`,
+    );
+  }
+
+  if (alter.setDefault !== undefined) {
+    if (alter.setDefault === null) {
+      stmts.push(`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`);
+    } else {
+      const defaultSql = formatDefaultValue(alter.setDefault);
+      if (defaultSql !== null) {
+        stmts.push(
+          `ALTER TABLE ${tableName} ALTER COLUMN ${colName} SET DEFAULT ${defaultSql};`,
+        );
+      }
+    }
+  }
+
+  if (alter.dropUniqueConstraint) {
+    stmts.push(
+      emitDropConstraint(table.sqlName, alter.dropUniqueConstraint),
+    );
+  }
+
+  if (alter.setUnique === true) {
+    const constraintName =
+      resolveUniqueConstraintName(table.sqlName, alter.sqlName);
+    stmts.push(
+      `ALTER TABLE ${tableName} ADD CONSTRAINT ${q(constraintName)} UNIQUE (${colName});`,
+    );
+  }
+
+  return stmts;
+}
+
+function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
+  const stmts: string[] = [];
+  const manifest = diff.manifest;
+
+  if (diff.fkChanges) {
+    for (const change of diff.fkChanges) {
+      if (change.drop) {
+        stmts.push(emitDropConstraint(table.sqlName, change.drop));
+      }
+    }
+  }
+
+  if (diff.dropIndexes) {
+    for (const indexName of diff.dropIndexes) {
+      stmts.push(emitDropIndex(indexName));
+    }
+  }
+
+  if (diff.dropColumns) {
+    for (const col of diff.dropColumns) {
+      stmts.push(`ALTER TABLE ${q(table.sqlName)} DROP COLUMN ${q(col)};`);
+    }
+  }
 
   if (diff.renameColumns) {
     for (const { from, to } of diff.renameColumns) {
       stmts.push(
-        `ALTER TABLE ${q(_table.sqlName)} RENAME COLUMN ${q(from)} TO ${q(to)};`,
+        `ALTER TABLE ${q(table.sqlName)} RENAME COLUMN ${q(from)} TO ${q(to)};`,
       );
     }
   }
@@ -121,14 +369,41 @@ function emitAlterTable(_table: ManifestTable, diff: TableDiff): string[] {
   if (diff.addColumns) {
     for (const col of diff.addColumns) {
       stmts.push(
-        `ALTER TABLE ${q(_table.sqlName)} ADD COLUMN ${columnDef(col)};`,
+        `ALTER TABLE ${q(table.sqlName)} ADD COLUMN ${columnDef(col, manifest)};`,
       );
     }
   }
 
-  if (diff.dropColumns) {
-    for (const col of diff.dropColumns) {
-      stmts.push(`ALTER TABLE ${q(_table.sqlName)} DROP COLUMN ${q(col)};`);
+  if (diff.alterColumns) {
+    for (const alter of diff.alterColumns) {
+      stmts.push(...emitAlterColumn(table, alter, manifest));
+    }
+  }
+
+  if (diff.addIndexes) {
+    for (const index of diff.addIndexes) {
+      stmts.push(emitCreateIndex(table, index));
+    }
+  }
+
+  if (diff.fkChanges) {
+    for (const change of diff.fkChanges) {
+      if (change.add) {
+        const col = table.columns.find((c) => c.sqlName === change.column);
+        if (col?.fkTarget) {
+          const fkCol: ManifestColumn = {
+            ...col,
+            fkTarget: change.add.target,
+          };
+          if (change.add.onDelete !== undefined) {
+            fkCol.onDelete = change.add.onDelete;
+          }
+          if (change.add.constraintName !== undefined) {
+            fkCol.fkConstraintName = change.add.constraintName;
+          }
+          stmts.push(emitAddForeignKey(table, fkCol));
+        }
+      }
     }
   }
 
@@ -139,8 +414,16 @@ export const postgresDialect: Dialect = {
   name: "postgresql",
   quoteIdentifier: q,
   columnType,
+  resolveIndexSqlName,
+  emitCreateExtensions,
   emitCreateTable,
+  emitDropTable,
+  emitCreateIndex,
+  emitDropIndex,
+  emitDropConstraint,
   emitAlterTable,
+  emitAlterColumn,
+  emitAddForeignKey,
   whereOperators,
   defaultNowExpression,
 };

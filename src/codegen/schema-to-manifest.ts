@@ -16,6 +16,7 @@ import type { ManyToManyDef } from "../schema/many-to-many.js";
 import { toSnakeCase } from "../utils/case.js";
 import { collectExtensionsForKinds, getColumnType, getPluginRegistry } from "../plugins/registry.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
+import { resolveIndexSqlName } from "../dialect/postgres.js";
 
 function isFkBuilder(col: ColumnDef): col is FkBuilder {
   return "_meta" in col && col._meta.kind === "fk";
@@ -75,17 +76,20 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
 function extrasToManifest(
   extras: Record<string, TableExtra>,
   columns: Record<string, ColumnDef>,
+  tableSqlName: string,
 ): { indexes: ManifestIndex[]; primaryKey: string[] } {
   const indexes: ManifestIndex[] = [];
   let primaryKey: string[] = [];
 
   for (const [name, extra] of Object.entries(extras)) {
     if (extra.kind === "index") {
-      indexes.push({
+      const index: ManifestIndex = {
         name,
         columns: extra.columns.map((tsName) => resolveSqlName(tsName, columns[tsName]!)),
         unique: extra.unique,
-      });
+      };
+      index.sqlName = resolveIndexSqlName(tableSqlName, index);
+      indexes.push(index);
     } else if (extra.kind === "primaryKey") {
       primaryKey = extra.columns.map((tsName) => resolveSqlName(tsName, columns[tsName]!));
     }
@@ -147,7 +151,11 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
       columnToManifest(name, col),
     );
 
-    const { indexes, primaryKey } = extrasToManifest(tableDef._extras, tableDef._columns);
+    const { indexes, primaryKey } = extrasToManifest(
+      tableDef._extras,
+      tableDef._columns,
+      tableDef._tableName,
+    );
 
     const pk =
       primaryKey.length > 0

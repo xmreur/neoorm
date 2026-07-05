@@ -2,8 +2,12 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, relative, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type { Manifest, ManifestColumn, TableDiff } from "../dialect/types.js";
-import { postgresDialect } from "../dialect/postgres.js";
+import type { Manifest } from "../dialect/types.js";
+import {
+  diffManifest,
+  formatDestructiveWarnings,
+  resolveMigrationSql,
+} from "./diff-manifest.js";
 import { emitIncludesTs } from "./emit-includes.js";
 import { emitModelsTs } from "./emit-models.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
@@ -186,64 +190,13 @@ function schemaImportPath(outDir: string, schemaPath: string): string {
 
 const NEOORM_PACKAGE = "neoorm";
 
-export function diffManifest(
-  prev: Manifest | null,
-  next: Manifest,
-): { isInitial: boolean; sql: string[] } {
-  if (!prev) {
-    const sql: string[] = [];
-    for (const ext of next.extensions ?? []) {
-      sql.push(`CREATE EXTENSION IF NOT EXISTS ${ext};`);
-    }
-    sql.push(
-      ...Object.values(next.tables).map((t) => postgresDialect.emitCreateTable(t)),
-    );
-    return { isInitial: true, sql };
-  }
-
-  const sql: string[] = [];
-  const prevTables = new Set(Object.keys(prev.tables));
-  const nextTables = new Set(Object.keys(next.tables));
-
-  for (const accessor of nextTables) {
-    if (!prevTables.has(accessor)) {
-      const table = next.tables[accessor]!;
-      sql.push(postgresDialect.emitCreateTable(table));
-    } else {
-      const prevTable = prev.tables[accessor]!;
-      const nextTable = next.tables[accessor]!;
-      const prevByTs = new Map(prevTable.columns.map((c) => [c.tsName, c]));
-      const prevSqlNames = new Set(prevTable.columns.map((c) => c.sqlName));
-
-      const renameColumns: Array<{ from: string; to: string }> = [];
-      const addColumns: ManifestColumn[] = [];
-
-      for (const nextCol of nextTable.columns) {
-        const prevCol = prevByTs.get(nextCol.tsName);
-        if (prevCol) {
-          if (prevCol.sqlName !== nextCol.sqlName) {
-            renameColumns.push({ from: prevCol.sqlName, to: nextCol.sqlName });
-          }
-        } else if (!prevSqlNames.has(nextCol.sqlName)) {
-          addColumns.push(nextCol);
-        }
-      }
-
-      if (renameColumns.length > 0 || addColumns.length > 0) {
-        const diff: TableDiff = {};
-        if (renameColumns.length > 0) {
-          diff.renameColumns = renameColumns;
-        }
-        if (addColumns.length > 0) {
-          diff.addColumns = addColumns;
-        }
-        sql.push(...postgresDialect.emitAlterTable(nextTable, diff));
-      }
-    }
-  }
-
-  return { isInitial: false, sql };
-}
+export {
+  diffManifest,
+  formatDestructiveWarnings,
+  resolveMigrationSql,
+  columnsEqual,
+  columnSqlType,
+} from "./diff-manifest.js";
 
 export async function writeMigration(
   outDir: string,
@@ -306,11 +259,17 @@ export type GenerateResult = {
   migrationName: string | null;
   schemaChanged: boolean;
   warnings: string[];
+  destructiveBlocked: boolean;
+};
+
+export type GenerateOptions = {
+  acceptDataLoss?: boolean;
 };
 
 export async function generateFromSchema(
   schemaPath: string,
   outDir: string,
+  options: GenerateOptions = {},
 ): Promise<GenerateResult> {
   const { schemaToManifest, validateManifest } = await import(
     "./schema-to-manifest.js"
@@ -327,8 +286,39 @@ export async function generateFromSchema(
 
   const prev = await readSnapshot(outDir);
   const schemaChanged = !prev || hashManifest(prev) !== hashManifest(manifest);
-  const { sql } = diffManifest(prev, manifest);
-  const { migrationName } = await writeGeneratedFiles(outDir, manifest, sql, schemaPath);
+  const manifestDiff = diffManifest(prev, manifest);
+  const { sql, blocked } = resolveMigrationSql(
+    manifestDiff,
+    prev,
+    manifest,
+    options.acceptDataLoss ?? false,
+  );
 
-  return { manifest, migrationName, schemaChanged, warnings };
+  const allWarnings = [...warnings];
+  let destructiveBlocked = false;
+  if (blocked.length > 0) {
+    destructiveBlocked = true;
+    allWarnings.push(...formatDestructiveWarnings(blocked));
+    allWarnings.push(
+      "Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
+    );
+  }
+
+  const migrationSql =
+    blocked.length > 0 && !(options.acceptDataLoss ?? false) ? [] : sql;
+
+  const { migrationName } = await writeGeneratedFiles(
+    outDir,
+    manifest,
+    migrationSql,
+    schemaPath,
+  );
+
+  return {
+    manifest,
+    migrationName,
+    schemaChanged,
+    warnings: allWarnings,
+    destructiveBlocked,
+  };
 }
