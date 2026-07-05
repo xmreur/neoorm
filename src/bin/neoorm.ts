@@ -7,6 +7,7 @@ import { generateFromSchema, formatGenerateSummary } from "../codegen/generate.j
 import { runInit, formatInitNextSteps } from "../init/scaffold.js";
 import {
   migrateDeploy,
+  migrateDown,
   migrateReset,
   migrateStatus,
   formatMigrateStatus,
@@ -98,13 +99,14 @@ program
 program
   .command("migrate")
   .description("Run migrations")
-  .argument("[subcommand]", "dev | deploy | status | reset")
+  .argument("[subcommand]", "dev | deploy | status | reset | down")
   .option(
     "--accept-data-loss",
     "Include destructive schema changes in generated migrations",
   )
   .option("--force", "Required for reset — drops the public schema and all data")
   .option("--skip-apply", "With reset, only drop schema without re-applying migrations")
+  .option("--steps <n>", "Number of migrations to roll back (down)", "1")
   .action(
     async (
       subcommand,
@@ -112,6 +114,7 @@ program
         acceptDataLoss?: boolean;
         force?: boolean;
         skipApply?: boolean;
+        steps?: string;
       },
     ) => {
       const cwd = process.cwd();
@@ -144,6 +147,27 @@ program
             console.log(`  Re-applied ${reapplied.length} migration(s):`);
             for (const name of reapplied) {
               console.log(`    - ${name}`);
+            }
+          }
+          return;
+        }
+
+        if (subcommand === "down") {
+          const steps = Number.parseInt(options.steps ?? "1", 10);
+          if (!Number.isFinite(steps) || steps < 1) {
+            console.error("--steps must be a positive integer");
+            process.exit(1);
+          }
+          const reverted = await migrateDown(pool, migrationsDir, {
+            steps,
+            outDir,
+          });
+          if (reverted.length === 0) {
+            console.log("No migrations rolled back");
+          } else {
+            console.log(`Rolled back ${reverted.length} migration(s):`);
+            for (const name of reverted) {
+              console.log(`  - ${name}`);
             }
           }
           return;
@@ -186,7 +210,7 @@ program
           return;
         }
 
-        console.error("Usage: neoorm migrate dev | deploy | status | reset");
+        console.error("Usage: neoorm migrate dev | deploy | status | reset | down");
         process.exit(1);
       } finally {
         await pool.end();

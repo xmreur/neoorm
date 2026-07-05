@@ -665,6 +665,22 @@ export function diffManifest(
   return { isInitial: false, sql, destructive };
 }
 
+export function emptyManifest(): Manifest {
+  return {
+    version: 1,
+    tables: {},
+    manyToMany: [],
+  };
+}
+
+/** SQL to roll back a forward migration (next → prev). */
+export function buildDownSql(prev: Manifest | null, next: Manifest): string[] {
+  const target = prev ?? emptyManifest();
+  const diff = diffManifest(next, target);
+  const { sql } = resolveMigrationSql(diff, next, target, true);
+  return sql;
+}
+
 export function resolveMigrationSql(
   diff: ManifestDiff,
   prev: Manifest | null,

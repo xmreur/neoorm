@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Pool } from "pg";
 import type { Manifest } from "../dialect/types.js";
 import { postgresDialect } from "../dialect/postgres.js";
@@ -8,6 +8,7 @@ import {
   formatDestructiveWarnings,
   resolveMigrationSql,
 } from "../codegen/diff-manifest.js";
+import { writeSnapshot } from "../codegen/generate.js";
 import { introspectToManifest } from "../introspect/to-manifest.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
@@ -236,6 +237,98 @@ export async function migrateDeploy(
   }
 
   return pending;
+}
+
+async function readDownSql(migrationsDir: string, name: string): Promise<string> {
+  const sqlPath = join(migrationsDir, name, "down.sql");
+  try {
+    return await readFile(sqlPath, "utf-8");
+  } catch {
+    throw new Error(
+      `Migration "${name}" has no down.sql. Re-generate the migration or add down.sql manually.`,
+    );
+  }
+}
+
+async function readSnapshotBefore(
+  migrationsDir: string,
+  name: string,
+): Promise<Manifest> {
+  const snapshotPath = join(migrationsDir, name, "snapshot.before.json");
+  try {
+    const content = await readFile(snapshotPath, "utf-8");
+    return JSON.parse(content) as Manifest;
+  } catch {
+    throw new Error(
+      `Migration "${name}" has no snapshot.before.json. Re-generate the migration.`,
+    );
+  }
+}
+
+export async function revertMigration(
+  pool: Pool,
+  migrationsDir: string,
+  name: string,
+): Promise<void> {
+  const sql = await readDownSql(migrationsDir, name);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (sql.trim().length > 0) {
+      await client.query(sql);
+    }
+    await client.query(
+      `DELETE FROM ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} WHERE name = $1`,
+      [name],
+    );
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function migrateDown(
+  pool: Pool,
+  migrationsDir: string,
+  options?: { steps?: number; outDir?: string },
+): Promise<string[]> {
+  const steps = options?.steps ?? 1;
+  if (steps < 1) {
+    throw new Error("steps must be at least 1");
+  }
+
+  const applied = await listAppliedMigrations(pool);
+  if (applied.length === 0) {
+    throw new Error("No applied migrations to roll back");
+  }
+  if (steps > applied.length) {
+    throw new Error(
+      `Cannot roll back ${steps} migration(s): only ${applied.length} applied`,
+    );
+  }
+
+  const toRevert = applied.slice(-steps).map((record) => record.name).reverse();
+
+  for (const name of toRevert) {
+    await readDownSql(migrationsDir, name);
+  }
+
+  const reverted: string[] = [];
+  for (const name of toRevert) {
+    await revertMigration(pool, migrationsDir, name);
+    reverted.push(name);
+  }
+
+  const outDir = options?.outDir ?? dirname(migrationsDir);
+  const oldestReverted = toRevert[toRevert.length - 1]!;
+  const snapshotBefore = await readSnapshotBefore(migrationsDir, oldestReverted);
+  await writeSnapshot(outDir, snapshotBefore);
+
+  return reverted;
 }
 
 export type DbPushResult = {
