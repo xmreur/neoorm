@@ -9,6 +9,7 @@ import { createRecord, createManyRecords } from "./query/create.js";
 import { upsertRecord } from "./query/upsert.js";
 import { updateRecord, updateManyRecords, updateById } from "./query/update.js";
 import { deleteRecord, deleteManyRecords, deleteById } from "./query/delete.js";
+import { paginateRecords } from "./query/paginate.js";
 import type { WithInput } from "./query/find.js";
 import type { QueryRuntime } from "./query/execute.js";
 import { runQuery } from "./query/execute.js";
@@ -73,6 +74,17 @@ export type TableRepository = {
   deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
   count(args?: { where?: Record<string, unknown> }): Promise<number>;
   deleteById(id: string): Promise<Record<string, unknown> | null>;
+  paginate(args: {
+    where?: Record<string, unknown>;
+    orderBy: Record<string, string>;
+    take: number;
+    after?: Record<string, unknown>;
+    with?: Record<string, WithInput>;
+  }): Promise<{
+    items: Record<string, unknown>[];
+    nextCursor: Record<string, unknown> | null;
+    hasMore: boolean;
+  }>;
 };
 
 /** @deprecated Use TypedNeoOrmClient with createNeoOrmClient generic instead */
@@ -110,6 +122,7 @@ function createTableRepository(
     deleteMany: (args) => deleteManyRecords(executor, runtime, accessor, args),
     count: (args) => countRecords(executor, runtime, accessor, args),
     deleteById: (id) => deleteById(executor, runtime, accessor, id),
+    paginate: (args) => paginateRecords(executor, runtime, accessor, args),
   };
 }
 
@@ -254,4 +267,5 @@ export type {
   TransactionClient,
   TransactionOptions,
   TransactionIsolationLevel,
+  PaginateCursor,
 } from "./types.js";

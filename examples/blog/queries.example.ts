@@ -55,6 +55,16 @@ export async function exampleQueries() {
     },
   });
 
+  // Keyset pagination for feeds (stable on concurrent inserts)
+  let feedCursor: { createdAt: string; id: string } | null = null;
+  const feedPage = await db.posts.paginate({
+    where: { published: true },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    ...(feedCursor ? { after: feedCursor } : {}),
+  });
+  feedCursor = feedPage.nextCursor;
+
   // Filter by enum status and decimal price (stored as string)
   const premiumPosts = await db.posts.findMany({
     where: {

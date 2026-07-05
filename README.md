@@ -331,6 +331,38 @@ Within a single relation field, operations run in order: `disconnect` → `set` 
 
 `updateMany` does not support relation writes. Nested `delete` on relations is not supported yet.
 
+## Cursor pagination
+
+For feeds, infinite scroll, and large tables, use `paginate` instead of `limit`/`offset`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker (for example `(createdAt, id)`).
+
+```ts
+let cursor: { createdAt: string; id: string } | null = null;
+
+for (;;) {
+  const page = await db.posts.paginate({
+    where: { published: true },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    ...(cursor ? { after: cursor } : {}),
+    with: { author: true },
+  });
+
+  for (const post of page.items) {
+    // render post
+  }
+
+  if (!page.hasMore) break;
+  cursor = page.nextCursor;
+}
+```
+
+- `orderBy` is required; scalar `id` is appended automatically when omitted.
+- `take` is the page size; `hasMore` uses a `take + 1` probe row.
+- `after` is a typed cursor object (`nextCursor` from the previous page).
+- For HTTP APIs, encode cursors with `encodeCursor` / `decodeCursor` from `neoorm`.
+
+On feed tables, add a composite index on the sort columns (for example `index().on(t.createdAt, t.id)`).
+
 ## Where clauses
 
 `findMany`, `findFirst`, `findUnique`, `count`, `update`, `updateMany`, `delete`, and `deleteMany` all accept a typed `where` argument.

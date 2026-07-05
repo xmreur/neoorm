@@ -48,7 +48,7 @@ function pluginWhereOperators(col: ManifestColumn): Record<string, PluginWhereOp
   return getColumnType(col.kind)?.whereOperators ?? {};
 }
 
-function serializeColumnValue(col: ManifestColumn, value: unknown): unknown {
+export function serializeColumnValue(col: ManifestColumn, value: unknown): unknown {
   if (col.kind === "fk") return value;
   const plugin = getColumnType(col.kind);
   if (plugin?.serializeValue) {
@@ -490,6 +490,15 @@ export function buildFindManyQuery(
   if (offset !== undefined) sql += ` OFFSET ${offset}`;
 
   return sql;
+}
+
+export function buildPaginateQuery(
+  table: ManifestTable,
+  whereSql: string,
+  orderSql: string,
+  take: number,
+): string {
+  return buildFindManyQuery(table, whereSql, orderSql, take + 1);
 }
 
 export function buildCountQuery(table: ManifestTable, whereSql: string): string {

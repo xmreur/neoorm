@@ -70,6 +70,22 @@ export type OrderByInput<TColumns extends Record<string, ColumnDef>> = {
   [K in keyof TColumns]?: OrderDirection;
 };
 
+export type ScalarPkName<TColumns extends Record<string, ColumnDef>> = {
+  [K in keyof TColumns]: TColumns[K] extends ColumnBuilder<unknown, infer M>
+    ? M extends { primary: true }
+      ? K
+      : never
+    : never;
+}[keyof TColumns & string];
+
+export type CursorInput<
+  TColumns extends Record<string, ColumnDef>,
+  TOrderBy extends OrderByInput<TColumns>,
+> = Pick<
+  InferSelectRow<TColumns>,
+  (keyof TOrderBy & keyof TColumns) | ScalarPkName<TColumns>
+>;
+
 /** Expands mapped types so IDEs surface keys for autocomplete */
 type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 

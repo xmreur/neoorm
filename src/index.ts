@@ -13,6 +13,7 @@ export type {
   TransactionClient,
   TransactionOptions,
   TransactionIsolationLevel,
+  PaginateCursor,
 } from "./runtime/client.js";
 
 export type { Manifest, ManifestTable, ManifestColumn, ManifestRelation, ManifestManyToMany } from "./dialect/types.js";
@@ -33,3 +34,6 @@ export {
 } from "./codegen/diff-manifest.js";
 export { NeoOrmQueryError, formatQueryError } from "./runtime/errors.js";
 export type { QueryErrorContext, QueryOperation } from "./runtime/errors.js";
+export { encodeCursor, decodeCursor } from "./runtime/query/cursor-codec.js";
+export type { PaginateArgs, PaginateResult } from "./schema/types.js";
+export type { CursorInput, ScalarPkName } from "./schema/relation-types.js";

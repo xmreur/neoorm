@@ -12,6 +12,8 @@ import type {
   WhereInput,
   OrderByInput,
   OrderDirection,
+  CursorInput,
+  ScalarPkName,
 } from "./relation-types.js";
 
 type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
@@ -35,6 +37,8 @@ export type {
   ManyRelationFilter,
   OrderDirection,
   OrderByInput,
+  CursorInput,
+  ScalarPkName,
   WithInputMap,
   WithInclude,
   RelationAccessors,
@@ -169,6 +173,26 @@ export type CountArgs<
   TAccessor extends keyof TSchema & string,
 > = {
   where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+};
+
+export type PaginateArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]> = OrderByInput<
+    TSchema[TAccessor]["_columns"]
+  >,
+> = {
+  where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+  orderBy: TOrderBy;
+  take: number;
+  after?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy>;
+  with?: WithInputMap<TSchema, TAccessor>;
+};
+
+export type PaginateResult<TRow, TCursor> = {
+  items: TRow[];
+  nextCursor: TCursor | null;
+  hasMore: boolean;
 };
 
 export type UpsertArgs<
