@@ -1,3 +1,5 @@
+import type { ColumnNaming } from "../schema/table.js";
+
 export function toSnakeCase(str: string): string {
   return str
     .replace(/([A-Z])/g, "_$1")
@@ -7,6 +9,25 @@ export function toSnakeCase(str: string): string {
 
 export function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+export function resolveSqlColumnName(
+  tsName: string,
+  strategy: ColumnNaming,
+  mapName?: string,
+): string {
+  if (mapName) return mapName;
+
+  switch (strategy) {
+    case "camelCase":
+      return tsName;
+    case "snakeCase":
+      return toSnakeCase(tsName);
+    default: {
+      const exhaustive: never = strategy;
+      return exhaustive;
+    }
+  }
 }
 
 export function mapRowKeys<T extends Record<string, unknown>>(

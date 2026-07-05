@@ -24,16 +24,18 @@ export type { FkBuilder, FkMeta, FkOptions, OnDeleteAction } from "./relation.js
 
 export { table, index, unique, primaryKey } from "./table.js";
 export type {
+  ColumnNaming,
   ColumnDef,
   ColumnRefs,
   IndexDef,
   PrimaryKeyDef,
   TableDef,
   TableExtra,
+  TableOptions,
 } from "./table.js";
 
 export { defineSchema } from "./define-schema.js";
-export type { SchemaDef } from "./define-schema.js";
+export type { SchemaDef, SchemaOptions } from "./define-schema.js";
 
 export { manyToMany, getManyToManyRegistry, clearManyToManyRegistry } from "./many-to-many.js";
 export type { ManyToManyDef } from "./many-to-many.js";

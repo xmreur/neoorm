@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
-import { toCamelCase, toSnakeCase } from "../utils/case.js";
+import type { ColumnNaming } from "../schema/table.js";
+import { resolveSqlColumnName, toCamelCase } from "../utils/case.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
 import {
   queryColumns,
@@ -21,6 +22,7 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
     const fks = await queryForeignKeys(pool, table_name);
 
     const fkMap = new Map(fks.map((r) => [r.column_name, r]));
+    const columnNaming = inferColumnNaming(cols.map((col) => col.column_name));
 
     const accessor = toCamelCase(
       table_name.endsWith("s") ? table_name : `${table_name}s`,
@@ -40,7 +42,7 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
           `      nullable: ${col.is_nullable === "YES"},`,
           `    })`,
         ].join("\n");
-        def = appendMapModifier(def, tsName, col.column_name);
+        def = appendMapModifier(def, tsName, col.column_name, columnNaming);
         blockLines.push(`${def},`);
       } else if (col.column_name === "id" && col.udt_name === "uuid") {
         const version = col.column_default?.includes("gen_random_uuid") ? 4 : 7;
@@ -78,20 +80,24 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
           }
           if (col.is_nullable === "NO") def += `.notNull()`;
           if (col.column_default?.includes("now()")) def += `.defaultNow()`;
-          def = appendMapModifier(def, tsName, col.column_name);
+          def = appendMapModifier(def, tsName, col.column_name, columnNaming);
           blockLines.push(`${def},`);
         } else {
           const kind = pgTypeToKind(col.data_type);
           let def = `    ${tsName}: ${kind}()`;
           if (col.is_nullable === "NO") def += `.notNull()`;
           if (col.column_default?.includes("now()")) def += `.defaultNow()`;
-          def = appendMapModifier(def, tsName, col.column_name);
+          def = appendMapModifier(def, tsName, col.column_name, columnNaming);
           blockLines.push(`${def},`);
         }
       }
     }
 
-    blockLines.push(`  }),`);
+    if (columnNaming === "camelCase") {
+      blockLines.push(`  }, { columnNaming: "camelCase" }),`);
+    } else {
+      blockLines.push(`  }),`);
+    }
     tableBlocks.push(blockLines.join("\n"));
   }
 
@@ -132,8 +138,22 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
   return lines.join("\n");
 }
 
-function appendMapModifier(def: string, tsName: string, sqlName: string): string {
-  if (sqlName === toSnakeCase(tsName)) {
+function inferColumnNaming(columnNames: string[]): ColumnNaming {
+  const allCamelCase = columnNames.every((sqlName) => toCamelCase(sqlName) === sqlName);
+  const needsSnakeCaseMap = columnNames.some(
+    (sqlName) => sqlName !== resolveSqlColumnName(toCamelCase(sqlName), "snakeCase"),
+  );
+
+  return allCamelCase && needsSnakeCaseMap ? "camelCase" : "snakeCase";
+}
+
+function appendMapModifier(
+  def: string,
+  tsName: string,
+  sqlName: string,
+  columnNaming: ColumnNaming,
+): string {
+  if (sqlName === resolveSqlColumnName(tsName, columnNaming)) {
     return def;
   }
   return `${def}.map("${sqlName}")`;
