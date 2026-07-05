@@ -517,6 +517,9 @@ type M2MRelationWriteForAccessor<
       disconnect?:
         | true
         | ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
+      delete?:
+        | true
+        | ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
       set?: ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
       connectOrCreate?: ConnectOrCreateItem<TSchema[TTargetAccessor]["_columns"]>[];
     }

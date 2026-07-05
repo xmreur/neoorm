@@ -12,6 +12,7 @@ import type { WithInput } from "./find.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 
 const RELATION_WRITE_KEYS = [
+  "delete",
   "connect",
   "disconnect",
   "set",
@@ -361,6 +362,99 @@ async function setInverseMany(
   await connectInverseMany(executor, runtime, relation, parentId, childIds);
 }
 
+async function deleteInverseManyChildren(
+  executor: Executor,
+  runtime: QueryRuntime,
+  relation: ManifestRelation,
+  parentId: string,
+  childIds: string[] | undefined,
+): Promise<void> {
+  const { manifest } = runtime;
+  const targetTable = manifest.tables[relation.targetAccessor];
+  if (!targetTable) return;
+
+  const fkCol = childFkColumnMeta(targetTable, relation);
+  const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable, relation));
+  const params: unknown[] = [parentId];
+  let sql = `DELETE FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
+
+  if (childIds && childIds.length > 0) {
+    const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
+    sql += ` AND ${targetPkCol} IN (${placeholders})`;
+    params.push(...childIds);
+  }
+
+  await runQuery(
+    executor,
+    runtime,
+    { operation: "delete", tableAccessor: relation.targetAccessor },
+    sql,
+    params,
+  );
+}
+
+async function listM2MLinkedIds(
+  executor: Executor,
+  runtime: QueryRuntime,
+  m2m: ManifestManyToMany,
+  parentAccessor: string,
+  parentId: string,
+): Promise<string[]> {
+  const { manifest } = runtime;
+  const throughTable = manifest.tables[m2m.throughAccessor];
+  if (!throughTable) return [];
+
+  const isLeft = m2m.leftAccessor === parentAccessor;
+  const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
+  const otherFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
+
+  const parentCol = throughTable.columns.find((c) => c.sqlName === parentFkCol);
+  const otherCol = throughTable.columns.find((c) => c.sqlName === otherFkCol);
+  if (!parentCol || !otherCol) return [];
+
+  const rows = await runQuery<Record<string, unknown>>(
+    executor,
+    runtime,
+    { operation: "select", tableAccessor: throughTable.accessor },
+    `SELECT ${quoteIdentifier(otherCol.sqlName)} FROM ${quoteIdentifier(throughTable.sqlName)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`,
+    [parentId],
+  );
+
+  return rows.map((row) => String(row[otherCol.sqlName] ?? row[otherCol.tsName]));
+}
+
+async function deleteM2MRelated(
+  executor: Executor,
+  runtime: QueryRuntime,
+  m2m: ManifestManyToMany,
+  tableAccessor: string,
+  parentId: string,
+  relatedIds: string[] | undefined,
+): Promise<void> {
+  const { manifest } = runtime;
+  const isLeft = m2m.leftAccessor === tableAccessor;
+  const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
+  const targetTable = manifest.tables[targetAccessor];
+  if (!targetTable) return;
+
+  const ids =
+    relatedIds ??
+    (await listM2MLinkedIds(executor, runtime, m2m, tableAccessor, parentId));
+  if (ids.length === 0) return;
+
+  await deleteJunctionRows(executor, runtime, m2m, tableAccessor, parentId, ids);
+
+  const targetPkCol = quoteIdentifier(primaryKeySqlName(targetTable));
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
+  await runQuery(
+    executor,
+    runtime,
+    { operation: "delete", tableAccessor: targetAccessor },
+    `DELETE FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${targetPkCol} IN (${placeholders})`,
+    ids,
+  );
+}
+
 async function executeToOneWrite(
   executor: Executor,
   runtime: QueryRuntime,
@@ -439,6 +533,16 @@ async function executeM2MWrite(
   const isLeft = m2m.leftAccessor === tableAccessor;
   const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
 
+  if ("delete" in value) {
+    const del = value["delete"];
+    if (del === true) {
+      await deleteM2MRelated(executor, runtime, m2m, tableAccessor, parentId, undefined);
+    } else {
+      const ids = normalizeIdList(del);
+      await deleteM2MRelated(executor, runtime, m2m, tableAccessor, parentId, ids);
+    }
+  }
+
   if ("disconnect" in value) {
     const disconnect = value["disconnect"];
     if (disconnect === true) {
@@ -490,6 +594,16 @@ async function executeInverseManyWrite(
   const rel = findRelation(table, relationName);
   if (!rel || rel.cardinality !== "many" || findM2M(manifest, table.accessor, relationName)) {
     return;
+  }
+
+  if ("delete" in value) {
+    const del = value["delete"];
+    if (del === true) {
+      await deleteInverseManyChildren(executor, runtime, rel, parentId, undefined);
+    } else {
+      const ids = normalizeIdList(del);
+      await deleteInverseManyChildren(executor, runtime, rel, parentId, ids);
+    }
   }
 
   if ("disconnect" in value) {
