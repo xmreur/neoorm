@@ -1,5 +1,22 @@
-export { id, text, bool, int, timestamp, uuid } from "./column.js";
-export type { UuidOptions } from "../plugins/builtin.js";
+export {
+  id,
+  text,
+  bool,
+  int,
+  timestamp,
+  uuid,
+  json,
+  jsonb,
+  decimal,
+  numeric,
+  serial,
+  enumType,
+  bytea,
+  textArray,
+  intArray,
+  citext,
+} from "./column.js";
+export type { UuidOptions, DecimalOptions, EnumTypeOptions } from "../plugins/builtin.js";
 export type { ColumnBuilder, ColumnKind, ColumnMeta } from "./column.js";
 
 export { fk } from "./relation.js";

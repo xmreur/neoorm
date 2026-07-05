@@ -12,37 +12,52 @@ export type InferColumnValue<T> = T extends ColumnBuilder<infer V, infer M>
       : string | null
     : never;
 
+type NullableOperators = {
+  isNull?: true;
+  isNotNull?: true;
+};
+
+type ComparableWhereOperators<T> = {
+  equals?: T;
+  gt?: T;
+  gte?: T;
+  lt?: T;
+  lte?: T;
+  in?: readonly T[];
+  notIn?: readonly T[];
+} & NullableOperators;
+
+type StringWhereOperators<T extends string> = {
+  equals?: T;
+  contains?: T;
+  startsWith?: T;
+  endsWith?: T;
+  in?: readonly T[];
+  notIn?: readonly T[];
+} & NullableOperators;
+
 export type WhereOperators<T> = T extends string
-  ? {
-      equals?: T;
-      contains?: T;
-      startsWith?: T;
-      endsWith?: T;
-      in?: readonly T[];
-      notIn?: readonly T[];
-      isNull?: true;
-      isNotNull?: true;
-    }
+  ? StringWhereOperators<T>
   : T extends number | boolean | Date
-    ? {
-        equals?: T;
-        gt?: T;
-        gte?: T;
-        lt?: T;
-        lte?: T;
-        in?: readonly T[];
-        notIn?: readonly T[];
-        isNull?: true;
-        isNotNull?: true;
-      }
+    ? ComparableWhereOperators<T>
     : {
         equals?: T;
-        isNull?: true;
-        isNotNull?: true;
-      };
+      } & NullableOperators;
+
+type ColumnKindOf<TCol extends ColumnDef> = TCol extends ColumnBuilder<unknown, infer M>
+  ? M["kind"]
+  : never;
+
+type InferColumnWhereOperators<TCol extends ColumnDef> = ColumnKindOf<TCol> extends "decimal"
+  ? ComparableWhereOperators<string>
+  : TCol extends ColumnBuilder<unknown, infer _M>
+    ? WhereOperators<InferColumnValue<TCol>>
+    : TCol extends FkBuilder
+      ? WhereOperators<InferColumnValue<TCol>>
+      : WhereOperators<InferColumnValue<TCol>>;
 
 export type ColumnWhereInput<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns]?: InferColumnValue<TColumns[K]> | WhereOperators<
-    InferColumnValue<TColumns[K]>
-  >;
+  [K in keyof TColumns]?:
+    | InferColumnValue<TColumns[K]>
+    | InferColumnWhereOperators<TColumns[K]>;
 };

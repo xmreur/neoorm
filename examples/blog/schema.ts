@@ -6,6 +6,9 @@ import {
   bool,
   int,
   timestamp,
+  jsonb,
+  decimal,
+  enumType,
   fk,
   index,
   unique,
@@ -48,6 +51,11 @@ export const schema = defineSchema({
       body: text().notNull(),
       published: bool().notNull().default(false),
       views: int().notNull().default(0),
+      status: enumType(["draft", "published", "archived"] as const)
+        .notNull()
+        .default("draft"),
+      metadata: jsonb<Record<string, unknown>>(),
+      price: decimal({ precision: 10, scale: 2 }),
       createdAt: timestamp().notNull().defaultNow(),
     },
     (t) => ({

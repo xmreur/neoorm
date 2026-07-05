@@ -49,7 +49,7 @@ describe("plugin registry", () => {
 
   it("registers custom plugins and column types", () => {
     registerPlugin(testPlugin);
-    expect(getPluginRegistry()).toHaveLength(2);
+    expect(getPluginRegistry()).toHaveLength(3);
     expect(getColumnType("custom")?.columnType({} as never)).toBe("CUSTOM");
   });
 
@@ -61,7 +61,7 @@ describe("plugin registry", () => {
 
   it("collects extensions from plugins", () => {
     registerPlugin(testPlugin);
-    expect(collectExtensions(getPluginRegistry())).toEqual(["test_ext"]);
+    expect(collectExtensions(getPluginRegistry())).toEqual(["citext", "test_ext"]);
   });
 
   it("collects extensions only for used column kinds", () => {

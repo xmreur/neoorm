@@ -18,6 +18,63 @@ import { collectExtensionsForKinds, getColumnType, getPluginRegistry } from "../
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { resolveIndexSqlName } from "../dialect/postgres.js";
 
+export type SchemaToManifestOptions = {
+  enumMode?: "check" | "union" | "native";
+};
+
+function buildEnumCheckExpression(sqlName: string, values: readonly string[]): string {
+  const quoted = values.map((value) => `'${value.replace(/'/g, "''")}'`).join(", ");
+  return `"${sqlName.replace(/"/g, '""')}" IN (${quoted})`;
+}
+
+function resolveEnumTypeName(
+  tableSqlName: string,
+  columnSqlName: string,
+  explicitName?: string,
+): string {
+  return explicitName ?? `${tableSqlName}_${columnSqlName}`;
+}
+
+function finalizeEnumColumns(
+  manifestTables: Record<string, ManifestTable>,
+  enumMode: "check" | "union" | "native",
+): Record<string, { values: readonly string[] }> | undefined {
+  const enumTypes: Record<string, { values: readonly string[] }> = {};
+
+  for (const table of Object.values(manifestTables)) {
+    for (const col of table.columns) {
+      if (col.kind !== "enum") {
+        continue;
+      }
+
+      const values = col.typeOptions?.values as readonly string[] | undefined;
+      if (!values || values.length === 0) {
+        continue;
+      }
+
+      if (enumMode === "check") {
+        col.checkExpression = buildEnumCheckExpression(col.sqlName, values);
+        continue;
+      }
+
+      if (enumMode === "native") {
+        const enumName = resolveEnumTypeName(
+          table.sqlName,
+          col.sqlName,
+          col.typeOptions?.name as string | undefined,
+        );
+        col.typeOptions = {
+          ...col.typeOptions,
+          nativeTypeName: enumName,
+        };
+        enumTypes[enumName] = { values };
+      }
+    }
+  }
+
+  return Object.keys(enumTypes).length > 0 ? enumTypes : undefined;
+}
+
 function isFkBuilder(col: ColumnDef): col is FkBuilder {
   return "_meta" in col && col._meta.kind === "fk";
 }
@@ -69,6 +126,9 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
   }
   if (meta.typeOptions !== undefined) {
     result.typeOptions = meta.typeOptions;
+  }
+  if (meta.kind === "serial") {
+    result.generated = true;
   }
   return result;
 }
@@ -136,7 +196,9 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
   schema: { readonly _tables: T },
   m2mDefs: readonly ManyToManyDef[] = getManyToManyRegistry(),
   plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
+  options: SchemaToManifestOptions = {},
 ): Manifest {
+  const enumMode = options.enumMode ?? "check";
   const tables = schema._tables;
   const sqlNameToAccessor: Record<string, string> = {};
 
@@ -269,10 +331,14 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
     }
   }
 
+  const enumTypes = finalizeEnumColumns(manifestTables, enumMode);
+
   return {
     version: 1,
     tables: manifestTables,
     manyToMany,
+    enumMode,
+    ...(enumTypes ? { enumTypes } : {}),
     extensions: collectExtensionsForKinds(
       Object.values(manifestTables).flatMap((table) => table.columns.map((col) => col.kind)),
     ),

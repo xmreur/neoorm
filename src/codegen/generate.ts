@@ -264,6 +264,7 @@ export type GenerateResult = {
 
 export type GenerateOptions = {
   acceptDataLoss?: boolean;
+  enumMode?: "check" | "union" | "native";
 };
 
 export async function generateFromSchema(
@@ -276,7 +277,9 @@ export async function generateFromSchema(
   );
 
   const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
-  const manifest = schemaToManifest(schema, manyToMany, plugins);
+  const manifest = schemaToManifest(schema, manyToMany, plugins, {
+    ...(options.enumMode ? { enumMode: options.enumMode } : {}),
+  });
   const warnings = collectRedundantMapWarnings(schema);
 
   const errors = validateManifest(manifest);

@@ -13,10 +13,10 @@ export async function exampleQueries() {
       posts: {
         orderBy: { createdAt: "desc" },
         with: {
-            comments: true,
-            tags: true,
-        }
-      }
+          comments: true,
+          tags: true,
+        },
+      },
     },
   });
 
@@ -55,11 +55,34 @@ export async function exampleQueries() {
     },
   });
 
+  // Filter by enum status and decimal price (stored as string)
+  const premiumPosts = await db.posts.findMany({
+    where: {
+      status: "published",
+      price: { gte: "9.99" },
+    },
+    orderBy: { price: "desc" },
+  });
+
+  // Match jsonb metadata exactly
+  const taggedPosts = await db.posts.findMany({
+    where: {
+      metadata: { featured: true, category: "engineering" },
+    },
+  });
+
   const newPost = await db.posts.create({
     data: {
       title: "NeoORM",
-      body: "FK-first relations.",
+      body: "FK-first relations with jsonb, decimal, and enum columns.",
       published: true,
+      status: "published",
+      price: "19.99",
+      metadata: {
+        featured: true,
+        category: "engineering",
+        readingTimeMinutes: 8,
+      },
       author: {
         connect: { id: "user_1" },
       },
@@ -86,14 +109,26 @@ export async function exampleQueries() {
     SELECT
       u.id,
       u.email,
-      count(p.id) as post_count
+      count(p.id) as post_count,
+      coalesce(sum(p.price::numeric), 0) as total_price
     FROM users u
     LEFT JOIN posts p ON p.author_id = u.id
+    WHERE p.status = 'published' OR p.status IS NULL
     GROUP BY u.id, u.email
     ORDER BY post_count DESC
   `;
 
-  return { users, usersWithPublishedPosts, user, post, posts, newPost, rows };
+  return {
+    users,
+    usersWithPublishedPosts,
+    user,
+    post,
+    posts,
+    premiumPosts,
+    taggedPosts,
+    newPost,
+    rows,
+  };
 }
 
 export async function exampleMutations() {
@@ -109,6 +144,29 @@ export async function exampleMutations() {
   const count = await db.posts.updateMany({
     where: { published: false },
     data: { views: 0 },
+  });
+
+  const priceUpdate = await db.posts.updateMany({
+    where: {
+      status: "draft",
+      price: { isNull: true },
+    },
+    data: {
+      price: "0.00",
+      metadata: { pricingTier: "free" },
+    },
+  });
+
+  const publishPost = await db.posts.update({
+    where: { title: "NeoORM" },
+    data: {
+      status: "published",
+      published: true,
+      metadata: {
+        featured: true,
+        publishedAt: new Date().toISOString(),
+      },
+    },
   });
 
   const seeded = await db.tags.createMany({
@@ -128,7 +186,17 @@ export async function exampleMutations() {
 
   const deletedUser = await db.users.deleteById("user_1");
 
-  return { updated, updatedById, count, seeded, deleted, deletedCount, deletedUser };
+  return {
+    updated,
+    updatedById,
+    count,
+    priceUpdate,
+    publishPost,
+    seeded,
+    deleted,
+    deletedCount,
+    deletedUser,
+  };
 }
 
 export async function exampleTransactions() {
@@ -143,6 +211,9 @@ export async function exampleTransactions() {
           title: "Transactional post",
           body: "Created via batch transaction",
           published: true,
+          status: "published",
+          price: "4.99",
+          metadata: { source: "transaction" },
           author: { connect: { id: "user_1" } },
         },
       }),
@@ -158,6 +229,8 @@ export async function exampleTransactions() {
         title: "Should roll back",
         body: "This write is rolled back with the user",
         published: false,
+        status: "draft",
+        metadata: { rollback: true },
         author: { connect: { id: user["id"] as string } },
       },
     });

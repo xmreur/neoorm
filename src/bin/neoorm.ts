@@ -31,6 +31,7 @@ program
     const { migrationName, schemaChanged, warnings, destructiveBlocked } =
       await generateFromSchema(schemaPath, outDir, {
         ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+        ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
       });
 
     console.log(`Generated client at ${outDir}/client.ts`);
@@ -83,6 +84,7 @@ program
           const { migrationName, warnings, destructiveBlocked } =
             await generateFromSchema(schemaPath, outDir, {
               ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+              ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
             });
           for (const warning of warnings) {
             console.warn(`Warning: ${warning}`);
