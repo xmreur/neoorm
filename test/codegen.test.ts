@@ -29,6 +29,7 @@ describe("codegen", () => {
     const includesContent = await readFile(join(outDir, "includes.ts"), "utf-8");
     expect(includesContent).toContain("export type UsersWith");
     expect(includesContent).toContain("profile?:");
+    expect(includesContent).toContain("_count?:");
 
     const modelsContent = await readFile(join(outDir, "models.ts"), "utf-8");
     expect(modelsContent).toContain("export type User = {");

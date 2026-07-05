@@ -36,6 +36,21 @@ type StringWhereOperators<T extends string> = {
   notIn?: readonly T[];
 } & NullableOperators;
 
+type JsonPathWhere = {
+  segments: readonly string[];
+  equals?: unknown;
+  jsonContains?: unknown;
+};
+
+type JsonWhereOperators<T> = {
+  equals?: T;
+  jsonContains?: Partial<T> | T;
+  hasKey?: string;
+  hasAnyKeys?: readonly string[];
+  hasAllKeys?: readonly string[];
+  path?: JsonPathWhere;
+} & NullableOperators;
+
 export type WhereOperators<T> = T extends string
   ? StringWhereOperators<T>
   : T extends number | boolean | Date
@@ -50,7 +65,9 @@ type ColumnKindOf<TCol extends ColumnDef> = TCol extends ColumnBuilder<unknown, 
 
 type InferColumnWhereOperators<TCol extends ColumnDef> = ColumnKindOf<TCol> extends "decimal"
   ? ComparableWhereOperators<string>
-  : TCol extends ColumnBuilder<unknown, infer _M>
+  : ColumnKindOf<TCol> extends "json" | "jsonb"
+    ? JsonWhereOperators<InferColumnValue<TCol>>
+    : TCol extends ColumnBuilder<unknown, infer _M>
     ? WhereOperators<InferColumnValue<TCol>>
     : TCol extends FkBuilder
       ? WhereOperators<InferColumnValue<TCol>>

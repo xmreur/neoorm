@@ -2,6 +2,7 @@ import type { ColumnBuilder, ColumnMeta } from "../schema/column.js";
 import { createColumnBuilder } from "../schema/column.js";
 import type { ManifestColumn } from "../dialect/types.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
+import { jsonWhereOperators } from "./json/operators.js";
 
 export type UuidOptions = {
   version?: 4 | 7;
@@ -233,6 +234,7 @@ const jsonType: ColumnTypePlugin = {
   introspect(pgDataType) {
     return pgDataType === "json";
   },
+  whereOperators: jsonWhereOperators,
 };
 
 const jsonbType: ColumnTypePlugin = {
@@ -259,6 +261,7 @@ const jsonbType: ColumnTypePlugin = {
   introspect(pgDataType) {
     return pgDataType === "jsonb";
   },
+  whereOperators: jsonWhereOperators,
 };
 
 const decimalType: ColumnTypePlugin = {

@@ -193,9 +193,25 @@ posts: table("posts", {
 ```
 
 ```ts
-// jsonb — equality match on the full object
+// jsonb — exact equality on the full object (all keys must match)
 await db.posts.findMany({
   where: { metadata: { featured: true, category: "engineering" } },
+});
+
+// jsonb — partial / subset match (@> containment)
+await db.posts.findMany({
+  where: { metadata: { jsonContains: { featured: true } } },
+});
+
+// jsonb — key existence and path filters
+await db.posts.findMany({
+  where: {
+    metadata: {
+      hasKey: "featured",
+      hasAnyKeys: ["category", "tags"],
+      path: { segments: ["category"], equals: "engineering" },
+    },
+  },
 });
 
 // decimal — compare as strings
@@ -226,6 +242,11 @@ Omit `id` on insert — the database assigns it and `RETURNING` populates the re
 ```ts
 const item = await db.items.create({ data: { name: "Widget" } });
 // item.id is the DB-generated integer
+
+// Bulk insert with returned rows (serial IDs, UUIDs, defaults materialized)
+const items = await db.items.createManyAndReturn({
+  data: [{ name: "A" }, { name: "B" }],
+});
 ```
 
 ### UUID columns
@@ -381,6 +402,52 @@ for (;;) {
 
 On feed tables, add a composite index on the sort columns (for example `index().on(t.createdAt, t.id)`).
 
+## Aggregates
+
+### Relation counts in `with`
+
+Load counts without fetching full related rows:
+
+```ts
+const users = await db.users.findMany({
+  with: {
+    _count: { posts: true },
+    profile: true,
+  },
+});
+// users[0]._count.posts === number
+```
+
+Optional per-relation filter: `_count: { posts: { where: { published: true } } }`.
+
+### Table-level `aggregate()`
+
+```ts
+const stats = await db.posts.aggregate({
+  where: { published: true },
+  _count: true,
+  _avg: { views: true },
+});
+// { _count: number, _avg: { views: number | null } }
+```
+
+For grouped dashboards, use `db.sql` or the `sqlBuilder` helper.
+
+## Bulk insert
+
+`createMany` returns the number of rows inserted. Use `createManyAndReturn` when you need serial IDs, generated UUIDs, or default values in the result:
+
+```ts
+const users = await db.users.createManyAndReturn({
+  data: [
+    { email: "a@example.com", name: "A" },
+    { email: "b@example.com", name: "B" },
+  ],
+});
+```
+
+Scalar fields only — no nested relation writes (same as `createMany`).
+
 ## Where clauses
 
 `findMany`, `findFirst`, `findUnique`, `count`, `update`, `updateMany`, `delete`, and `deleteMany` all accept a typed `where` argument.
@@ -403,7 +470,29 @@ await db.posts.findFirst({
 });
 ```
 
-String columns support `equals`, `contains`, `startsWith`, `endsWith`, `in`, and `notIn`. Numeric, boolean, and date columns support `equals`, `gt`, `gte`, `lt`, `lte`, `in`, and `notIn`. All nullable columns also support `isNull` and `isNotNull`.
+String columns support `equals`, `contains`, `startsWith`, `endsWith`, `in`, and `notIn`. Numeric, boolean, and date columns support `equals`, `gt`, `gte`, `lt`, `lte`, `in`, and `notIn`. JSON columns support `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, and `path`. All nullable columns also support `isNull` and `isNotNull`.
+
+### `distinct`
+
+PostgreSQL `DISTINCT ON` — `orderBy` must lead with the same columns:
+
+```ts
+await db.users.findMany({
+  distinct: ["email"],
+  orderBy: { email: "asc" },
+});
+```
+
+### Selective `with` return types
+
+Relation `select` narrows the TypeScript return type at compile time:
+
+```ts
+const users = await db.users.findMany({
+  with: { posts: { select: { title: true } } },
+});
+// users[0].posts[0].title is string; .body is excluded from the type
+```
 
 ```ts
 await db.users.findMany({

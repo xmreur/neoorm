@@ -480,9 +480,19 @@ export function buildFindManyQuery(
   orderSql: string,
   limit?: number,
   offset?: number,
+  distinctOn?: readonly string[],
 ): string {
   const selectCols = buildSelectColumns(table);
-  let sql = `SELECT ${selectCols} FROM ${quoteIdentifier(table.sqlName)}`;
+  let sql = "SELECT ";
+  if (distinctOn && distinctOn.length > 0) {
+    const distinctCols = distinctOn
+      .map((tsName) => table.columns.find((c) => c.tsName === tsName))
+      .filter((col): col is ManifestColumn => col !== undefined)
+      .map((col) => quoteIdentifier(col.sqlName))
+      .join(", ");
+    sql += `DISTINCT ON (${distinctCols}) `;
+  }
+  sql += `${selectCols} FROM ${quoteIdentifier(table.sqlName)}`;
 
   if (whereSql) sql += ` ${whereSql}`;
   if (orderSql) sql += ` ${orderSql}`;
@@ -503,6 +513,62 @@ export function buildPaginateQuery(
 
 export function buildCountQuery(table: ManifestTable, whereSql: string): string {
   let sql = `SELECT COUNT(*)::int AS count FROM ${quoteIdentifier(table.sqlName)}`;
+  if (whereSql) sql += ` ${whereSql}`;
+  return sql;
+}
+
+export type AggregateSelectors = {
+  _count?: true;
+  _avg?: Record<string, true>;
+  _sum?: Record<string, true>;
+  _min?: Record<string, true>;
+  _max?: Record<string, true>;
+};
+
+function aggregateSqlCol(table: ManifestTable, tsName: string): string | undefined {
+  const col = table.columns.find((c) => c.tsName === tsName);
+  if (!col) return undefined;
+  const sqlCol = quoteIdentifier(col.sqlName);
+  if (col.kind === "decimal") return `${sqlCol}::numeric`;
+  return sqlCol;
+}
+
+export function buildAggregateQuery(
+  table: ManifestTable,
+  selectors: AggregateSelectors,
+  whereSql: string,
+): string {
+  const parts: string[] = [];
+
+  if (selectors._count) {
+    parts.push('COUNT(*)::int AS "_count"');
+  }
+
+  for (const colName of Object.keys(selectors._avg ?? {})) {
+    const sqlCol = aggregateSqlCol(table, colName);
+    if (sqlCol) parts.push(`AVG(${sqlCol}) AS "_avg_${colName}"`);
+  }
+
+  for (const colName of Object.keys(selectors._sum ?? {})) {
+    const sqlCol = aggregateSqlCol(table, colName);
+    if (sqlCol) parts.push(`SUM(${sqlCol}) AS "_sum_${colName}"`);
+  }
+
+  for (const colName of Object.keys(selectors._min ?? {})) {
+    const sqlCol = aggregateSqlCol(table, colName);
+    if (sqlCol) parts.push(`MIN(${sqlCol}) AS "_min_${colName}"`);
+  }
+
+  for (const colName of Object.keys(selectors._max ?? {})) {
+    const sqlCol = aggregateSqlCol(table, colName);
+    if (sqlCol) parts.push(`MAX(${sqlCol}) AS "_max_${colName}"`);
+  }
+
+  if (parts.length === 0) {
+    throw new Error("aggregate requires at least one selector");
+  }
+
+  let sql = `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(table.sqlName)}`;
   if (whereSql) sql += ` ${whereSql}`;
   return sql;
 }

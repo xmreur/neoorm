@@ -25,6 +25,174 @@ export type WithInput = boolean | {
   with?: Record<string, WithInput>;
 };
 
+type RelationCountSpec = true | { where?: Record<string, unknown> };
+
+function validateDistinctOrderBy(
+  distinct: readonly string[] | undefined,
+  orderBy: Record<string, string> | undefined,
+): void {
+  if (!distinct || distinct.length === 0) return;
+  const orderKeys = orderBy ? Object.keys(orderBy) : [];
+  if (orderKeys.length < distinct.length) {
+    throw new Error("distinct requires orderBy to lead with the same columns");
+  }
+  for (let i = 0; i < distinct.length; i++) {
+    if (orderKeys[i] !== distinct[i]) {
+      throw new Error(
+        `distinct requires orderBy to start with: ${distinct.join(", ")}`,
+      );
+    }
+  }
+}
+
+function splitWithSpec(withSpec: Record<string, WithInput>): {
+  relationWith: Record<string, WithInput>;
+  countSpec?: Record<string, RelationCountSpec>;
+} {
+  const relationWith: Record<string, WithInput> = {};
+  let countSpec: Record<string, RelationCountSpec> | undefined;
+
+  for (const [key, value] of Object.entries(withSpec)) {
+    if (key === "_count") {
+      countSpec = value as Record<string, RelationCountSpec>;
+      continue;
+    }
+    relationWith[key] = value;
+  }
+
+  const result: { relationWith: Record<string, WithInput>; countSpec?: Record<string, RelationCountSpec> } = {
+    relationWith,
+  };
+  if (countSpec) result.countSpec = countSpec;
+  return result;
+}
+
+async function loadRelationCounts(
+  executor: Executor,
+  runtime: QueryRuntime,
+  parentTable: ManifestTable,
+  parentRows: Record<string, unknown>[],
+  countSpec: Record<string, RelationCountSpec>,
+): Promise<void> {
+  if (parentRows.length === 0) return;
+
+  const { manifest } = runtime;
+  const parentIds = parentRows.map((r) => rowPkKey(r, parentTable)).filter(Boolean);
+  if (parentIds.length === 0) return;
+
+  for (const [relationName, spec] of Object.entries(countSpec)) {
+    const whereFilter = typeof spec === "object" ? spec.where : undefined;
+    const counts = await countRelationLinks(
+      executor,
+      runtime,
+      parentTable,
+      relationName,
+      parentIds,
+      whereFilter,
+    );
+
+    for (const parent of parentRows) {
+      const parentKey = rowPkKey(parent, parentTable);
+      const bucket = (parent["_count"] as Record<string, number> | undefined) ?? {};
+      bucket[relationName] = counts.get(parentKey) ?? 0;
+      parent["_count"] = bucket;
+    }
+  }
+}
+
+async function countRelationLinks(
+  executor: Executor,
+  runtime: QueryRuntime,
+  parentTable: ManifestTable,
+  relationName: string,
+  parentIds: string[],
+  whereFilter?: Record<string, unknown>,
+): Promise<Map<string, number>> {
+  const { manifest } = runtime;
+  const m2m = findM2M(manifest, parentTable.accessor, relationName);
+  if (m2m) {
+    return countM2MLinks(executor, runtime, parentTable, m2m, parentIds, whereFilter);
+  }
+
+  const relation = findRelation(parentTable, relationName);
+  if (!relation || relation.cardinality !== "many") {
+    return new Map();
+  }
+
+  const targetTable = manifest.tables[relation.targetAccessor];
+  if (!targetTable) return new Map();
+
+  const fkCol = quoteIdentifier(relation.fkSqlColumn);
+  const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+  let extraWhere = "";
+  let extraParams: unknown[] = [];
+
+  if (whereFilter) {
+    const compiled = compileWhere(manifest, targetTable, whereFilter, postgresDialect);
+    if (compiled.sql) {
+      const adjusted = compiled.sql.replace(/\$(\d+)/g, (_, n: string) => `$${Number(n) + parentIds.length}`);
+      extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
+      extraParams = compiled.params;
+    }
+  }
+
+  const sql = `SELECT ${fkCol} AS parent_id, COUNT(*)::int AS count FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
+  const rows = await runQuery<{ parent_id: string; count: number }>(
+    executor,
+    runtime,
+    { operation: "select", tableAccessor: targetTable.accessor },
+    sql,
+    [...parentIds, ...extraParams],
+  );
+
+  return new Map(rows.map((row) => [String(row.parent_id), row.count]));
+}
+
+async function countM2MLinks(
+  executor: Executor,
+  runtime: QueryRuntime,
+  parentTable: ManifestTable,
+  m2m: ManifestManyToMany,
+  parentIds: string[],
+  whereFilter?: Record<string, unknown>,
+): Promise<Map<string, number>> {
+  const { manifest } = runtime;
+  const isLeft = m2m.leftAccessor === parentTable.accessor;
+  const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
+  const targetTable = manifest.tables[targetAccessor];
+  const throughTable = manifest.tables[m2m.throughAccessor];
+  if (!targetTable || !throughTable) return new Map();
+
+  const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
+  const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
+  const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+
+  let joinSql = "";
+  let extraWhere = "";
+  let extraParams: unknown[] = [];
+
+  if (whereFilter) {
+    const compiled = compileWhere(manifest, targetTable, whereFilter, postgresDialect);
+    joinSql = ` JOIN ${quoteIdentifier(targetTable.sqlName)} t ON t.${quoteIdentifier(targetRelationPkSql(targetTable))} = j.${quoteIdentifier(targetFkCol)}`;
+    if (compiled.sql) {
+      const adjusted = compiled.sql.replace(/\$(\d+)/g, (_, n: string) => `$${Number(n) + parentIds.length}`);
+      extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
+      extraParams = compiled.params;
+    }
+  }
+
+  const sql = `SELECT j.${quoteIdentifier(parentFkCol)} AS parent_id, COUNT(*)::int AS count FROM ${quoteIdentifier(throughTable.sqlName)} j${joinSql} WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${quoteIdentifier(parentFkCol)}`;
+  const rows = await runQuery<{ parent_id: string; count: number }>(
+    executor,
+    runtime,
+    { operation: "select", tableAccessor: throughTable.accessor },
+    sql,
+    [...parentIds, ...extraParams],
+  );
+
+  return new Map(rows.map((row) => [String(row.parent_id), row.count]));
+}
+
 function columnsForSelect(
   table: ManifestTable,
   withSpec: WithInput | undefined,
@@ -253,7 +421,13 @@ export async function loadRelations(
 ): Promise<Record<string, unknown>[]> {
   if (!withSpec || rows.length === 0) return rows;
 
-  for (const [relationName, spec] of Object.entries(withSpec)) {
+  const { relationWith, countSpec } = splitWithSpec(withSpec);
+
+  if (countSpec) {
+    await loadRelationCounts(executor, runtime, table, rows, countSpec);
+  }
+
+  for (const [relationName, spec] of Object.entries(relationWith)) {
     await loadOneRelation(executor, runtime, table, rows, relationName, spec);
   }
 
@@ -269,12 +443,16 @@ export async function findMany(
     orderBy?: Record<string, string>;
     limit?: number;
     offset?: number;
+    distinct?: readonly string[] | Record<string, boolean | undefined>;
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown>[]> {
   const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+  const distinctOn = normalizeSelectColumns(args?.distinct);
+  validateDistinctOrderBy(distinctOn, args?.orderBy);
 
   const { sql: whereSql, params } = compileWhere(
     manifest,
@@ -289,6 +467,7 @@ export async function findMany(
     orderSql,
     args?.limit,
     args?.offset,
+    distinctOn,
   );
 
   const rows = await runQuery(executor, runtime, { operation: "select", tableAccessor }, query, params);

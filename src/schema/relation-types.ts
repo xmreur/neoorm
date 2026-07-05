@@ -347,11 +347,153 @@ export type WithInclude<
 export type WithInputMap<
   TSchema extends Record<string, TableDef>,
   TAccessor extends keyof TSchema & string,
+> = Expand<
+  {
+    [R in keyof RelationAccessors<TSchema, TAccessor> & string]:
+      | WithInclude<TSchema, R, TAccessor>
+      | undefined;
+  } & {
+    _count?: RelationCountInput<TSchema, TAccessor>;
+  }
+>;
+
+export type RelationCountSpec<
+  TSchema extends Record<string, TableDef>,
+  TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string,
+  TAccessor extends keyof TSchema & string,
+> =
+  | true
+  | {
+      where?: WhereInput<
+        TargetColumns<
+          TSchema,
+          RelationTarget<TSchema, TAccessor, TRelation> & keyof TSchema & string
+        >,
+        TSchema,
+        RelationTarget<TSchema, TAccessor, TRelation> & keyof TSchema & string
+      >;
+    };
+
+export type RelationCountInput<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
 > = Expand<{
-  [R in keyof RelationAccessors<TSchema, TAccessor> & string]:
-    | WithInclude<TSchema, R, TAccessor>
-    | undefined;
+  [R in keyof RelationAccessors<TSchema, TAccessor> & string]?:
+    RelationCountSpec<TSchema, R, TAccessor>;
 }>;
+
+type SelectKeys<S> = S extends readonly (infer K extends PropertyKey)[]
+  ? K
+  : S extends Record<string, unknown>
+    ? { [K in keyof S]: S[K] extends true ? K : never }[keyof S]
+    : never;
+
+export type ApplySelect<
+  Row extends Record<string, unknown>,
+  S,
+> = Pick<Row, SelectKeys<S> & keyof Row>;
+
+type RelationTargetModel<
+  TSchema extends Record<string, TableDef>,
+  TTargetAccessor extends keyof TSchema & string,
+> = InferSelectRow<TSchema[TTargetAccessor]["_columns"]>;
+
+type InferNestedWithResult<
+  TSchema extends Record<string, TableDef>,
+  TTargetAccessor extends keyof TSchema & string,
+  TInclude,
+  TModel extends Record<string, unknown>,
+> = TInclude extends {
+  select?: infer S;
+  with?: infer NW;
+}
+  ? ApplySelect<TModel, S> &
+      (NW extends Record<string, unknown>
+        ? InferWithRelations<TSchema, TTargetAccessor, NW>
+        : Record<string, never>)
+  : TModel;
+
+export type InferRelationIncludeResult<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string,
+  TInclude,
+  TModel extends Record<string, unknown> = RelationTargetModel<
+    TSchema,
+    RelationTarget<TSchema, TAccessor, TRelation> & keyof TSchema & string
+  >,
+> =
+  TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string
+    ? RelationAccessors<TSchema, TAccessor>[TRelation] extends infer TTarget extends
+        keyof TSchema &
+        string
+      ? TInclude extends { select?: unknown; with?: unknown; orderBy?: unknown; limit?: unknown }
+        ? InferNestedWithResult<TSchema, TTarget, TInclude, RelationTargetModel<TSchema, TTarget>>
+        : TInclude extends true
+          ? RelationTargetModel<TSchema, TTarget>
+          : TInclude extends false | undefined
+            ? never
+            : RelationTargetModel<TSchema, TTarget>
+      : never
+    : never;
+
+type IsManyRelation<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string,
+> = TRelation extends keyof InverseRelations<TSchema, TAccessor>
+  ? true
+  : TRelation extends keyof JunctionM2MRelations<TSchema, TAccessor>
+    ? true
+    : false;
+
+type InferWithRelations<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  W,
+> = {
+  [R in keyof W & keyof RelationAccessors<TSchema, TAccessor> & string]: W[R] extends
+    | boolean
+    | WithRelationOptions<
+        TSchema,
+        RelationTarget<TSchema, TAccessor, R> & keyof TSchema & string
+      >
+    ? RelationAccessors<TSchema, TAccessor>[R] extends infer TTarget extends
+        keyof TSchema &
+        string
+      ? InferRelationIncludeResult<
+          TSchema,
+          TAccessor,
+          R,
+          W[R],
+          RelationTargetModel<TSchema, TTarget>
+        > extends infer Row
+        ? IsManyRelation<TSchema, TAccessor, R> extends true
+          ? Row[]
+          : Row | null
+        : never
+      : never
+    : never;
+};
+
+type InferCountResult<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  W,
+> = W extends { _count: infer C }
+  ? C extends Record<string, unknown>
+    ? { _count: { [K in keyof C & string]: number } }
+    : Record<string, never>
+  : Record<string, never>;
+
+export type InferWithResult<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  W,
+  TBase extends Record<string, unknown> = InferSelectRow<TSchema[TAccessor]["_columns"]>,
+> = W extends undefined
+  ? TBase
+  : Expand<TBase & InferWithRelations<TSchema, TAccessor, W> & InferCountResult<TSchema, TAccessor, W>>;
 
 export type ManyRelationFilter<
   TSchema extends Record<string, TableDef>,

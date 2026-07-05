@@ -1,13 +1,17 @@
 import type { ColumnDef, TableDef } from "../schema/table.js";
 import type {
+  AggregateArgs,
   CountArgs,
   CreateArgs,
   CreateManyArgs,
+  CreateManyAndReturnArgs,
   DeleteArgs,
   DeleteManyArgs,
   FindFirstArgs,
   FindManyArgs,
   FindUniqueArgs,
+  InferAggregateResult,
+  InferWithResult,
   PaginateArgs,
   PaginateResult,
   UpsertArgs,
@@ -141,27 +145,30 @@ export type TypedTableRepository<
 > = {
   findMany<W extends TWith | undefined = undefined>(
     args?: FindManyArgsWith<TSchema, TAccessor, W>,
-  ): Promise<Array<TRowPayload>>;
+  ): Promise<Array<InferWithResult<TSchema, TAccessor, W, TRowPayload>>>;
   findFirst<W extends TWith | undefined = undefined>(
     args?: FindFirstArgsWith<TSchema, TAccessor, W>,
-  ): Promise<TRowPayload | null>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
   findUnique<W extends TWith | undefined = undefined>(
     args: FindUniqueArgsWith<TSchema, TAccessor, W>,
-  ): Promise<TRowPayload | null>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
   findById<W extends TWith | undefined = undefined>(
     id: string,
     args?: FindByIdArgsWith<W>,
-  ): Promise<TRowPayload | null>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
   create<W extends TWith | undefined = undefined>(
     args: CreateArgsWith<TSchema, TAccessor, W>,
-  ): Promise<TRowPayload>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload>>;
   createMany(args: CreateManyArgs<TSchema, TAccessor>): Promise<number>;
+  createManyAndReturn(
+    args: CreateManyAndReturnArgs<TSchema, TAccessor>,
+  ): Promise<TRowPayload[]>;
   upsert<W extends TWith | undefined = undefined>(
     args: UpsertArgsWith<TSchema, TAccessor, W>,
-  ): Promise<TRowPayload>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload>>;
   update<W extends TWith | undefined = undefined>(
     args: UpdateArgsWith<TSchema, TAccessor, W>,
-  ): Promise<TRowPayload | null>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
   updateMany(args: UpdateManyArgs<TSchema, TAccessor>): Promise<number>;
   updateById<W extends TWith | undefined = undefined>(
     id: string,
@@ -169,12 +176,15 @@ export type TypedTableRepository<
       data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
       with?: W;
     },
-  ): Promise<TRowPayload | null>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
   delete<W extends TWith | undefined = undefined>(
     args: DeleteArgsWith<TSchema, TAccessor, W>,
-  ): Promise<TRowPayload | null>;
+  ): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
   deleteMany(args?: DeleteManyArgs<TSchema, TAccessor>): Promise<number>;
   count(args?: CountArgsWith<TSchema, TAccessor>): Promise<number>;
+  aggregate<TArgs extends AggregateArgs<TSchema, TAccessor>>(
+    args: TArgs,
+  ): Promise<InferAggregateResult<TArgs>>;
   deleteById(id: string): Promise<TRowPayload | null>;
   paginate<
     TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
@@ -183,7 +193,7 @@ export type TypedTableRepository<
     args: PaginateArgsWith<TSchema, TAccessor, TOrderBy, W, TRowPayload>,
   ): Promise<
     PaginateResult<
-      TRowPayload,
+      InferWithResult<TSchema, TAccessor, W, TRowPayload>,
       PaginateCursor<
         TRowPayload,
         TOrderBy,

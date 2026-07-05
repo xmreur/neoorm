@@ -44,6 +44,7 @@ function emitTableWithType(
 ): string {
   const typeName = `${pascalCase(table.accessor)}With`;
   const relations = effectiveRelations(manifest, table);
+  const manyRelations = relations.filter((rel) => rel.cardinality === "many");
 
   if (relations.length === 0) {
     return `export type ${typeName} = Record<string, never>;`;
@@ -56,7 +57,14 @@ function emitTableWithType(
     })
     .join("\n");
 
-  return `export type ${typeName} = {\n${fields}\n};`;
+  const countField =
+    manyRelations.length > 0
+      ? `\n  _count?: {\n${manyRelations
+          .map((rel) => `    ${rel.name}?: true | { where?: Record<string, unknown> };`)
+          .join("\n")}\n  };`
+      : "";
+
+  return `export type ${typeName} = {\n${fields}${countField}\n};`;
 }
 
 export function emitIncludesTs(manifest: Manifest): string {

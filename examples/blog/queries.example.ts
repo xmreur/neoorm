@@ -74,10 +74,10 @@ export async function exampleQueries() {
     orderBy: { price: "desc" },
   });
 
-  // Match jsonb metadata exactly
+  // Partial jsonb match (@> containment)
   const taggedPosts = await db.posts.findMany({
     where: {
-      metadata: { featured: true, category: "engineering" },
+      metadata: { jsonContains: { featured: true, category: "engineering" } },
     },
   });
 
@@ -220,6 +220,13 @@ export async function exampleMutations() {
     ],
   });
 
+  const seededAndReturned = await db.tags.createManyAndReturn({
+    data: [
+      { slug: "batch-c", name: "Batch C" },
+      { slug: "batch-d", name: "Batch D" },
+    ],
+  });
+
   const deleted = await db.posts.delete({
     where: { title: "Draft post" },
   });
@@ -240,6 +247,7 @@ export async function exampleMutations() {
     updateManyWithRelations,
     relationOnlyUpdate,
     seeded,
+    seededAndReturned,
     deleted,
     deletedCount,
     deletedUser,
