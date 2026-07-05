@@ -82,6 +82,19 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     expect(rows.length).toBeGreaterThanOrEqual(0);
   });
 
+  it("createMany inserts multiple rows in one statement", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const count = await db.users.createMany({
+      data: [
+        { email: `bulk-1-${Date.now()}@example.com`, name: "Bulk One" },
+        { email: `bulk-2-${Date.now()}@example.com`, name: "Bulk Two" },
+      ],
+    });
+    expect(count).toBe(2);
+  });
+
   it("update and delete", async () => {
     const manifest = schemaToManifest(schema);
     const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);

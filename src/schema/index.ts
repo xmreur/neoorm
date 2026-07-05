@@ -26,6 +26,8 @@ export type {
   ConnectOrCreateItem,
   CreateArgs,
   CreateInput,
+  CreateManyArgs,
+  CreateManyInput,
   DeleteArgs,
   DeleteManyArgs,
   FindFirstArgs,

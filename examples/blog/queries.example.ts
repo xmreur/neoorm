@@ -111,6 +111,13 @@ export async function exampleMutations() {
     data: { views: 0 },
   });
 
+  const seeded = await db.tags.createMany({
+    data: [
+      { slug: "batch-a", name: "Batch A" },
+      { slug: "batch-b", name: "Batch B" },
+    ],
+  });
+
   const deleted = await db.posts.delete({
     where: { title: "Draft post" },
   });
@@ -121,7 +128,7 @@ export async function exampleMutations() {
 
   const deletedUser = await db.users.deleteById("user_1");
 
-  return { updated, updatedById, count, deleted, deletedCount, deletedUser };
+  return { updated, updatedById, count, seeded, deleted, deletedCount, deletedUser };
 }
 
 export async function exampleTransactions() {
