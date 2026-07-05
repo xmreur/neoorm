@@ -46,6 +46,23 @@ function rowsFromResult(result: QueryResult): Record<string, unknown>[] {
   return result.rows as Record<string, unknown>[];
 }
 
+type TransactionState = {
+  client: PoolClient;
+  savepointCounter: number;
+};
+
+export function buildSavepointName(id: number): string {
+  return `neoorm_sp_${id}`;
+}
+
+function assertNoSavepointOptions(options?: TransactionOptions): void {
+  if (options?.readOnly !== undefined || options?.isolationLevel !== undefined) {
+    throw new Error(
+      "Transaction options (readOnly, isolationLevel) cannot be used with nested transactions",
+    );
+  }
+}
+
 export function createExecutor(pool: Pool): Executor {
   return {
     async query<T = Record<string, unknown>>(
@@ -72,7 +89,8 @@ export function createExecutor(pool: Pool): Executor {
       const client = await pool.connect();
       try {
         await client.query(buildBeginSql(options));
-        const tx = createClientExecutor(client);
+        const state: TransactionState = { client, savepointCounter: 0 };
+        const tx = createClientExecutor(state);
         const result = await fn(tx);
         await client.query("COMMIT");
         return result;
@@ -86,7 +104,9 @@ export function createExecutor(pool: Pool): Executor {
   };
 }
 
-function createClientExecutor(client: PoolClient): Executor {
+function createClientExecutor(state: TransactionState): Executor {
+  const { client } = state;
+
   return {
     inTransaction: true,
 
@@ -107,11 +127,25 @@ function createClientExecutor(client: PoolClient): Executor {
       return (rows[0] as T | undefined) ?? null;
     },
 
-    transaction<T>(
-      _fn: (tx: Executor) => Promise<T>,
-      _options?: TransactionOptions,
+    async transaction<T>(
+      fn: (tx: Executor) => Promise<T>,
+      options?: TransactionOptions,
     ): Promise<T> {
-      throw new Error("Nested transactions are not supported");
+      assertNoSavepointOptions(options);
+
+      const savepointId = ++state.savepointCounter;
+      const savepointName = buildSavepointName(savepointId);
+
+      await client.query(`SAVEPOINT ${savepointName}`);
+      try {
+        const result = await fn(createClientExecutor(state));
+        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+        return result;
+      } catch (err) {
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+        throw err;
+      }
     },
   };
 }

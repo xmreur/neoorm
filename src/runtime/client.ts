@@ -145,35 +145,30 @@ function buildClient<
           >,
       txOptions?: TransactionOptions,
     ): Promise<T> {
-      if (transactional) {
-        throw new Error("Nested transactions are not supported");
-      }
-
-      if (typeof fnOrSteps === "function") {
-        return executor.transaction(async (txExecutor) => {
-          const tx = buildClient<TTables, TIncludes, TRowPayloads>(
-            txExecutor,
-            manifest,
-            disconnect,
-            { transactional: true },
-          );
-          return fnOrSteps(tx);
-        }, txOptions);
-      }
-
-      return executor.transaction(async (txExecutor) => {
+      const runWithExecutor = async (txExecutor: Executor) => {
         const tx = buildClient<TTables, TIncludes, TRowPayloads>(
           txExecutor,
           manifest,
           disconnect,
           { transactional: true },
         );
+
+        if (typeof fnOrSteps === "function") {
+          return fnOrSteps(tx);
+        }
+
         const results: unknown[] = [];
         for (const step of fnOrSteps) {
           results.push(await step(tx));
         }
         return results as T;
-      }, txOptions);
+      };
+
+      if (transactional) {
+        return executor.transaction(runWithExecutor);
+      }
+
+      return executor.transaction(runWithExecutor, txOptions);
     },
   } as TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
 
