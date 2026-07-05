@@ -1,5 +1,5 @@
 import type { Executor } from "../executor.js";
-import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect, quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import {
   buildUpdateQuery,
   buildUpdateManyQuery,
@@ -77,7 +77,7 @@ async function runUpdate(
   let result: Record<string, unknown> | null;
 
   if (keys.length === 0 && exprSets.length === 0) {
-    const selectSql = `SELECT * FROM ${quoteIdentifier(table.sqlName)} WHERE ${whereSql} LIMIT 1`;
+    const selectSql = `SELECT * FROM ${tableRef(table)} WHERE ${whereSql} LIMIT 1`;
     const row = await runQueryOne(
       executor,
       runtime,
@@ -217,7 +217,7 @@ async function runUpdateMany(
     );
     parentIds = rows.map((row) => rowScalarPkValue(rowToTs(table, row), table));
   } else {
-    let selectSql = `SELECT ${pkSql} FROM ${quoteIdentifier(table.sqlName)}`;
+    let selectSql = `SELECT ${pkSql} FROM ${tableRef(table)}`;
     if (whereSql) selectSql += ` ${whereSql}`;
     const rows = await runQuery(
       executor,

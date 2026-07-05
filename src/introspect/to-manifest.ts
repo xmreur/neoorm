@@ -7,7 +7,7 @@ import type {
 } from "../dialect/types.js";
 import { toCamelCase } from "../utils/case.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
-import { pgStorageSqlType } from "../dialect/postgres.js";
+import { pgStorageSqlType, resolvePgSchemaName } from "../dialect/postgres.js";
 import {
   queryColumns,
   queryForeignKeys,
@@ -166,13 +166,14 @@ async function introspectTable(
   pool: Pool,
   tableName: string,
   enumTypes: Record<string, string[]>,
+  schema: string,
 ): Promise<ManifestTable> {
   const [columns, fks, indexRows, uniqueRows, primaryKey] = await Promise.all([
-    queryColumns(pool, tableName),
-    queryForeignKeys(pool, tableName),
-    queryIndexes(pool, tableName),
-    queryUniqueConstraints(pool, tableName),
-    queryPrimaryKeyColumns(pool, tableName),
+    queryColumns(pool, tableName, schema),
+    queryForeignKeys(pool, tableName, schema),
+    queryIndexes(pool, tableName, schema),
+    queryUniqueConstraints(pool, tableName, schema),
+    queryPrimaryKeyColumns(pool, tableName, schema),
   ]);
 
   const fkMap = new Map(fks.map((fk) => [fk.column_name, fk]));
@@ -264,14 +265,18 @@ async function introspectTable(
   };
 }
 
-export async function introspectToManifest(pool: Pool): Promise<Manifest> {
-  const tables = await queryTables(pool);
+export async function introspectToManifest(
+  pool: Pool,
+  options: { schema?: string } = {},
+): Promise<Manifest> {
+  const schema = resolvePgSchemaName(options.schema);
+  const tables = await queryTables(pool, schema);
   const extensions = await queryInstalledExtensions(pool);
-  const enumTypes = await queryEnumTypes(pool);
+  const enumTypes = await queryEnumTypes(pool, schema);
   const manifestTables: Record<string, ManifestTable> = {};
 
   for (const { table_name } of tables) {
-    const table = await introspectTable(pool, table_name, enumTypes);
+    const table = await introspectTable(pool, table_name, enumTypes, schema);
     manifestTables[table.accessor] = table;
   }
 

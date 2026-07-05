@@ -3,6 +3,7 @@ import { join, relative, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { Manifest } from "../dialect/types.js";
+import { applySchemaToManifest } from "../dialect/postgres.js";
 import {
   diffManifest,
   formatDestructiveWarnings,
@@ -303,6 +304,7 @@ export type GenerateResult = {
 export type GenerateOptions = {
   acceptDataLoss?: boolean;
   enumMode?: "check" | "union" | "native";
+  schema?: string;
 };
 
 export async function generateFromSchema(
@@ -315,9 +317,10 @@ export async function generateFromSchema(
   );
 
   const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
-  const manifest = schemaToManifest(schema, manyToMany, plugins, {
+  const schemaManifest = schemaToManifest(schema, manyToMany, plugins, {
     ...(options.enumMode ? { enumMode: options.enumMode } : {}),
   });
+  const manifest = applySchemaToManifest(schemaManifest, options.schema);
   const warnings = collectRedundantMapWarnings(schema);
 
   const errors = validateManifest(manifest);

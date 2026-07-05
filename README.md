@@ -80,10 +80,27 @@ export default defineConfig({
   datasource: {
     provider: "postgresql",
     url: process.env.DATABASE_URL!,
+    schema: "public", // optional; use "tenant_template", "app", etc.
     enum: "check", // "check" (default) | "union" | "native"
   },
 });
 ```
+
+`datasource.schema` controls which PostgreSQL schema/namespace the CLI targets for migrations, `db push`, `db pull`, and reset. It defaults to `public`.
+
+For tenant-per-schema isolation at runtime, create a client with the tenant schema:
+
+```ts
+import { createNeoOrmClient } from "neoorm";
+import { manifest } from "./neoorm/manifest.js";
+
+const tenantDb = createNeoOrmClient(manifest, {
+  connectionString: process.env.DATABASE_URL!,
+  schema: "tenant_acme",
+});
+```
+
+NeoOrm qualifies generated ORM table references as `"tenant_acme"."users"`. Raw `db.sql` and `db.execute` calls are not rewritten, so qualify raw SQL yourself. Treat schema names as trusted tenant metadata, not raw request input.
 
 **3. Generate the client**
 

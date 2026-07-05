@@ -15,6 +15,61 @@ function q(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+export const DEFAULT_PG_SCHEMA = "public";
+
+export function validatePgSchemaName(schema: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+    throw new Error(
+      `Invalid PostgreSQL schema name "${schema}". Use an unquoted identifier such as public or tenant_123.`,
+    );
+  }
+  return schema;
+}
+
+export function resolvePgSchemaName(schema: string | undefined): string {
+  return validatePgSchemaName(schema ?? DEFAULT_PG_SCHEMA);
+}
+
+export function quoteQualifiedIdentifier(
+  schema: string | undefined,
+  name: string,
+): string {
+  const resolved = resolvePgSchemaName(schema);
+  return `${q(resolved)}.${q(name)}`;
+}
+
+export function tableRef(table: ManifestTable): string {
+  return table.schemaName && table.schemaName !== DEFAULT_PG_SCHEMA
+    ? quoteQualifiedIdentifier(table.schemaName, table.sqlName)
+    : q(table.sqlName);
+}
+
+function sameSchemaRef(table: ManifestTable, sqlName: string): string {
+  return table.schemaName && table.schemaName !== DEFAULT_PG_SCHEMA
+    ? quoteQualifiedIdentifier(table.schemaName, sqlName)
+    : q(sqlName);
+}
+
+export function applySchemaToManifest(
+  manifest: Manifest,
+  schema: string | undefined,
+): Manifest {
+  const schemaName = resolvePgSchemaName(schema);
+  if (schemaName === DEFAULT_PG_SCHEMA) {
+    return manifest;
+  }
+
+  return {
+    ...manifest,
+    tables: Object.fromEntries(
+      Object.entries(manifest.tables).map(([accessor, table]) => [
+        accessor,
+        { ...table, schemaName },
+      ]),
+    ),
+  };
+}
+
 const whereOperators: OperatorMap = {
   equals: (col, i) => `${col} = $${i}`,
   contains: (col, i) => `${col} ILIKE $${i}`,
@@ -248,6 +303,10 @@ export function emitCreateEnumTypes(
   });
 }
 
+export function emitCreateSchema(schema: string | undefined): string {
+  return `CREATE SCHEMA IF NOT EXISTS ${q(resolvePgSchemaName(schema))};`;
+}
+
 function emitCreateTable(
   table: ManifestTable,
   options: CreateTableOptions = {},
@@ -284,25 +343,25 @@ function emitCreateTable(
           ? ` ON DELETE ${col.onDelete.toUpperCase()}`
           : "";
         lines.push(
-          `  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${q(targetTable!)}(${q(targetCol!)})${onDelete}`,
+          `  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable!)}(${q(targetCol!)})${onDelete}`,
         );
       }
     }
   }
 
   const body = lines.join(",\n");
-  return `CREATE TABLE ${q(table.sqlName)} (\n${body}\n);`;
+  return `CREATE TABLE ${tableRef(table)} (\n${body}\n);`;
 }
 
 function emitDropTable(table: ManifestTable): string {
-  return `DROP TABLE ${q(table.sqlName)};`;
+  return `DROP TABLE ${tableRef(table)};`;
 }
 
 function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
   const indexName = resolveIndexSqlName(table.sqlName, index);
   const cols = index.columns.map((c) => q(c)).join(", ");
   const unique = index.unique ? "UNIQUE " : "";
-  return `CREATE ${unique}INDEX ${q(indexName)} ON ${q(table.sqlName)} (${cols});`;
+  return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols});`;
 }
 
 function emitDropIndex(indexName: string): string {
@@ -313,6 +372,10 @@ function emitDropConstraint(tableSqlName: string, constraintName: string): strin
   return `ALTER TABLE ${q(tableSqlName)} DROP CONSTRAINT ${q(constraintName)};`;
 }
 
+function emitDropTableConstraint(table: ManifestTable, constraintName: string): string {
+  return `ALTER TABLE ${tableRef(table)} DROP CONSTRAINT ${q(constraintName)};`;
+}
+
 function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {
   if (!col.fkTarget) {
     throw new Error(`FK column "${col.sqlName}" is missing fkTarget`);
@@ -321,7 +384,7 @@ function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {
   const constraintName =
     col.fkConstraintName ?? resolveFkConstraintName(table.sqlName, col.sqlName);
   const onDelete = col.onDelete ? ` ON DELETE ${col.onDelete.toUpperCase()}` : "";
-  return `ALTER TABLE ${q(table.sqlName)} ADD CONSTRAINT ${q(constraintName)} FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${q(targetTable!)}(${q(targetCol!)})${onDelete};`;
+  return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(constraintName)} FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable!)}(${q(targetCol!)})${onDelete};`;
 }
 
 function emitAlterColumn(
@@ -330,7 +393,7 @@ function emitAlterColumn(
   manifest?: Manifest,
 ): string[] {
   const stmts: string[] = [];
-  const tableName = q(table.sqlName);
+  const tableName = tableRef(table);
   const colName = q(alter.sqlName);
 
   if (alter.setType) {
@@ -368,7 +431,7 @@ function emitAlterColumn(
 
   if (alter.dropUniqueConstraint) {
     stmts.push(
-      emitDropConstraint(table.sqlName, alter.dropUniqueConstraint),
+      emitDropTableConstraint(table, alter.dropUniqueConstraint),
     );
   }
 
@@ -382,7 +445,7 @@ function emitAlterColumn(
 
   if (alter.setCheckExpression !== undefined) {
     const constraintName = `${table.sqlName}_${alter.sqlName}_check`;
-    stmts.push(emitDropConstraint(table.sqlName, constraintName));
+    stmts.push(emitDropTableConstraint(table, constraintName));
     if (alter.setCheckExpression !== null) {
       stmts.push(
         `ALTER TABLE ${tableName} ADD CONSTRAINT ${q(constraintName)} CHECK (${alter.setCheckExpression});`,
@@ -400,7 +463,7 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
   if (diff.fkChanges) {
     for (const change of diff.fkChanges) {
       if (change.drop) {
-        stmts.push(emitDropConstraint(table.sqlName, change.drop));
+        stmts.push(emitDropTableConstraint(table, change.drop));
       }
     }
   }
@@ -413,14 +476,14 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 
   if (diff.dropColumns) {
     for (const col of diff.dropColumns) {
-      stmts.push(`ALTER TABLE ${q(table.sqlName)} DROP COLUMN ${q(col)};`);
+      stmts.push(`ALTER TABLE ${tableRef(table)} DROP COLUMN ${q(col)};`);
     }
   }
 
   if (diff.renameColumns) {
     for (const { from, to } of diff.renameColumns) {
       stmts.push(
-        `ALTER TABLE ${q(table.sqlName)} RENAME COLUMN ${q(from)} TO ${q(to)};`,
+        `ALTER TABLE ${tableRef(table)} RENAME COLUMN ${q(from)} TO ${q(to)};`,
       );
     }
   }
@@ -428,7 +491,7 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
   if (diff.addColumns) {
     for (const col of diff.addColumns) {
       stmts.push(
-        `ALTER TABLE ${q(table.sqlName)} ADD COLUMN ${columnDef(col, manifest)};`,
+        `ALTER TABLE ${tableRef(table)} ADD COLUMN ${columnDef(col, manifest)};`,
       );
     }
   }
@@ -475,6 +538,7 @@ export const postgresDialect: Dialect = {
   columnType,
   resolveIndexSqlName,
   emitCreateExtensions,
+  emitCreateSchema,
   emitCreateEnumTypes,
   emitCreateTable,
   emitDropTable,

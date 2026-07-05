@@ -15,10 +15,12 @@ import type { WithInput } from "./query/find.js";
 import type { QueryRuntime } from "./query/execute.js";
 import { runQuery } from "./query/execute.js";
 import type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap, TransactionClient, TransactionOptions } from "./types.js";
+import { applySchemaToManifest, resolvePgSchemaName } from "../dialect/postgres.js";
 
 export type NeoOrmClientOptions = {
   connectionString?: string;
   migrationsDir?: string;
+  schema?: string;
 };
 
 export type TableRepository = {
@@ -239,9 +241,11 @@ export function createNeoOrmClient<
   }
 
   const pool = new Pool({ connectionString: url });
+  const schema = resolvePgSchemaName(options.schema);
   const executor = createExecutor(pool);
   const runtime: QueryRuntime = {
-    manifest,
+    manifest: applySchemaToManifest(manifest, schema),
+    schema,
     pool,
     ...(options.migrationsDir !== undefined ? { migrationsDir: options.migrationsDir } : {}),
   };
@@ -258,13 +262,15 @@ export function createNeoOrmClientFromPool<
 >(
   manifest: Manifest,
   pool: Pool,
-  options?: Pick<NeoOrmClientOptions, "migrationsDir">,
+  options?: Pick<NeoOrmClientOptions, "migrationsDir" | "schema">,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
   ensurePlugins(manifest);
 
+  const schema = resolvePgSchemaName(options?.schema);
   const executor = createExecutor(pool);
   const runtime: QueryRuntime = {
-    manifest,
+    manifest: applySchemaToManifest(manifest, schema),
+    schema,
     pool,
     ...(options?.migrationsDir !== undefined ? { migrationsDir: options.migrationsDir } : {}),
   };

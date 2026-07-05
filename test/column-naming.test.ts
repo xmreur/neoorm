@@ -171,7 +171,7 @@ describe("column naming strategies", () => {
           return { rows: [{ table_name: "legacy_users" }] };
         }
         if (sql.includes("information_schema.columns")) {
-          expect(params).toEqual(["legacy_users"]);
+          expect(params).toEqual(["public", "legacy_users"]);
           return {
             rows: [
               {
