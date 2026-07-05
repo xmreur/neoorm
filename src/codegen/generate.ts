@@ -8,6 +8,10 @@ import {
   formatDestructiveWarnings,
   resolveMigrationSql,
 } from "./diff-manifest.js";
+import {
+  summarizeGenerateOutcome,
+  type GenerateSummary,
+} from "./generate-summary.js";
 import { emitIncludesTs } from "./emit-includes.js";
 import { emitModelsTs } from "./emit-models.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
@@ -194,9 +198,12 @@ export {
   diffManifest,
   formatDestructiveWarnings,
   resolveMigrationSql,
+  explainNoMigrationSql,
   columnsEqual,
   columnSqlType,
 } from "./diff-manifest.js";
+export type { GenerateSummary, GenerateStatus } from "./generate-summary.js";
+export { summarizeGenerateOutcome, formatGenerateSummary } from "./generate-summary.js";
 
 export async function writeMigration(
   outDir: string,
@@ -260,6 +267,7 @@ export type GenerateResult = {
   schemaChanged: boolean;
   warnings: string[];
   destructiveBlocked: boolean;
+  summary: GenerateSummary;
 };
 
 export type GenerateOptions = {
@@ -298,14 +306,6 @@ export async function generateFromSchema(
   );
 
   const allWarnings = [...warnings];
-  let destructiveBlocked = false;
-  if (blocked.length > 0) {
-    destructiveBlocked = true;
-    allWarnings.push(...formatDestructiveWarnings(blocked));
-    allWarnings.push(
-      "Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
-    );
-  }
 
   const migrationSql =
     blocked.length > 0 && !(options.acceptDataLoss ?? false) ? [] : sql;
@@ -317,11 +317,30 @@ export async function generateFromSchema(
     schemaPath,
   );
 
+  const summary = summarizeGenerateOutcome({
+    prev,
+    next: manifest,
+    diff: manifestDiff,
+    sql: migrationSql,
+    blocked,
+    schemaChanged,
+    migrationName,
+  });
+
+  const migrationBlocked = summary.status === "migration_blocked";
+  if (migrationBlocked) {
+    allWarnings.push(...formatDestructiveWarnings(blocked));
+    allWarnings.push(
+      "Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
+    );
+  }
+
   return {
     manifest,
     migrationName,
     schemaChanged,
     warnings: allWarnings,
-    destructiveBlocked,
+    destructiveBlocked: migrationBlocked,
+    summary,
   };
 }

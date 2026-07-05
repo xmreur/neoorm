@@ -5,6 +5,7 @@ import {
   columnsEqual,
   resolveMigrationSql,
   formatDestructiveWarnings,
+  explainNoMigrationSql,
 } from "../src/codegen/diff-manifest.js";
 
 function col(
@@ -424,6 +425,19 @@ describe("diffManifest", () => {
 
     const { sql } = diffManifest(prev, next);
     expect(sql.some((s) => s.includes("CREATE EXTENSION IF NOT EXISTS postgis"))).toBe(true);
+  });
+});
+
+describe("explainNoMigrationSql", () => {
+  it("explains enumMode-only manifest changes", () => {
+    const prev = manifest({}, []);
+    prev.enumMode = "check";
+    const next = manifest({}, []);
+    next.enumMode = "native";
+    const diff = diffManifest(prev, next);
+
+    const reasons = explainNoMigrationSql(prev, next, diff);
+    expect(reasons.some((r) => r.includes("enumMode changed"))).toBe(true);
   });
 });
 
