@@ -10,6 +10,7 @@ export type ManifestColumn = {
   primary: boolean;
   defaultValue?: unknown;
   defaultNow: boolean;
+  updatedAt?: boolean;
   typeOptions?: Record<string, unknown>;
   fkTarget?: string;
   fkAs?: string;

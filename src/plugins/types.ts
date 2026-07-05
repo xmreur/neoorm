@@ -25,6 +25,7 @@ export type ColumnTypePlugin = {
   writeExpression?(col: ManifestColumn, paramIndex: number): string;
   serializeValue?(col: ManifestColumn, value: unknown): unknown;
   deserializeValue?(col: ManifestColumn, dbValue: unknown): unknown;
+  updatedAtExpression?(col: ManifestColumn): string;
   whereOperators?: Record<string, PluginWhereOperator>;
   introspect?(pgDataType: string, udtName: string): boolean;
 };

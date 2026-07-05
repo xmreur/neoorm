@@ -9,6 +9,12 @@ type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
     : false
   : false;
 
+type IsUpdatedAt<T> = T extends ColumnBuilder<unknown, infer M>
+  ? M extends { updatedAt: true }
+    ? true
+    : false
+  : false;
+
 type IsGenerated<T> = T extends ColumnBuilder<unknown, infer M>
   ? M extends { kind: "serial" }
     ? true

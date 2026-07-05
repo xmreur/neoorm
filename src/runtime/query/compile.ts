@@ -512,6 +512,7 @@ export function buildUpsertQuery(
   insertKeys: string[],
   updateKeys: string[],
   conflictSqlColumns: readonly string[],
+  exprSets: string[] = [],
 ): string {
   const insertCols = insertKeys.map((k) => {
     const col = table.columns.find((c) => c.tsName === k);
@@ -534,12 +535,16 @@ export function buildUpsertQuery(
           const sqlCol = quoteIdentifier(col?.sqlName ?? k);
           return `${sqlCol} = EXCLUDED.${sqlCol}`;
         })
-      : conflictSqlColumns.map((c) => {
-          const sqlCol = quoteIdentifier(c);
-          return `${sqlCol} = EXCLUDED.${sqlCol}`;
-        });
+      : exprSets.length === 0
+        ? conflictSqlColumns.map((c) => {
+            const sqlCol = quoteIdentifier(c);
+            return `${sqlCol} = EXCLUDED.${sqlCol}`;
+          })
+        : [];
 
-  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${updateSets.join(", ")} RETURNING ${selectCols}`;
+  const allUpdateSets = [...updateSets, ...exprSets];
+
+  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${allUpdateSets.join(", ")} RETURNING ${selectCols}`;
 }
 
 export function buildInsertQuery(
@@ -608,11 +613,13 @@ export function buildUpdateQuery(
   table: ManifestTable,
   dataKeys: string[],
   whereSql: string,
+  exprSets: string[] = [],
 ): string {
-  const sets = dataKeys.map((k, i) => {
+  const paramSets = dataKeys.map((k, i) => {
     const col = table.columns.find((c) => c.tsName === k);
     return buildSetExpression(col, i + 1);
   });
+  const sets = [...paramSets, ...exprSets];
   const selectCols = buildSelectColumns(table);
   const whereOffset = dataKeys.length;
 
@@ -651,11 +658,13 @@ export function buildUpdateManyQuery(
   table: ManifestTable,
   dataKeys: string[],
   whereSql: string,
+  exprSets: string[] = [],
 ): string {
-  const sets = dataKeys.map((k, i) => {
+  const paramSets = dataKeys.map((k, i) => {
     const col = table.columns.find((c) => c.tsName === k);
     return buildSetExpression(col, i + 1);
   });
+  const sets = [...paramSets, ...exprSets];
   const whereOffset = dataKeys.length;
 
   let sql = `UPDATE ${quoteIdentifier(table.sqlName)} SET ${sets.join(", ")}`;

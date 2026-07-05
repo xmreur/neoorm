@@ -79,6 +79,7 @@ export function columnsEqual(
     effectiveNullable(a) === effectiveNullable(b) &&
     a.unique === b.unique &&
     a.primary === b.primary &&
+    !!a.updatedAt === !!b.updatedAt &&
     defaultsEqual(a, b) &&
     typeOptionsEqual(a.typeOptions, b.typeOptions) &&
     a.checkExpression === b.checkExpression &&

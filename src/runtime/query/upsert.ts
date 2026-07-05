@@ -7,6 +7,7 @@ import {
 import { assertUniqueWhere } from "./unique.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
+import { stripUpdatedAtFromData, updatedAtSetExpressions } from "./updated-at.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 
 export async function upsertRecord(
@@ -31,16 +32,20 @@ export async function upsertRecord(
 
   const { keys: insertKeys, values: insertValues } = dataToSqlValues(table, createData);
 
-  const updateKeys = Object.keys(args.update).filter((key) => {
+  const updateData = { ...args.update };
+  stripUpdatedAtFromData(table, updateData);
+  const updateKeys = Object.keys(updateData).filter((key) => {
     const col = table.columns.find((c) => c.tsName === key);
-    return col !== undefined && !col.primary && args.update[key] !== undefined;
+    return col !== undefined && !col.primary && updateData[key] !== undefined;
   });
+  const exprSets = updatedAtSetExpressions(table);
 
   const upsertSql = buildUpsertQuery(
     table,
     insertKeys,
     updateKeys,
     constraint.sqlColumns,
+    exprSets,
   );
   const row = await runQueryOne(
     executor,
