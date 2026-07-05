@@ -229,6 +229,27 @@ function isM2MRelation(
   return findM2M(manifest, tableAccessor, relationName) !== undefined;
 }
 
+async function loadNestedRelations(
+  executor: Executor,
+  runtime: QueryRuntime,
+  targetTable: ManifestTable,
+  childRows: Record<string, unknown>[],
+  nestedWith: Record<string, WithInput>,
+): Promise<void> {
+  if (childRows.length === 0) return;
+
+  for (const [nestedName, nestedWithSpec] of Object.entries(nestedWith)) {
+    await loadOneRelation(
+      executor,
+      runtime,
+      targetTable,
+      childRows,
+      nestedName,
+      nestedWithSpec,
+    );
+  }
+}
+
 async function loadOneRelation(
   executor: Executor,
   runtime: QueryRuntime,
@@ -321,18 +342,8 @@ async function loadOneRelation(
     }
 
     if (nestedSpec?.with) {
-      for (const childRows of grouped.values()) {
-        for (const [nestedName, nestedWith] of Object.entries(nestedSpec.with)) {
-          await loadOneRelation(
-            executor,
-            runtime,
-            targetTable,
-            childRows,
-            nestedName,
-            nestedWith,
-          );
-        }
-      }
+      const childRows = [...grouped.values()].flat();
+      await loadNestedRelations(executor, runtime, targetTable, childRows, nestedSpec.with);
     }
   }
 
@@ -342,16 +353,7 @@ async function loadOneRelation(
       .map((p) => p[relationName])
       .filter((r): r is Record<string, unknown> => r != null && typeof r === "object");
 
-    for (const [nestedName, nestedWith] of Object.entries(nestedSpec.with)) {
-      await loadOneRelation(
-        executor,
-        runtime,
-        targetTable,
-        childRows,
-        nestedName,
-        nestedWith,
-      );
-    }
+    await loadNestedRelations(executor, runtime, targetTable, childRows, nestedSpec.with);
   }
 }
 
