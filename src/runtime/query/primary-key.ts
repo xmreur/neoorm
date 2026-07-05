@@ -23,6 +23,7 @@ export function fillMissingPrimaryKeys(
 ): void {
   for (const col of table.columns) {
     if (!col.primary) continue;
+    if (col.kind === "serial" || col.generated) continue;
     const current = data[col.tsName];
     if (current !== undefined && current !== null) continue;
     data[col.tsName] = defaultPrimaryKeyValue(table, col);

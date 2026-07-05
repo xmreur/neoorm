@@ -18,6 +18,12 @@ export type ManifestColumn = {
   fkConstraintName?: string;
   uniqueConstraintName?: string;
   storageSqlType?: string;
+  checkExpression?: string;
+  generated?: boolean;
+};
+
+export type ManifestEnumType = {
+  values: readonly string[];
 };
 
 export type ManifestRelation = {
@@ -68,6 +74,8 @@ export type Manifest = {
   tables: Record<string, ManifestTable>;
   manyToMany: ManifestManyToMany[];
   extensions?: string[];
+  enumMode?: "check" | "union" | "native";
+  enumTypes?: Record<string, ManifestEnumType>;
 };
 
 export type CompiledQuery = {
@@ -102,6 +110,7 @@ export type ColumnAlter = {
   setDefault?: ManifestColumn | null;
   setUnique?: boolean;
   dropUniqueConstraint?: string;
+  setCheckExpression?: string | null;
 };
 
 export type FkChange = {
@@ -129,6 +138,7 @@ export type DestructiveChangeKind =
   | "drop_column"
   | "alter_column_type"
   | "alter_column_type_manual"
+  | "alter_enum_manual"
   | "drop_index"
   | "drop_fk"
   | "alter_primary_key";
@@ -157,6 +167,7 @@ export type Dialect = {
   columnType(col: ManifestColumn, manifest?: Manifest): string;
   resolveIndexSqlName(tableSqlName: string, index: ManifestIndex): string;
   emitCreateExtensions(extensions: readonly string[]): string[];
+  emitCreateEnumTypes(enumTypes: Record<string, { values: readonly string[] }>): string[];
   emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
   emitDropTable(table: ManifestTable): string;
   emitCreateIndex(table: ManifestTable, index: ManifestIndex): string;

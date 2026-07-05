@@ -5,6 +5,15 @@ export type CoreColumnKind =
   | "int"
   | "timestamp"
   | "uuid"
+  | "json"
+  | "jsonb"
+  | "decimal"
+  | "serial"
+  | "enum"
+  | "bytea"
+  | "textArray"
+  | "intArray"
+  | "citext"
   | "fk";
 export type ColumnKind = CoreColumnKind | (string & {});
 
@@ -72,4 +81,21 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
   return builder;
 }
 
-export { id, text, bool, int, timestamp, uuid } from "../plugins/builtin.js";
+export {
+  id,
+  text,
+  bool,
+  int,
+  timestamp,
+  uuid,
+  json,
+  jsonb,
+  decimal,
+  numeric,
+  serial,
+  enumType,
+  bytea,
+  textArray,
+  intArray,
+  citext,
+} from "../plugins/builtin.js";

@@ -1,5 +1,5 @@
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
-import { builtinPlugin } from "./builtin.js";
+import { builtinPlugin, citextPlugin } from "./builtin.js";
 
 const pluginRegistry: NeoOrmPlugin[] = [];
 const columnTypeMap = new Map<string, ColumnTypePlugin>();
@@ -24,6 +24,8 @@ function ensureBuiltins(): void {
   builtinsRegistered = true;
   pluginRegistry.push(builtinPlugin);
   indexColumnTypes(builtinPlugin, true);
+  pluginRegistry.push(citextPlugin);
+  indexColumnTypes(citextPlugin, true);
 }
 
 export function registerPlugin(plugin: NeoOrmPlugin): void {

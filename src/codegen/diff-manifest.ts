@@ -16,6 +16,7 @@ import {
   resolveUniqueConstraintName,
   canAutoCastType,
   resolveColumnSqlType,
+  emitCreateEnumTypes,
 } from "../dialect/postgres.js";
 
 function tablesBySqlName(manifest: Manifest): Map<string, ManifestTable> {
@@ -80,6 +81,7 @@ export function columnsEqual(
     a.primary === b.primary &&
     defaultsEqual(a, b) &&
     typeOptionsEqual(a.typeOptions, b.typeOptions) &&
+    a.checkExpression === b.checkExpression &&
     columnSqlType(a, manifest) === columnSqlType(b, manifest) &&
     (a.kind !== "fk" ||
       (a.fkTarget === b.fkTarget && a.onDelete === b.onDelete))
@@ -262,6 +264,11 @@ function buildColumnAlter(
   }
 
   if (prevCol.primary !== nextCol.primary) {
+    hasAlter = true;
+  }
+
+  if (prevCol.checkExpression !== nextCol.checkExpression) {
+    alter.setCheckExpression = nextCol.checkExpression ?? null;
     hasAlter = true;
   }
 
@@ -525,11 +532,16 @@ export function buildMigrationSql(
   tableDiffs: TableDiff[],
   extensions: string[] = [],
   manifest?: Manifest,
+  newEnumTypes?: Record<string, { values: readonly string[] }>,
 ): string[] {
   const sql: string[] = [];
 
   if (extensions.length > 0) {
     sql.push(...postgresDialect.emitCreateExtensions(extensions));
+  }
+
+  if (newEnumTypes && Object.keys(newEnumTypes).length > 0) {
+    sql.push(...emitCreateEnumTypes(newEnumTypes));
   }
 
   const alterDiffs = tableDiffs.filter((d) => !d.create && !d.drop);
@@ -564,6 +576,37 @@ export function buildMigrationSql(
   return sql;
 }
 
+function diffEnumTypes(
+  prev: Manifest | null,
+  next: Manifest,
+): {
+  newEnumTypes: Record<string, { values: readonly string[] }>;
+  destructive: DestructiveChange[];
+} {
+  const destructive: DestructiveChange[] = [];
+  const newEnumTypes: Record<string, { values: readonly string[] }> = {};
+  const prevEnums = prev?.enumTypes ?? {};
+  const nextEnums = next.enumTypes ?? {};
+
+  for (const [name, definition] of Object.entries(nextEnums)) {
+    const prevDefinition = prevEnums[name];
+    if (!prevDefinition) {
+      newEnumTypes[name] = definition;
+      continue;
+    }
+    if (JSON.stringify(prevDefinition.values) !== JSON.stringify(definition.values)) {
+      destructive.push({
+        kind: "alter_enum_manual",
+        table: name,
+        detail: `Enum type "${name}" values changed — manual migration required`,
+        sql: `-- ALTER TYPE ${name} ... (manual)`,
+      });
+    }
+  }
+
+  return { newEnumTypes, destructive };
+}
+
 export function diffManifest(
   prev: Manifest | null,
   next: Manifest,
@@ -572,6 +615,10 @@ export function diffManifest(
     const sql: string[] = [];
     const extensions = next.extensions ?? [];
     sql.push(...postgresDialect.emitCreateExtensions(extensions));
+
+    if (next.enumTypes) {
+      sql.push(...emitCreateEnumTypes(next.enumTypes));
+    }
 
     const tables = Object.values(next.tables);
     for (const table of tables) {
@@ -599,6 +646,7 @@ export function diffManifest(
   const newExtensions = (next.extensions ?? []).filter(
     (ext) => !prevExtensions.has(ext),
   );
+  const { newEnumTypes, destructive: enumDestructive } = diffEnumTypes(prev, next);
 
   for (const sqlName of allSqlNames) {
     const prevTable = prevBySql.get(sqlName);
@@ -609,7 +657,9 @@ export function diffManifest(
     destructive.push(...classifyDestructive(diff, prevTable));
   }
 
-  const sql = buildMigrationSql(tableDiffs, newExtensions, next);
+  destructive.push(...enumDestructive);
+
+  const sql = buildMigrationSql(tableDiffs, newExtensions, next, newEnumTypes);
 
   return { isInitial: false, sql, destructive };
 }
@@ -622,7 +672,9 @@ export function resolveMigrationSql(
 ): { sql: string[]; blocked: DestructiveChange[] } {
   if (acceptDataLoss) {
     const blocked = diff.destructive.filter(
-      (change) => change.kind === "alter_column_type_manual",
+      (change) =>
+        change.kind === "alter_column_type_manual" ||
+        change.kind === "alter_enum_manual",
     );
     if (blocked.length === 0) {
       return { sql: diff.sql, blocked: [] };
@@ -688,6 +740,8 @@ export function formatDestructiveWarnings(
         return `${change.detail} — this may affect referential integrity`;
       case "alter_primary_key":
         return `${change.detail} — primary key changes require manual migration`;
+      case "alter_enum_manual":
+        return `${change.detail} — enum value changes require manual migration`;
       default: {
         const _exhaustive: never = change.kind;
         return _exhaustive;

@@ -16,13 +16,35 @@ import {
   queryPrimaryKeyColumns,
   queryTables,
   queryUniqueConstraints,
+  queryEnumTypes,
 } from "./queries.js";
 
 function tableAccessor(tableName: string): string {
   return toCamelCase(tableName.endsWith("s") ? tableName : `${tableName}s`);
 }
 
-function pgTypeToKind(dataType: string, udtName: string): ManifestColumn["kind"] {
+function isSerialColumn(dataType: string, columnDefault: string | null): boolean {
+  if (dataType !== "integer") {
+    return false;
+  }
+  if (!columnDefault) {
+    return false;
+  }
+  return (
+    columnDefault.includes("nextval(") ||
+    columnDefault.toLowerCase().includes("generated")
+  );
+}
+
+function pgTypeToKind(
+  dataType: string,
+  udtName: string,
+  enumTypes: Record<string, string[]>,
+): ManifestColumn["kind"] {
+  if (enumTypes[udtName]) {
+    return "enum";
+  }
+
   const pluginType = findIntrospectColumnType(dataType, udtName);
   if (pluginType) {
     return pluginType.kind;
@@ -57,10 +79,23 @@ function parseDefaultValue(
     if (columnDefault === "true") return { defaultNow: false, defaultValue: true };
     if (columnDefault === "false") return { defaultNow: false, defaultValue: false };
   }
-  if (kind === "int") {
-    const match = columnDefault.match(/^(-?\d+)/);
+  if (kind === "int" || kind === "decimal") {
+    const match = columnDefault.match(/^(-?\d+(?:\.\d+)?)/);
     if (match) {
-      return { defaultNow: false, defaultValue: Number(match[1]) };
+      return { defaultNow: false, defaultValue: kind === "int" ? Number(match[1]) : match[1] };
+    }
+  }
+  if (kind === "json" || kind === "jsonb") {
+    const jsonMatch = columnDefault.match(/^'((?:''|[^'])*)'::/);
+    if (jsonMatch) {
+      try {
+        return {
+          defaultNow: false,
+          defaultValue: JSON.parse(jsonMatch[1]!.replace(/''/g, "'")),
+        };
+      } catch {
+        return { defaultNow: false };
+      }
     }
   }
   const stringMatch = columnDefault.match(/^'((?:''|[^'])*)'::/);
@@ -130,6 +165,7 @@ function filterConstraintBackedIndexes(
 async function introspectTable(
   pool: Pool,
   tableName: string,
+  enumTypes: Record<string, string[]>,
 ): Promise<ManifestTable> {
   const [columns, fks, indexRows, uniqueRows, primaryKey] = await Promise.all([
     queryColumns(pool, tableName),
@@ -151,7 +187,9 @@ async function introspectTable(
     const nullable = col.is_nullable === "YES";
     const uniqueConstraintName = uniqueMap.get(col.column_name);
     const defaults = parseDefaultValue(
-      fk ? "fk" : pgTypeToKind(col.data_type, col.udt_name),
+      fk ? "fk" : isSerialColumn(col.data_type, col.column_default)
+        ? "serial"
+        : pgTypeToKind(col.data_type, col.udt_name, enumTypes),
       col.column_default,
     );
 
@@ -176,12 +214,13 @@ async function introspectTable(
       };
     }
 
-    const kind =
-      col.column_name === "id" && col.udt_name === "uuid"
+    const kind = isSerialColumn(col.data_type, col.column_default)
+      ? "serial"
+      : col.column_name === "id" && col.udt_name === "uuid"
         ? "uuid"
         : col.column_name === "id"
           ? "id"
-          : pgTypeToKind(col.data_type, col.udt_name);
+          : pgTypeToKind(col.data_type, col.udt_name, enumTypes);
 
     const column: ManifestColumn = {
       tsName,
@@ -196,11 +235,19 @@ async function introspectTable(
         ? { defaultValue: defaults.defaultValue }
         : {}),
       ...(uniqueConstraintName ? { uniqueConstraintName } : {}),
+      ...(kind === "serial" ? { generated: true } : {}),
     };
 
     if (kind === "uuid" && col.column_default?.includes("gen_random_uuid")) {
       column.typeOptions = {
         version: col.column_default.includes("uuid_generate_v4()") ? 4 : 7,
+      };
+    }
+
+    if (kind === "enum" && enumTypes[col.udt_name]) {
+      column.typeOptions = {
+        values: enumTypes[col.udt_name],
+        nativeTypeName: col.udt_name,
       };
     }
 
@@ -220,21 +267,30 @@ async function introspectTable(
 export async function introspectToManifest(pool: Pool): Promise<Manifest> {
   const tables = await queryTables(pool);
   const extensions = await queryInstalledExtensions(pool);
+  const enumTypes = await queryEnumTypes(pool);
   const manifestTables: Record<string, ManifestTable> = {};
 
   for (const { table_name } of tables) {
-    const table = await introspectTable(pool, table_name);
+    const table = await introspectTable(pool, table_name, enumTypes);
     manifestTables[table.accessor] = table;
   }
 
   const relevantExtensions = extensions.filter((ext) =>
-    ["postgis"].includes(ext),
+    ["postgis", "citext"].includes(ext),
+  );
+
+  const manifestEnumTypes = Object.fromEntries(
+    Object.entries(enumTypes).map(([name, values]) => [name, { values }]),
   );
 
   return {
     version: 1,
     tables: manifestTables,
     manyToMany: [],
+    enumMode: "native",
+    ...(Object.keys(manifestEnumTypes).length > 0
+      ? { enumTypes: manifestEnumTypes }
+      : {}),
     ...(relevantExtensions.length > 0
       ? { extensions: relevantExtensions }
       : {}),

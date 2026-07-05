@@ -9,6 +9,12 @@ type IsPrimary<T> = T extends ColumnBuilder<unknown, infer M>
     : false
   : false;
 
+type IsGenerated<T> = T extends ColumnBuilder<unknown, infer M>
+  ? M extends { kind: "serial" }
+    ? true
+    : false
+  : false;
+
 type IsRequired<T> = T extends ColumnBuilder<unknown, infer M>
   ? M extends { nullable: false; primary: true }
     ? false
@@ -30,9 +36,11 @@ export type InferSelectRow<TColumns extends Record<string, ColumnDef>> = {
 };
 
 export type InferInsertRow<TColumns extends Record<string, ColumnDef>> = {
-  [K in keyof TColumns as IsPrimary<TColumns[K]> extends true ? never : K]?: InferColumnValue<
-    TColumns[K]
-  >;
+  [K in keyof TColumns as IsPrimary<TColumns[K]> extends true
+    ? never
+    : IsGenerated<TColumns[K]> extends true
+      ? never
+      : K]?: InferColumnValue<TColumns[K]>;
 } & {
   [K in keyof TColumns as IsRequired<TColumns[K]> extends true ? K : never]: InferColumnValue<
     TColumns[K]

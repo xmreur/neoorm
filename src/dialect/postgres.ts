@@ -80,8 +80,27 @@ export function pgStorageSqlType(dataType: string, udtName: string): string {
     case "text":
     case "character varying":
       return "TEXT";
+    case "json":
+      return "JSON";
+    case "jsonb":
+      return "JSONB";
+    case "numeric":
+      return "NUMERIC";
+    case "bytea":
+      return "BYTEA";
+    case "ARRAY":
+      if (udtName === "_text") {
+        return "TEXT[]";
+      }
+      if (udtName === "_int4") {
+        return "INTEGER[]";
+      }
+      return "TEXT[]";
     default:
-      return "TEXT";
+      if (udtName === "citext") {
+        return "CITEXT";
+      }
+      return udtName.toUpperCase();
   }
 }
 
@@ -98,6 +117,10 @@ function columnDef(col: ManifestColumn, manifest?: Manifest): string {
   const defaultSql = formatDefaultValue(col);
   if (defaultSql !== null) {
     parts.push(`DEFAULT ${defaultSql}`);
+  }
+
+  if (col.checkExpression) {
+    parts.push(`CHECK (${col.checkExpression})`);
   }
 
   return parts.join(" ");
@@ -166,6 +189,18 @@ export function typeCastUsing(
   ) {
     return `${col}::timestamptz`;
   }
+  if (from === "TEXT" && (to === "JSONB" || to === "JSON")) {
+    return `${col}::${to.toLowerCase()}`;
+  }
+  if ((from === "JSONB" || from === "JSON") && to === "TEXT") {
+    return `${col}::text`;
+  }
+  if (from === "TEXT" && to.startsWith("NUMERIC")) {
+    return `${col}::numeric`;
+  }
+  if (from.startsWith("NUMERIC") && to === "TEXT") {
+    return `${col}::text`;
+  }
   return undefined;
 }
 
@@ -200,6 +235,17 @@ export function resolveUniqueConstraintName(
 
 function emitCreateExtensions(extensions: readonly string[]): string[] {
   return extensions.map((ext) => `CREATE EXTENSION IF NOT EXISTS ${ext};`);
+}
+
+export function emitCreateEnumTypes(
+  enumTypes: Record<string, { values: readonly string[] }>,
+): string[] {
+  return Object.entries(enumTypes).map(([name, definition]) => {
+    const quotedValues = definition.values
+      .map((value) => `'${value.replace(/'/g, "''")}'`)
+      .join(", ");
+    return `CREATE TYPE ${q(name)} AS ENUM (${quotedValues});`;
+  });
 }
 
 function emitCreateTable(
@@ -334,6 +380,16 @@ function emitAlterColumn(
     );
   }
 
+  if (alter.setCheckExpression !== undefined) {
+    const constraintName = `${table.sqlName}_${alter.sqlName}_check`;
+    stmts.push(emitDropConstraint(table.sqlName, constraintName));
+    if (alter.setCheckExpression !== null) {
+      stmts.push(
+        `ALTER TABLE ${tableName} ADD CONSTRAINT ${q(constraintName)} CHECK (${alter.setCheckExpression});`,
+      );
+    }
+  }
+
   return stmts;
 }
 
@@ -419,6 +475,7 @@ export const postgresDialect: Dialect = {
   columnType,
   resolveIndexSqlName,
   emitCreateExtensions,
+  emitCreateEnumTypes,
   emitCreateTable,
   emitDropTable,
   emitCreateIndex,

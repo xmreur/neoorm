@@ -169,3 +169,27 @@ export async function queryInstalledExtensions(pool: Pool): Promise<string[]> {
   `);
   return result.rows.map((row) => row.extname);
 }
+
+export type EnumTypeRow = {
+  typname: string;
+  enumlabel: string;
+};
+
+export async function queryEnumTypes(pool: Pool): Promise<Record<string, string[]>> {
+  const result = await pool.query<EnumTypeRow>(`
+    SELECT t.typname, e.enumlabel
+    FROM pg_type t
+    JOIN pg_enum e ON t.oid = e.enumtypid
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public'
+    ORDER BY t.typname, e.enumsortorder
+  `);
+
+  const enumTypes: Record<string, string[]> = {};
+  for (const row of result.rows) {
+    const existing = enumTypes[row.typname] ?? [];
+    existing.push(row.enumlabel);
+    enumTypes[row.typname] = existing;
+  }
+  return enumTypes;
+}
