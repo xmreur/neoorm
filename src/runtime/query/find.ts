@@ -16,6 +16,7 @@ import {
   rowPkKey,
   targetRelationPkSql,
 } from "./primary-key.js";
+import { type QueryRuntime, runQuery } from "./execute.js";
 
 export type WithInput = boolean | {
   select?: readonly string[] | Record<string, boolean | undefined>;
@@ -62,7 +63,7 @@ function isM2MRelation(
 
 async function loadOneRelation(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   parentTable: ManifestTable,
   parentRows: Record<string, unknown>[],
   relationName: string,
@@ -70,9 +71,10 @@ async function loadOneRelation(
 ): Promise<void> {
   if (parentRows.length === 0) return;
 
+  const { manifest } = runtime;
   const m2m = findM2M(manifest, parentTable.accessor, relationName);
   if (m2m) {
-    await loadM2MRelation(executor, manifest, parentTable, parentRows, m2m, relationName, withSpec);
+    await loadM2MRelation(executor, runtime, parentTable, parentRows, m2m, relationName, withSpec);
     return;
   }
 
@@ -96,7 +98,10 @@ async function loadOneRelation(
     const selectCols = columnsForSelect(targetTable, withSpec);
     const targetPkTsName = primaryKeyTsNames(targetTable)[0]!;
 
-    const rows = await executor.query(
+    const rows = await runQuery(
+      executor,
+      runtime,
+      { operation: "select", tableAccessor: targetTable.accessor },
       `SELECT ${selectCols} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${targetPkCol} IN (${placeholders})`,
       fkValues,
     );
@@ -123,7 +128,13 @@ async function loadOneRelation(
       sql += ` LIMIT ${nestedSpec.limit}`;
     }
 
-    const rows = await executor.query(sql, parentIds);
+    const rows = await runQuery(
+      executor,
+      runtime,
+      { operation: "select", tableAccessor: targetTable.accessor },
+      sql,
+      parentIds,
+    );
     const mapped = rowsToTs(targetTable, rows);
 
     const grouped = new Map<string, Record<string, unknown>[]>();
@@ -146,7 +157,7 @@ async function loadOneRelation(
         for (const [nestedName, nestedWith] of Object.entries(nestedSpec.with)) {
           await loadOneRelation(
             executor,
-            manifest,
+            runtime,
             targetTable,
             childRows,
             nestedName,
@@ -166,7 +177,7 @@ async function loadOneRelation(
     for (const [nestedName, nestedWith] of Object.entries(nestedSpec.with)) {
       await loadOneRelation(
         executor,
-        manifest,
+        runtime,
         targetTable,
         childRows,
         nestedName,
@@ -178,13 +189,14 @@ async function loadOneRelation(
 
 async function loadM2MRelation(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   parentTable: ManifestTable,
   parentRows: Record<string, unknown>[],
   m2m: ManifestManyToMany,
   relationName: string,
-  withSpec: WithInput,
+  _withSpec: WithInput,
 ): Promise<void> {
+  const { manifest } = runtime;
   const isLeft = m2m.leftAccessor === parentTable.accessor;
   const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
   const targetTable = manifest.tables[targetAccessor];
@@ -210,7 +222,13 @@ async function loadM2MRelation(
     WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})
   `.trim();
 
-  const rows = await executor.query(sql, parentIds);
+  const rows = await runQuery(
+    executor,
+    runtime,
+    { operation: "select", tableAccessor: targetTable.accessor },
+    sql,
+    parentIds,
+  );
 
   const grouped = new Map<string, Record<string, unknown>[]>();
   for (const row of rows) {
@@ -228,7 +246,7 @@ async function loadM2MRelation(
 
 export async function loadRelations(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   table: ManifestTable,
   rows: Record<string, unknown>[],
   withSpec: Record<string, WithInput> | undefined,
@@ -236,7 +254,7 @@ export async function loadRelations(
   if (!withSpec || rows.length === 0) return rows;
 
   for (const [relationName, spec] of Object.entries(withSpec)) {
-    await loadOneRelation(executor, manifest, table, rows, relationName, spec);
+    await loadOneRelation(executor, runtime, table, rows, relationName, spec);
   }
 
   return rows;
@@ -244,7 +262,7 @@ export async function loadRelations(
 
 export async function findMany(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args?: {
     where?: Record<string, unknown>;
@@ -254,6 +272,7 @@ export async function findMany(
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown>[]> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -272,18 +291,18 @@ export async function findMany(
     args?.offset,
   );
 
-  const rows = await executor.query(query, params);
+  const rows = await runQuery(executor, runtime, { operation: "select", tableAccessor }, query, params);
   const mapped = rowsToTs(table, rows);
-  return loadRelations(executor, manifest, table, mapped, args?.with);
+  return loadRelations(executor, runtime, table, mapped, args?.with);
 }
 
 export async function findFirst(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args?: Parameters<typeof findMany>[3],
 ): Promise<Record<string, unknown> | null> {
-  const rows = await findMany(executor, manifest, tableAccessor, {
+  const rows = await findMany(executor, runtime, tableAccessor, {
     ...args,
     limit: 1,
   });
@@ -292,11 +311,12 @@ export async function findFirst(
 
 export async function findById(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   id: string,
   args?: { with?: Record<string, WithInput> },
 ): Promise<Record<string, unknown> | null> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -309,6 +329,6 @@ export async function findById(
   if (args?.with !== undefined) {
     findArgs.with = args.with;
   }
-  const rows = await findMany(executor, manifest, tableAccessor, findArgs);
+  const rows = await findMany(executor, runtime, tableAccessor, findArgs);
   return rows[0] ?? null;
 }

@@ -1,4 +1,3 @@
-import type { Manifest } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import {
   buildInsertManyQuery,
@@ -8,22 +7,24 @@ import {
   rowToTs,
 } from "./compile.js";
 import { loadRelations, type WithInput } from "./find.js";
-import { fillMissingPrimaryKeys, primaryKeySqlName, requireScalarPrimaryKey, rowScalarPkValue } from "./primary-key.js";
+import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import {
   applyToOnePreWrites,
   executeRelationWrites,
   splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
+import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 
 export async function runCreate(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     data: Record<string, unknown>;
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown>> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -36,7 +37,7 @@ export async function runCreate(
 
   await applyToOnePreWrites(
     executor,
-    manifest,
+    runtime,
     table,
     scalarData,
     relationWrites,
@@ -47,15 +48,14 @@ export async function runCreate(
 
   const { keys, values } = dataToSqlValues(table, scalarData);
   const insertSql = buildInsertQuery(table, keys);
-  const row = await executor.queryOne(insertSql, values);
-  if (!row) throw new Error("Insert failed");
+  const row = await runQueryOne(executor, runtime, { operation: "insert", tableAccessor }, insertSql, values);
 
-  const result = rowToTs(table, row);
+  const result = rowToTs(table, row!);
   const recordId = rowScalarPkValue(result, table);
 
   await executeRelationWrites(
     executor,
-    manifest,
+    runtime,
     tableAccessor,
     recordId,
     relationWrites,
@@ -63,7 +63,7 @@ export async function runCreate(
   );
 
   if (args.with) {
-    const [withLoaded] = await loadRelations(executor, manifest, table, [result], args.with);
+    const [withLoaded] = await loadRelations(executor, runtime, table, [result], args.with);
     return withLoaded ?? result;
   }
 
@@ -72,7 +72,7 @@ export async function runCreate(
 
 export async function createRecord(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     data: Record<string, unknown>;
@@ -80,15 +80,15 @@ export async function createRecord(
   },
 ): Promise<Record<string, unknown>> {
   if (executor.inTransaction) {
-    return runCreate(executor, manifest, tableAccessor, args);
+    return runCreate(executor, runtime, tableAccessor, args);
   }
 
-  return executor.transaction((tx) => runCreate(tx, manifest, tableAccessor, args));
+  return executor.transaction((tx) => runCreate(tx, runtime, tableAccessor, args));
 }
 
 export async function createManyRecords(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     data: Record<string, unknown>[];
@@ -96,6 +96,7 @@ export async function createManyRecords(
 ): Promise<number> {
   if (args.data.length === 0) return 0;
 
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -139,6 +140,6 @@ export async function createManyRecords(
 
   const { valueRows, values } = buildInsertManyValueRows(table, dataKeys, rowValues);
   const sql = buildInsertManyQuery(table, dataKeys, valueRows);
-  const result = await executor.query(sql, values);
+  const result = await runQuery(executor, runtime, { operation: "insert", tableAccessor }, sql, values);
   return result.length;
 }

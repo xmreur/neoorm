@@ -4,6 +4,7 @@ export type { NeoOrmConfig } from "./config.js";
 export { createNeoOrmClient, createNeoOrmClientFromPool } from "./runtime/client.js";
 export type {
   NeoOrmClient,
+  NeoOrmClientOptions,
   TableRepository,
   TypedNeoOrmClient,
   TypedTableRepository,
@@ -30,3 +31,5 @@ export {
   resolveMigrationSql,
   explainNoMigrationSql,
 } from "./codegen/diff-manifest.js";
+export { NeoOrmQueryError, formatQueryError } from "./runtime/errors.js";
+export type { QueryErrorContext, QueryOperation } from "./runtime/errors.js";

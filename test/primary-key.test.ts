@@ -11,6 +11,7 @@ import {
   targetRelationPkSql,
 } from "../src/runtime/query/primary-key.js";
 import type { Executor } from "../src/runtime/executor.js";
+import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { loadRelations } from "../src/runtime/query/find.js";
 import { executeRelationWrites } from "../src/runtime/query/relation-writes.js";
 
@@ -65,6 +66,7 @@ function createMockExecutor(
 
 describe("manifest-driven primary keys", () => {
   const manifest = schemaToManifest(mappedPkSchema);
+  const runtime: QueryRuntime = { manifest };
   const users = manifest.tables["users"]!;
   const posts = manifest.tables["posts"]!;
 
@@ -122,7 +124,7 @@ describe("manifest-driven primary keys", () => {
     const parentRows: Record<string, unknown>[] = [
       { id: "post_1", title: "Hello", authorId: "user_1" },
     ];
-    await loadRelations(executor, manifest, posts, parentRows, { author: true });
+    await loadRelations(executor, runtime, posts, parentRows, { author: true });
 
     expect(executor.queries[0]?.sql).toContain('"user_id" IN');
     expect(parentRows[0]?.author).toEqual({ id: "user_1", email: "a@example.com" });
@@ -146,12 +148,13 @@ describe("manifest-driven primary keys", () => {
     });
 
     const childManifest = schemaToManifest(childMappedSchema);
+    const childRuntime: QueryRuntime = { manifest: childManifest };
     const executor = createMockExecutor();
     const runCreate = vi.fn();
 
     await executeRelationWrites(
       executor,
-      childManifest,
+      childRuntime,
       "teams",
       "team_1",
       [{ relationName: "members", value: { connect: [{ id: "member_1" }] } }],

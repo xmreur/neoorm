@@ -10,7 +10,14 @@ import { upsertRecord } from "./query/upsert.js";
 import { updateRecord, updateManyRecords, updateById } from "./query/update.js";
 import { deleteRecord, deleteManyRecords, deleteById } from "./query/delete.js";
 import type { WithInput } from "./query/find.js";
+import type { QueryRuntime } from "./query/execute.js";
+import { runQuery } from "./query/execute.js";
 import type { TypedNeoOrmClient, TypedTableRepository, DefaultWithMap, DefaultRowPayloadMap, TransactionClient, TransactionOptions } from "./types.js";
+
+export type NeoOrmClientOptions = {
+  connectionString?: string;
+  migrationsDir?: string;
+};
 
 export type TableRepository = {
   findMany(args?: {
@@ -85,24 +92,24 @@ export interface NeoOrmClient {
 
 function createTableRepository(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   accessor: string,
 ): TableRepository {
   return {
-    findMany: (args) => findMany(executor, manifest, accessor, args),
-    findFirst: (args) => findFirst(executor, manifest, accessor, args),
-    findUnique: (args) => findUnique(executor, manifest, accessor, args),
-    findById: (id, args) => findById(executor, manifest, accessor, id, args),
-    create: (args) => createRecord(executor, manifest, accessor, args),
-    createMany: (args) => createManyRecords(executor, manifest, accessor, args),
-    upsert: (args) => upsertRecord(executor, manifest, accessor, args),
-    update: (args) => updateRecord(executor, manifest, accessor, args),
-    updateMany: (args) => updateManyRecords(executor, manifest, accessor, args),
-    updateById: (id, args) => updateById(executor, manifest, accessor, id, args),
-    delete: (args) => deleteRecord(executor, manifest, accessor, args),
-    deleteMany: (args) => deleteManyRecords(executor, manifest, accessor, args),
-    count: (args) => countRecords(executor, manifest, accessor, args),
-    deleteById: (id) => deleteById(executor, manifest, accessor, id),
+    findMany: (args) => findMany(executor, runtime, accessor, args),
+    findFirst: (args) => findFirst(executor, runtime, accessor, args),
+    findUnique: (args) => findUnique(executor, runtime, accessor, args),
+    findById: (id, args) => findById(executor, runtime, accessor, id, args),
+    create: (args) => createRecord(executor, runtime, accessor, args),
+    createMany: (args) => createManyRecords(executor, runtime, accessor, args),
+    upsert: (args) => upsertRecord(executor, runtime, accessor, args),
+    update: (args) => updateRecord(executor, runtime, accessor, args),
+    updateMany: (args) => updateManyRecords(executor, runtime, accessor, args),
+    updateById: (id, args) => updateById(executor, runtime, accessor, id, args),
+    delete: (args) => deleteRecord(executor, runtime, accessor, args),
+    deleteMany: (args) => deleteManyRecords(executor, runtime, accessor, args),
+    count: (args) => countRecords(executor, runtime, accessor, args),
+    deleteById: (id) => deleteById(executor, runtime, accessor, id),
   };
 }
 
@@ -112,7 +119,7 @@ function buildClient<
   TRowPayloads extends Record<keyof TTables & string, Record<string, unknown>> = DefaultRowPayloadMap<TTables>,
 >(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   disconnect: () => Promise<void>,
   options?: { transactional?: boolean },
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
@@ -124,11 +131,11 @@ function buildClient<
       ...values: unknown[]
     ): Promise<T[]> {
       const { text, params } = compileQuery(strings, values);
-      return executor.query<T>(text, params);
+      return runQuery<T>(executor, runtime, { operation: "raw" }, text, params);
     },
 
     execute(query: { text: string; params: unknown[] }) {
-      return executor.query(query.text, query.params);
+      return runQuery(executor, runtime, { operation: "raw" }, query.text, query.params);
     },
 
     $disconnect: transactional
@@ -148,7 +155,7 @@ function buildClient<
       const runWithExecutor = async (txExecutor: Executor) => {
         const tx = buildClient<TTables, TIncludes, TRowPayloads>(
           txExecutor,
-          manifest,
+          runtime,
           disconnect,
           { transactional: true },
         );
@@ -172,10 +179,10 @@ function buildClient<
     },
   } as TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
 
-  for (const accessor of Object.keys(manifest.tables)) {
+  for (const accessor of Object.keys(runtime.manifest.tables)) {
     (client as Record<string, TableRepository>)[accessor] = createTableRepository(
       executor,
-      manifest,
+      runtime,
       accessor,
     );
   }
@@ -189,19 +196,29 @@ export function createNeoOrmClient<
   TRowPayloads extends Record<keyof TTables & string, Record<string, unknown>> = DefaultRowPayloadMap<TTables>,
 >(
   manifest: Manifest,
-  connectionString?: string,
+  connectionStringOrOptions?: string | NeoOrmClientOptions,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
   ensurePlugins(manifest);
 
-  const url = connectionString ?? process.env["DATABASE_URL"];
+  const options =
+    typeof connectionStringOrOptions === "string"
+      ? { connectionString: connectionStringOrOptions }
+      : (connectionStringOrOptions ?? {});
+
+  const url = options.connectionString ?? process.env["DATABASE_URL"];
   if (!url) {
     throw new Error("DATABASE_URL is required");
   }
 
   const pool = new Pool({ connectionString: url });
   const executor = createExecutor(pool);
+  const runtime: QueryRuntime = {
+    manifest,
+    pool,
+    ...(options.migrationsDir !== undefined ? { migrationsDir: options.migrationsDir } : {}),
+  };
 
-  return buildClient<TTables, TIncludes, TRowPayloads>(executor, manifest, async () => {
+  return buildClient<TTables, TIncludes, TRowPayloads>(executor, runtime, async () => {
     await pool.end();
   });
 }
@@ -213,12 +230,18 @@ export function createNeoOrmClientFromPool<
 >(
   manifest: Manifest,
   pool: Pool,
+  options?: Pick<NeoOrmClientOptions, "migrationsDir">,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
   ensurePlugins(manifest);
 
   const executor = createExecutor(pool);
+  const runtime: QueryRuntime = {
+    manifest,
+    pool,
+    ...(options?.migrationsDir !== undefined ? { migrationsDir: options.migrationsDir } : {}),
+  };
 
-  return buildClient<TTables, TIncludes, TRowPayloads>(executor, manifest, async () => {
+  return buildClient<TTables, TIncludes, TRowPayloads>(executor, runtime, async () => {
     await pool.end();
   });
 }

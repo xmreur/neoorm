@@ -1,4 +1,3 @@
-import type { Manifest } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
 import {
@@ -17,10 +16,11 @@ import {
   splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
 import { primaryKeySqlName, requireScalarPrimaryKey, rowScalarPkValue } from "./primary-key.js";
+import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 
 async function runUpdate(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     where: Record<string, unknown>;
@@ -28,6 +28,7 @@ async function runUpdate(
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown> | null> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -40,7 +41,7 @@ async function runUpdate(
 
   await applyToOnePreWrites(
     executor,
-    manifest,
+    runtime,
     table,
     scalarData,
     relationWrites,
@@ -73,15 +74,25 @@ async function runUpdate(
   let result: Record<string, unknown> | null;
 
   if (keys.length === 0) {
-    const row = await executor.queryOne(
-      `SELECT * FROM ${quoteIdentifier(table.sqlName)} WHERE ${whereSql} LIMIT 1`,
+    const selectSql = `SELECT * FROM ${quoteIdentifier(table.sqlName)} WHERE ${whereSql} LIMIT 1`;
+    const row = await runQueryOne(
+      executor,
+      runtime,
+      { operation: "select", tableAccessor },
+      selectSql,
       whereParams,
     );
     if (!row) return null;
     result = rowToTs(table, row);
   } else {
     const query = buildUpdateQuery(table, keys, whereSql);
-    const row = await executor.queryOne(query, [...values, ...whereParams]);
+    const row = await runQueryOne(
+      executor,
+      runtime,
+      { operation: "update", tableAccessor },
+      query,
+      [...values, ...whereParams],
+    );
     if (!row) return null;
     result = rowToTs(table, row);
   }
@@ -90,7 +101,7 @@ async function runUpdate(
 
   await executeRelationWrites(
     executor,
-    manifest,
+    runtime,
     tableAccessor,
     recordId,
     relationWrites,
@@ -98,7 +109,7 @@ async function runUpdate(
   );
 
   if (args.with) {
-    const [withLoaded] = await loadRelations(executor, manifest, table, [result], args.with);
+    const [withLoaded] = await loadRelations(executor, runtime, table, [result], args.with);
     return withLoaded ?? result;
   }
 
@@ -107,7 +118,7 @@ async function runUpdate(
 
 export async function updateRecord(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     where: Record<string, unknown>;
@@ -115,6 +126,7 @@ export async function updateRecord(
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown> | null> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -132,21 +144,22 @@ export async function updateRecord(
   );
 
   if (executor.inTransaction || !needsTransaction) {
-    return runUpdate(executor, manifest, tableAccessor, args);
+    return runUpdate(executor, runtime, tableAccessor, args);
   }
 
-  return executor.transaction((tx) => runUpdate(tx, manifest, tableAccessor, args));
+  return executor.transaction((tx) => runUpdate(tx, runtime, tableAccessor, args));
 }
 
 export async function updateManyRecords(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   args: {
     where?: Record<string, unknown>;
     data: Record<string, unknown>;
   },
 ): Promise<number> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
@@ -164,13 +177,19 @@ export async function updateManyRecords(
 
   const query = buildUpdateManyQuery(table, keys, whereSql);
   const pkSql = quoteIdentifier(primaryKeySqlName(table));
-  const result = await executor.query(`${query} RETURNING ${pkSql}`, [...values, ...whereParams]);
+  const result = await runQuery(
+    executor,
+    runtime,
+    { operation: "update", tableAccessor },
+    `${query} RETURNING ${pkSql}`,
+    [...values, ...whereParams],
+  );
   return result.length;
 }
 
 export async function updateById(
   executor: Executor,
-  manifest: Manifest,
+  runtime: QueryRuntime,
   tableAccessor: string,
   id: string,
   args: {
@@ -178,11 +197,12 @@ export async function updateById(
     with?: Record<string, WithInput>;
   },
 ): Promise<Record<string, unknown> | null> {
+  const { manifest } = runtime;
   const table = manifest.tables[tableAccessor];
   if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
   const { tsName } = requireScalarPrimaryKey(table);
-  return updateRecord(executor, manifest, tableAccessor, {
+  return updateRecord(executor, runtime, tableAccessor, {
     where: { [tsName]: id },
     data: args.data,
     ...(args.with !== undefined ? { with: args.with } : {}),

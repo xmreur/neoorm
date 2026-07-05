@@ -9,6 +9,7 @@ import {
   splitScalarsAndRelationWrites,
 } from "../src/runtime/query/relation-writes.js";
 import { runCreate } from "../src/runtime/query/create.js";
+import type { QueryRuntime } from "../src/runtime/query/execute.js";
 
 function ensureBlogManyToManyRegistry(): void {
   if (getManyToManyRegistry().length > 0) return;
@@ -43,10 +44,12 @@ function createMockExecutor(): Executor & { queries: { sql: string; params: unkn
 
 describe("relation-writes", () => {
   let manifest: ReturnType<typeof schemaToManifest>;
+  let runtime: QueryRuntime;
 
   beforeAll(() => {
     ensureBlogManyToManyRegistry();
     manifest = schemaToManifest(schema);
+    runtime = { manifest };
   });
 
   it("manifest includes M2M tags relation on posts", () => {
@@ -81,7 +84,7 @@ describe("relation-writes", () => {
 
     await applyToOnePreWrites(
       executor,
-      manifest,
+      runtime,
       table,
       scalarData,
       [{ relationName: "author", value: { connect: { id: "user_1" } } }],
@@ -99,7 +102,7 @@ describe("relation-writes", () => {
     await expect(
       applyToOnePreWrites(
         executor,
-        manifest,
+        runtime,
         table,
         scalarData,
         [{ relationName: "author", value: { disconnect: true } }],
@@ -113,7 +116,7 @@ describe("relation-writes", () => {
 
     await executeRelationWrites(
       executor,
-      manifest,
+      runtime,
       "posts",
       "post_1",
       [{ relationName: "comments", value: { connect: [{ id: "comment_1" }] } }],
@@ -130,7 +133,7 @@ describe("relation-writes", () => {
 
     await executeRelationWrites(
       executor,
-      manifest,
+      runtime,
       "posts",
       "post_1",
       [{ relationName: "tags", value: { set: [{ id: "tag_1" }, { id: "tag_2" }] } }],
@@ -153,7 +156,7 @@ describe("relation-writes", () => {
 
     await executeRelationWrites(
       executor,
-      manifest,
+      runtime,
       "posts",
       "post_1",
       [
