@@ -24,21 +24,21 @@ function createMockExecutor(
   const executor: Executor & { queries: { sql: string; params: unknown[] }[] } = {
     queries,
     inTransaction: false,
-    query: vi.fn(async (sql: string, params?: unknown[]) => {
+    query: vi.fn(async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => {
       queries.push({ sql, params: params ?? [] });
       if (sql.includes("RETURNING")) {
-        return parentIds.map((id) => ({ id }));
+        return parentIds.map((id) => ({ id })) as T[];
       }
       if (sql.startsWith("SELECT") && sql.includes("FROM")) {
-        return parentIds.map((id) => ({ id }));
+        return parentIds.map((id) => ({ id })) as T[];
       }
-      return [];
-    }),
-    queryOne: vi.fn(async () => null),
+      return [] as T[];
+    }) as Executor["query"],
+    queryOne: vi.fn(async () => null) as Executor["queryOne"],
     transaction: vi.fn(async (fn) => {
       const tx = { ...executor, inTransaction: true };
       return fn(tx);
-    }),
+    }) as Executor["transaction"],
   };
   return executor;
 }
