@@ -16,13 +16,14 @@ import {
 } from "../migrate/runner.js";
 import { introspectPostgres } from "../introspect/pull.js";
 import { writeFile } from "node:fs/promises";
+import packageJson from "../../package.json" with { type: "json" };
 
 const program = new Command();
 
 program
   .name("neoorm")
   .description("NeoOrm CLI")
-  .version("0.1.0");
+  .version(packageJson.version);
 
 program
   .command("init")
