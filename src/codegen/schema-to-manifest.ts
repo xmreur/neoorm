@@ -1,5 +1,5 @@
 import type { SchemaDef } from "../schema/define-schema.js";
-import type { TableDef, TableExtra } from "../schema/table.js";
+import type { ColumnNaming, TableDef, TableExtra } from "../schema/table.js";
 import type { ColumnDef } from "../schema/table.js";
 import type { ColumnBuilder } from "../schema/column.js";
 import type { FkBuilder } from "../schema/relation.js";
@@ -13,7 +13,7 @@ import type {
 } from "../dialect/types.js";
 import { getManyToManyRegistry } from "../schema/many-to-many.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
-import { toSnakeCase } from "../utils/case.js";
+import { resolveSqlColumnName } from "../utils/case.js";
 import { collectExtensionsForKinds, getColumnType, getPluginRegistry } from "../plugins/registry.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { resolveIndexSqlName } from "../dialect/postgres.js";
@@ -94,19 +94,25 @@ function validateUpdatedAtColumn(tsName: string, kind: string): void {
   }
 }
 
-function resolveSqlName(tsName: string, col: ColumnDef): string {
-  if ("_meta" in col && col._meta.mapName) {
-    return col._meta.mapName;
-  }
-  return toSnakeCase(tsName);
+function resolveSqlName(
+  tsName: string,
+  col: ColumnDef,
+  columnNaming: ColumnNaming,
+): string {
+  const mapName = "_meta" in col ? col._meta.mapName : undefined;
+  return resolveSqlColumnName(tsName, columnNaming, mapName);
 }
 
-function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
+function columnToManifest(
+  tsName: string,
+  col: ColumnDef,
+  columnNaming: ColumnNaming,
+): ManifestColumn {
   if (isFkBuilder(col)) {
     const meta = col._meta;
     const result: ManifestColumn = {
       tsName,
-      sqlName: resolveSqlName(tsName, col),
+      sqlName: resolveSqlName(tsName, col, columnNaming),
       kind: "fk",
       nullable: meta.nullable,
       unique: meta.unique,
@@ -129,7 +135,7 @@ function columnToManifest(tsName: string, col: ColumnDef): ManifestColumn {
   }
   const result: ManifestColumn = {
     tsName,
-    sqlName: resolveSqlName(tsName, col),
+    sqlName: resolveSqlName(tsName, col, columnNaming),
     kind: meta.kind,
     nullable: meta.nullable,
     unique: meta.unique,
@@ -153,6 +159,7 @@ function extrasToManifest(
   extras: Record<string, TableExtra>,
   columns: Record<string, ColumnDef>,
   tableSqlName: string,
+  columnNaming: ColumnNaming,
 ): { indexes: ManifestIndex[]; primaryKey: string[] } {
   const indexes: ManifestIndex[] = [];
   let primaryKey: string[] = [];
@@ -161,13 +168,17 @@ function extrasToManifest(
     if (extra.kind === "index") {
       const index: ManifestIndex = {
         name,
-        columns: extra.columns.map((tsName) => resolveSqlName(tsName, columns[tsName]!)),
+        columns: extra.columns.map((tsName) =>
+          resolveSqlName(tsName, columns[tsName]!, columnNaming)
+        ),
         unique: extra.unique,
       };
       index.sqlName = resolveIndexSqlName(tableSqlName, index);
       indexes.push(index);
     } else if (extra.kind === "primaryKey") {
-      primaryKey = extra.columns.map((tsName) => resolveSqlName(tsName, columns[tsName]!));
+      primaryKey = extra.columns.map((tsName) =>
+        resolveSqlName(tsName, columns[tsName]!, columnNaming)
+      );
     }
   }
 
@@ -211,12 +222,13 @@ function buildRelations(
 }
 
 export function schemaToManifest<T extends Record<string, TableDef>>(
-  schema: { readonly _tables: T },
+  schema: SchemaDef<T>,
   m2mDefs: readonly ManyToManyDef[] = getManyToManyRegistry(),
   plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
   options: SchemaToManifestOptions = {},
 ): Manifest {
   const enumMode = options.enumMode ?? "check";
+  const defaultColumnNaming = schema._columnNaming ?? "snakeCase";
   const tables = schema._tables;
   const sqlNameToAccessor: Record<string, string> = {};
 
@@ -227,14 +239,16 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
   const manifestTables: Record<string, ManifestTable> = {};
 
   for (const [accessor, tableDef] of Object.entries(tables)) {
+    const columnNaming = tableDef._columnNaming ?? defaultColumnNaming;
     const columns = Object.entries(tableDef._columns).map(([name, col]) =>
-      columnToManifest(name, col),
+      columnToManifest(name, col, columnNaming),
     );
 
     const { indexes, primaryKey } = extrasToManifest(
       tableDef._extras,
       tableDef._columns,
       tableDef._tableName,
+      columnNaming,
     );
 
     const pk =
@@ -245,6 +259,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
     manifestTables[accessor] = {
       accessor,
       sqlName: tableDef._tableName,
+      columnNaming,
       columns,
       relations: [],
       indexes,

@@ -18,8 +18,8 @@ import { emitIncludesTs } from "./emit-includes.js";
 import { emitModelsTs } from "./emit-models.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
-import type { ColumnDef } from "../schema/table.js";
-import { toSnakeCase } from "../utils/case.js";
+import type { ColumnDef, ColumnNaming } from "../schema/table.js";
+import { resolveSqlColumnName } from "../utils/case.js";
 
 async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
   const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
@@ -105,22 +105,28 @@ export function hashManifest(manifest: Manifest): string {
 
 export function collectRedundantMapWarnings(
   schema: {
+    readonly _columnNaming?: ColumnNaming;
     readonly _tables: Record<
       string,
-      { readonly _columns: Record<string, ColumnDef> }
+      {
+        readonly _columns: Record<string, ColumnDef>;
+        readonly _columnNaming?: ColumnNaming;
+      }
     >;
   },
 ): string[] {
   const warnings: string[] = [];
+  const defaultColumnNaming = schema._columnNaming ?? "snakeCase";
 
   for (const [accessor, table] of Object.entries(schema._tables)) {
+    const columnNaming = table._columnNaming ?? defaultColumnNaming;
     for (const [tsName, col] of Object.entries(table._columns)) {
       if (!("_meta" in col) || !col._meta.mapName) continue;
 
-      const defaultName = toSnakeCase(tsName);
+      const defaultName = resolveSqlColumnName(tsName, columnNaming);
       if (col._meta.mapName === defaultName) {
         warnings.push(
-          `${accessor}.${tsName}.map("${col._meta.mapName}") matches the default snake_case SQL name — remove .map() or use a different name to rename the column`,
+          `${accessor}.${tsName}.map("${col._meta.mapName}") matches the default ${columnNaming} SQL name — remove .map() or use a different name to rename the column`,
         );
       }
     }

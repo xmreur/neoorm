@@ -64,6 +64,7 @@ export type ManifestIndex = {
 export type ManifestTable = {
   accessor: string;
   sqlName: string;
+  columnNaming?: "snakeCase" | "camelCase";
   columns: ManifestColumn[];
   relations: ManifestRelation[];
   indexes: ManifestIndex[];
