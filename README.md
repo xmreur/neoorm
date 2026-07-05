@@ -103,7 +103,7 @@ This writes `client.ts`, `manifest.ts`, `models.ts`, `includes.ts`, and migratio
 users: table("user", { ... }) // db.users → SQL table "user"
 ```
 
-Column field names use camelCase in TypeScript. By default, SQL column names are snake_case (`createdAt` → `created_at`). You can change that globally or per table with `columnNaming`.
+Column field names use camelCase in TypeScript. By default, SQL column names are snake_case (`createdAt` → `created_at`).
 
 ### Column types
 
@@ -271,45 +271,7 @@ emailAddress: text().notNull().map("email"),
 authorId: fk("users.id", { as: "author", inverse: "posts" }).map("author_ref"),
 ```
 
-`.map()` only produces a migration when the SQL name actually changes. Mapping to the active naming strategy's default name (e.g. `.map("email_verified")` on `emailVerified` in a snake_case table) is a no-op — `neoorm generate` warns about this.
-
-### Column naming strategy
-
-Use `columnNaming` when an entire schema or table follows camelCase SQL column names instead of the default snake_case:
-
-```ts
-export const schema = defineSchema(
-  {
-    users: table("users", {
-      emailAddress: text().notNull(), // SQL: email_address
-    }),
-
-    legacyUsers: table(
-      "legacy_users",
-      {
-        emailAddress: text().notNull(), // SQL: emailAddress
-      },
-      { columnNaming: "camelCase" },
-    ),
-  },
-  { columnNaming: "snakeCase" },
-);
-```
-
-Per-table options can also include `extras`:
-
-```ts
-posts: table(
-  "posts",
-  { authorId: fk("users.id", { as: "author", inverse: "posts" }) },
-  {
-    columnNaming: "camelCase",
-    extras: (t) => ({ authorIdx: index().on(t.authorId) }),
-  },
-)
-```
-
-`columnNaming` affects SQL column names only. TypeScript keys stay exactly as written in the schema, and `.map("exact_name")` still overrides the strategy for individual columns.
+`.map()` only produces a migration when the SQL name actually changes. Mapping to the default snake_case name (e.g. `.map("email_verified")` on `emailVerified`) is a no-op — `neoorm generate` warns about this.
 
 ### Indexes and composite keys
 

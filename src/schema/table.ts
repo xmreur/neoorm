@@ -16,16 +16,6 @@ export type PrimaryKeyDef = {
 
 export type TableExtra = IndexDef | PrimaryKeyDef;
 
-export type ColumnNaming = "snakeCase" | "camelCase";
-
-export type TableOptions<
-  TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
-  TExtras extends Record<string, TableExtra> = Record<string, never>,
-> = {
-  columnNaming?: ColumnNaming;
-  extras?: (t: ColumnRefs<TColumns>) => TExtras;
-};
-
 export type TableDef<
   TName extends string = string,
   TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
@@ -33,7 +23,6 @@ export type TableDef<
   readonly _tableName: TName;
   readonly _columns: TColumns;
   readonly _extras: Record<string, TableExtra>;
-  readonly _columnNaming?: ColumnNaming;
 };
 
 export type ColumnRefs<TColumns extends Record<string, ColumnDef>> = {
@@ -65,21 +54,17 @@ export function table<
 >(
   name: TName,
   columns: TColumns,
-  config?: ((t: ColumnRefs<TColumns>) => TExtras) | TableOptions<TColumns, TExtras>,
+  extras?: (t: ColumnRefs<TColumns>) => TExtras,
 ): TableDef<TName, TColumns> {
   const refs = Object.fromEntries(
     Object.keys(columns).map((k) => [k, k]),
   ) as ColumnRefs<TColumns>;
 
-  const extraBuilder = typeof config === "function" ? config : config?.extras;
-  const extraDefs = extraBuilder ? extraBuilder(refs) : ({} as TExtras);
+  const extraDefs = extras ? extras(refs) : ({} as TExtras);
 
   return {
     _tableName: name,
     _columns: columns,
     _extras: extraDefs,
-    ...(typeof config === "object" && config.columnNaming
-      ? { _columnNaming: config.columnNaming }
-      : {}),
   };
 }

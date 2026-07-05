@@ -94,7 +94,7 @@ describe("column map", () => {
     });
 
     expect(collectRedundantMapWarnings(redundantSchema)).toEqual([
-      'users.emailVerified.map("email_verified") matches the default snakeCase SQL name — remove .map() or use a different name to rename the column',
+      'users.emailVerified.map("email_verified") matches the default snake_case SQL name — remove .map() or use a different name to rename the column',
     ]);
   });
 });
