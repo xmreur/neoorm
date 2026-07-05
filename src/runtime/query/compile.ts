@@ -554,6 +554,49 @@ export function buildInsertQuery(
   return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${cols.join(", ")}) VALUES (${placeholders}) RETURNING ${selectCols}`;
 }
 
+export function buildInsertManyValueRows(
+  table: ManifestTable,
+  dataKeys: string[],
+  rows: Array<Array<unknown | undefined>>,
+): { valueRows: string[]; values: unknown[] } {
+  const valueRows: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  for (const row of rows) {
+    const placeholders: string[] = [];
+    for (let i = 0; i < dataKeys.length; i++) {
+      const key = dataKeys[i]!;
+      const col = table.columns.find((c) => c.tsName === key);
+      const val = row[i];
+      if (val === undefined) {
+        placeholders.push("DEFAULT");
+      } else {
+        placeholders.push(buildValuePlaceholder(col, paramIndex));
+        values.push(val);
+        paramIndex++;
+      }
+    }
+    valueRows.push(`(${placeholders.join(", ")})`);
+  }
+
+  return { valueRows, values };
+}
+
+export function buildInsertManyQuery(
+  table: ManifestTable,
+  dataKeys: string[],
+  valueRows: string[],
+): string {
+  const cols = dataKeys.map((k) => {
+    const col = table.columns.find((c) => c.tsName === k);
+    return quoteIdentifier(col?.sqlName ?? k);
+  });
+  const selectCols = buildSelectColumns(table);
+
+  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")} RETURNING ${selectCols}`;
+}
+
 export function buildUpdateQuery(
   table: ManifestTable,
   dataKeys: string[],

@@ -5,7 +5,7 @@ import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import { createExecutor, compileQuery, type Executor } from "./executor.js";
 import { findMany, findFirst, findById } from "./query/find.js";
 import { countRecords, findUnique } from "./query/count.js";
-import { createRecord } from "./query/create.js";
+import { createRecord, createManyRecords } from "./query/create.js";
 import { upsertRecord } from "./query/upsert.js";
 import { updateRecord, updateManyRecords, updateById } from "./query/update.js";
 import { deleteRecord, deleteManyRecords, deleteById } from "./query/delete.js";
@@ -37,6 +37,9 @@ export type TableRepository = {
     data: Record<string, unknown>;
     with?: Record<string, WithInput>;
   }): Promise<Record<string, unknown>>;
+  createMany(args: {
+    data: Record<string, unknown>[];
+  }): Promise<number>;
   upsert(args: {
     where: Record<string, unknown>;
     create: Record<string, unknown>;
@@ -91,6 +94,7 @@ function createTableRepository(
     findUnique: (args) => findUnique(executor, manifest, accessor, args),
     findById: (id, args) => findById(executor, manifest, accessor, id, args),
     create: (args) => createRecord(executor, manifest, accessor, args),
+    createMany: (args) => createManyRecords(executor, manifest, accessor, args),
     upsert: (args) => upsertRecord(executor, manifest, accessor, args),
     update: (args) => updateRecord(executor, manifest, accessor, args),
     updateMany: (args) => updateManyRecords(executor, manifest, accessor, args),

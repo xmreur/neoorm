@@ -4,6 +4,8 @@ import { schema } from "../examples/blog/schema.js";
 import {
   buildUpdateQuery,
   buildDeleteQuery,
+  buildInsertManyQuery,
+  buildInsertManyValueRows,
   compileWhere,
 } from "../src/runtime/query/compile.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
@@ -26,5 +28,30 @@ describe("update/delete SQL compilation", () => {
     const query = buildDeleteQuery(posts, whereSql);
     expect(query).toContain("DELETE FROM");
     expect(query).toContain("RETURNING");
+  });
+
+  it("builds multi-row insert query", () => {
+    const { valueRows, values } = buildInsertManyValueRows(
+      users,
+      ["email", "name"],
+      [
+        ["a@example.com", "Alice"],
+        ["b@example.com", "Bob"],
+      ],
+    );
+    const query = buildInsertManyQuery(users, ["email", "name"], valueRows);
+    expect(query).toContain('INSERT INTO "users"');
+    expect(query).toContain('("email", "name")');
+    expect(query).toContain("($1, $2), ($3, $4)");
+    expect(query).toContain("RETURNING");
+    expect(values).toEqual(["a@example.com", "Alice", "b@example.com", "Bob"]);
+  });
+
+  it("uses DEFAULT for missing columns in multi-row insert", () => {
+    const { valueRows } = buildInsertManyValueRows(users, ["email", "name"], [
+      ["a@example.com", "Alice"],
+      ["b@example.com", undefined],
+    ]);
+    expect(valueRows[1]).toBe("($3, DEFAULT)");
   });
 });

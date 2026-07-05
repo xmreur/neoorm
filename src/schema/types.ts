@@ -98,6 +98,17 @@ export type CreateArgs<
   with?: WithInputMap<TSchema, TAccessor>;
 };
 
+export type CreateManyInput<
+  TColumns extends Record<string, ColumnDef>,
+> = Expand<InferInsertRow<TColumns>>;
+
+export type CreateManyArgs<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+> = {
+  data: CreateManyInput<TSchema[TAccessor]["_columns"]>[];
+};
+
 export type UpdateInput<
   TColumns extends Record<string, ColumnDef>,
   TSchema extends Record<string, TableDef> = Record<string, TableDef>,

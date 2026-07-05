@@ -2,6 +2,7 @@ import type { ColumnDef, TableDef } from "../schema/table.js";
 import type {
   CountArgs,
   CreateArgs,
+  CreateManyArgs,
   DeleteArgs,
   DeleteManyArgs,
   FindFirstArgs,
@@ -125,6 +126,7 @@ export type TypedTableRepository<
   create<W extends TWith | undefined = undefined>(
     args: CreateArgsWith<TSchema, TAccessor, W>,
   ): Promise<TRowPayload>;
+  createMany(args: CreateManyArgs<TSchema, TAccessor>): Promise<number>;
   upsert<W extends TWith | undefined = undefined>(
     args: UpsertArgsWith<TSchema, TAccessor, W>,
   ): Promise<TRowPayload>;
