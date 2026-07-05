@@ -1,6 +1,6 @@
 import type { Manifest, ManifestManyToMany, ManifestRelation, ManifestTable } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
-import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect, quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import {
   buildFindManyQuery,
   buildSelectColumns,
@@ -136,7 +136,7 @@ async function countRelationLinks(
     }
   }
 
-  const sql = `SELECT ${fkCol} AS parent_id, COUNT(*)::int AS count FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
+  const sql = `SELECT ${fkCol} AS parent_id, COUNT(*)::int AS count FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
   const rows = await runQuery<{ parent_id: string; count: number }>(
     executor,
     runtime,
@@ -173,7 +173,7 @@ async function countM2MLinks(
 
   if (whereFilter) {
     const compiled = compileWhere(manifest, targetTable, whereFilter, postgresDialect);
-    joinSql = ` JOIN ${quoteIdentifier(targetTable.sqlName)} t ON t.${quoteIdentifier(targetRelationPkSql(targetTable))} = j.${quoteIdentifier(targetFkCol)}`;
+    joinSql = ` JOIN ${tableRef(targetTable)} t ON t.${quoteIdentifier(targetRelationPkSql(targetTable))} = j.${quoteIdentifier(targetFkCol)}`;
     if (compiled.sql) {
       const adjusted = compiled.sql.replace(/\$(\d+)/g, (_, n: string) => `$${Number(n) + parentIds.length}`);
       extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
@@ -181,7 +181,7 @@ async function countM2MLinks(
     }
   }
 
-  const sql = `SELECT j.${quoteIdentifier(parentFkCol)} AS parent_id, COUNT(*)::int AS count FROM ${quoteIdentifier(throughTable.sqlName)} j${joinSql} WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${quoteIdentifier(parentFkCol)}`;
+  const sql = `SELECT j.${quoteIdentifier(parentFkCol)} AS parent_id, COUNT(*)::int AS count FROM ${tableRef(throughTable)} j${joinSql} WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${quoteIdentifier(parentFkCol)}`;
   const rows = await runQuery<{ parent_id: string; count: number }>(
     executor,
     runtime,
@@ -291,7 +291,7 @@ async function loadOneRelation(
       executor,
       runtime,
       { operation: "select", tableAccessor: targetTable.accessor },
-      `SELECT ${selectCols} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${targetPkCol} IN (${placeholders})`,
+      `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})`,
       fkValues,
     );
 
@@ -307,7 +307,7 @@ async function loadOneRelation(
     const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
     const selectCols = columnsForSelect(targetTable, withSpec);
 
-    let sql = `SELECT ${selectCols} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${fkCol} IN (${placeholders})`;
+    let sql = `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})`;
 
     const nestedSpec = typeof withSpec === "object" ? withSpec : undefined;
     if (nestedSpec?.orderBy) {
@@ -387,8 +387,8 @@ async function loadM2MRelation(
 
   const sql = `
     SELECT t.*, j.${quoteIdentifier(parentFkCol)} AS _parent_id
-    FROM ${quoteIdentifier(throughTable.sqlName)} j
-    JOIN ${quoteIdentifier(targetTable.sqlName)} t ON t.${targetPkCol} = j.${quoteIdentifier(targetFkCol)}
+    FROM ${tableRef(throughTable)} j
+    JOIN ${tableRef(targetTable)} t ON t.${targetPkCol} = j.${quoteIdentifier(targetFkCol)}
     WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})
   `.trim();
 

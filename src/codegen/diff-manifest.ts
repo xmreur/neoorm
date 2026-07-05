@@ -17,6 +17,7 @@ import {
   canAutoCastType,
   resolveColumnSqlType,
   emitCreateEnumTypes,
+  DEFAULT_PG_SCHEMA,
 } from "../dialect/postgres.js";
 
 function tablesBySqlName(manifest: Manifest): Map<string, ManifestTable> {
@@ -536,6 +537,15 @@ export function buildMigrationSql(
   newEnumTypes?: Record<string, { values: readonly string[] }>,
 ): string[] {
   const sql: string[] = [];
+  const schemaNames = new Set(
+    Object.values(manifest?.tables ?? {})
+      .map((table) => table.schemaName)
+      .filter((schema): schema is string => schema !== undefined && schema !== DEFAULT_PG_SCHEMA),
+  );
+
+  for (const schema of schemaNames) {
+    sql.push(postgresDialect.emitCreateSchema(schema));
+  }
 
   if (extensions.length > 0) {
     sql.push(...postgresDialect.emitCreateExtensions(extensions));
@@ -614,6 +624,14 @@ export function diffManifest(
 ): ManifestDiff {
   if (!prev) {
     const sql: string[] = [];
+    const schemaNames = new Set(
+      Object.values(next.tables)
+        .map((table) => table.schemaName)
+        .filter((schema): schema is string => schema !== undefined && schema !== DEFAULT_PG_SCHEMA),
+    );
+    for (const schema of schemaNames) {
+      sql.push(postgresDialect.emitCreateSchema(schema));
+    }
     const extensions = next.extensions ?? [];
     sql.push(...postgresDialect.emitCreateExtensions(extensions));
 

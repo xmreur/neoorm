@@ -7,7 +7,7 @@ import type {
   ManifestTable,
   WhereOperator,
 } from "../../dialect/types.js";
-import { quoteIdentifier } from "../../dialect/postgres.js";
+import { quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
@@ -63,7 +63,7 @@ function defaultColumnRef(col: ManifestColumn): string {
 
 function parentPkRef(table: ManifestTable): string {
   const pkSql = primaryKeySqlName(table);
-  return `${quoteIdentifier(table.sqlName)}.${quoteIdentifier(pkSql)}`;
+  return `${tableRef(table)}.${quoteIdentifier(pkSql)}`;
 }
 
 function findM2M(
@@ -186,13 +186,13 @@ function compileRelationCondition(
     );
     const parentFkCol = parentTable.columns.find((c) => c.tsName === relation.fkColumn);
     const parentFkRef = parentFkCol
-      ? `${quoteIdentifier(parentTable.sqlName)}.${quoteIdentifier(parentFkCol.sqlName)}`
-      : `${quoteIdentifier(parentTable.sqlName)}.${quoteIdentifier(relation.fkSqlColumn)}`;
+      ? `${tableRef(parentTable)}.${quoteIdentifier(parentFkCol.sqlName)}`
+      : `${tableRef(parentTable)}.${quoteIdentifier(relation.fkSqlColumn)}`;
     const targetPkSql = targetRelationPkSql(targetTable, relation);
     const joinCond = `${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${parentFkRef}`;
     const whereParts = [joinCond];
     if (nested.sql) whereParts.push(nested.sql);
-    const existsSql = `SELECT 1 FROM ${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
+    const existsSql = `SELECT 1 FROM ${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
     return {
       sql: compileExistsSubquery(existsSql, false),
       params: nested.params,
@@ -239,13 +239,13 @@ function compileRelationCondition(
     const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
     const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
     const targetPkSql = targetRelationPkSql(targetTable);
-    fromClause = `${quoteIdentifier(throughTable.sqlName)} AS ${quoteIdentifier(junctionAlias)} INNER JOIN ${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)} ON ${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${quoteIdentifier(junctionAlias)}.${quoteIdentifier(targetFkCol)}`;
+    fromClause = `${tableRef(throughTable)} AS ${quoteIdentifier(junctionAlias)} INNER JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)} ON ${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${quoteIdentifier(junctionAlias)}.${quoteIdentifier(targetFkCol)}`;
     whereParts = [
       `${quoteIdentifier(junctionAlias)}.${quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable)}`,
     ];
     if (nested.sql) whereParts.push(nested.sql);
   } else {
-    fromClause = `${quoteIdentifier(targetTable.sqlName)} AS ${quoteIdentifier(relAlias)}`;
+    fromClause = `${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)}`;
     whereParts = [
       `${quoteIdentifier(relAlias)}.${quoteIdentifier(relation.fkSqlColumn)} = ${parentPkRef(parentTable)}`,
     ];
@@ -471,7 +471,7 @@ export function buildFindByIdQuery(table: ManifestTable): string {
   const { sqlName } = requireScalarPrimaryKey(table);
   const sqlCol = quoteIdentifier(sqlName);
   const selectCols = buildSelectColumns(table);
-  return `SELECT ${selectCols} FROM ${quoteIdentifier(table.sqlName)} WHERE ${sqlCol} = $1`;
+  return `SELECT ${selectCols} FROM ${tableRef(table)} WHERE ${sqlCol} = $1`;
 }
 
 export function buildFindManyQuery(
@@ -492,7 +492,7 @@ export function buildFindManyQuery(
       .join(", ");
     sql += `DISTINCT ON (${distinctCols}) `;
   }
-  sql += `${selectCols} FROM ${quoteIdentifier(table.sqlName)}`;
+  sql += `${selectCols} FROM ${tableRef(table)}`;
 
   if (whereSql) sql += ` ${whereSql}`;
   if (orderSql) sql += ` ${orderSql}`;
@@ -512,7 +512,7 @@ export function buildPaginateQuery(
 }
 
 export function buildCountQuery(table: ManifestTable, whereSql: string): string {
-  let sql = `SELECT COUNT(*)::int AS count FROM ${quoteIdentifier(table.sqlName)}`;
+  let sql = `SELECT COUNT(*)::int AS count FROM ${tableRef(table)}`;
   if (whereSql) sql += ` ${whereSql}`;
   return sql;
 }
@@ -568,7 +568,7 @@ export function buildAggregateQuery(
     throw new Error("aggregate requires at least one selector");
   }
 
-  let sql = `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(table.sqlName)}`;
+  let sql = `SELECT ${parts.join(", ")} FROM ${tableRef(table)}`;
   if (whereSql) sql += ` ${whereSql}`;
   return sql;
 }
@@ -610,7 +610,7 @@ export function buildUpsertQuery(
 
   const allUpdateSets = [...updateSets, ...exprSets];
 
-  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${allUpdateSets.join(", ")} RETURNING ${selectCols}`;
+  return `INSERT INTO ${tableRef(table)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${allUpdateSets.join(", ")} RETURNING ${selectCols}`;
 }
 
 export function buildInsertQuery(
@@ -629,7 +629,7 @@ export function buildInsertQuery(
     .join(", ");
   const selectCols = buildSelectColumns(table);
 
-  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${cols.join(", ")}) VALUES (${placeholders}) RETURNING ${selectCols}`;
+  return `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders}) RETURNING ${selectCols}`;
 }
 
 export function buildInsertManyValueRows(
@@ -672,7 +672,7 @@ export function buildInsertManyQuery(
   });
   const selectCols = buildSelectColumns(table);
 
-  return `INSERT INTO ${quoteIdentifier(table.sqlName)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")} RETURNING ${selectCols}`;
+  return `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")} RETURNING ${selectCols}`;
 }
 
 export function buildUpdateQuery(
@@ -689,7 +689,7 @@ export function buildUpdateQuery(
   const selectCols = buildSelectColumns(table);
   const whereOffset = dataKeys.length;
 
-  let sql = `UPDATE ${quoteIdentifier(table.sqlName)} SET ${sets.join(", ")}`;
+  let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
   if (whereSql) {
     const adjustedWhere = whereSql.replace(/\$(\d+)/g, (_, n: string) => {
       return `$${Number(n) + whereOffset}`;
@@ -705,7 +705,7 @@ export function buildDeleteQuery(
   whereSql: string,
 ): string {
   const selectCols = buildSelectColumns(table);
-  let sql = `DELETE FROM ${quoteIdentifier(table.sqlName)}`;
+  let sql = `DELETE FROM ${tableRef(table)}`;
   if (whereSql) sql += ` ${whereSql}`;
   sql += ` RETURNING ${selectCols}`;
   return sql;
@@ -715,7 +715,7 @@ export function buildDeleteManyQuery(
   table: ManifestTable,
   whereSql: string,
 ): string {
-  let sql = `DELETE FROM ${quoteIdentifier(table.sqlName)}`;
+  let sql = `DELETE FROM ${tableRef(table)}`;
   if (whereSql) sql += ` ${whereSql}`;
   return sql;
 }
@@ -733,7 +733,7 @@ export function buildUpdateManyQuery(
   const sets = [...paramSets, ...exprSets];
   const whereOffset = dataKeys.length;
 
-  let sql = `UPDATE ${quoteIdentifier(table.sqlName)} SET ${sets.join(", ")}`;
+  let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
   if (whereSql) {
     const adjustedWhere = whereSql.replace(/\$(\d+)/g, (_, n: string) => {
       return `$${Number(n) + whereOffset}`;

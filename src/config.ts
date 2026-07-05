@@ -4,6 +4,7 @@ export type NeoOrmConfig = {
   datasource: {
     provider: "postgresql";
     url: string;
+    schema?: string;
     enum?: "check" | "union" | "native";
   };
 };

@@ -83,10 +83,12 @@ program
     const config = await loadConfig(cwd);
     const schemaPath = resolve(cwd, config.schema);
     const outDir = resolve(cwd, config.out);
+    const dbSchema = config.datasource.schema;
 
     const { warnings, summary } = await generateFromSchema(schemaPath, outDir, {
       ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
       ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
+      ...(dbSchema ? { schema: dbSchema } : {}),
     });
 
     for (const line of formatGenerateSummary(summary, outDir)) {
@@ -105,7 +107,7 @@ program
     "--accept-data-loss",
     "Include destructive schema changes in generated migrations",
   )
-  .option("--force", "Required for reset — drops the public schema and all data")
+  .option("--force", "Required for reset — drops the configured schema and all data")
   .option("--skip-apply", "With reset, only drop schema without re-applying migrations")
   .option("--steps <n>", "Number of migrations to roll back (down)", "1")
   .action(
@@ -122,12 +124,13 @@ program
       const config = await loadConfig(cwd);
       const outDir = resolve(cwd, config.out);
       const migrationsDir = join(outDir, "migrations");
+      const dbSchema = config.datasource.schema;
 
       const pool = new Pool({ connectionString: config.datasource.url });
 
       try {
         if (subcommand === "status") {
-          const status = await migrateStatus(pool, migrationsDir);
+          const status = await migrateStatus(pool, migrationsDir, dbSchema);
           for (const line of formatMigrateStatus(status, migrationsDir)) {
             console.log(line);
           }
@@ -138,8 +141,9 @@ program
           const { reapplied } = await migrateReset(pool, migrationsDir, {
             force: options.force ?? false,
             ...(options.skipApply ? { skipApply: true } : {}),
+            ...(dbSchema ? { schema: dbSchema } : {}),
           });
-          console.log("✓ Database schema reset (public schema dropped and recreated)");
+          console.log(`✓ Database schema reset (${dbSchema ?? "public"} schema dropped and recreated)`);
           if (options.skipApply) {
             console.log("  Skipped re-applying migrations (--skip-apply)");
           } else if (reapplied.length === 0) {
@@ -162,6 +166,7 @@ program
           const reverted = await migrateDown(pool, migrationsDir, {
             steps,
             outDir,
+            ...(dbSchema ? { schema: dbSchema } : {}),
           });
           if (reverted.length === 0) {
             console.log("No migrations rolled back");
@@ -175,7 +180,7 @@ program
         }
 
         if (subcommand === "deploy" || subcommand === "dev") {
-          const applied = await migrateDeploy(pool, migrationsDir);
+          const applied = await migrateDeploy(pool, migrationsDir, dbSchema);
           if (applied.length === 0) {
             console.log("No pending migrations");
           } else {
@@ -193,6 +198,7 @@ program
               {
                 ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
                 ...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
+                ...(dbSchema ? { schema: dbSchema } : {}),
               },
             );
             for (const line of formatGenerateSummary(summary, outDir)) {
@@ -202,7 +208,7 @@ program
               console.warn(`Warning: ${warning}`);
             }
             if (migrationName) {
-              const newlyApplied = await migrateDeploy(pool, join(outDir, "migrations"));
+              const newlyApplied = await migrateDeploy(pool, join(outDir, "migrations"), dbSchema);
               if (newlyApplied.length > 0) {
                 console.log(`Applied new migration: ${newlyApplied.join(", ")}`);
               }
@@ -232,6 +238,7 @@ program
     const cwd = process.cwd();
     const config = await loadConfig(cwd);
     const pool = new Pool({ connectionString: config.datasource.url });
+    const dbSchema = config.datasource.schema;
 
     try {
       if (subcommand === "push") {
@@ -245,7 +252,9 @@ program
         const { appliedStatements, destructiveBlocked } = await dbPush(
           pool,
           manifest,
-          { ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+          {
+            ...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+            ...(dbSchema ? { schema: dbSchema } : {}),
           },
         );
         for (const warning of dbPushWarnings(destructiveBlocked)) {
@@ -259,7 +268,10 @@ program
           );
         }
       } else if (subcommand === "pull") {
-        const content = await introspectPostgres(pool);
+        const content = await introspectPostgres(
+          pool,
+          dbSchema ? { schema: dbSchema } : {},
+        );
         const outputPath = resolve(cwd, options.output ?? "schema.pulled.ts");
         await writeFile(outputPath, content, "utf-8");
         console.log(`Schema written to ${outputPath}`);

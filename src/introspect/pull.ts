@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { ColumnNaming } from "../schema/table.js";
 import { resolveSqlColumnName, toCamelCase } from "../utils/case.js";
+import { resolvePgSchemaName } from "../dialect/postgres.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
 import {
   queryColumns,
@@ -8,8 +9,12 @@ import {
   queryTables,
 } from "./queries.js";
 
-export async function introspectPostgres(pool: Pool): Promise<string> {
-  const tables = await queryTables(pool);
+export async function introspectPostgres(
+  pool: Pool,
+  options: { schema?: string } = {},
+): Promise<string> {
+  const schema = resolvePgSchemaName(options.schema);
+  const tables = await queryTables(pool, schema);
 
   const pluginImports = new Set<string>();
   const pluginColumnImports = new Set<string>();
@@ -18,8 +23,8 @@ export async function introspectPostgres(pool: Pool): Promise<string> {
   const tableBlocks: string[] = [];
 
   for (const { table_name } of tables) {
-    const cols = await queryColumns(pool, table_name);
-    const fks = await queryForeignKeys(pool, table_name);
+    const cols = await queryColumns(pool, table_name, schema);
+    const fks = await queryForeignKeys(pool, table_name, schema);
 
     const fkMap = new Map(fks.map((r) => [r.column_name, r]));
     const columnNaming = inferColumnNaming(cols.map((col) => col.column_name));

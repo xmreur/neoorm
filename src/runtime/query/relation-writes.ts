@@ -1,6 +1,6 @@
 import type { Manifest, ManifestManyToMany, ManifestRelation, ManifestTable } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
-import { quoteIdentifier } from "../../dialect/postgres.js";
+import { quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import {
   fillMissingPrimaryKeys,
   primaryKeySqlName,
@@ -138,7 +138,7 @@ export async function resolveConnectOrCreate(
         executor,
         runtime,
         { operation: "select", tableAccessor: targetAccessor },
-        `SELECT ${pkSql} FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${sqlCol} = $1 LIMIT 1`,
+        `SELECT ${pkSql} FROM ${tableRef(targetTable)} WHERE ${sqlCol} = $1 LIMIT 1`,
         [whereVal],
       );
 
@@ -195,7 +195,7 @@ async function insertM2MLinks(
       executor,
       runtime,
       { operation: "select", tableAccessor: throughTable.accessor },
-      `SELECT 1 FROM ${quoteIdentifier(throughTable.sqlName)} WHERE ${quoteIdentifier(leftCol.sqlName)} = $1 AND ${quoteIdentifier(rightCol.sqlName)} = $2 LIMIT 1`,
+      `SELECT 1 FROM ${tableRef(throughTable)} WHERE ${quoteIdentifier(leftCol.sqlName)} = $1 AND ${quoteIdentifier(rightCol.sqlName)} = $2 LIMIT 1`,
       [leftId, rightId],
     );
     if (existing) continue;
@@ -266,7 +266,7 @@ async function deleteJunctionRows(
   if (!parentCol || !otherCol) return;
 
   const params: unknown[] = [parentId];
-  let sql = `DELETE FROM ${quoteIdentifier(throughTable.sqlName)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`;
+  let sql = `DELETE FROM ${tableRef(throughTable)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`;
 
   if (rightIds && rightIds.length > 0) {
     const placeholders = rightIds.map((_, i) => `$${i + 2}`).join(", ");
@@ -311,7 +311,7 @@ async function connectInverseMany(
     executor,
     runtime,
     { operation: "update", tableAccessor: relation.targetAccessor },
-    `UPDATE ${quoteIdentifier(targetTable.sqlName)} SET ${quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
+    `UPDATE ${tableRef(targetTable)} SET ${quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
     [parentId, ...childIds],
   );
 }
@@ -333,7 +333,7 @@ async function disconnectInverseMany(
   }
 
   const params: unknown[] = [parentId];
-  let sql = `UPDATE ${quoteIdentifier(targetTable.sqlName)} SET ${quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
+  let sql = `UPDATE ${tableRef(targetTable)} SET ${quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
 
   if (childIds && childIds.length > 0) {
     const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
@@ -376,7 +376,7 @@ async function deleteInverseManyChildren(
   const fkCol = childFkColumnMeta(targetTable, relation);
   const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable, relation));
   const params: unknown[] = [parentId];
-  let sql = `DELETE FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
+  let sql = `DELETE FROM ${tableRef(targetTable)} WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
 
   if (childIds && childIds.length > 0) {
     const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
@@ -416,7 +416,7 @@ async function listM2MLinkedIds(
     executor,
     runtime,
     { operation: "select", tableAccessor: throughTable.accessor },
-    `SELECT ${quoteIdentifier(otherCol.sqlName)} FROM ${quoteIdentifier(throughTable.sqlName)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`,
+    `SELECT ${quoteIdentifier(otherCol.sqlName)} FROM ${tableRef(throughTable)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`,
     [parentId],
   );
 
@@ -450,7 +450,7 @@ async function deleteM2MRelated(
     executor,
     runtime,
     { operation: "delete", tableAccessor: targetAccessor },
-    `DELETE FROM ${quoteIdentifier(targetTable.sqlName)} WHERE ${targetPkCol} IN (${placeholders})`,
+    `DELETE FROM ${tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})`,
     ids,
   );
 }

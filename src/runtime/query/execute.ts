@@ -13,6 +13,7 @@ import { getAppliedMigrations, listPendingMigrations } from "../../migrate/runne
 
 export type QueryRuntime = {
   manifest: Manifest;
+  schema?: string;
   pool?: Pool;
   migrationsDir?: string;
 };
@@ -25,6 +26,7 @@ export type RunQueryContext = {
 async function resolveMigrationHint(
   pool: Pool | undefined,
   migrationsDir: string | undefined,
+  schema: string | undefined,
   pgCode: string | undefined,
 ): Promise<string | undefined> {
   if (!pool || !isSchemaDriftPgCode(pgCode)) {
@@ -32,7 +34,7 @@ async function resolveMigrationHint(
   }
 
   try {
-    const applied = await getAppliedMigrations(pool);
+    const applied = await getAppliedMigrations(pool, schema);
     const appliedList = [...applied];
     const lastApplied = appliedList.at(-1);
 
@@ -65,6 +67,7 @@ async function throwQueryError(
   const migrationHint = await resolveMigrationHint(
     runtime.pool,
     runtime.migrationsDir,
+    runtime.schema,
     context.pgCode,
   );
   throw new NeoOrmQueryError(

@@ -32,30 +32,31 @@ export type UniqueConstraintRow = {
   constraint_name: string;
 };
 
-export async function queryTables(pool: Pool): Promise<TableRow[]> {
+export async function queryTables(pool: Pool, schema = "public"): Promise<TableRow[]> {
   const result = await pool.query<TableRow>(`
     SELECT table_name
     FROM information_schema.tables
-    WHERE table_schema = 'public'
+    WHERE table_schema = $1
       AND table_type = 'BASE TABLE'
       AND table_name NOT LIKE '_neoorm_%'
     ORDER BY table_name
-  `);
+  `, [schema]);
   return result.rows;
 }
 
 export async function queryColumns(
   pool: Pool,
   tableName: string,
+  schema = "public",
 ): Promise<ColumnRow[]> {
   const result = await pool.query<ColumnRow>(
     `
     SELECT column_name, data_type, udt_name, is_nullable, column_default
     FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = $1
+    WHERE table_schema = $1 AND table_name = $2
     ORDER BY ordinal_position
   `,
-    [tableName],
+    [schema, tableName],
   );
   return result.rows;
 }
@@ -63,6 +64,7 @@ export async function queryColumns(
 export async function queryForeignKeys(
   pool: Pool,
   tableName: string,
+  schema = "public",
 ): Promise<FkRow[]> {
   const result = await pool.query<FkRow>(
     `
@@ -83,10 +85,10 @@ export async function queryForeignKeys(
       ON rc.constraint_name = tc.constraint_name
       AND rc.constraint_schema = tc.table_schema
     WHERE tc.constraint_type = 'FOREIGN KEY'
-      AND tc.table_schema = 'public'
-      AND tc.table_name = $1
+      AND tc.table_schema = $1
+      AND tc.table_name = $2
   `,
-    [tableName],
+    [schema, tableName],
   );
   return result.rows;
 }
@@ -94,6 +96,7 @@ export async function queryForeignKeys(
 export async function queryIndexes(
   pool: Pool,
   tableName: string,
+  schema = "public",
 ): Promise<IndexRow[]> {
   const result = await pool.query<IndexRow>(
     `
@@ -107,12 +110,12 @@ export async function queryIndexes(
     JOIN pg_class i ON i.oid = ix.indexrelid
     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
     JOIN pg_namespace n ON n.oid = t.relnamespace
-    WHERE n.nspname = 'public'
-      AND t.relname = $1
+    WHERE n.nspname = $1
+      AND t.relname = $2
       AND NOT ix.indisprimary
     ORDER BY i.relname, array_position(ix.indkey, a.attnum)
   `,
-    [tableName],
+    [schema, tableName],
   );
   return result.rows;
 }
@@ -120,6 +123,7 @@ export async function queryIndexes(
 export async function queryUniqueConstraints(
   pool: Pool,
   tableName: string,
+  schema = "public",
 ): Promise<UniqueConstraintRow[]> {
   const result = await pool.query<UniqueConstraintRow>(
     `
@@ -131,10 +135,10 @@ export async function queryUniqueConstraints(
       ON tc.constraint_name = kcu.constraint_name
       AND tc.table_schema = kcu.table_schema
     WHERE tc.constraint_type = 'UNIQUE'
-      AND tc.table_schema = 'public'
-      AND tc.table_name = $1
+      AND tc.table_schema = $1
+      AND tc.table_name = $2
   `,
-    [tableName],
+    [schema, tableName],
   );
   return result.rows;
 }
@@ -142,6 +146,7 @@ export async function queryUniqueConstraints(
 export async function queryPrimaryKeyColumns(
   pool: Pool,
   tableName: string,
+  schema = "public",
 ): Promise<string[]> {
   const result = await pool.query<{ column_name: string }>(
     `
@@ -151,11 +156,11 @@ export async function queryPrimaryKeyColumns(
       ON tc.constraint_name = kcu.constraint_name
       AND tc.table_schema = kcu.table_schema
     WHERE tc.constraint_type = 'PRIMARY KEY'
-      AND tc.table_schema = 'public'
-      AND tc.table_name = $1
+      AND tc.table_schema = $1
+      AND tc.table_name = $2
     ORDER BY kcu.ordinal_position
   `,
-    [tableName],
+    [schema, tableName],
   );
   return result.rows.map((row) => row.column_name);
 }
@@ -175,15 +180,15 @@ export type EnumTypeRow = {
   enumlabel: string;
 };
 
-export async function queryEnumTypes(pool: Pool): Promise<Record<string, string[]>> {
+export async function queryEnumTypes(pool: Pool, schema = "public"): Promise<Record<string, string[]>> {
   const result = await pool.query<EnumTypeRow>(`
     SELECT t.typname, e.enumlabel
     FROM pg_type t
     JOIN pg_enum e ON t.oid = e.enumtypid
     JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'public'
+    WHERE n.nspname = $1
     ORDER BY t.typname, e.enumsortorder
-  `);
+  `, [schema]);
 
   const enumTypes: Record<string, string[]> = {};
   for (const row of result.rows) {

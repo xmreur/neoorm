@@ -64,6 +64,7 @@ export type ManifestIndex = {
 export type ManifestTable = {
   accessor: string;
   sqlName: string;
+  schemaName?: string;
   columnNaming?: "snakeCase" | "camelCase";
   columns: ManifestColumn[];
   relations: ManifestRelation[];
@@ -169,6 +170,7 @@ export type Dialect = {
   columnType(col: ManifestColumn, manifest?: Manifest): string;
   resolveIndexSqlName(tableSqlName: string, index: ManifestIndex): string;
   emitCreateExtensions(extensions: readonly string[]): string[];
+  emitCreateSchema(schema: string | undefined): string;
   emitCreateEnumTypes(enumTypes: Record<string, { values: readonly string[] }>): string[];
   emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
   emitDropTable(table: ManifestTable): string;

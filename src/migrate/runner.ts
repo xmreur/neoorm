@@ -2,7 +2,13 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Pool } from "pg";
 import type { Manifest } from "../dialect/types.js";
-import { postgresDialect } from "../dialect/postgres.js";
+import {
+  DEFAULT_PG_SCHEMA,
+  applySchemaToManifest,
+  postgresDialect,
+  quoteQualifiedIdentifier,
+  resolvePgSchemaName,
+} from "../dialect/postgres.js";
 import {
   diffManifest,
   formatDestructiveWarnings,
@@ -12,6 +18,13 @@ import { writeSnapshot } from "../codegen/generate.js";
 import { introspectToManifest } from "../introspect/to-manifest.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
+
+function migrationsTableRef(schema?: string): string {
+  const schemaName = resolvePgSchemaName(schema);
+  return schemaName === DEFAULT_PG_SCHEMA
+    ? postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)
+    : quoteQualifiedIdentifier(schemaName, MIGRATIONS_TABLE);
+}
 
 export type MigrationRecord = {
   name: string;
@@ -24,9 +37,11 @@ export type MigrationStatus = {
   orphanApplied: string[];
 };
 
-export async function ensureMigrationsTable(pool: Pool): Promise<void> {
+export async function ensureMigrationsTable(pool: Pool, schema?: string): Promise<void> {
+  const schemaName = resolvePgSchemaName(schema);
+  await pool.query(postgresDialect.emitCreateSchema(schemaName));
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} (
+    CREATE TABLE IF NOT EXISTS ${migrationsTableRef(schemaName)} (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -34,10 +49,10 @@ export async function ensureMigrationsTable(pool: Pool): Promise<void> {
   `);
 }
 
-export async function listAppliedMigrations(pool: Pool): Promise<MigrationRecord[]> {
-  await ensureMigrationsTable(pool);
+export async function listAppliedMigrations(pool: Pool, schema?: string): Promise<MigrationRecord[]> {
+  await ensureMigrationsTable(pool, schema);
   const result = await pool.query<{ name: string; applied_at: Date }>(
-    `SELECT name, applied_at FROM ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} ORDER BY id`,
+    `SELECT name, applied_at FROM ${migrationsTableRef(schema)} ORDER BY id`,
   );
   return result.rows.map((row) => ({
     name: row.name,
@@ -45,8 +60,8 @@ export async function listAppliedMigrations(pool: Pool): Promise<MigrationRecord
   }));
 }
 
-export async function getAppliedMigrations(pool: Pool): Promise<Set<string>> {
-  const applied = await listAppliedMigrations(pool);
+export async function getAppliedMigrations(pool: Pool, schema?: string): Promise<Set<string>> {
+  const applied = await listAppliedMigrations(pool, schema);
   return new Set(applied.map((record) => record.name));
 }
 
@@ -93,9 +108,10 @@ export function computeMigrationStatus(
 export async function migrateStatus(
   pool: Pool,
   migrationsDir: string,
+  schema?: string,
 ): Promise<MigrationStatus> {
   const [applied, diskMigrations] = await Promise.all([
-    listAppliedMigrations(pool),
+    listAppliedMigrations(pool, schema),
     listMigrationsOnDisk(migrationsDir),
   ]);
   return computeMigrationStatus(diskMigrations, applied);
@@ -143,32 +159,37 @@ export function formatMigrateStatus(
   return lines;
 }
 
-export async function resetDatabaseSchema(pool: Pool): Promise<void> {
+export async function resetDatabaseSchema(pool: Pool, schema?: string): Promise<void> {
+  const schemaName = resolvePgSchemaName(schema);
+  const schemaSql = postgresDialect.quoteIdentifier(schemaName);
+  const grantSql = schemaName === DEFAULT_PG_SCHEMA
+    ? `\n    GRANT ALL ON SCHEMA ${schemaSql} TO PUBLIC;`
+    : "";
   await pool.query(`
-    DROP SCHEMA public CASCADE;
-    CREATE SCHEMA public;
-    GRANT ALL ON SCHEMA public TO PUBLIC;
+    DROP SCHEMA ${schemaSql} CASCADE;
+    CREATE SCHEMA ${schemaSql};${grantSql}
   `);
 }
 
 export async function migrateReset(
   pool: Pool,
   migrationsDir: string,
-  options: { force: boolean; skipApply?: boolean },
+  options: { force: boolean; skipApply?: boolean; schema?: string },
 ): Promise<{ reapplied: string[] }> {
+  const schemaName = resolvePgSchemaName(options.schema);
   if (!options.force) {
     throw new Error(
-      "migrate reset requires --force. This drops the public schema and all data.",
+      `migrate reset requires --force. This drops the "${schemaName}" schema and all data.`,
     );
   }
 
-  await resetDatabaseSchema(pool);
+  await resetDatabaseSchema(pool, schemaName);
 
   if (options.skipApply) {
     return { reapplied: [] };
   }
 
-  const reapplied = await migrateDeploy(pool, migrationsDir);
+  const reapplied = await migrateDeploy(pool, migrationsDir, schemaName);
   return { reapplied };
 }
 
@@ -204,6 +225,7 @@ export async function applyMigration(
   pool: Pool,
   migrationsDir: string,
   name: string,
+  schema?: string,
 ): Promise<void> {
   const sqlPath = join(migrationsDir, name, "migration.sql");
   const sql = await readFile(sqlPath, "utf-8");
@@ -211,9 +233,10 @@ export async function applyMigration(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query(postgresDialect.emitCreateSchema(schema));
     await client.query(sql);
     await client.query(
-      `INSERT INTO ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} (name) VALUES ($1)`,
+      `INSERT INTO ${migrationsTableRef(schema)} (name) VALUES ($1)`,
       [name],
     );
     await client.query("COMMIT");
@@ -228,12 +251,13 @@ export async function applyMigration(
 export async function migrateDeploy(
   pool: Pool,
   migrationsDir: string,
+  schema?: string,
 ): Promise<string[]> {
-  const applied = await getAppliedMigrations(pool);
+  const applied = await getAppliedMigrations(pool, schema);
   const pending = await listPendingMigrations(migrationsDir, applied);
 
   for (const name of pending) {
-    await applyMigration(pool, migrationsDir, name);
+    await applyMigration(pool, migrationsDir, name, schema);
   }
 
   return pending;
@@ -269,6 +293,7 @@ export async function revertMigration(
   pool: Pool,
   migrationsDir: string,
   name: string,
+  schema?: string,
 ): Promise<void> {
   const sql = await readDownSql(migrationsDir, name);
 
@@ -279,7 +304,7 @@ export async function revertMigration(
       await client.query(sql);
     }
     await client.query(
-      `DELETE FROM ${postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)} WHERE name = $1`,
+      `DELETE FROM ${migrationsTableRef(schema)} WHERE name = $1`,
       [name],
     );
     await client.query("COMMIT");
@@ -294,14 +319,14 @@ export async function revertMigration(
 export async function migrateDown(
   pool: Pool,
   migrationsDir: string,
-  options?: { steps?: number; outDir?: string },
+  options?: { steps?: number; outDir?: string; schema?: string },
 ): Promise<string[]> {
   const steps = options?.steps ?? 1;
   if (steps < 1) {
     throw new Error("steps must be at least 1");
   }
 
-  const applied = await listAppliedMigrations(pool);
+  const applied = await listAppliedMigrations(pool, options?.schema);
   if (applied.length === 0) {
     throw new Error("No applied migrations to roll back");
   }
@@ -319,7 +344,7 @@ export async function migrateDown(
 
   const reverted: string[] = [];
   for (const name of toRevert) {
-    await revertMigration(pool, migrationsDir, name);
+    await revertMigration(pool, migrationsDir, name, options?.schema);
     reverted.push(name);
   }
 
@@ -338,6 +363,7 @@ export type DbPushResult = {
 
 export type DbPushOptions = {
   acceptDataLoss?: boolean;
+  schema?: string;
 };
 
 type DestructiveChange = import("../dialect/types.js").DestructiveChange;
@@ -347,12 +373,14 @@ export async function dbPush(
   target: Manifest,
   options: DbPushOptions = {},
 ): Promise<DbPushResult> {
-  const live = await introspectToManifest(pool);
-  const manifestDiff = diffManifest(live, target);
+  const schemaName = resolvePgSchemaName(options.schema);
+  const live = applySchemaToManifest(await introspectToManifest(pool, { schema: schemaName }), schemaName);
+  const qualifiedTarget = applySchemaToManifest(target, schemaName);
+  const manifestDiff = diffManifest(live, qualifiedTarget);
   const { sql, blocked } = resolveMigrationSql(
     manifestDiff,
     live,
-    target,
+    qualifiedTarget,
     options.acceptDataLoss ?? false,
   );
 
