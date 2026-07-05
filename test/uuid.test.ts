@@ -8,7 +8,7 @@ import {
   defaultPrimaryKeyValue,
   fillMissingPrimaryKeys,
 } from "../src/runtime/query/primary-key.js";
-import { generateUuid, resolveUuidVersion } from "../src/utils/uuid.js";
+import { generateUuid, parseUuidVersion, resolveUuidVersion } from "../src/utils/uuid.js";
 
 function requireUsersTable(manifest: Manifest): ManifestTable {
   const users = manifest.tables.users;
@@ -66,9 +66,7 @@ describe("uuid column", () => {
     }
 
     const v7 = defaultPrimaryKeyValue(users, idCol);
-    expect(v7).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(parseUuidVersion(v7)).toBe(7);
 
     const manifestV4 = schemaToManifest(schemaV4);
     const usersV4 = requireUsersTable(manifestV4);
@@ -77,9 +75,7 @@ describe("uuid column", () => {
       throw new Error("expected id column on users table");
     }
     const v4 = defaultPrimaryKeyValue(usersV4, idColV4);
-    expect(v4).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(parseUuidVersion(v4)).toBe(4);
   });
 
   it("fills missing primary keys on create data", () => {
@@ -121,7 +117,7 @@ describe("uuid column", () => {
   it("resolveUuidVersion falls back to 7", () => {
     expect(resolveUuidVersion({ typeOptions: { version: 4 } } as never)).toBe(4);
     expect(resolveUuidVersion({ typeOptions: {} } as never)).toBe(7);
-    expect(generateUuid(7)).toMatch(/-7/i);
-    expect(generateUuid(4)).toMatch(/-4/i);
+    expect(parseUuidVersion(generateUuid(7))).toBe(7);
+    expect(parseUuidVersion(generateUuid(4))).toBe(4);
   });
 });
