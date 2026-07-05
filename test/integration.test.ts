@@ -289,4 +289,59 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
     expect(await db.users.findFirst({ where: { email: outerEmail } })).not.toBeNull();
     expect(await db.users.findFirst({ where: { email: innerEmail } })).toBeNull();
   });
+
+  it("paginates posts with keyset cursor", async () => {
+    const manifest = schemaToManifest(schema);
+    const db = createNeoOrmClientFromPool<typeof schema._tables, NeoOrmIncludes>(manifest, pool);
+
+    const author = await db.users.create({
+      data: { email: `paginate-${Date.now()}@example.com`, name: "Pager" },
+    });
+
+    const prefix = `paginate-post-${Date.now()}`;
+    for (let i = 0; i < 5; i++) {
+      await db.posts.create({
+        data: {
+          title: `${prefix}-${i}`,
+          body: "body",
+          published: true,
+          author: { connect: { id: author["id"] as string } },
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+        },
+      });
+    }
+
+    const page1 = await db.posts.paginate({
+      where: { title: { startsWith: prefix } },
+      orderBy: { createdAt: "desc" },
+      take: 2,
+    });
+
+    expect(page1.items).toHaveLength(2);
+    expect(page1.hasMore).toBe(true);
+    expect(page1.nextCursor).not.toBeNull();
+
+    const page2 = await db.posts.paginate({
+      where: { title: { startsWith: prefix } },
+      orderBy: { createdAt: "desc" },
+      take: 2,
+      after: page1.nextCursor!,
+    });
+
+    expect(page2.items).toHaveLength(2);
+    const page1Ids = page1.items.map((post) => post["id"]);
+    const page2Ids = page2.items.map((post) => post["id"]);
+    expect(page1Ids.some((id) => page2Ids.includes(id))).toBe(false);
+
+    const page3 = await db.posts.paginate({
+      where: { title: { startsWith: prefix } },
+      orderBy: { createdAt: "desc" },
+      take: 2,
+      after: page2.nextCursor!,
+    });
+
+    expect(page3.items).toHaveLength(1);
+    expect(page3.hasMore).toBe(false);
+    expect(page3.nextCursor).toBeNull();
+  });
 });

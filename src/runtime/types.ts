@@ -8,12 +8,26 @@ import type {
   FindFirstArgs,
   FindManyArgs,
   FindUniqueArgs,
+  PaginateArgs,
+  PaginateResult,
   UpsertArgs,
   UpdateArgs,
   UpdateInput,
   UpdateManyArgs,
   WithInputMap,
+  OrderByInput,
+  ScalarPkName,
 } from "../schema/types.js";
+
+/** Cursor fields derived from row payload types (matches generated models at runtime). */
+export type PaginateCursor<
+  TRowPayload extends Record<string, unknown>,
+  TOrderBy extends Record<string, unknown>,
+  TPk extends string,
+> = Pick<
+  TRowPayload,
+  (keyof TOrderBy & keyof TRowPayload) | (TPk & keyof TRowPayload)
+>;
 
 /** Query args with an explicit generated `with` type (better IDE autocomplete) */
 export type FindManyArgsWith<
@@ -77,6 +91,21 @@ export type DeleteArgsWith<
   TWith,
 > = Omit<DeleteArgs<TSchema, TAccessor>, "with"> & {
   with?: TWith;
+};
+
+export type PaginateArgsWith<
+  TSchema extends Record<string, TableDef>,
+  TAccessor extends keyof TSchema & string,
+  TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
+  TWith,
+  TRowPayload extends Record<string, unknown> = Record<string, unknown>,
+> = Omit<PaginateArgs<TSchema, TAccessor, TOrderBy>, "with" | "after"> & {
+  with?: TWith;
+  after?: PaginateCursor<
+    TRowPayload,
+    TOrderBy,
+    ScalarPkName<TSchema[TAccessor]["_columns"]>
+  >;
 };
 
 export type DefaultWithMap<TTables extends Record<string, TableDef>> = {
@@ -147,6 +176,21 @@ export type TypedTableRepository<
   deleteMany(args?: DeleteManyArgs<TSchema, TAccessor>): Promise<number>;
   count(args?: CountArgsWith<TSchema, TAccessor>): Promise<number>;
   deleteById(id: string): Promise<TRowPayload | null>;
+  paginate<
+    TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
+    W extends TWith | undefined = undefined,
+  >(
+    args: PaginateArgsWith<TSchema, TAccessor, TOrderBy, W, TRowPayload>,
+  ): Promise<
+    PaginateResult<
+      TRowPayload,
+      PaginateCursor<
+        TRowPayload,
+        TOrderBy,
+        ScalarPkName<TSchema[TAccessor]["_columns"]>
+      >
+    >
+  >;
 };
 
 export type TypedNeoOrmClient<
