@@ -1,11 +1,6 @@
 # Roadmap
 
-**Current version:** v0.2.3
-**Status:** 223 tests, typecheck clean, PostgreSQL dialect shipping.
-
----
-
-## v0.3.x — Solidify the core
+## v0.2.x — Solidify the core
 
 Polish what exists. No new features — fix sharp edges, close test gaps, harden validation.
 
@@ -14,12 +9,12 @@ Polish what exists. No new features — fix sharp edges, close test gaps, harden
 - [X] **Composite PK guard** — `findById`/`updateById`/`deleteById` should give a clear error pointing to `findFirst`/`update`/`delete` as alternatives (currently they just throw)
 - [X] **Test gaps** — `introspectToManifest` (0 tests), `formatQueryError` edge cases, `loadConfig` validation failures, `sqlBuilder`
 - [X] **One-to-one type test** — add `@ts-expect-error` asserting that one-to-one inverse rejects `create: [{ ... }]` (array)
-- [ ] **ID entropy** — `generateTextId` uses 32-bit prefix; document the limitation or bump to full UUID
+- [X] **ID entropy** — `generateTextId` uses 32-bit prefix; document the limitation or bump to full UUID
 - [ ] **Internal cleanup** — replace remaining `!` assertions in `diff-manifest.ts` and `cursor.ts` with proper guards
 
 ---
 
-## v0.4.x — Middleware, soft delete, eager loading
+## v0.3.x — Middleware, soft delete, eager loading
 
 Features that unlock the most real-world use cases.
 
@@ -29,7 +24,7 @@ Features that unlock the most real-world use cases.
 
 ---
 
-## v0.5.x — Observability, query power
+## v0.4.x — Observability, query power
 
 - [ ] **Query logging** — `db.$on("query", handler)` with SQL, params, duration
 - [ ] **OpenTelemetry tracing** — spans per query with table and operation attributes
@@ -40,7 +35,7 @@ Features that unlock the most real-world use cases.
 
 ---
 
-## v0.6.x — Schema & migrations
+## v0.5.x — Schema & migrations
 
 - [ ] **Database views** — define, generate, query (read-only)
 - [ ] **Data migrations** — run custom SQL between schema changes
@@ -50,7 +45,7 @@ Features that unlock the most real-world use cases.
 
 ---
 
-## v0.7.x — More databases
+## v0.6.x — More databases
 
 - [ ] **Dialect refactor** — extract `RETURNING`, row-value constructors, `ILIKE` from query layer into dialect methods
 - [ ] **SQLite dialect** — local dev / testing, no external DB required
@@ -58,7 +53,7 @@ Features that unlock the most real-world use cases.
 
 ---
 
-## v0.8.x — Advanced deployment
+## v0.7.x — Advanced deployment
 
 - [ ] **Connection pool config** — expose min/max/idle timeout in client options
 - [ ] **Read replica routing** — write to primary, read from replica
@@ -66,7 +61,7 @@ Features that unlock the most real-world use cases.
 
 ---
 
-## v1.0.0 — Production ready
+## v0.8.0 — Production ready
 
 - [ ] **Seeding system** — `neoorm seed` with typed seed files
 - [ ] **Plugin lifecycle hooks** — `beforeMigration`, `afterIntrospect`, `validateSchema`
