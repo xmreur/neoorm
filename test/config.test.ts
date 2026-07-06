@@ -44,6 +44,31 @@ describe("config validation", () => {
 		);
 	});
 
+	it("loads multiple configs without re-registering tsx", async () => {
+		const firstConfig = configSource(`{
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/first",
+  }`);
+		const secondConfig = configSource(`{
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/second",
+  }`);
+
+		await withConfigFile(firstConfig, async (firstDir) => {
+			const first = await loadConfig(firstDir);
+			expect(first.datasource.url).toBe(
+				"postgresql://postgres:postgres@localhost:5432/first",
+			);
+
+			await withConfigFile(secondConfig, async (secondDir) => {
+				const second = await loadConfig(secondDir);
+				expect(second.datasource.url).toBe(
+					"postgresql://postgres:postgres@localhost:5432/second",
+				);
+			});
+		});
+	});
+
 	it("throws the required shape error for missing required fields", async () => {
 		await withConfigFile(
 			`
