@@ -5,6 +5,7 @@ import {
 	summarizeGenerateOutcome,
 } from "../src/codegen/generate-summary.js";
 import type { Manifest, ManifestDiff } from "../src/dialect/types.js";
+import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
 
 function baseManifest(overrides: Partial<Manifest> = {}): Manifest {
 	return {
@@ -55,7 +56,7 @@ describe("summarizeGenerateOutcome", () => {
 		const prev = baseManifest();
 		const next = baseManifest({
 			tables: {
-				users: prev.tables.users!,
+				users: manifestTableFromRecord(prev.tables, "users"),
 				posts: {
 					accessor: "posts",
 					sqlName: "posts",

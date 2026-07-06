@@ -33,7 +33,8 @@ export function resolveUniqueConstraint(
 	}
 
 	if (whereKeyList.length === 1) {
-		const key = whereKeyList[0]!;
+		const key = whereKeyList[0];
+		if (!key) return null;
 		const col = table.columns.find((c) => c.tsName === key);
 		if (col && (col.primary || col.unique)) {
 			return { sqlColumns: [col.sqlName], tsKeys: [col.tsName] };

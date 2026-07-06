@@ -69,7 +69,10 @@ describe("citext, bytea, and array columns", () => {
 	it("serializes bytea and array values", () => {
 		const manifest = schemaToManifest(schema);
 		const samples = requireSamplesTable(manifest);
-		const blobCol = samples.columns.find((c) => c.tsName === "blob")!;
+		const blobCol = samples.columns.find((c) => c.tsName === "blob");
+		if (!blobCol) {
+			throw new Error('expected "blob" column on samples table');
+		}
 		const byteaPlugin = getColumnTypeOrThrow("bytea");
 		const buffer = Buffer.from("hello");
 		expect(byteaPlugin.serializeValue?.(blobCol, buffer)).toBe(buffer);

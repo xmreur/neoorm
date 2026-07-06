@@ -1,4 +1,5 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import { parseFkTarget } from "./fk.js";
 import type {
 	ColumnAlter,
 	CreateTableOptions,
@@ -98,12 +99,12 @@ export function resolveColumnSqlType(
 	}
 
 	if (col.kind === "fk" && col.fkTarget && manifest) {
-		const [tableSql, colSql] = col.fkTarget.split(".");
+		const { tableSql, columnSql } = parseFkTarget(col.fkTarget);
 		const targetTable = Object.values(manifest.tables).find(
 			(table) => table.sqlName === tableSql,
 		);
 		const targetCol = targetTable?.columns.find(
-			(column) => column.sqlName === colSql,
+			(column) => column.sqlName === columnSql,
 		);
 		if (targetCol) {
 			return resolveColumnSqlType(targetCol, manifest);
@@ -338,12 +339,13 @@ function emitCreateTable(
 	if (inlineForeignKeys) {
 		for (const col of table.columns) {
 			if (col.kind === "fk" && col.fkTarget) {
-				const [targetTable, targetCol] = col.fkTarget.split(".");
+				const { tableSql: targetTable, columnSql: targetCol } =
+					parseFkTarget(col.fkTarget);
 				const onDelete = col.onDelete
 					? ` ON DELETE ${col.onDelete.toUpperCase()}`
 					: "";
 				lines.push(
-					`  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable!)}(${q(targetCol!)})${onDelete}`,
+					`  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable)}(${q(targetCol)})${onDelete}`,
 				);
 			}
 		}
@@ -386,14 +388,16 @@ function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {
 	if (!col.fkTarget) {
 		throw new Error(`FK column "${col.sqlName}" is missing fkTarget`);
 	}
-	const [targetTable, targetCol] = col.fkTarget.split(".");
+	const { tableSql: targetTable, columnSql: targetCol } = parseFkTarget(
+		col.fkTarget,
+	);
 	const constraintName =
 		col.fkConstraintName ??
 		resolveFkConstraintName(table.sqlName, col.sqlName);
 	const onDelete = col.onDelete
 		? ` ON DELETE ${col.onDelete.toUpperCase()}`
 		: "";
-	return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(constraintName)} FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable!)}(${q(targetCol!)})${onDelete};`;
+	return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(constraintName)} FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable)}(${q(targetCol)})${onDelete};`;
 }
 
 function emitAlterColumn(

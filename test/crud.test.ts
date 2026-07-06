@@ -10,11 +10,12 @@ import {
 	buildUpdateQuery,
 	compileWhere,
 } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 describe("update/delete SQL compilation", () => {
 	const manifest = schemaToManifest(schema);
-	const users = manifest.tables["users"]!;
-	const posts = manifest.tables["posts"]!;
+	const users = manifestTable(manifest, "users");
+	const posts = manifestTable(manifest, "posts");
 
 	it("builds update query with offset where params", () => {
 		const { sql: whereSql } = compileWhere(

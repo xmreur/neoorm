@@ -10,7 +10,7 @@ Polish what exists. No new features — fix sharp edges, close test gaps, harden
 - [X] **Test gaps** — `introspectToManifest` (0 tests), `formatQueryError` edge cases, `loadConfig` validation failures, `sqlBuilder`
 - [X] **One-to-one type test** — add `@ts-expect-error` asserting that one-to-one inverse rejects `create: [{ ... }]` (array)
 - [X] **ID entropy** — `generateTextId` uses 32-bit prefix; document the limitation or bump to full UUID
-- [ ] **Internal cleanup** — replace remaining `!` assertions in `diff-manifest.ts` and `cursor.ts` with proper guards
+- [X] **Internal cleanup** — replace remaining `!` assertions in `diff-manifest.ts` and `cursor.ts` with proper guards
 
 ---
 

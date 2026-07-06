@@ -16,6 +16,7 @@ import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
 } from "../src/runtime/query/updated-at.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema, getManyToManyRegistry());
@@ -24,7 +25,7 @@ function blogManifest() {
 describe("updatedAt", () => {
 	it("buildUpdateQuery appends updatedAt = NOW()", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const sql = buildUpdateQuery(
 			posts,
 			["title"],
@@ -38,7 +39,7 @@ describe("updatedAt", () => {
 
 	it("strips user-provided updatedAt before SET compilation", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const data = { title: "New", updatedAt: "2000-01-01T00:00:00.000Z" };
 		stripUpdatedAtFromData(posts, data);
 
@@ -47,7 +48,7 @@ describe("updatedAt", () => {
 
 	it("buildUpsertQuery includes updatedAt expression on conflict", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const sql = buildUpsertQuery(
 			posts,
 			[

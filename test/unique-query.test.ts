@@ -12,11 +12,12 @@ import {
 	resolveUniqueConstraint,
 } from "../src/runtime/query/unique.js";
 import { getManyToManyRegistry } from "../src/schema/many-to-many.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 describe("findUnique / count / upsert SQL", () => {
 	const manifest = schemaToManifest(schema, getManyToManyRegistry());
-	const users = manifest.tables["users"]!;
-	const postTags = manifest.tables["postTags"]!;
+	const users = manifestTable(manifest, "users");
+	const postTags = manifestTable(manifest, "postTags");
 
 	it("resolves primary key unique constraint", () => {
 		const constraint = resolveUniqueConstraint(users, { id: "user_1" });

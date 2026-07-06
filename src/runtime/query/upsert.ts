@@ -59,7 +59,7 @@ export async function upsertRecord(
 		insertValues,
 	);
 
-	const result = rowToTs(table, row!);
+	const result = rowToTs(table, row);
 
 	if (args.with) {
 		const [withLoaded] = await loadRelations(

@@ -19,6 +19,7 @@ import {
 	migrateStatus,
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
+import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
 
@@ -93,7 +94,7 @@ describe("buildDownSql", () => {
 			]),
 		});
 		const next = manifest({
-			users: prev.tables["users"]!,
+			users: manifestTableFromRecord(prev.tables, "users"),
 		});
 
 		const forward = diffManifest(prev, next);
@@ -172,9 +173,12 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 		const migrationsDir = join(outDir, "migrations");
 
 		const { migrationName } = await generateFromSchema(schemaPath, outDir);
-		expect(migrationName).not.toBeNull();
+		const resolvedMigrationName = defined(
+			migrationName,
+			"migrationName",
+		);
 
-		const migrationDir = join(migrationsDir, migrationName!);
+		const migrationDir = join(migrationsDir, resolvedMigrationName);
 		const downSql = await readFile(join(migrationDir, "down.sql"), "utf-8");
 		const snapshotBefore = await readFile(
 			join(migrationDir, "snapshot.before.json"),
@@ -184,7 +188,7 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 		expect(JSON.parse(snapshotBefore)).toEqual(emptyManifest());
 
 		const applied = await migrateDeploy(pool, migrationsDir);
-		expect(applied).toContain(migrationName);
+		expect(applied).toContain(resolvedMigrationName);
 
 		let status = await migrateStatus(pool, migrationsDir);
 		expect(status.pending).toEqual([]);
@@ -196,15 +200,15 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 			outDir,
 			steps: 1,
 		});
-		expect(reverted).toEqual([migrationName]);
+		expect(reverted).toEqual([resolvedMigrationName]);
 
 		status = await migrateStatus(pool, migrationsDir);
-		expect(status.pending).toContain(migrationName!);
+		expect(status.pending).toContain(resolvedMigrationName);
 
 		const snapshotAfterDown = await readSnapshot(outDir);
 		expect(snapshotAfterDown?.tables).toEqual({});
 
 		const reapplied = await migrateDeploy(pool, migrationsDir);
-		expect(reapplied).toContain(migrationName);
+		expect(reapplied).toContain(resolvedMigrationName);
 	});
 });

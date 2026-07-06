@@ -12,6 +12,7 @@ import {
 	decodeCursor,
 	encodeCursor,
 } from "../src/runtime/query/cursor-codec.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema, getManyToManyRegistry());
@@ -20,7 +21,7 @@ function blogManifest() {
 describe("cursor pagination", () => {
 	it("appends scalar PK to order spec when missing", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSpec = resolveOrderSpec(posts, { createdAt: "desc" });
 
 		expect(orderSpec.map((key) => key.tsName)).toEqual(["createdAt", "id"]);
@@ -29,7 +30,7 @@ describe("cursor pagination", () => {
 
 	it("does not duplicate PK when already in orderBy", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSpec = resolveOrderSpec(posts, {
 			createdAt: "desc",
 			id: "desc",
@@ -40,7 +41,7 @@ describe("cursor pagination", () => {
 
 	it("compiles tuple comparison for desc after cursor", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSpec = resolveOrderSpec(posts, { createdAt: "desc" });
 		const { sql, params } = compileCursorWhere(orderSpec, {
 			createdAt: "2026-07-01T12:00:00.000Z",
@@ -53,7 +54,7 @@ describe("cursor pagination", () => {
 
 	it("compiles tuple comparison for asc after cursor", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSpec = resolveOrderSpec(posts, { createdAt: "asc" });
 		const { sql } = compileCursorWhere(orderSpec, {
 			createdAt: "2026-07-01T12:00:00.000Z",
@@ -81,7 +82,7 @@ describe("cursor pagination", () => {
 
 	it("extracts cursor fields from a row", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSpec = resolveOrderSpec(posts, { createdAt: "desc" });
 
 		expect(
@@ -98,7 +99,7 @@ describe("cursor pagination", () => {
 
 	it("rejects missing orderBy", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		expect(() => resolveOrderSpec(posts, undefined)).toThrow(
 			/requires orderBy/,
 		);
@@ -106,7 +107,7 @@ describe("cursor pagination", () => {
 
 	it("rejects mixed order directions", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		expect(() =>
 			resolveOrderSpec(posts, { createdAt: "desc", title: "asc" }),
 		).toThrow(/same direction/);
@@ -114,7 +115,7 @@ describe("cursor pagination", () => {
 
 	it("rejects composite primary key tables", () => {
 		const manifest = blogManifest();
-		const postTags = manifest.tables["postTags"]!;
+		const postTags = manifestTable(manifest, "postTags");
 		expect(() =>
 			resolveOrderSpec(postTags, { assignedAt: "desc" }),
 		).toThrow(/single-column primary key/);
@@ -122,7 +123,7 @@ describe("cursor pagination", () => {
 
 	it("rejects incomplete cursor", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSpec = resolveOrderSpec(posts, { createdAt: "desc" });
 		expect(() =>
 			compileCursorWhere(orderSpec, {

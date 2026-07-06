@@ -17,10 +17,11 @@ type OrderBuilder = GroupBuilder;
 function parseQualifiedColumn(col: string): SqlFragment {
 	const parts = col.split(".");
 	if (parts.length === 2) {
-		return sqlFragment(
-			`${sqlId(parts[0]!).text}.${sqlId(parts[1]!).text}`,
-			[],
-		);
+		const [left, right] = parts;
+		if (!left || !right) {
+			throw new Error(`Invalid qualified column "${col}"`);
+		}
+		return sqlFragment(`${sqlId(left).text}.${sqlId(right).text}`, []);
 	}
 	return sqlId(col);
 }

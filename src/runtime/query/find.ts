@@ -6,7 +6,6 @@ import {
 import type {
 	Manifest,
 	ManifestManyToMany,
-	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
@@ -20,6 +19,11 @@ import {
 	rowToTs,
 } from "./compile.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
+import {
+	findM2M,
+	findRelation,
+	tableOwnsFkColumn,
+} from "./manifest-lookup.js";
 import {
 	primaryKeyTsNames,
 	requireScalarPrimaryKey,
@@ -244,25 +248,6 @@ function columnsForSelect(
 	return buildSelectColumns(table, selectKeys ? [...selectKeys] : undefined);
 }
 
-function findM2M(
-	manifest: Manifest,
-	tableAccessor: string,
-	relationName: string,
-): ManifestManyToMany | undefined {
-	return manifest.manyToMany.find(
-		(m) =>
-			(m.leftAccessor === tableAccessor && m.as === relationName) ||
-			(m.rightAccessor === tableAccessor && m.inverse === relationName),
-	);
-}
-
-function findRelation(
-	table: ManifestTable,
-	name: string,
-): ManifestRelation | undefined {
-	return table.relations.find((r) => r.name === name);
-}
-
 function isM2MRelation(
 	manifest: Manifest,
 	tableAccessor: string,
@@ -290,15 +275,6 @@ async function loadNestedRelations(
 			nestedWithSpec,
 		);
 	}
-}
-
-function tableOwnsFkColumn(
-	table: ManifestTable,
-	rel: ManifestRelation,
-): boolean {
-	return table.columns.some(
-		(c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
-	);
 }
 
 async function loadOneRelation(
@@ -352,7 +328,12 @@ async function loadOneRelation(
 			targetRelationPkSql(targetTable, relation),
 		);
 		const selectCols = columnsForSelect(targetTable, withSpec);
-		const targetPkTsName = primaryKeyTsNames(targetTable)[0]!;
+		const [targetPkTsName] = primaryKeyTsNames(targetTable);
+		if (!targetPkTsName) {
+			throw new Error(
+				`No primary key defined for table "${targetTable.accessor}"`,
+			);
+		}
 
 		const rows = await runQuery(
 			executor,
@@ -401,8 +382,12 @@ async function loadOneRelation(
 		const grouped = new Map<string, Record<string, unknown>[]>();
 		for (const row of mapped) {
 			const key = String(row[fkTsName]);
-			if (!grouped.has(key)) grouped.set(key, []);
-			grouped.get(key)!.push(row);
+			let bucket = grouped.get(key);
+			if (!bucket) {
+				bucket = [];
+				grouped.set(key, bucket);
+			}
+			bucket.push(row);
 		}
 
 		for (const parent of parentRows) {
@@ -493,8 +478,12 @@ async function loadM2MRelation(
 	for (const row of rows) {
 		const parentId = String(row["_parent_id"]);
 		const mapped = rowToTs(targetTable, row);
-		if (!grouped.has(parentId)) grouped.set(parentId, []);
-		grouped.get(parentId)!.push(mapped);
+		let bucket = grouped.get(parentId);
+		if (!bucket) {
+			bucket = [];
+			grouped.set(parentId, bucket);
+		}
+		bucket.push(mapped);
 	}
 
 	for (const parent of parentRows) {

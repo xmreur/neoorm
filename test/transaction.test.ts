@@ -267,12 +267,16 @@ describe("client $transaction", () => {
 		const [first, second] = await db.$transaction([
 			async (tx) => {
 				order.push("first");
-				await tx.users!.findMany();
+				const users = tx.users;
+				if (!users) throw new Error("expected users on transaction client");
+				await users.findMany();
 				return "a";
 			},
 			async (tx) => {
 				order.push("second");
-				await tx.posts!.findMany();
+				const posts = tx.posts;
+				if (!posts) throw new Error("expected posts on transaction client");
+				await posts.findMany();
 				return "b";
 			},
 		]);
@@ -301,9 +305,13 @@ describe("client $transaction", () => {
 		);
 
 		await db.$transaction(async (tx) => {
-			await tx.users!.findMany();
+			const users = tx.users;
+			if (!users) throw new Error("expected users on transaction client");
+			await users.findMany();
 			await tx.$transaction(async (nested) => {
-				await nested.posts!.findMany();
+				const posts = nested.posts;
+				if (!posts) throw new Error("expected posts on transaction client");
+				await posts.findMany();
 			});
 		});
 

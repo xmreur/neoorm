@@ -373,7 +373,10 @@ export async function migrateDown(
 	}
 
 	const outDir = options?.outDir ?? dirname(migrationsDir);
-	const oldestReverted = toRevert[toRevert.length - 1]!;
+	const oldestReverted = toRevert.at(-1);
+	if (!oldestReverted) {
+		return reverted;
+	}
 	const snapshotBefore = await readSnapshotBefore(
 		migrationsDir,
 		oldestReverted,

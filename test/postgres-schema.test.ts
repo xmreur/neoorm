@@ -18,6 +18,7 @@ import {
 	compileWhere,
 } from "../src/runtime/query/compile.js";
 import { loadRelations } from "../src/runtime/query/find.js";
+import { atIndex, manifestTable } from "./helpers/manifest.js";
 
 function mockPool(
 	rows: Record<string, unknown>[] = [],
@@ -46,8 +47,8 @@ describe("postgres schema namespaces", () => {
 	});
 
 	it("qualifies runtime find and insert table references", () => {
-		const users = manifest.tables["users"]!;
-		const posts = manifest.tables["posts"]!;
+		const users = manifestTable(manifest, "users");
+		const posts = manifestTable(manifest, "posts");
 
 		const findSql = buildFindManyQuery(users, "", "");
 		const insertSql = buildInsertQuery(posts, ["id", "title"]);
@@ -57,7 +58,7 @@ describe("postgres schema namespaces", () => {
 	});
 
 	it("qualifies relation filter subqueries", () => {
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 		const { sql } = compileWhere(
 			manifest,
 			users,
@@ -70,7 +71,7 @@ describe("postgres schema namespaces", () => {
 	});
 
 	it("qualifies eager loading table references", async () => {
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const executor = {
 			query: vi.fn(async () => []),
 			queryOne: vi.fn(async () => null),
@@ -92,12 +93,12 @@ describe("postgres schema namespaces", () => {
 	});
 
 	it("qualifies DDL table, FK, and index references", () => {
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 
 		const createSql = postgresDialect.emitCreateTable(posts);
 		const indexSql = postgresDialect.emitCreateIndex(
 			posts,
-			posts.indexes[0]!,
+			atIndex(posts.indexes, 0),
 		);
 
 		expect(createSql).toContain('CREATE TABLE "tenant_a"."posts"');

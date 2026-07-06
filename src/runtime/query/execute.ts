@@ -26,6 +26,11 @@ export type RunQueryContext = {
 	tableAccessor?: string;
 };
 
+type InsertUpsertContext = RunQueryContext & {
+	operation: "insert" | "upsert";
+	tableAccessor: string;
+};
+
 async function resolveMigrationHint(
 	pool: Pool | undefined,
 	migrationsDir: string | undefined,
@@ -110,6 +115,20 @@ export async function runQuery<T = Record<string, unknown>>(
 	}
 }
 
+export async function runQueryOne<T = Record<string, unknown>>(
+	executor: Executor,
+	runtime: QueryRuntime,
+	ctx: InsertUpsertContext,
+	sql: string,
+	params?: unknown[],
+): Promise<T>;
+export async function runQueryOne<T = Record<string, unknown>>(
+	executor: Executor,
+	runtime: QueryRuntime,
+	ctx: RunQueryContext,
+	sql: string,
+	params?: unknown[],
+): Promise<T | null>;
 export async function runQueryOne<T = Record<string, unknown>>(
 	executor: Executor,
 	runtime: QueryRuntime,

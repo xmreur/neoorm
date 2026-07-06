@@ -100,10 +100,14 @@ function parseDefaultValue(
 	if (kind === "json" || kind === "jsonb") {
 		const jsonMatch = columnDefault.match(/^'((?:''|[^'])*)'::/);
 		if (jsonMatch) {
+			const jsonDefault = jsonMatch[1];
+			if (!jsonDefault) {
+				return { defaultNow: false };
+			}
 			try {
 				return {
 					defaultNow: false,
-					defaultValue: JSON.parse(jsonMatch[1]!.replace(/''/g, "'")),
+					defaultValue: JSON.parse(jsonDefault.replace(/''/g, "'")),
 				};
 			} catch {
 				return { defaultNow: false };
@@ -112,9 +116,13 @@ function parseDefaultValue(
 	}
 	const stringMatch = columnDefault.match(/^'((?:''|[^'])*)'::/);
 	if (stringMatch) {
+		const stringDefault = stringMatch[1];
+		if (!stringDefault) {
+			return { defaultNow: false };
+		}
 		return {
 			defaultNow: false,
-			defaultValue: stringMatch[1]!.replace(/''/g, "'"),
+			defaultValue: stringDefault.replace(/''/g, "'"),
 		};
 	}
 	return { defaultNow: false };
@@ -172,7 +180,11 @@ function filterConstraintBackedIndexes(
 		if (!index.unique || index.columns.length !== 1) {
 			return true;
 		}
-		return !uniqueColumns.has(index.columns[0]!);
+		const indexColumn = index.columns[0];
+		if (!indexColumn) {
+			return true;
+		}
+		return !uniqueColumns.has(indexColumn);
 	});
 }
 

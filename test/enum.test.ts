@@ -10,6 +10,7 @@ import {
 	postgresDialect,
 } from "../src/dialect/postgres.js";
 import type { Manifest, ManifestTable } from "../src/dialect/types.js";
+import { defined } from "./helpers/manifest.js";
 
 function requirePostsTable(manifest: Manifest): ManifestTable {
 	const posts = manifest.tables.posts;
@@ -85,7 +86,7 @@ describe("enumType column", () => {
 			"\"status\" posts_status NOT NULL DEFAULT 'draft'",
 		);
 
-		const enumSql = emitCreateEnumTypes(manifest.enumTypes!);
+		const enumSql = emitCreateEnumTypes(defined(manifest.enumTypes, "enumTypes"));
 		expect(enumSql[0]).toBe(
 			"CREATE TYPE \"posts_status\" AS ENUM ('draft', 'published');",
 		);

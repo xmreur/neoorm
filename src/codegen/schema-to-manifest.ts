@@ -1,3 +1,4 @@
+import { parseFkTarget } from "../dialect/fk.js";
 import { resolveIndexSqlName } from "../dialect/postgres.js";
 import type {
 	Manifest,
@@ -47,6 +48,17 @@ function resolveEnumTypeName(
 	explicitName?: string,
 ): string {
 	return explicitName ?? `${tableSqlName}_${columnSqlName}`;
+}
+
+function requireColumnDef(
+	columns: Record<string, ColumnDef>,
+	tsName: string,
+): ColumnDef {
+	const column = columns[tsName];
+	if (!column) {
+		throw new Error(`Unknown column "${tsName}" in table extras`);
+	}
+	return column;
 }
 
 function finalizeEnumColumns(
@@ -191,7 +203,11 @@ function extrasToManifest(
 			const index: ManifestIndex = {
 				name,
 				columns: extra.columns.map((tsName) =>
-					resolveSqlName(tsName, columns[tsName]!, columnNaming),
+					resolveSqlName(
+						tsName,
+						requireColumnDef(columns, tsName),
+						columnNaming,
+					),
 				),
 				unique: extra.unique,
 			};
@@ -199,7 +215,11 @@ function extrasToManifest(
 			indexes.push(index);
 		} else if (extra.kind === "primaryKey") {
 			primaryKey = extra.columns.map((tsName) =>
-				resolveSqlName(tsName, columns[tsName]!, columnNaming),
+				resolveSqlName(
+					tsName,
+					requireColumnDef(columns, tsName),
+					columnNaming,
+				),
 			);
 		}
 	}
@@ -217,15 +237,17 @@ function buildRelations(
 	for (const col of columns) {
 		if (col.kind !== "fk" || !col.fkTarget || !col.fkAs) continue;
 
-		const [targetSqlName, colRef] = col.fkTarget.split(".");
+		const { tableSql: targetSqlName, columnSql: colRef } = parseFkTarget(
+			col.fkTarget,
+		);
 		const targetAccessor =
-			sqlNameToAccessor[targetSqlName!] ?? targetSqlName!;
+			sqlNameToAccessor[targetSqlName] ?? targetSqlName;
 		const targetTable = manifestTables[targetAccessor];
 		const cardinality = "one" as const;
 
 		const rel: ManifestRelation = {
 			name: col.fkAs,
-			targetTable: targetSqlName!,
+			targetTable: targetSqlName,
 			targetAccessor,
 			fkColumn: col.tsName,
 			fkSqlColumn: col.sqlName,
@@ -443,7 +465,7 @@ export function validateManifest(manifest: Manifest): string[] {
 
 		for (const col of table.columns) {
 			if (col.kind === "fk" && col.fkTarget) {
-				const [targetTable] = col.fkTarget.split(".");
+				const { tableSql: targetTable } = parseFkTarget(col.fkTarget);
 				const exists = Object.values(manifest.tables).some(
 					(t) => t.sqlName === targetTable,
 				);
