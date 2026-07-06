@@ -168,6 +168,8 @@ function prepareCreateManyRows(
     .filter((c) => keySet.has(c.tsName))
     .map((c) => c.tsName);
 
+  if (dataKeys.length === 0) return null;
+
   const rowValues = scalarRows.map((row) => {
     const { keys, values } = dataToSqlValues(table, row);
     const valueByKey = new Map(keys.map((k, i) => [k, values[i]]));

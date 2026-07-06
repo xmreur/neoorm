@@ -4,6 +4,7 @@ import { schema } from "../examples/blog/schema.js";
 import {
   buildUpdateQuery,
   buildDeleteQuery,
+  buildInsertQuery,
   buildInsertManyQuery,
   buildInsertManyValueRows,
   compileWhere,
@@ -53,5 +54,21 @@ describe("update/delete SQL compilation", () => {
       ["b@example.com", undefined],
     ]);
     expect(valueRows[1]).toBe("($3, DEFAULT)");
+  });
+
+  it("throws when building insert query with no columns", () => {
+    expect(() => buildInsertQuery(users, [])).toThrow("Cannot build INSERT query with no columns");
+  });
+
+  it("throws when building insert many query with no columns", () => {
+    expect(() => buildInsertManyQuery(users, [], [])).toThrow(
+      "Cannot build INSERT many query with no columns",
+    );
+  });
+
+  it("throws when building insert many value rows with no columns", () => {
+    expect(() => buildInsertManyValueRows(users, [], [["a@example.com"]])).toThrow(
+      "Cannot build INSERT many value rows with no columns",
+    );
   });
 });
