@@ -21,6 +21,7 @@ import type { WithInput } from "./query/find.js";
 import { findById, findFirst, findMany } from "./query/find.js";
 import { paginateRecords } from "./query/paginate.js";
 import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
+import { findOrCreateRecord } from "./query/find-or-create.js";
 import { upsertRecord } from "./query/upsert.js";
 import type {
 	DefaultRowPayloadMap,
@@ -73,6 +74,11 @@ export type TableRepository = {
 		update: Record<string, unknown>;
 		with?: Record<string, WithInput>;
 	}): Promise<Record<string, unknown>>;
+	findOrCreate(args: {
+		where: Record<string, unknown>;
+		create: Record<string, unknown>;
+		with?: Record<string, WithInput>;
+	}): Promise<{ record: Record<string, unknown>; created: boolean }>;
 	update(args: {
 		where: Record<string, unknown>;
 		data: Record<string, unknown>;
@@ -151,6 +157,8 @@ function createTableRepository(
 		createManyAndReturn: (args) =>
 			createManyAndReturnRecords(executor, runtime, accessor, args),
 		upsert: (args) => upsertRecord(executor, runtime, accessor, args),
+		findOrCreate: (args) =>
+			findOrCreateRecord(executor, runtime, accessor, args),
 		update: (args) => updateRecord(executor, runtime, accessor, args),
 		updateMany: (args) =>
 			updateManyRecords(executor, runtime, accessor, args),

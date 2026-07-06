@@ -149,17 +149,23 @@ export function enrichPgError(
 }
 
 export function emptyReturningContext(
-	operation: Extract<QueryOperation, "insert" | "upsert">,
+	operation: Extract<QueryOperation, "insert" | "upsert" | "findOrCreate">,
 	manifest: Manifest,
 	tableAccessor: string,
 	sql: string,
 ): QueryErrorContext {
 	const table = manifest.tables[tableAccessor];
+	const operationLabel =
+		operation === "insert"
+			? "INSERT"
+			: operation === "upsert"
+				? "UPSERT"
+				: "FIND OR CREATE";
 	const context: QueryErrorContext = {
 		operation,
 		tableAccessor,
 		sql: truncateSql(sql),
-		detail: `${operation === "insert" ? "INSERT" : "UPSERT"} … RETURNING returned no row`,
+		detail: `${operationLabel} … RETURNING returned no row`,
 	};
 	if (table?.sqlName !== undefined) {
 		context.tableSqlName = table.sqlName;

@@ -4,6 +4,7 @@ export type QueryOperation =
 	| "update"
 	| "delete"
 	| "upsert"
+	| "findOrCreate"
 	| "raw";
 
 export type QueryErrorContext = {
@@ -25,6 +26,7 @@ const OPERATION_LABEL: Record<QueryOperation, string> = {
 	update: "Update",
 	delete: "Delete",
 	upsert: "Upsert",
+	findOrCreate: "Find or create",
 	raw: "Query",
 };
 
