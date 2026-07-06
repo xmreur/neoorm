@@ -760,9 +760,7 @@ function relationsSignature(manifest: Manifest): string {
   const parts: string[] = [];
   for (const table of Object.values(manifest.tables)) {
     for (const rel of table.relations) {
-      parts.push(
-        `${table.sqlName}:${rel.name}:${rel.inverse}:${rel.targetAccessor}:${rel.cardinality}`,
-      );
+      parts.push(`${table.sqlName}:${rel.name}:${rel.inverse}:${rel.targetAccessor}`);
     }
   }
   return parts.sort().join("|");

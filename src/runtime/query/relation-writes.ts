@@ -71,6 +71,12 @@ function findRelation(table: ManifestTable, name: string): ManifestRelation | un
   return table.relations.find((r) => r.name === name);
 }
 
+function tableOwnsFkColumn(table: ManifestTable, rel: ManifestRelation): boolean {
+  return table.columns.some(
+    (c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
+  );
+}
+
 function normalizeIdList(value: unknown): string[] {
   if (!value) return [];
   if (Array.isArray(value)) {
@@ -505,7 +511,7 @@ export async function applyToOnePreWrites(
 ): Promise<void> {
   for (const write of relationWrites) {
     const rel = findRelation(table, write.relationName);
-    if (!rel || rel.cardinality !== "one") continue;
+    if (!rel || rel.cardinality !== "one" || !tableOwnsFkColumn(table, rel)) continue;
     await executeToOneWrite(
       executor,
       runtime,
@@ -640,6 +646,78 @@ async function executeInverseManyWrite(
   }
 }
 
+async function executeInverseOneWrite(
+  executor: Executor,
+  runtime: QueryRuntime,
+  table: ManifestTable,
+  parentId: string,
+  relationName: string,
+  value: Record<string, unknown>,
+  runCreate: CreateRunner,
+): Promise<void> {
+  const { manifest } = runtime;
+  const rel = findRelation(table, relationName);
+  if (!rel || rel.cardinality !== "one" || tableOwnsFkColumn(table, rel)) return;
+
+  const targetTable = manifest.tables[rel.targetAccessor];
+  if (!targetTable) return;
+
+  const fkCol = childFkColumnMeta(targetTable, rel);
+
+  if ("delete" in value) {
+    const del = value["delete"];
+    if (del === true) {
+      await deleteInverseManyChildren(executor, runtime, rel, parentId, undefined);
+    } else {
+      const ids = normalizeIdList(del);
+      await deleteInverseManyChildren(executor, runtime, rel, parentId, ids);
+    }
+  }
+
+  if ("disconnect" in value) {
+    if (!fkCol.nullable) {
+      throw new Error(`Cannot disconnect relation ${relationName}: FK column is not nullable`);
+    }
+    await disconnectInverseMany(executor, runtime, rel, parentId, undefined);
+  }
+
+  if ("set" in value) {
+    const ids = normalizeIdList(value["set"]);
+    const id = ids[0];
+    if (id) {
+      await disconnectInverseMany(executor, runtime, rel, parentId, undefined);
+      await connectInverseMany(executor, runtime, rel, parentId, [id]);
+    }
+    return;
+  }
+
+  if ("connect" in value) {
+    const ids = normalizeIdList(value["connect"]);
+    const id = ids[0];
+    if (!id) return;
+    if (ids.length > 1) {
+      throw new Error(`Cannot connect more than one record to one-to-one relation ${relationName}`);
+    }
+    await connectInverseMany(executor, runtime, rel, parentId, [id]);
+  }
+
+  if ("create" in value) {
+    const items = normalizeCreateList(value["create"]);
+    if (items.length > 1) {
+      throw new Error(`Cannot create more than one record for one-to-one relation ${relationName}`);
+    }
+    const item = items[0];
+    if (item) {
+      await runCreate(executor, runtime, rel.targetAccessor, {
+        data: {
+          ...item,
+          [rel.fkColumn]: parentId,
+        },
+      });
+    }
+  }
+}
+
 export async function executeRelationWrites(
   executor: Executor,
   runtime: QueryRuntime,
@@ -661,7 +739,20 @@ export async function executeRelationWrites(
     const rel = findRelation(table, write.relationName);
     if (!rel) continue;
 
-    if (rel.cardinality === "one") continue;
+    if (rel.cardinality === "one") {
+      if (!tableOwnsFkColumn(table, rel)) {
+        await executeInverseOneWrite(
+          executor,
+          runtime,
+          table,
+          parentId,
+          write.relationName,
+          write.value,
+          runCreate,
+        );
+      }
+      continue;
+    }
 
     await executeInverseManyWrite(
       executor,
@@ -684,6 +775,7 @@ export function hasPostRelationWrites(
   for (const write of relationWrites) {
     const rel = findRelation(table, write.relationName);
     if (rel?.cardinality === "many") return true;
+    if (rel?.cardinality === "one" && !tableOwnsFkColumn(table, rel)) return true;
     if (findM2M(manifest, tableAccessor, write.relationName)) return true;
   }
   return false;
