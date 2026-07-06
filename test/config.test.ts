@@ -27,6 +27,9 @@ export default {
 `;
 }
 
+const REQUIRED_SHAPE_ERROR =
+	"neoorm.config.ts must export defineConfig({ schema, out, datasource: { provider, url } })";
+
 describe("config validation", () => {
 	it("loads a valid config", async () => {
 		await withConfigFile(
@@ -78,11 +81,64 @@ export default {
 };
 `,
 			async (dir) => {
-				await expect(loadConfig(dir)).rejects.toThrow(
-					"neoorm.config.ts must export defineConfig({ schema, out, datasource: { provider, url } })",
-				);
+				await expect(loadConfig(dir)).rejects.toThrow(REQUIRED_SHAPE_ERROR);
 			},
 		);
+	});
+
+	it.each([
+		["null export", "export default null;"],
+		["no default or config export", "export const other = {};"],
+		[
+			"empty schema",
+			configSource(`{
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  }`).replace('schema: "./schema.ts"', 'schema: ""'),
+		],
+		[
+			"non-string out",
+			`
+export default {
+  schema: "./schema.ts",
+  out: 123,
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+};
+`,
+		],
+		[
+			"missing datasource",
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+};
+`,
+		],
+		[
+			"non-object datasource",
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: "postgresql",
+};
+`,
+		],
+		[
+			"empty datasource url",
+			configSource(`{
+    provider: "postgresql",
+    url: "",
+  }`),
+		],
+	])("throws the required shape error for %s", async (_name, source) => {
+		await withConfigFile(source, async (dir) => {
+			await expect(loadConfig(dir)).rejects.toThrow(REQUIRED_SHAPE_ERROR);
+		});
 	});
 
 	it("rejects unsupported datasource providers", async () => {
