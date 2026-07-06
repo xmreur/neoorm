@@ -1,4 +1,4 @@
-import { defineSchema, table, text, uuid } from "neoorm/schema";
+import { defineSchema, id, table, text, uuid } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import {
 	schemaToManifest,
@@ -41,6 +41,40 @@ const schemaV4 = defineSchema({
 		name: text().notNull(),
 	}),
 });
+
+const textIdSchema = defineSchema({
+	users: table("users", {
+		id: id.primary(),
+		name: text().notNull(),
+	}),
+	posts: table("posts", {
+		id: id.primary(),
+		title: text().notNull(),
+	}),
+	categories: table("categories", {
+		id: id.primary(),
+		label: text().notNull(),
+	}),
+});
+
+const TEXT_ID_UUID_RE =
+	/^[a-z]{1,4}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function requireTable(manifest: Manifest, accessor: string): ManifestTable {
+	const tableDef = manifest.tables[accessor];
+	if (!tableDef) {
+		throw new Error(`expected ${accessor} table in manifest`);
+	}
+	return tableDef;
+}
+
+function requireIdColumn(tableDef: ManifestTable) {
+	const idCol = tableDef.columns.find((c) => c.tsName === "id");
+	if (!idCol) {
+		throw new Error(`expected id column on ${tableDef.accessor} table`);
+	}
+	return idCol;
+}
 
 describe("uuid column", () => {
 	it("defaults to version 7 in manifest typeOptions", () => {
@@ -132,5 +166,56 @@ describe("uuid column", () => {
 		expect(resolveUuidVersion({ typeOptions: {} } as never)).toBe(7);
 		expect(parseUuidVersion(generateUuid(7))).toBe(7);
 		expect(parseUuidVersion(generateUuid(4))).toBe(4);
+	});
+});
+
+describe("id.primary() text IDs", () => {
+	it("generates prefix plus full UUID", () => {
+		const manifest = schemaToManifest(textIdSchema);
+		const users = requireTable(manifest, "users");
+		const idCol = requireIdColumn(users);
+
+		const generated = defaultPrimaryKeyValue(users, idCol);
+		expect(generated).toMatch(TEXT_ID_UUID_RE);
+		expect(generated.startsWith("user_")).toBe(true);
+	});
+
+	it("derives table prefix from accessor", () => {
+		const manifest = schemaToManifest(textIdSchema);
+
+		const users = requireTable(manifest, "users");
+		const posts = requireTable(manifest, "posts");
+		const categories = requireTable(manifest, "categories");
+
+		expect(defaultPrimaryKeyValue(users, requireIdColumn(users))).toMatch(
+			/^user_/,
+		);
+		expect(defaultPrimaryKeyValue(posts, requireIdColumn(posts))).toMatch(
+			/^post_/,
+		);
+		expect(
+			defaultPrimaryKeyValue(categories, requireIdColumn(categories)),
+		).toMatch(/^cate_/);
+	});
+
+	it("fills missing primary keys on create data", () => {
+		const manifest = schemaToManifest(textIdSchema);
+		const users = requireTable(manifest, "users");
+		const data: Record<string, unknown> = { name: "Ada" };
+		fillMissingPrimaryKeys(users, data);
+
+		expect(typeof data.id).toBe("string");
+		expect(String(data.id)).toMatch(TEXT_ID_UUID_RE);
+		expect(data.name).toBe("Ada");
+	});
+
+	it("generates unique values on consecutive calls", () => {
+		const manifest = schemaToManifest(textIdSchema);
+		const users = requireTable(manifest, "users");
+		const idCol = requireIdColumn(users);
+
+		const first = defaultPrimaryKeyValue(users, idCol);
+		const second = defaultPrimaryKeyValue(users, idCol);
+		expect(first).not.toBe(second);
 	});
 });
