@@ -7,8 +7,9 @@ import {
 	buildFindByIdQuery,
 	compileWhere,
 } from "../src/runtime/query/compile.js";
+import { deleteById } from "../src/runtime/query/delete.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { loadRelations } from "../src/runtime/query/find.js";
+import { findById, loadRelations } from "../src/runtime/query/find.js";
 import {
 	primaryKeyTsNames,
 	requireScalarPrimaryKey,
@@ -17,6 +18,7 @@ import {
 	targetRelationPkSql,
 } from "../src/runtime/query/primary-key.js";
 import { executeRelationWrites } from "../src/runtime/query/relation-writes.js";
+import { updateById } from "../src/runtime/query/update.js";
 
 const mappedPkSchema = defineSchema({
 	users: table("users", {
@@ -70,11 +72,20 @@ function createMockExecutor(handlers?: {
 	};
 }
 
+function tableOrThrow(
+	manifest: ReturnType<typeof schemaToManifest>,
+	accessor: string,
+) {
+	const table = manifest.tables[accessor];
+	if (!table) throw new Error(`Missing table ${accessor}`);
+	return table;
+}
+
 describe("manifest-driven primary keys", () => {
 	const manifest = schemaToManifest(mappedPkSchema);
 	const runtime: QueryRuntime = { manifest };
-	const users = manifest.tables["users"]!;
-	const posts = manifest.tables["posts"]!;
+	const users = tableOrThrow(manifest, "users");
+	const posts = tableOrThrow(manifest, "posts");
 
 	it("resolves mapped PK in manifest", () => {
 		expect(users.primaryKey).toEqual(["user_id"]);
@@ -112,15 +123,61 @@ describe("manifest-driven primary keys", () => {
 
 	it("throws for composite PK on requireScalarPrimaryKey", () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
-		const items = compositeManifest.tables["items"]!;
+		const items = tableOrThrow(compositeManifest, "items");
 		expect(() => requireScalarPrimaryKey(items)).toThrow(
 			"single-column primary key",
 		);
 	});
 
+	it("keeps the generic scalar PK error without operation context", () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const items = tableOrThrow(compositeManifest, "items");
+		expect(() => requireScalarPrimaryKey(items)).toThrow(
+			'Operation requires a single-column primary key on table "items"',
+		);
+	});
+
+	it("points findById users to findFirst for composite PK tables", async () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
+		const executor = createMockExecutor();
+
+		await expect(
+			findById(executor, compositeRuntime, "items", "item_1"),
+		).rejects.toThrow(
+			'findById requires a single-column primary key on table "items". For composite primary keys, use findFirst({ where: ... }) instead.',
+		);
+	});
+
+	it("points updateById users to update for composite PK tables", async () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
+		const executor = createMockExecutor();
+
+		await expect(
+			updateById(executor, compositeRuntime, "items", "item_1", {
+				data: { name: "Updated" },
+			}),
+		).rejects.toThrow(
+			'updateById requires a single-column primary key on table "items". For composite primary keys, use update({ where: ..., data: ... }) instead.',
+		);
+	});
+
+	it("points deleteById users to delete for composite PK tables", async () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
+		const executor = createMockExecutor();
+
+		await expect(
+			deleteById(executor, compositeRuntime, "items", "item_1"),
+		).rejects.toThrow(
+			'deleteById requires a single-column primary key on table "items". For composite primary keys, use delete({ where: ... }) instead.',
+		);
+	});
+
 	it("builds composite rowPkKey from all PK columns", () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
-		const items = compositeManifest.tables["items"]!;
+		const items = tableOrThrow(compositeManifest, "items");
 		const row = { tenantId: "t1", itemCode: "c1", name: "Widget" };
 		expect(rowPkKey(row, items)).toBe("t1\0c1");
 	});

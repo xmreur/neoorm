@@ -329,7 +329,7 @@ export async function updateById(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { tsName } = requireScalarPrimaryKey(table);
+	const { tsName } = requireScalarPrimaryKey(table, "updateById");
 	return updateRecord(executor, runtime, tableAccessor, {
 		where: { [tsName]: id },
 		data: args.data,
