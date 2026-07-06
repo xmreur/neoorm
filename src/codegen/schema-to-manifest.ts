@@ -221,6 +221,14 @@ function buildRelations(
   return relations;
 }
 
+function isUniqueColumn(table: ManifestTable, fkSqlColumn: string): boolean {
+  const col = table.columns.find((c) => c.sqlName === fkSqlColumn);
+  if (col?.unique || col?.primary) return true;
+  return table.indexes.some(
+    (idx) => idx.unique && idx.columns.length === 1 && idx.columns[0] === fkSqlColumn,
+  );
+}
+
 export function schemaToManifest<T extends Record<string, TableDef>>(
   schema: SchemaDef<T>,
   m2mDefs: readonly ManyToManyDef[] = getManyToManyRegistry(),
@@ -291,7 +299,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
         fkColumn: rel.fkColumn,
         fkSqlColumn: rel.fkSqlColumn,
         targetColumn: table.primaryKey[0] ?? rel.targetColumn,
-        cardinality: rel.cardinality === "one" ? "many" : "one",
+        cardinality: isUniqueColumn(table, rel.fkSqlColumn) ? "one" : "many",
         inverse: rel.name,
       });
     }

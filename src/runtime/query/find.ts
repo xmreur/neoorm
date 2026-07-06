@@ -250,6 +250,12 @@ async function loadNestedRelations(
   }
 }
 
+function tableOwnsFkColumn(table: ManifestTable, rel: ManifestRelation): boolean {
+  return table.columns.some(
+    (c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
+  );
+}
+
 async function loadOneRelation(
   executor: Executor,
   runtime: QueryRuntime,
@@ -274,8 +280,9 @@ async function loadOneRelation(
   if (!targetTable) return;
 
   const parentIds = parentRows.map((r) => rowPkKey(r, parentTable)).filter(Boolean);
+  const nestedSpec = typeof withSpec === "object" ? withSpec : undefined;
 
-  if (relation.cardinality === "one") {
+  if (relation.cardinality === "one" && tableOwnsFkColumn(parentTable, relation)) {
     const fkValues = parentRows
       .map((r) => r[relation.fkColumn])
       .filter((v) => v != null);
@@ -309,7 +316,6 @@ async function loadOneRelation(
 
     let sql = `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})`;
 
-    const nestedSpec = typeof withSpec === "object" ? withSpec : undefined;
     if (nestedSpec?.orderBy) {
       sql += ` ${compileOrderBy(targetTable, nestedSpec.orderBy)}`;
     }
@@ -338,16 +344,19 @@ async function loadOneRelation(
 
     for (const parent of parentRows) {
       const parentKey = rowPkKey(parent, parentTable);
-      parent[relationName] = grouped.get(parentKey) ?? [];
+      if (relation.cardinality === "one") {
+        parent[relationName] = grouped.get(parentKey)?.[0] ?? null;
+      } else {
+        parent[relationName] = grouped.get(parentKey) ?? [];
+      }
     }
 
-    if (nestedSpec?.with) {
+    if (nestedSpec?.with && relation.cardinality === "many") {
       const childRows = [...grouped.values()].flat();
       await loadNestedRelations(executor, runtime, targetTable, childRows, nestedSpec.with);
     }
   }
 
-  const nestedSpec = typeof withSpec === "object" ? withSpec : undefined;
   if (nestedSpec?.with && relation.cardinality === "one") {
     const childRows = parentRows
       .map((p) => p[relationName])
