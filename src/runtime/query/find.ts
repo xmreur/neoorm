@@ -332,12 +332,12 @@ async function loadOneRelation(
     );
     const mapped = rowsToTs(targetTable, rows);
 
+    const fkTargetCol = targetTable.columns.find((c) => c.sqlName === relation.fkSqlColumn);
+    const fkTsName = fkTargetCol?.tsName ?? relation.fkColumn;
+
     const grouped = new Map<string, Record<string, unknown>[]>();
     for (const row of mapped) {
-      const fkVal = String(row[relation.fkColumn] ?? row[relation.fkSqlColumn.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())]);
-      const fkKey = Object.keys(row).find((k) => k.endsWith("Id") && row[k] === fkVal) ?? relation.fkColumn;
-      const parentFk = row[fkKey] ?? row[relation.fkColumn];
-      const key = String(parentFk);
+      const key = String(row[fkTsName]);
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key)!.push(row);
     }
