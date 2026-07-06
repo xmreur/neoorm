@@ -10,8 +10,8 @@
 Polish what exists. No new features — fix sharp edges, close test gaps, harden validation.
 
 - [X] **Config validation** — validate `datasource.provider` is `"postgresql"`, `enum` mode is one of `check`/`union`/`native`
-- [ ] **`loadConfig` dedup guard** — prevent double `tsx register()` call
-- [ ] **Composite PK guard** — `findById`/`updateById`/`deleteById` should give a clear error pointing to `findFirst`/`update`/`delete` as alternatives (currently they just throw)
+- [X] **`loadConfig` dedup guard** — prevent double `tsx register()` call
+- [X] **Composite PK guard** — `findById`/`updateById`/`deleteById` should give a clear error pointing to `findFirst`/`update`/`delete` as alternatives (currently they just throw)
 - [ ] **Test gaps** — `introspectToManifest` (0 tests), `formatQueryError` edge cases, `loadConfig` validation failures, `sqlBuilder`
 - [ ] **One-to-one type test** — add `@ts-expect-error` asserting that one-to-one inverse rejects `create: [{ ... }]` (array)
 - [ ] **ID entropy** — `generateTextId` uses 32-bit prefix; document the limitation or bump to full UUID
