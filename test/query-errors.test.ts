@@ -83,6 +83,62 @@ describe("query errors", () => {
 		expect(message).toContain("23502");
 	});
 
+	it("formats raw query errors without table context", () => {
+		const message = formatQueryError({
+			operation: "raw",
+			sql: "SELECT broken",
+		});
+
+		expect(message).toBe(
+			"Query on query failed: database error\n  SQL: SELECT broken",
+		);
+	});
+
+	it("formats SQL table targets when accessor is unavailable", () => {
+		const message = formatQueryError({
+			operation: "select",
+			tableSqlName: "legacy_users",
+			sql: 'SELECT * FROM "legacy_users"',
+			detail: "relation missing",
+		});
+
+		expect(message).toContain('Select on "legacy_users" failed: relation missing');
+		expect(message).toContain('Table: SQL: "legacy_users"');
+	});
+
+	it("formats same-name and SQL-only columns", () => {
+		const sameName = formatQueryError({
+			operation: "update",
+			tableAccessor: "users",
+			columnTsName: "email",
+			columnSqlName: "email",
+			sql: 'UPDATE "users" SET "email" = $1',
+		});
+		const sqlOnly = formatQueryError({
+			operation: "delete",
+			tableAccessor: "users",
+			columnSqlName: "legacy_email",
+			sql: 'DELETE FROM "users"',
+		});
+
+		expect(sameName).toContain("Column: email");
+		expect(sameName).not.toContain('Column: email (SQL: "email")');
+		expect(sqlOnly).toContain('Column: SQL: "legacy_email"');
+	});
+
+	it("includes constraint and migration hint together", () => {
+		const message = formatQueryError({
+			operation: "upsert",
+			tableAccessor: "users",
+			sql: 'INSERT INTO "users" ("email") VALUES ($1)',
+			constraint: "users_email_key",
+			migrationHint: "1 pending (next: 20240101_add_users)",
+		});
+
+		expect(message).toContain("Constraint: users_email_key");
+		expect(message).toContain("Migration: 1 pending");
+	});
+
 	it("throws NeoOrmQueryError when insert returns no row", async () => {
 		const executor = createMockExecutor();
 
