@@ -9,6 +9,7 @@ import {
 	getManyToManyRegistry,
 	manyToMany,
 } from "../src/schema/many-to-many.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function ensureBlogManyToManyRegistry(): void {
 	if (getManyToManyRegistry().length > 0) return;
@@ -23,7 +24,7 @@ function ensureBlogManyToManyRegistry(): void {
 
 describe("distinct findMany", () => {
 	const manifest = schemaToManifest(schema);
-	const users = manifest.tables["users"]!;
+	const users = manifestTable(manifest, "users");
 
 	it("builds DISTINCT ON query", () => {
 		const sql = buildFindManyQuery(

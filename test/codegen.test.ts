@@ -2,6 +2,7 @@ import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateFromSchema } from "../src/codegen/generate.js";
+import { atIndex } from "./helpers/manifest.js";
 
 describe("codegen", () => {
 	const outDir = join(
@@ -56,7 +57,7 @@ describe("codegen", () => {
 		const migrationsDir = join(outDir, "migrations");
 		const migrationDirs = await readdir(migrationsDir);
 		if (migrationDirs.length > 0) {
-			const migrationDir = join(migrationsDir, migrationDirs[0]!);
+			const migrationDir = join(migrationsDir, atIndex(migrationDirs, 0));
 			const downSql = await readFile(
 				join(migrationDir, "down.sql"),
 				"utf-8",

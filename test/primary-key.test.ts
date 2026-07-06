@@ -19,6 +19,7 @@ import {
 } from "../src/runtime/query/primary-key.js";
 import { executeRelationWrites } from "../src/runtime/query/relation-writes.js";
 import { updateById } from "../src/runtime/query/update.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 const mappedPkSchema = defineSchema({
 	users: table("users", {
@@ -72,20 +73,11 @@ function createMockExecutor(handlers?: {
 	};
 }
 
-function tableOrThrow(
-	manifest: ReturnType<typeof schemaToManifest>,
-	accessor: string,
-) {
-	const table = manifest.tables[accessor];
-	if (!table) throw new Error(`Missing table ${accessor}`);
-	return table;
-}
-
 describe("manifest-driven primary keys", () => {
 	const manifest = schemaToManifest(mappedPkSchema);
 	const runtime: QueryRuntime = { manifest };
-	const users = tableOrThrow(manifest, "users");
-	const posts = tableOrThrow(manifest, "posts");
+	const users = manifestTable(manifest, "users");
+	const posts = manifestTable(manifest, "posts");
 
 	it("resolves mapped PK in manifest", () => {
 		expect(users.primaryKey).toEqual(["user_id"]);
@@ -123,7 +115,7 @@ describe("manifest-driven primary keys", () => {
 
 	it("throws for composite PK on requireScalarPrimaryKey", () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
-		const items = tableOrThrow(compositeManifest, "items");
+		const items = manifestTable(compositeManifest, "items");
 		expect(() => requireScalarPrimaryKey(items)).toThrow(
 			"single-column primary key",
 		);
@@ -131,7 +123,7 @@ describe("manifest-driven primary keys", () => {
 
 	it("keeps the generic scalar PK error without operation context", () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
-		const items = tableOrThrow(compositeManifest, "items");
+		const items = manifestTable(compositeManifest, "items");
 		expect(() => requireScalarPrimaryKey(items)).toThrow(
 			'Operation requires a single-column primary key on table "items"',
 		);
@@ -177,7 +169,7 @@ describe("manifest-driven primary keys", () => {
 
 	it("builds composite rowPkKey from all PK columns", () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
-		const items = tableOrThrow(compositeManifest, "items");
+		const items = manifestTable(compositeManifest, "items");
 		const row = { tenantId: "t1", itemCode: "c1", name: "Widget" };
 		expect(rowPkKey(row, items)).toBe("t1\0c1");
 	});

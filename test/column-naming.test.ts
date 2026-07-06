@@ -9,6 +9,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { introspectPostgres } from "../src/introspect/pull.js";
 import { compileOrderBy, compileWhere } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 describe("column naming strategies", () => {
 	it("keeps snakeCase as the default SQL naming strategy", () => {
@@ -20,7 +21,7 @@ describe("column naming strategies", () => {
 		});
 
 		const manifest = schemaToManifest(schema);
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 
 		expect(users.columnNaming).toBe("snakeCase");
 		expect(
@@ -46,7 +47,7 @@ describe("column naming strategies", () => {
 		});
 
 		const manifest = schemaToManifest(schema);
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 
 		expect(users.columnNaming).toBe("camelCase");
 		expect(
@@ -120,7 +121,7 @@ describe("column naming strategies", () => {
 		});
 
 		const manifest = schemaToManifest(schema);
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 
 		expect(
 			users.columns.find((c) => c.tsName === "emailAddress")?.sqlName,

@@ -55,7 +55,11 @@ export function resolveOrderSpec(
 				`Primary key column not found for table "${table.accessor}"`,
 			);
 		}
-		const tieDirection = specs[specs.length - 1]!.direction;
+		const lastSpec = specs.at(-1);
+		if (!lastSpec) {
+			throw new Error("paginate requires orderBy");
+		}
+		const tieDirection = lastSpec.direction;
 		specs.push({
 			tsName: pkTsName,
 			sqlName: pkSqlName,
@@ -89,7 +93,11 @@ export function compileCursorWhere(
 		}
 	}
 
-	const direction = orderSpec[0]!.direction;
+	const firstSpec = orderSpec[0];
+	if (!firstSpec) {
+		throw new Error("orderSpec must not be empty");
+	}
+	const direction = firstSpec.direction;
 	const operator = direction === "desc" ? "<" : ">";
 	const colRefs = orderSpec
 		.map((key) => quoteIdentifier(key.sqlName))

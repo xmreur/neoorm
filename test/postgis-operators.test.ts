@@ -10,6 +10,7 @@ import {
 	registerPlugin,
 } from "../src/plugins/registry.js";
 import { compileWhere } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 describe("postgis where operators", () => {
 	beforeEach(() => {
@@ -23,7 +24,7 @@ describe("postgis where operators", () => {
 			getManyToManyRegistry(),
 			getPluginRegistry(),
 		);
-		const places = manifest.tables["places"]!;
+		const places = manifestTable(manifest, "places");
 		const polygon = {
 			type: "Polygon",
 			coordinates: [
@@ -55,7 +56,7 @@ describe("postgis where operators", () => {
 			getManyToManyRegistry(),
 			getPluginRegistry(),
 		);
-		const places = manifest.tables["places"]!;
+		const places = manifestTable(manifest, "places");
 		const polygon = {
 			type: "Polygon",
 			coordinates: [
@@ -85,7 +86,7 @@ describe("postgis where operators", () => {
 			getManyToManyRegistry(),
 			getPluginRegistry(),
 		);
-		const places = manifest.tables["places"]!;
+		const places = manifestTable(manifest, "places");
 		const point = { type: "Point", coordinates: [0, 0] };
 
 		const { sql, params } = compileWhere(

@@ -4,6 +4,7 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { compileWhere } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema, getManyToManyRegistry());
@@ -11,8 +12,8 @@ function blogManifest() {
 
 describe("where compilation", () => {
 	const manifest = blogManifest();
-	const users = manifest.tables["users"]!;
-	const posts = manifest.tables["posts"]!;
+	const users = manifestTable(manifest, "users");
+	const posts = manifestTable(manifest, "posts");
 
 	it("compiles OR of two conditions", () => {
 		const { sql, params } = compileWhere(

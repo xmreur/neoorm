@@ -10,6 +10,11 @@ import { buildInsertQuery, dataToSqlValues, rowToTs } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import type { WithInput } from "./find.js";
 import {
+	findM2M,
+	findRelation,
+	tableOwnsFkColumn,
+} from "./manifest-lookup.js";
+import {
 	fillMissingPrimaryKeys,
 	primaryKeySqlName,
 	rowScalarPkValue,
@@ -53,18 +58,6 @@ function isRelationWriteObject(
 	return RELATION_WRITE_KEYS.some((key) => key in value);
 }
 
-function findM2M(
-	manifest: Manifest,
-	tableAccessor: string,
-	relationName: string,
-): ManifestManyToMany | undefined {
-	return manifest.manyToMany.find(
-		(m) =>
-			(m.leftAccessor === tableAccessor && m.as === relationName) ||
-			(m.rightAccessor === tableAccessor && m.inverse === relationName),
-	);
-}
-
 function isRelationField(
 	manifest: Manifest,
 	tableAccessor: string,
@@ -73,22 +66,6 @@ function isRelationField(
 ): boolean {
 	if (findRelation(table, key)) return true;
 	return findM2M(manifest, tableAccessor, key) !== undefined;
-}
-
-function findRelation(
-	table: ManifestTable,
-	name: string,
-): ManifestRelation | undefined {
-	return table.relations.find((r) => r.name === name);
-}
-
-function tableOwnsFkColumn(
-	table: ManifestTable,
-	rel: ManifestRelation,
-): boolean {
-	return table.columns.some(
-		(c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
-	);
 }
 
 function normalizeIdList(value: unknown): string[] {
@@ -155,9 +132,10 @@ export async function resolveConnectOrCreate(
 
 	for (const item of items) {
 		const whereKey = Object.keys(item.where)[0];
-		const whereVal = item.where[whereKey!];
+		if (!whereKey) continue;
+		const whereVal = item.where[whereKey];
 
-		if (whereKey && whereVal !== undefined) {
+		if (whereVal !== undefined) {
 			const col = targetTable.columns.find((c) => c.tsName === whereKey);
 			const sqlCol = col
 				? quoteIdentifier(col.sqlName)

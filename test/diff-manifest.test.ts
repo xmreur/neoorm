@@ -11,6 +11,7 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../src/dialect/types.js";
+import { manifestTable, manifestTableFromRecord } from "./helpers/manifest.js";
 
 function col(
 	tsName: string,
@@ -124,7 +125,7 @@ describe("diffManifest", () => {
 			]),
 		});
 		const next = manifest({
-			users: prev.tables["users"]!,
+			users: manifestTableFromRecord(prev.tables, "users"),
 		});
 
 		const { sql, destructive } = diffManifest(prev, next);
@@ -538,7 +539,7 @@ describe("diffManifest", () => {
 				col("id", "id", { kind: "id", primary: true, nullable: false }),
 			]),
 		});
-		const next = manifest({ users: prev.tables["users"]! }, ["postgis"]);
+		const next = manifest({ users: manifestTableFromRecord(prev.tables, "users") }, ["postgis"]);
 
 		const { sql } = diffManifest(prev, next);
 		expect(

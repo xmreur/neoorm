@@ -10,6 +10,7 @@ import {
 } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { compileOrderBy, compileWhere } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 const schemaWithoutMap = defineSchema({
 	users: table("users", {
@@ -47,7 +48,7 @@ describe("column map", () => {
 		const manifest = schemaToManifest(schema);
 		expect(validateManifest(manifest)).toEqual([]);
 
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 		expect(
 			users.columns.find((c) => c.tsName === "emailAddress")?.sqlName,
 		).toBe("email");
@@ -55,7 +56,7 @@ describe("column map", () => {
 			users.columns.find((c) => c.tsName === "legacyCode")?.sqlName,
 		).toBe("legacy_user_code");
 
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		expect(
 			posts.columns.find((c) => c.tsName === "authorId")?.sqlName,
 		).toBe("author_ref");
@@ -63,7 +64,7 @@ describe("column map", () => {
 
 	it("uses mapped names in query compilation", () => {
 		const manifest = schemaToManifest(schema);
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 
 		const { sql } = compileWhere(
 			manifest,
@@ -79,7 +80,7 @@ describe("column map", () => {
 
 	it("uses mapped names in indexes and ddl", () => {
 		const manifest = schemaToManifest(schema);
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 
 		expect(posts.indexes[0]?.columns).toEqual(["author_ref"]);
 

@@ -6,6 +6,7 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
+import { defined } from "./helpers/manifest.js";
 import {
 	getManyToManyRegistry,
 	manyToMany,
@@ -202,7 +203,10 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		const comments = post["comments"] as { id: string; body: string }[];
 		expect(comments).toHaveLength(2);
-		const toDelete = comments.find((c) => c.body === "Remove")!;
+		const toDelete = comments.find((c) => c.body === "Remove");
+		if (!toDelete) {
+			throw new Error('expected comment with body "Remove"');
+		}
 
 		const updated = await db.posts.update({
 			where: { id: post["id"] as string },
@@ -588,11 +592,12 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(page1.hasMore).toBe(true);
 		expect(page1.nextCursor).not.toBeNull();
 
+		const page1Cursor = defined(page1.nextCursor, "page1.nextCursor");
 		const page2 = await db.posts.paginate({
 			where: { title: { startsWith: prefix } },
 			orderBy: { createdAt: "desc" },
 			take: 2,
-			after: page1.nextCursor!,
+			after: page1Cursor,
 		});
 
 		expect(page2.items).toHaveLength(2);
@@ -600,11 +605,12 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		const page2Ids = page2.items.map((post) => post["id"]);
 		expect(page1Ids.some((id) => page2Ids.includes(id))).toBe(false);
 
+		const page2Cursor = defined(page2.nextCursor, "page2.nextCursor");
 		const page3 = await db.posts.paginate({
 			where: { title: { startsWith: prefix } },
 			orderBy: { createdAt: "desc" },
 			take: 2,
-			after: page2.nextCursor!,
+			after: page2Cursor,
 		});
 
 		expect(page3.items).toHaveLength(1);

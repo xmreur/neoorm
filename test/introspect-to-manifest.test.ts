@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 type QueryCall = {
 	sql: string;

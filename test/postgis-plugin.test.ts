@@ -14,6 +14,7 @@ import {
 	getPluginRegistry,
 	registerPlugin,
 } from "../src/plugins/registry.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 describe("postgis plugin", () => {
 	beforeEach(() => {
@@ -34,7 +35,7 @@ describe("postgis plugin", () => {
 		expect(manifest.extensions).toEqual(["postgis"]);
 		expect(validateManifest(manifest)).toEqual([]);
 
-		const places = manifest.tables["places"]!;
+		const places = manifestTable(manifest, "places");
 		const location = places.columns.find((c) => c.tsName === "location");
 		expect(location?.kind).toBe("geometry");
 		expect(location?.typeOptions).toEqual({ subtype: "Point", srid: 4326 });
@@ -42,8 +43,11 @@ describe("postgis plugin", () => {
 
 	it("emits geometry SQL types", () => {
 		const manifest = postgisManifest();
-		const places = manifest.tables["places"]!;
-		const location = places.columns.find((c) => c.tsName === "location")!;
+		const places = manifestTable(manifest, "places");
+		const location = places.columns.find((c) => c.tsName === "location");
+		if (!location) {
+			throw new Error('expected "location" column on places table');
+		}
 		expect(postgresDialect.columnType(location)).toBe(
 			"geometry(Point,4326)",
 		);

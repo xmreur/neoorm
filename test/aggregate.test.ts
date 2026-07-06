@@ -6,6 +6,7 @@ import {
 	getManyToManyRegistry,
 	manyToMany,
 } from "../src/schema/many-to-many.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function ensureBlogManyToManyRegistry(): void {
 	if (getManyToManyRegistry().length > 0) return;
@@ -20,7 +21,7 @@ function ensureBlogManyToManyRegistry(): void {
 
 describe("aggregate SQL", () => {
 	const manifest = schemaToManifest(schema);
-	const posts = manifest.tables["posts"]!;
+	const posts = manifestTable(manifest, "posts");
 
 	it("builds aggregate query with count and avg", () => {
 		ensureBlogManyToManyRegistry();

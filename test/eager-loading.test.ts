@@ -4,6 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { loadRelations } from "../src/runtime/query/find.js";
+import { atIndex, manifestTable } from "./helpers/manifest.js";
 
 const eagerLoadingSchema = defineSchema({
 	users: table("users", {
@@ -61,7 +62,7 @@ function createMockExecutor(handlers?: {
 describe("eager loading batching", () => {
 	const manifest = schemaToManifest(eagerLoadingSchema);
 	const runtime: QueryRuntime = { manifest };
-	const posts = manifest.tables["posts"]!;
+	const posts = manifestTable(manifest, "posts");
 
 	it("batches nested has-many eager loads across all parent rows", async () => {
 		const executor = createMockExecutor({
@@ -109,12 +110,12 @@ describe("eager loading batching", () => {
 
 		expect(executor.queries).toHaveLength(2);
 
-		const commentsQuery = executor.queries[0]!;
+		const commentsQuery = atIndex(executor.queries, 0);
 		expect(commentsQuery.sql).toContain('"comments"');
 		expect(commentsQuery.sql).toContain('"post_id" IN');
 		expect(commentsQuery.params).toEqual(["post_1", "post_2"]);
 
-		const authorsQuery = executor.queries[1]!;
+		const authorsQuery = atIndex(executor.queries, 1);
 		expect(authorsQuery.sql).toContain('"users"');
 		expect(authorsQuery.sql).toContain('"id" IN');
 		expect(authorsQuery.params).toEqual(["user_1", "user_2", "user_1"]);
@@ -143,7 +144,7 @@ describe("eager loading batching", () => {
 	});
 
 	it("batches deeper nested eager loads with one query per relation level", async () => {
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 		const executor = createMockExecutor({
 			query: (sql) => {
 				if (
@@ -197,15 +198,15 @@ describe("eager loading batching", () => {
 
 		expect(executor.queries).toHaveLength(3);
 
-		const postsQuery = executor.queries[0]!;
+		const postsQuery = atIndex(executor.queries, 0);
 		expect(postsQuery.sql).toContain('"posts"');
 		expect(postsQuery.params).toEqual(["user_1", "user_2"]);
 
-		const commentsQuery = executor.queries[1]!;
+		const commentsQuery = atIndex(executor.queries, 1);
 		expect(commentsQuery.sql).toContain('"comments"');
 		expect(commentsQuery.params).toEqual(["post_1", "post_2"]);
 
-		const authorsQuery = executor.queries[2]!;
+		const authorsQuery = atIndex(executor.queries, 2);
 		expect(authorsQuery.sql).toContain('"users"');
 		expect(authorsQuery.params).toEqual(["user_1", "user_2"]);
 	});

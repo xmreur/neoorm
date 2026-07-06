@@ -6,6 +6,7 @@ import type { Executor } from "../src/runtime/executor.js";
 import { runCreate } from "../src/runtime/query/create.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { loadRelations } from "../src/runtime/query/find.js";
+import { manifestTable, rowAt } from "./helpers/manifest.js";
 
 function createMockExecutor(): Executor & {
 	queries: { sql: string; params: unknown[] }[];
@@ -39,7 +40,7 @@ describe("one-to-one relations", () => {
 	const runtime: QueryRuntime = { manifest };
 
 	it("manifest marks the inverse profile relation as cardinality one", () => {
-		const usersTable = manifest.tables["users"]!;
+		const usersTable = manifestTable(manifest, "users");
 		const profileRel = usersTable.relations.find(
 			(r) => r.name === "profile",
 		);
@@ -49,7 +50,7 @@ describe("one-to-one relations", () => {
 	});
 
 	it("manifest keeps the forward user relation as cardinality one", () => {
-		const profilesTable = manifest.tables["profiles"]!;
+		const profilesTable = manifestTable(manifest, "profiles");
 		const userRel = profilesTable.relations.find((r) => r.name === "user");
 		expect(userRel).toBeDefined();
 		expect(userRel?.cardinality).toBe("one");
@@ -57,7 +58,7 @@ describe("one-to-one relations", () => {
 	});
 
 	it("manifest still marks one-to-many inverse relations as many", () => {
-		const usersTable = manifest.tables["users"]!;
+		const usersTable = manifestTable(manifest, "users");
 		const postsRel = usersTable.relations.find((r) => r.name === "posts");
 		expect(postsRel).toBeDefined();
 		expect(postsRel?.cardinality).toBe("many");
@@ -86,7 +87,7 @@ describe("one-to-one relations", () => {
 			return [];
 		}) as Executor["query"];
 
-		const usersTable = manifest.tables["users"]!;
+		const usersTable = manifestTable(manifest, "users");
 		const parentRows: Record<string, unknown>[] = [
 			{
 				id: "user_1",
@@ -101,7 +102,7 @@ describe("one-to-one relations", () => {
 			profile: true,
 		});
 
-		expect(parentRows[0]!["profile"]).toEqual({
+		expect(rowAt(parentRows, 0)["profile"]).toEqual({
 			id: "profile_1",
 			userId: "user_1",
 			bio: "hello",
@@ -117,7 +118,7 @@ describe("one-to-one relations", () => {
 		const executor = createMockExecutor();
 		executor.query = vi.fn(async () => []) as Executor["query"];
 
-		const usersTable = manifest.tables["users"]!;
+		const usersTable = manifestTable(manifest, "users");
 		const parentRows: Record<string, unknown>[] = [
 			{
 				id: "user_2",
@@ -132,7 +133,7 @@ describe("one-to-one relations", () => {
 			profile: true,
 		});
 
-		expect(parentRows[0]!["profile"]).toBeNull();
+		expect(rowAt(parentRows, 0)["profile"]).toBeNull();
 	});
 
 	it("create emits an inverse one-to-one child create with the FK set to the parent id", async () => {

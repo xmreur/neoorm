@@ -26,8 +26,8 @@ function generateUuidV7Fallback(): string {
 	bytes[4] = Number((timestamp >> 8n) & 0xffn);
 	bytes[5] = Number(timestamp & 0xffn);
 
-	bytes[6] = (bytes[6]! & 0x0f) | 0x70;
-	bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+	bytes[6] = Number((bytes[6] ?? 0) & 0x0f) | 0x70;
+	bytes[8] = Number((bytes[8] ?? 0) & 0x3f) | 0x80;
 
 	const hex = [...bytes]
 		.map((byte) => byte.toString(16).padStart(2, "0"))

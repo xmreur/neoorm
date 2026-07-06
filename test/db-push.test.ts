@@ -5,6 +5,7 @@ import { diffManifest } from "../src/codegen/diff-manifest.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
 import { dbPush } from "../src/migrate/runner.js";
+import { manifestTable, manifestTableFromRecord } from "./helpers/manifest.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -53,7 +54,7 @@ describe.skipIf(!databaseUrl)("db push integration", () => {
 		expect(second.appliedStatements).toBeGreaterThan(0);
 
 		const liveAfter = await introspectToManifest(pool);
-		const users = liveAfter.tables["pushTestUsers"]!;
+		const users = manifestTableFromRecord(liveAfter.tables, "pushTestUsers");
 		expect(users.columns.some((c) => c.sqlName === "nickname")).toBe(true);
 	});
 });

@@ -4,13 +4,13 @@ import type {
 	Dialect,
 	Manifest,
 	ManifestColumn,
-	ManifestManyToMany,
 	ManifestRelation,
 	ManifestTable,
 	WhereOperator,
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
+import { findM2M } from "./manifest-lookup.js";
 import {
 	primaryKeySqlName,
 	requireScalarPrimaryKey,
@@ -75,18 +75,6 @@ function parentPkRef(table: ManifestTable): string {
 	return `${tableRef(table)}.${quoteIdentifier(pkSql)}`;
 }
 
-function findM2M(
-	manifest: Manifest,
-	tableAccessor: string,
-	relationName: string,
-): ManifestManyToMany | undefined {
-	return manifest.manyToMany.find(
-		(m) =>
-			(m.leftAccessor === tableAccessor && m.as === relationName) ||
-			(m.rightAccessor === tableAccessor && m.inverse === relationName),
-	);
-}
-
 function compileColumnCondition(
 	col: ManifestColumn,
 	rawValue: unknown,
@@ -125,7 +113,8 @@ function compileColumnCondition(
 
 	for (const [op, value] of Object.entries(rawValue)) {
 		if (op in spatialOps) {
-			const operator = spatialOps[op]!;
+			const operator = spatialOps[op];
+			if (!operator) continue;
 			const compiled = operator.compile(
 				sqlCol,
 				value,
@@ -702,7 +691,10 @@ export function buildInsertManyValueRows(
 	for (const row of rows) {
 		const placeholders: string[] = [];
 		for (let i = 0; i < dataKeys.length; i++) {
-			const key = dataKeys[i]!;
+			const key = dataKeys[i];
+			if (key === undefined) {
+				throw new Error("dataKeys index out of bounds");
+			}
 			const col = table.columns.find((c) => c.tsName === key);
 			const val = row[i];
 			if (val === undefined) {

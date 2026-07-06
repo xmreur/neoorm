@@ -9,6 +9,7 @@ import {
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInit } from "../src/init/scaffold.js";
+import { atIndex } from "./helpers/manifest.js";
 
 const INIT_TMP_ROOT = join(process.cwd(), "test", ".tmp");
 
@@ -61,21 +62,23 @@ describe("neoorm init", () => {
 		const migrationDirs = await readdir(migrationsRoot);
 		expect(migrationDirs.length).toBeGreaterThan(0);
 
+		const firstMigrationDir = atIndex(migrationDirs, 0);
+
 		const migrationSql = await readFile(
-			join(migrationsRoot, migrationDirs[0]!, "migration.sql"),
+			join(migrationsRoot, firstMigrationDir, "migration.sql"),
 			"utf-8",
 		);
 		expect(migrationSql).toContain('CREATE TABLE "users"');
 		expect(migrationSql).toContain('CREATE TABLE "posts"');
 
 		const downSql = await readFile(
-			join(migrationsRoot, migrationDirs[0]!, "down.sql"),
+			join(migrationsRoot, firstMigrationDir, "down.sql"),
 			"utf-8",
 		);
 		expect(downSql).toContain("DROP TABLE");
 
 		const snapshotBefore = await readFile(
-			join(migrationsRoot, migrationDirs[0]!, "snapshot.before.json"),
+			join(migrationsRoot, firstMigrationDir, "snapshot.before.json"),
 			"utf-8",
 		);
 		expect(JSON.parse(snapshotBefore)).toEqual({

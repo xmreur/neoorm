@@ -3,10 +3,11 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { compileWhere } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 describe("json where operators", () => {
 	const manifest = schemaToManifest(schema);
-	const posts = manifest.tables["posts"]!;
+	const posts = manifestTable(manifest, "posts");
 
 	it("compiles jsonContains (@>)", () => {
 		const { sql, params } = compileWhere(

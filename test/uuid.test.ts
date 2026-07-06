@@ -19,13 +19,10 @@ import {
 	parseUuidVersion,
 	resolveUuidVersion,
 } from "../src/utils/uuid.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function requireUsersTable(manifest: Manifest): ManifestTable {
-	const users = manifest.tables.users;
-	if (!users) {
-		throw new Error("expected users table in manifest");
-	}
-	return users;
+	return manifestTable(manifest, "users");
 }
 
 const schemaV7 = defineSchema({
@@ -59,14 +56,6 @@ const textIdSchema = defineSchema({
 
 const TEXT_ID_UUID_RE =
 	/^[a-z]{1,4}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-function requireTable(manifest: Manifest, accessor: string): ManifestTable {
-	const tableDef = manifest.tables[accessor];
-	if (!tableDef) {
-		throw new Error(`expected ${accessor} table in manifest`);
-	}
-	return tableDef;
-}
 
 function requireIdColumn(tableDef: ManifestTable) {
 	const idCol = tableDef.columns.find((c) => c.tsName === "id");
@@ -172,7 +161,7 @@ describe("uuid column", () => {
 describe("id.primary() text IDs", () => {
 	it("generates prefix plus full UUID", () => {
 		const manifest = schemaToManifest(textIdSchema);
-		const users = requireTable(manifest, "users");
+		const users = manifestTable(manifest, "users");
 		const idCol = requireIdColumn(users);
 
 		const generated = defaultPrimaryKeyValue(users, idCol);
@@ -183,9 +172,9 @@ describe("id.primary() text IDs", () => {
 	it("derives table prefix from accessor", () => {
 		const manifest = schemaToManifest(textIdSchema);
 
-		const users = requireTable(manifest, "users");
-		const posts = requireTable(manifest, "posts");
-		const categories = requireTable(manifest, "categories");
+		const users = manifestTable(manifest, "users");
+		const posts = manifestTable(manifest, "posts");
+		const categories = manifestTable(manifest, "categories");
 
 		expect(defaultPrimaryKeyValue(users, requireIdColumn(users))).toMatch(
 			/^user_/,
@@ -200,7 +189,7 @@ describe("id.primary() text IDs", () => {
 
 	it("fills missing primary keys on create data", () => {
 		const manifest = schemaToManifest(textIdSchema);
-		const users = requireTable(manifest, "users");
+		const users = manifestTable(manifest, "users");
 		const data: Record<string, unknown> = { name: "Ada" };
 		fillMissingPrimaryKeys(users, data);
 
@@ -211,7 +200,7 @@ describe("id.primary() text IDs", () => {
 
 	it("generates unique values on consecutive calls", () => {
 		const manifest = schemaToManifest(textIdSchema);
-		const users = requireTable(manifest, "users");
+		const users = manifestTable(manifest, "users");
 		const idCol = requireIdColumn(users);
 
 		const first = defaultPrimaryKeyValue(users, idCol);

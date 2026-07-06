@@ -14,6 +14,7 @@ import {
 	getManyToManyRegistry,
 	manyToMany,
 } from "../src/schema/many-to-many.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function ensureBlogManyToManyRegistry(): void {
 	if (getManyToManyRegistry().length > 0) return;
@@ -64,13 +65,13 @@ describe("relation-writes", () => {
 	});
 
 	it("manifest includes M2M tags relation on posts", () => {
-		const names = manifest.tables["posts"]!.relations.map((r) => r.name);
+		const names = manifestTable(manifest, "posts").relations.map((r) => r.name);
 		expect(names).toContain("tags");
 		expect(names).toContain("comments");
 	});
 
 	it("splitScalarsAndRelationWrites separates scalar and relation fields", () => {
-		const table = manifest.tables["posts"]!;
+		const table = manifestTable(manifest, "posts");
 		const { scalarData, relationWrites } = splitScalarsAndRelationWrites(
 			manifest,
 			"posts",
@@ -89,7 +90,7 @@ describe("relation-writes", () => {
 	});
 
 	it("splitScalarsAndRelationWrites recognizes nested delete", () => {
-		const table = manifest.tables["posts"]!;
+		const table = manifestTable(manifest, "posts");
 		const { scalarData, relationWrites } = splitScalarsAndRelationWrites(
 			manifest,
 			"posts",
@@ -108,7 +109,7 @@ describe("relation-writes", () => {
 	});
 
 	it("hasPostRelationWrites is true for delete-only payload", () => {
-		const table = manifest.tables["posts"]!;
+		const table = manifestTable(manifest, "posts");
 		const { relationWrites } = splitScalarsAndRelationWrites(
 			manifest,
 			"posts",
@@ -123,7 +124,7 @@ describe("relation-writes", () => {
 
 	it("applyToOnePreWrites sets FK from connect", async () => {
 		const executor = createMockExecutor();
-		const table = manifest.tables["posts"]!;
+		const table = manifestTable(manifest, "posts");
 		const scalarData: Record<string, unknown> = { title: "T" };
 
 		await applyToOnePreWrites(
@@ -140,7 +141,7 @@ describe("relation-writes", () => {
 
 	it("applyToOnePreWrites rejects disconnect on non-nullable FK", async () => {
 		const executor = createMockExecutor();
-		const table = manifest.tables["posts"]!;
+		const table = manifestTable(manifest, "posts");
 		const scalarData: Record<string, unknown> = {};
 
 		await expect(

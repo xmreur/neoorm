@@ -9,6 +9,7 @@ import { postgresDialect } from "../src/dialect/postgres.js";
 import { compileOrderBy, compileWhere } from "../src/runtime/query/compile.js";
 import { sqlBuilder } from "../src/sql/builder.js";
 import { compile, sqlTag } from "../src/sql/template.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema, getManyToManyRegistry());
@@ -30,14 +31,14 @@ describe("schema", () => {
 
 	it("maps camelCase to snake_case columns", () => {
 		const manifest = blogManifest();
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 		const createdAt = users.columns.find((c) => c.tsName === "createdAt");
 		expect(createdAt?.sqlName).toBe("created_at");
 	});
 
 	it("includes FK relations", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const authorRel = posts.relations.find((r) => r.name === "author");
 		expect(authorRel?.targetAccessor).toBe("users");
 		expect(authorRel?.fkColumn).toBe("authorId");
@@ -53,7 +54,7 @@ describe("schema", () => {
 describe("query compilation", () => {
 	it("compiles equality where clause", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const { sql, params } = compileWhere(
 			manifest,
 			posts,
@@ -67,7 +68,7 @@ describe("query compilation", () => {
 
 	it("compiles contains operator", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const { sql, params } = compileWhere(
 			manifest,
 			posts,
@@ -80,7 +81,7 @@ describe("query compilation", () => {
 
 	it("compiles orderBy", () => {
 		const manifest = blogManifest();
-		const posts = manifest.tables["posts"]!;
+		const posts = manifestTable(manifest, "posts");
 		const orderSql = compileOrderBy(posts, { createdAt: "desc" });
 		expect(orderSql).toContain('"created_at" DESC');
 	});
@@ -110,7 +111,7 @@ describe("sql", () => {
 describe("dialect", () => {
 	it("emits create table SQL", () => {
 		const manifest = blogManifest();
-		const users = manifest.tables["users"]!;
+		const users = manifestTable(manifest, "users");
 		const sql = postgresDialect.emitCreateTable(users);
 		expect(sql).toContain('CREATE TABLE "users"');
 		expect(sql).toContain('"email" TEXT NOT NULL UNIQUE');

@@ -90,8 +90,16 @@ export function columnsEqual(
 	);
 }
 
-function fkColumns(table: ManifestTable): ManifestColumn[] {
-	return table.columns.filter((c) => c.kind === "fk" && c.fkTarget);
+function isFkColumn(
+	c: ManifestColumn,
+): c is ManifestColumn & { fkTarget: string } {
+	return c.kind === "fk" && c.fkTarget !== undefined;
+}
+
+function fkColumns(
+	table: ManifestTable,
+): Array<ManifestColumn & { fkTarget: string }> {
+	return table.columns.filter(isFkColumn);
 }
 
 function indexSqlName(table: ManifestTable, index: ManifestIndex): string {
@@ -177,7 +185,7 @@ function diffForeignKeys(
 	for (const [sqlName, nextCol] of nextFks) {
 		const prevCol = prevFks.get(sqlName);
 		if (!prevCol) {
-			const add: FkChange["add"] = { target: nextCol.fkTarget! };
+			const add: FkChange["add"] = { target: nextCol.fkTarget };
 			if (nextCol.onDelete !== undefined) {
 				add.onDelete = nextCol.onDelete;
 			}
@@ -193,7 +201,7 @@ function diffForeignKeys(
 			prevCol.onDelete !== nextCol.onDelete
 		) {
 			const add: NonNullable<FkChange["add"]> = {
-				target: nextCol.fkTarget!,
+				target: nextCol.fkTarget,
 			};
 			if (nextCol.onDelete !== undefined) {
 				add.onDelete = nextCol.onDelete;
@@ -287,10 +295,12 @@ function diffColumns(
 	nextTable: ManifestTable,
 	prevManifest?: Manifest,
 	nextManifest?: Manifest,
-): Pick<
-	TableDiff,
-	"addColumns" | "dropColumns" | "renameColumns" | "alterColumns"
-> {
+): {
+	addColumns: ManifestColumn[];
+	dropColumns: string[];
+	renameColumns: Array<{ from: string; to: string }>;
+	alterColumns: ColumnAlter[];
+} {
 	const prevByTs = new Map(prevTable.columns.map((c) => [c.tsName, c]));
 	const nextByTs = new Map(nextTable.columns.map((c) => [c.tsName, c]));
 	const prevBySql = new Map(prevTable.columns.map((c) => [c.sqlName, c]));
@@ -380,14 +390,15 @@ function diffTable(
 		prevManifest,
 		nextManifest,
 	);
+	const { addColumns, dropColumns, renameColumns, alterColumns } = columnDiff;
 	const { addIndexes, dropIndexes } = diffIndexes(prevTable, nextTable);
 	const fkChanges = diffForeignKeys(prevTable, nextTable);
 
 	const hasChanges =
-		columnDiff.addColumns!.length > 0 ||
-		columnDiff.dropColumns!.length > 0 ||
-		columnDiff.renameColumns!.length > 0 ||
-		columnDiff.alterColumns!.length > 0 ||
+		addColumns.length > 0 ||
+		dropColumns.length > 0 ||
+		renameColumns.length > 0 ||
+		alterColumns.length > 0 ||
 		addIndexes.length > 0 ||
 		dropIndexes.length > 0 ||
 		fkChanges.length > 0;
@@ -399,18 +410,10 @@ function diffTable(
 	return {
 		table: nextTable,
 		...(nextManifest ? { manifest: nextManifest } : {}),
-		...(columnDiff.addColumns!.length > 0
-			? { addColumns: columnDiff.addColumns }
-			: {}),
-		...(columnDiff.dropColumns!.length > 0
-			? { dropColumns: columnDiff.dropColumns }
-			: {}),
-		...(columnDiff.renameColumns!.length > 0
-			? { renameColumns: columnDiff.renameColumns }
-			: {}),
-		...(columnDiff.alterColumns!.length > 0
-			? { alterColumns: columnDiff.alterColumns }
-			: {}),
+		...(addColumns.length > 0 ? { addColumns } : {}),
+		...(dropColumns.length > 0 ? { dropColumns } : {}),
+		...(renameColumns.length > 0 ? { renameColumns } : {}),
+		...(alterColumns.length > 0 ? { alterColumns } : {}),
 		...(addIndexes.length > 0 ? { addIndexes } : {}),
 		...(dropIndexes.length > 0 ? { dropIndexes } : {}),
 		...(fkChanges.length > 0 ? { fkChanges } : {}),
@@ -818,7 +821,10 @@ export function explainNoMigrationSql(
 			change.kind === "alter_column_type_manual" ||
 			change.kind === "alter_enum_manual"
 		) {
-			reasons.push(formatDestructiveWarnings([change])[0]!);
+			const [warning] = formatDestructiveWarnings([change]);
+			if (warning) {
+				reasons.push(warning);
+			}
 		}
 	}
 

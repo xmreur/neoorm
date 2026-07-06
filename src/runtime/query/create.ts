@@ -56,7 +56,7 @@ export async function runCreate(
 		values,
 	);
 
-	const result = rowToTs(table, row!);
+	const result = rowToTs(table, row);
 	const recordId = rowScalarPkValue(result, table);
 
 	await executeRelationWrites(
