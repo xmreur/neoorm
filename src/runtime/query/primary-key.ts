@@ -127,7 +127,7 @@ export function resolveFkTargetSqlColumn(
 
 function generateTextId(tableAccessor: string): string {
 	const prefix = tableAccessor.replace(/s$/, "").slice(0, 4);
-	return `${prefix}_${randomUUID().slice(0, 8)}`;
+	return `${prefix}_${randomUUID()}`;
 }
 
 export function defaultPrimaryKeyValue(
