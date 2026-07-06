@@ -1,804 +1,136 @@
 # NeoOrm
+<p>
+  <strong>NeoOrm</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
+  Schema → codegen → typed client — you own the SQL, we handle the boilerplate.
 
-TypeScript-first PostgreSQL ORM with a schema DSL, compile-time types, codegen, and a typed query client.
+  PostgreSQL dialect ships today &mdash; MySQL, SQLite, and others are on the roadmap.
+</p>
 
-## Install
+<p>
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="docs/getting-started.md"><strong>Getting started</strong></a> ·
+  <a href="docs/cli.md"><strong>CLI reference</strong></a> ·
+  <a href="examples/blog/queries.example.ts"><strong>Example</strong></a>
+</p>
 
-```bash
+```
 npm install neoorm pg
 ```
 
-Requires Node.js 20+ and PostgreSQL.
+Requires **Node.js 20+** (PostgreSQL driver ships now; more databases coming).
+
+---
+
+## Why NeoOrm?
+
+**No `any`. No codegen runtime. No lock-in.**
+
+Most ORMs force you to learn their query language, fight their type system, or ship a heavy runtime. NeoOrm takes a different approach: you write a plain TypeScript schema, it generates a typed client, and you write real SQL — amplified by types, not abstracted away.
+
+- **Schema as code** — one source of truth for types and the database
+- **Generated client** — zero-cost abstractions, full autocomplete
+- **Relations done right** — nested reads, writes, and filters without N+1 footguns
+- **PostgreSQL powered** — arrays, JSONB, PostGIS, enums, full-text, extensions — no abstraction layer that gets in the way. MySQL, SQLite, and more are coming.
+- **Migrations built-in** — diff your schema, get SQL, deploy. Rollback supported.
+
+---
 
 ## Quick start
 
-**1. Scaffold a new project**
-
 ```bash
-npx neoorm init
+npx neoorm init               # scaffold schema, config, client
+npx neoorm migrate deploy      # create tables
 ```
-
-This creates `neoorm.config.ts`, `schema.ts`, `.env.example`, generates `neoorm/client.ts` (and related files), and writes the first migration under `neoorm/migrations/`.
-
-**2. Set your database URL**
-
-```bash
-cp .env.example .env
-# edit DATABASE_URL in .env
-```
-
-**3. Apply migrations**
-
-```bash
-npx neoorm migrate deploy
-```
-
-**4. Query**
 
 ```ts
 import { db } from "./neoorm/client.js";
 
-const user = await db.users.findById(userId, {
-  with: {
-    posts: { orderBy: { createdAt: "desc" }, limit: 10 },
-  },
-});
-```
-
-### Manual setup
-
-If you prefer to write files yourself instead of `neoorm init`:
-
-**Define a schema** (`schema.ts`):
-
-```ts
-import { defineSchema, table, uuid, text, timestamp, fk } from "neoorm/schema";
-
-export const schema = defineSchema({
-  users: table("users", {
-    id: uuid().primary(),
-    email: text().notNull().unique(),
-    createdAt: timestamp().notNull().defaultNow(),
-  }),
-
-  posts: table("posts", {
-    id: uuid().primary(),
-    authorId: fk("users.id", { as: "author", inverse: "posts", nullable: false }),
-    title: text().notNull(),
-  }),
-});
-```
-
-**2. Configure NeoOrm** (`neoorm.config.ts`):
-
-```ts
-import { defineConfig } from "neoorm";
-
-export default defineConfig({
-  schema: "./schema.ts",
-  out: "./neoorm",
-  datasource: {
-    provider: "postgresql",
-    url: process.env.DATABASE_URL!,
-    schema: "public", // optional; use "tenant_template", "app", etc.
-    enum: "check", // "check" (default) | "union" | "native"
-  },
-});
-```
-
-`datasource.schema` controls which PostgreSQL schema/namespace the CLI targets for migrations, `db push`, `db pull`, and reset. It defaults to `public`.
-
-For tenant-per-schema isolation at runtime, create a client with the tenant schema:
-
-```ts
-import { createNeoOrmClient } from "neoorm";
-import { manifest } from "./neoorm/manifest.js";
-
-const tenantDb = createNeoOrmClient(manifest, {
-  connectionString: process.env.DATABASE_URL!,
-  schema: "tenant_acme",
-});
-```
-
-NeoOrm qualifies generated ORM table references as `"tenant_acme"."users"`. Raw `db.sql` and `db.execute` calls are not rewritten, so qualify raw SQL yourself. Treat schema names as trusted tenant metadata, not raw request input.
-
-**3. Generate the client**
-
-```bash
-npx neoorm generate
-```
-
-This writes `client.ts`, `manifest.ts`, `models.ts`, `includes.ts`, and migration SQL when the schema changed.
-
-## Schema DSL
-
-### Tables and accessors
-
-`defineSchema` keys are TypeScript accessors (`users`, `posts`). The first argument to `table()` is the SQL table name:
-
-```ts
-users: table("user", { ... }) // db.users → SQL table "user"
-```
-
-Column field names use camelCase in TypeScript. By default, SQL column names are snake_case (`createdAt` → `created_at`). You can change that globally or per table with `columnNaming`.
-
-### Column types
-
-| Builder | SQL type | TypeScript | Notes |
-|---------|----------|------------|-------|
-| `id.primary()` | `TEXT` | `string` | App-generated string IDs (e.g. `user_a1b2c3d4`) |
-| `uuid()` | `UUID` | `string` | Defaults to UUID v7; pass `{ version: 4 }` for v4 |
-| `uuid().primary()` | `UUID` | `string` | Primary key; auto-generated on create if omitted |
-| `serial()` | `INTEGER GENERATED BY DEFAULT AS IDENTITY` | `number` | Auto-increment; omit on insert, DB assigns via `RETURNING` |
-| `serial().primary()` | same | `number` | Integer PK with DB-generated values |
-| `text()` | `TEXT` | `string \| null` | |
-| `bool()` | `BOOLEAN` | `boolean \| null` | |
-| `int()` | `INTEGER` | `number \| null` | |
-| `timestamp()` | `TIMESTAMPTZ` | `Date \| null` | Use `.defaultNow()` for `DEFAULT NOW()`; use `.updatedAt()` for auto-update on ORM writes |
-
-Pair audit timestamps on mutable tables:
-
-```ts
-createdAt: timestamp().notNull().defaultNow(),
-updatedAt: timestamp().notNull().defaultNow().updatedAt(),
-```
-
-`.updatedAt()` is ORM metadata only (no DB trigger). `update`, `updateById`, `updateMany`, and `upsert` always set the column to `NOW()` in SQL; user-provided values in `data` are ignored.
-| `json()` | `JSON` | `unknown \| null` | Generic: `json<MyType>()` |
-| `jsonb()` | `JSONB` | `unknown \| null` | Generic: `jsonb<MyType>()` |
-| `decimal()` / `numeric()` | `NUMERIC` or `NUMERIC(p,s)` | `string \| null` | Use strings to avoid float precision loss |
-| `enumType(["a", "b"])` | mode-dependent | union literals | See [Enum columns](#enum-columns) |
-| `bytea()` | `BYTEA` | `Buffer \| null` | Binary data |
-| `textArray()` | `TEXT[]` | `string[] \| null` | |
-| `intArray()` | `INTEGER[]` | `number[] \| null` | |
-| `citext()` | `CITEXT` | `string \| null` | Case-insensitive text; requires `citext` extension |
-
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.updatedAt()` (timestamp only), `.primary()`, and `.map(name)`.
-
-Foreign keys use `fk("target_table.target_column", { as, inverse, nullable?, onDelete? })`.
-
-### Enum columns
-
-Define allowed values in the schema:
-
-```ts
-import { enumType, table } from "neoorm/schema";
-
-posts: table("posts", {
-  status: enumType(["draft", "published", "archived"] as const)
-    .notNull()
-    .default("draft"),
-})
-```
-
-Control how enums are stored via `datasource.enum` in `neoorm.config.ts`:
-
-| Mode | SQL | DB enforcement |
-|------|-----|----------------|
-| `check` (default) | `TEXT` + `CHECK (...)` | yes |
-| `union` | `TEXT` | no (TypeScript union only) |
-| `native` | Postgres `CREATE TYPE ... AS ENUM` | yes |
-
-```ts
-export default defineConfig({
-  schema: "./schema.ts",
-  out: "./neoorm",
-  datasource: {
-    provider: "postgresql",
-    url: process.env.DATABASE_URL!,
-    enum: "check", // or "union" | "native"
-  },
-});
-```
-
-Optional custom SQL type name for native mode: `enumType(["draft", "published"], { name: "post_status" })`.
-
-Query and mutate enum columns like strings with compile-time union checking:
-
-```ts
-await db.posts.findMany({ where: { status: "published" } });
-await db.posts.create({ data: { title: "Hello", status: "draft" } });
-```
-
-### JSON and decimal columns
-
-```ts
-posts: table("posts", {
-  metadata: jsonb<{ tags: string[]; featured?: boolean }>(),
-  price: decimal({ precision: 10, scale: 2 }).default("0.00"),
-})
-```
-
-```ts
-// jsonb — exact equality on the full object (all keys must match)
-await db.posts.findMany({
-  where: { metadata: { featured: true, category: "engineering" } },
-});
-
-// jsonb — partial / subset match (@> containment)
-await db.posts.findMany({
-  where: { metadata: { jsonContains: { featured: true } } },
-});
-
-// jsonb — key existence and path filters
-await db.posts.findMany({
-  where: {
-    metadata: {
-      hasKey: "featured",
-      hasAnyKeys: ["category", "tags"],
-      path: { segments: ["category"], equals: "engineering" },
-    },
-  },
-});
-
-// decimal — compare as strings
-await db.posts.findMany({
-  where: { price: { gte: "9.99", lte: "49.99" } },
-});
-
-await db.posts.create({
+// Create with nested relation write
+const user = await db.users.create({
   data: {
-    title: "Premium",
-    price: "19.99",
-    metadata: { featured: true, tags: ["orm"] },
-  },
-});
-```
-
-### Serial primary keys
-
-```ts
-items: table("items", {
-  id: serial().primary(),
-  name: text().notNull(),
-})
-```
-
-Omit `id` on insert — the database assigns it and `RETURNING` populates the result:
-
-```ts
-const item = await db.items.create({ data: { name: "Widget" } });
-// item.id is the DB-generated integer
-
-// Bulk insert with returned rows (serial IDs, UUIDs, defaults materialized)
-const items = await db.items.createManyAndReturn({
-  data: [{ name: "A" }, { name: "B" }],
-});
-```
-
-### UUID columns
-
-```ts
-import { uuid, table } from "neoorm/schema";
-
-posts: table("posts", {
-  id: uuid().primary(),              // UUID v7 (default)
-  legacyId: uuid({ version: 4 }),     // UUID v4
-})
-```
-
-When you call `create` without an `id`, NeoOrm generates a UUID using the configured version.
-
-### Custom SQL column names (`.map()`)
-
-Use `.map()` when the database column name differs from the default snake_case conversion:
-
-```ts
-emailAddress: text().notNull().map("email"),
-authorId: fk("users.id", { as: "author", inverse: "posts" }).map("author_ref"),
-```
-
-`.map()` only produces a migration when the SQL name actually changes. Mapping to the active naming strategy's default name (e.g. `.map("email_verified")` on `emailVerified` in a snake_case table) is a no-op — `neoorm generate` warns about this.
-
-### Column naming strategy
-
-Use `columnNaming` when an entire schema or table follows camelCase SQL column names instead of the default snake_case:
-
-```ts
-export const schema = defineSchema(
-  {
-    users: table("users", {
-      emailAddress: text().notNull(), // SQL: email_address
-    }),
-
-    legacyUsers: table(
-      "legacy_users",
-      {
-        emailAddress: text().notNull(), // SQL: emailAddress
-      },
-      { columnNaming: "camelCase" },
-    ),
-  },
-  { columnNaming: "snakeCase" },
-);
-```
-
-Per-table options can also include `extras`:
-
-```ts
-posts: table(
-  "posts",
-  { authorId: fk("users.id", { as: "author", inverse: "posts" }) },
-  {
-    columnNaming: "camelCase",
-    extras: (t) => ({ authorIdx: index().on(t.authorId) }),
-  },
-)
-```
-
-`columnNaming` affects SQL column names only. TypeScript keys stay exactly as written in the schema, and `.map("exact_name")` still overrides the strategy for individual columns.
-
-### PostgreSQL extensions
-
-Declare PostgreSQL extensions that migrations should create with `CREATE EXTENSION IF NOT EXISTS`. This is useful for extensions that are not tied to a registered column type plugin, or when you want to ensure an extension is created even if no plugin column is currently used.
-
-```ts
-export const schema = defineSchema(
-  {
-    users: table("users", {
-      id: uuid().primary(),
-      search: text().notNull(),
-    }),
-  },
-  {
-    extensions: ["uuid-ossp", "pg_trgm"],
-  },
-);
-```
-
-Column type plugins (for example PostGIS or `citext`) still register their required extensions automatically, so you only need to list extensions here that are not covered by a plugin. Hyphenated names are quoted automatically in the generated SQL.
-
-### Indexes and composite keys
-
-```ts
-posts: table(
-  "posts",
-  { /* columns */ },
-  (t) => ({
-    authorIdx: index().on(t.authorId),
-    slugUnique: unique(t.slug),
-    pk: primaryKey(t.orgId, t.localId),
-  }),
-)
-```
-
-### Many-to-many
-
-Define the junction table, then register the relation after `defineSchema`:
-
-```ts
-export const schema = defineSchema({
-  posts: table("posts", { /* ... */ }),
-  tags: table("tags", { /* ... */ }),
-  postTags: table("post_tags", {
-    postId: fk("posts.id", { as: "post", inverse: "postTags", nullable: false }),
-    tagId: fk("tags.id", { as: "tag", inverse: "postTags", nullable: false }),
-  }, (t) => ({
-    pk: primaryKey(t.postId, t.tagId),
-  })),
-});
-
-manyToMany(schema.posts, schema.tags, {
-  through: schema.postTags,
-  left: "post",
-  right: "tag",
-  as: "tags",
-  inverse: "posts",
-});
-```
-
-## Relation writes
-
-`create` and `update` accept nested relation writes alongside scalar fields. Relation-only updates are supported (no scalar `SET` required).
-
-| Relation kind | Operations |
-|---------------|------------|
-| **To-one** (outgoing FK) | `connect`, `create`, `disconnect` (nullable FK only) |
-| **One-to-many** (inverse) | `create`, `connect`, `disconnect`, `set`, `delete` |
-| **Many-to-many** | `connect`, `connectOrCreate`, `disconnect`, `set`, `delete` |
-
-```ts
-// To-one on update
-await db.posts.update({
-  where: { id: postId },
-  data: { author: { connect: { id: userId } } },
-});
-
-// Nested create on one-to-many (full nested relation writes inside create items)
-await db.posts.update({
-  where: { id: postId },
-  data: {
-    comments: {
-      create: [{ body: "Hi", author: { connect: { id: userId } } }],
-      connect: [{ id: commentId }],
-      disconnect: [{ id: oldCommentId }], // or `true` to unlink all
-      set: [{ id: commentId }],           // replace all links
-      delete: [{ id: commentId }],        // or `true` to delete all linked children
-    },
+    email: "alice@example.com",
+    profile: { create: { name: "Alice" } },
   },
 });
 
-// M2M on create or update
-await db.posts.update({
-  where: { id: postId },
-  data: {
-    tags: {
-      connect: [{ id: tagId }],
-      set: [{ id: tagId }],
-      connectOrCreate: [
-        { where: { slug: "orm" }, create: { slug: "orm", name: "ORM" } },
-      ],
-      delete: [{ id: tagId }], // removes junction links, then deletes tag rows
-    },
-  },
-});
-
-// updateMany applies scalar SET once, then nested writes per matched parent
-await db.posts.updateMany({
-  where: { published: true },
-  data: {
-    status: "archived",
-    tags: { connect: [{ id: tagId }] },
-  },
+// Fetch with typed includes, pagination, and filters
+const posts = await db.posts.findMany({
+  where: { published: true, tags: { some: { slug: "typescript" } } },
+  orderBy: { createdAt: "desc" },
+  take: 20,
+  with: { author: true, _count: { comments: true } },
 });
 ```
 
-Within a single relation field, operations run in order: `delete` → `disconnect` → `set` → `connect` / `connectOrCreate` → `create`. Mixing `set` with `connect` or `create` is discouraged — `set` replaces the full link set.
-
-## Cursor pagination
-
-For feeds, infinite scroll, and large tables, use `paginate` instead of `limit`/`offset`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker (for example `(createdAt, id)`).
-
-```ts
-let cursor: { createdAt: string; id: string } | null = null;
-
-for (;;) {
-  const page = await db.posts.paginate({
-    where: { published: true },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    ...(cursor ? { after: cursor } : {}),
-    with: { author: true },
-  });
-
-  for (const post of page.items) {
-    // render post
-  }
-
-  if (!page.hasMore) break;
-  cursor = page.nextCursor;
-}
-```
-
-- `orderBy` is required; scalar `id` is appended automatically when omitted.
-- `take` is the page size; `hasMore` uses a `take + 1` probe row.
-- `after` is a typed cursor object (`nextCursor` from the previous page).
-- For HTTP APIs, encode cursors with `encodeCursor` / `decodeCursor` from `neoorm`.
-
-On feed tables, add a composite index on the sort columns (for example `index().on(t.createdAt, t.id)`).
-
-## Aggregates
-
-### Relation counts in `with`
-
-Load counts without fetching full related rows:
-
-```ts
-const users = await db.users.findMany({
-  with: {
-    _count: { posts: true },
-    profile: true,
-  },
-});
-// users[0]._count.posts === number
-```
-
-Optional per-relation filter: `_count: { posts: { where: { published: true } } }`.
-
-### Table-level `aggregate()`
-
-```ts
-const stats = await db.posts.aggregate({
-  where: { published: true },
-  _count: true,
-  _avg: { views: true },
-});
-// { _count: number, _avg: { views: number | null } }
-```
-
-For grouped dashboards, use `db.sql` or the `sqlBuilder` helper.
-
-## Bulk insert
-
-`createMany` returns the number of rows inserted. Use `createManyAndReturn` when you need serial IDs, generated UUIDs, or default values in the result:
-
-```ts
-const users = await db.users.createManyAndReturn({
-  data: [
-    { email: "a@example.com", name: "A" },
-    { email: "b@example.com", name: "B" },
-  ],
-});
-```
-
-Scalar fields only — no nested relation writes (same as `createMany`).
-
-## Where clauses
-
-`findMany`, `findFirst`, `findUnique`, `count`, `update`, `updateMany`, `delete`, and `deleteMany` all accept a typed `where` argument.
-
-### Column filters
-
-Equality shorthand and explicit operators:
-
-```ts
-// equality
-await db.posts.findMany({ where: { published: true } });
-
-// operators
-await db.posts.findFirst({
-  where: {
-    title: { contains: "ORM" },
-    views: { gte: 100 },
-    id: { in: ["post_1", "post_2"] },
-  },
-});
-```
-
-String columns support `equals`, `contains`, `startsWith`, `endsWith`, `in`, and `notIn`. Numeric, boolean, and date columns support `equals`, `gt`, `gte`, `lt`, `lte`, `in`, and `notIn`. JSON columns support `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, and `path`. All nullable columns also support `isNull` and `isNotNull`.
-
-### `distinct`
-
-PostgreSQL `DISTINCT ON` — `orderBy` must lead with the same columns:
-
-```ts
-await db.users.findMany({
-  distinct: ["email"],
-  orderBy: { email: "asc" },
-});
-```
-
-### Selective `with` return types
-
-Relation `select` narrows the TypeScript return type at compile time:
-
-```ts
-const users = await db.users.findMany({
-  with: { posts: { select: { title: true } } },
-});
-// users[0].posts[0].title is string; .body is excluded from the type
-```
-
-```ts
-await db.users.findMany({
-  where: {
-    name: null,                    // shorthand for IS NULL
-    email: { isNotNull: true },
-    id: { notIn: ["user_1", "user_2"] },
-  },
-});
-```
-
-### Logical combinators
-
-Top-level `AND`, `OR`, and `NOT` keys combine conditions. Multiple sibling keys still imply `AND`:
-
-```ts
-await db.users.findMany({
-  where: {
-    OR: [
-      { email: { contains: "@example.com" } },
-      { email: { contains: "@test.com" } },
-    ],
-    NOT: { name: { isNull: true } },
-    createdAt: { gte: new Date("2025-01-01") },
-  },
-});
-```
-
-### Relation filters
-
-Relation names come from `fk(..., { as: "author", inverse: "posts" })` and `manyToMany(..., { as: "tags" })` — they are not the FK column names on the table.
-
-| Pattern | Use for |
-|---------|---------|
-| `authorId: "user_1"` | Filter by FK column value |
-| `author: { email: "a@b.c" }` | Filter by related record (to-one) |
-| `posts: { some: { ... } }` | At least one related record matches (to-many) |
-| `posts: { every: { ... } }` | All related records match (to-many) |
-| `posts: { none: { ... } }` | No related records match (to-many) |
-
-```ts
-// users who have at least one published post
-await db.users.findMany({
-  where: {
-    posts: { some: { published: true } },
-  },
-});
-
-// posts whose author has a verified email
-await db.posts.findMany({
-  where: {
-    author: { email: { contains: "@" } },
-  },
-});
-
-// posts tagged "orm" (many-to-many via junction table)
-await db.posts.findMany({
-  where: {
-    tags: { some: { slug: "orm" } },
-  },
-});
-```
-
-Relation filters compile to SQL `EXISTS` subqueries, so they work with `findMany`, `count`, `updateMany`, and `deleteMany` without duplicate rows.
-
-## Transactions
-
-```ts
-// Interactive callback
-await db.$transaction(async (tx) => {
-  const user = await tx.users.create({ data: { email: "a@b.com" } });
-  await tx.posts.create({
-    data: {
-      title: "Hello",
-      authorId: user.id,
-    },
-  });
-});
-
-// Batch steps (sequential, one transaction)
-const [user, post] = await db.$transaction([
-  (tx) => tx.users.create({ data: { email: "a@b.com" } }),
-  (tx) => tx.posts.create({ data: { title: "Hello" } }),
-]);
-
-// Options (outermost transaction only)
-await db.$transaction(fn, {
-  isolationLevel: "Serializable", // ReadUncommitted | ReadCommitted | RepeatableRead | Serializable
-  readOnly: true,
-});
-
-// Nested $transaction uses PostgreSQL savepoints on the same connection.
-// A nested failure rolls back only that block; the outer transaction can continue.
-await db.$transaction(async (tx) => {
-  await tx.users.create({ data: { email: "outer@example.com" } });
-
-  await tx.$transaction(async (nested) => {
-    await nested.posts.create({
-      data: { title: "Nested", body: "...", authorId: "user_1" },
-    });
-  }).catch(() => undefined);
-
-  // Outer writes are kept even if the nested block failed.
-});
-```
-
-Nested `create` calls inside a transaction do not start a separate transaction. Nested `$transaction` calls use savepoints; `readOnly` and `isolationLevel` apply only to the outermost `BEGIN`.
-
-## CLI
-
-| Command | Description |
-|---------|-------------|
-| `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example`, generate client, and first migration |
-| `neoorm generate` | Emit manifest, typed client, models, includes, and migrations |
-| `neoorm migrate dev` | Apply pending migrations, then generate a new one if the schema changed |
-| `neoorm migrate deploy` | Apply pending migrations |
-| `neoorm migrate status` | List applied vs pending migrations |
-| `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
-| `neoorm migrate reset --force` | Drop public schema and re-apply migrations (local dev) |
-| `neoorm db push` | Push the current snapshot schema to the database |
-| `neoorm db pull` | Introspect the database into a schema file |
-
-### Generate outcomes
-
-`neoorm generate` always refreshes generated TypeScript files (`client.ts`, `manifest.ts`, `models.ts`, etc.). It prints one of four outcomes:
-
-| Outcome | Meaning |
-|---------|---------|
-| **Schema unchanged** | Snapshot hash matches — no manifest or migration changes |
-| **Client regenerated** | Manifest changed but no database DDL was needed (e.g. `enumMode`, relation metadata) |
-| **Migration created** | New `migrations/<timestamp>/migration.sql` written |
-| **Migration blocked** | Destructive or manual changes prevented writing SQL |
-
-When migration is blocked or skipped, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL, or write a manual migration for unsupported type changes.
-
-```bash
-neoorm generate --accept-data-loss
-```
-
-### Migration status and reset
-
-```bash
-neoorm migrate status
-```
-
-Shows applied migrations (with timestamps), pending folders on disk, and warnings for drift (applied in DB but missing on disk).
-
-```bash
-neoorm migrate reset --force
-```
-
-Drops the `public` schema and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop the schema without re-applying.
-
-### Rolling back migrations
-
-```bash
-neoorm migrate down
-neoorm migrate down --steps 2
-```
-
-Rolls back the most recently applied migration(s) by running each migration folder's `down.sql`, removing the ledger entry from `_neoorm_migrations`, and restoring `snapshot.json` from `snapshot.before.json` (the manifest state before that migration was applied).
-
-`down.sql` and `snapshot.before.json` are written automatically when `neoorm generate` or `neoorm migrate dev` creates a migration. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration.
-
-Legacy migrations without `down.sql` cannot be rolled back — re-generate the migration or add `down.sql` manually.
-
-Migration folders are not deleted on rollback (same as Prisma). Re-run `neoorm migrate deploy` to re-apply rolled-back migrations.
-
-After rollback, `schema.ts` may still describe a newer schema than the restored snapshot; `neoorm migrate dev` may generate a new forward migration. `db push` and `migrate down` are independent — push ignores the migration ledger.
-
-For a full wipe during local development, use `neoorm migrate reset --force` instead.
-
-`generate` creates migration SQL only when the schema diff produces DDL changes (new tables/columns, column renames via `.map()`, etc.).
-
-## Plugins
-
-### PostGIS
-
-```ts
-import "neoorm/plugins/postgis";
-import { geometry, point } from "neoorm/plugins/postgis";
-
-places: table("places", {
-  id: uuid().primary(),
-  location: geometry({ subtype: "Point", srid: 4326 }).notNull(),
-  boundary: point({ srid: 4326 }),
-})
-```
-
-Spatial `where` operators: `intersects`, `within`, `dWithin`.
-
-```ts
-await db.places.findMany({
-  where: {
-    location: {
-      dWithin: {
-        geometry: { type: "Point", coordinates: [-122.4, 37.8] },
-        distance: 1000,
-      },
-    },
-  },
-});
-```
-
-PostGIS columns are stored as geometry/geography in PostgreSQL and exposed as GeoJSON in TypeScript.
-
-### Citext
-
-`citext()` is registered as a separate plugin that enables the `citext` extension when used in a schema:
-
-```ts
-import { citext, table } from "neoorm/schema";
-
-users: table("users", {
-  email: citext().notNull().unique(),
-})
-```
-
-## Examples
-
-The [blog example](examples/blog/schema.ts) demonstrates relations, many-to-many, `jsonb`, `decimal`, and `enumType` columns. See [queries.example.ts](examples/blog/queries.example.ts) for typed queries and mutations using those types.
+---
+
+## Features
+
+<table>
+  <tr>
+    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Tables, columns, foreign keys, indexes, enums, composite keys, many-to-many — all in TypeScript with full type inference.</td>
+    <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL.</td>
+  </tr>
+  <tr>
+    <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`. Where operators for strings, numbers, dates, JSONB, arrays, and nulls. `AND/OR/NOT` combinators.</td>
+    <td><strong>📄 Cursor pagination</strong><br/>Keyset-based `paginate` for feeds and infinite scroll. Type-safe cursors, `hasMore` probe, and `encodeCursor`/`decodeCursor` for HTTP APIs.</td>
+  </tr>
+  <tr>
+    <td><strong>🔗 Relation writes</strong><br/>Nested `connect`, `create`, `disconnect`, `set`, `delete` on to-one, one-to-many, and many-to-many — all in a single query.</td>
+    <td><strong>🔁 Transactions</strong><br/>Interactive callbacks, batch steps, savepoints for nested transactions, isolation levels, read-only mode.</td>
+  </tr>
+  <tr>
+    <td><strong>🧱 Migrations</strong><br/>Schema diff generates DDL automatically. `deploy`, `dev`, `status`, `reset`, and `down` (rollback). Destructive change detection with `--accept-data-loss` opt-in.</td>
+    <td><strong>🔌 Plugin system</strong><br/>Column type plugins for PostGIS (geometry, geography, spatial operators), citext, and custom extensions.</td>
+  </tr>
+  <tr>
+    <td><strong>🐘 PostgreSQL powered</strong><br/>JSONB, arrays (`TEXT[]`, `INTEGER[]`), `NUMERIC`, `BYTEA`, native enums, UUID v4/v7, serial identity, `CITEXT`, extensions. More databases on the roadmap.</td>
+    <td><strong>🎯 TypeScript end-to-end</strong><br/>Strict types from schema to query results. Discriminated payload types for `with` includes. Compile-time union checking on enums.</td>
+  </tr>
+</table>
+
+---
+
+## Documentation
+
+| Topic | |
+|-------|-|
+| [Getting started](docs/getting-started.md) | Setup, manual config, env vars, tenant schemas |
+| [Schema DSL](docs/schema.md) | Tables, columns, types, enums, indexes, many-to-many, naming strategy |
+| [Queries](docs/queries.md) | CRUD, where clauses, pagination, aggregates, distinct |
+| [Relation writes](docs/relations.md) | Nested connect/create/disconnect/set/delete |
+| [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |
+| [Migrations](docs/migrations.md) | Deploy, dev, status, rollback, reset |
+| [CLI reference](docs/cli.md) | All commands and flags |
+| [Configuration](docs/configuration.md) | Config file options reference |
+| [Plugins](docs/plugins.md) | PostGIS, citext, custom plugins |
+
+See the [blog example](examples/blog/schema.ts) for a complete schema, and [queries.example.ts](examples/blog/queries.example.ts) for typed queries and mutations.
+
+---
 
 ## API surface
 
 | Import | Purpose |
 |--------|---------|
-| `neoorm` | Config helpers, `createNeoOrmClient`, client types |
-| `neoorm/schema` | Schema DSL (`defineSchema`, `table`, column builders, `fk`, `manyToMany`) |
-| `neoorm/sql` | Tagged SQL templates and query builder |
-| `neoorm/plugins` | Plugin registry |
-| `neoorm/plugins/postgis` | PostGIS column types and spatial operators |
+| `neoorm` | `defineConfig`, `createNeoOrmClient`, `createNeoOrmClientFromPool`, client types |
+| `neoorm/schema` | Schema DSL (`defineSchema`, `table`, column builders, `fk`, `manyToMany`, `index`, `unique`, `primaryKey`) |
+| `neoorm/sql` | Tagged SQL templates (`sql`), SQL fragment builder, fluent query builder |
+| `neoorm/plugins` | Plugin registry, `NeoOrmPlugin`, `ColumnTypePlugin` |
+| `neoorm/plugins/postgis` | PostGIS column types (`geometry`, `geography`, `point`) and spatial operators |
+
+---
+
+## Philosophy
+
+NeoOrm was built because existing TypeScript ORMs either sacrificed type safety for flexibility, or sacrificed flexibility for type safety. We think you shouldn't have to choose.
+
+- **Schema is the source of truth** — not decorators, not reflection, not a proprietary DSL. Your schema file is plain TypeScript.
+- **Generated code is a compile-time artifact** — no runtime dependency on the schema. Swap the schema, regenerate, everything still compiles.
+- **SQL is not hidden** — the client compiles to parameterized SQL that you can inspect. No magic, no surprises.
+- **PostgreSQL first** — we ship with a Postgres dialect and lean into its features. MySQL, SQLite, and other dialects are on the roadmap and will slot into the same architecture.
+
+---
 
 ## License
 
