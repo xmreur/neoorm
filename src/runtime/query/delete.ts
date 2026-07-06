@@ -101,7 +101,7 @@ export async function deleteById(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { tsName } = requireScalarPrimaryKey(table);
+	const { tsName } = requireScalarPrimaryKey(table, "deleteById");
 	return deleteRecord(executor, runtime, tableAccessor, {
 		where: { [tsName]: id },
 	});

@@ -27,16 +27,49 @@ export function primaryKeySqlName(table: ManifestTable, index = 0): string {
 	return sqlName;
 }
 
-export function requireScalarPrimaryKey(table: ManifestTable): {
+export type ScalarPrimaryKeyOperation =
+	| "findById"
+	| "updateById"
+	| "deleteById";
+
+function compositePkAlternative(operation: ScalarPrimaryKeyOperation): string {
+	switch (operation) {
+		case "findById":
+			return "findFirst({ where: ... })";
+		case "updateById":
+			return "update({ where: ..., data: ... })";
+		case "deleteById":
+			return "delete({ where: ... })";
+		default: {
+			const _exhaustive: never = operation;
+			return _exhaustive;
+		}
+	}
+}
+
+export function requireScalarPrimaryKey(
+	table: ManifestTable,
+	operation?: ScalarPrimaryKeyOperation,
+): {
 	tsName: string;
 	sqlName: string;
 } {
 	if (table.primaryKey.length !== 1) {
+		if (operation) {
+			throw new Error(
+				`${operation} requires a single-column primary key on table "${table.accessor}". For composite primary keys, use ${compositePkAlternative(operation)} instead.`,
+			);
+		}
 		throw new Error(
 			`Operation requires a single-column primary key on table "${table.accessor}"`,
 		);
 	}
-	const sqlName = table.primaryKey[0]!;
+	const sqlName = table.primaryKey[0];
+	if (!sqlName) {
+		throw new Error(
+			`Primary key column not found for table "${table.accessor}"`,
+		);
+	}
 	const col = table.columns.find((c) => c.sqlName === sqlName);
 	if (!col) {
 		throw new Error(

@@ -603,7 +603,7 @@ export async function findById(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { tsName } = requireScalarPrimaryKey(table);
+	const { tsName } = requireScalarPrimaryKey(table, "findById");
 
 	const findArgs: Parameters<typeof findMany>[3] = {
 		where: { [tsName]: id },
