@@ -1,116 +1,135 @@
-import { describe, it, expect, vi } from "vitest";
 import type { Pool } from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import {
-  applySchemaToManifest,
-  postgresDialect,
-  validatePgSchemaName,
+	applySchemaToManifest,
+	postgresDialect,
+	validatePgSchemaName,
 } from "../src/dialect/postgres.js";
-import { compileWhere, buildFindManyQuery } from "../src/runtime/query/compile.js";
-import { loadRelations } from "../src/runtime/query/find.js";
-import { buildInsertQuery } from "../src/runtime/query/compile.js";
 import { queryColumns, queryTables } from "../src/introspect/queries.js";
-import { ensureMigrationsTable, resetDatabaseSchema } from "../src/migrate/runner.js";
+import {
+	ensureMigrationsTable,
+	resetDatabaseSchema,
+} from "../src/migrate/runner.js";
+import {
+	buildFindManyQuery,
+	buildInsertQuery,
+	compileWhere,
+} from "../src/runtime/query/compile.js";
+import { loadRelations } from "../src/runtime/query/find.js";
 
 function mockPool(
-  rows: Record<string, unknown>[] = [],
+	rows: Record<string, unknown>[] = [],
 ): Pool & { queries: Array<{ sql: string; params: unknown[] }> } {
-  const queries: Array<{ sql: string; params: unknown[] }> = [];
-  return {
-    queries,
-    query: vi.fn(async (sql: string, params?: unknown[]) => {
-      queries.push({ sql, params: params ?? [] });
-      return { rows };
-    }),
-  } as unknown as Pool & { queries: Array<{ sql: string; params: unknown[] }> };
+	const queries: Array<{ sql: string; params: unknown[] }> = [];
+	return {
+		queries,
+		query: vi.fn(async (sql: string, params?: unknown[]) => {
+			queries.push({ sql, params: params ?? [] });
+			return { rows };
+		}),
+	} as unknown as Pool & {
+		queries: Array<{ sql: string; params: unknown[] }>;
+	};
 }
 
 describe("postgres schema namespaces", () => {
-  const baseManifest = schemaToManifest(schema);
-  const manifest = applySchemaToManifest(baseManifest, "tenant_a");
+	const baseManifest = schemaToManifest(schema);
+	const manifest = applySchemaToManifest(baseManifest, "tenant_a");
 
-  it("validates schema names before using them in SQL", () => {
-    expect(validatePgSchemaName("tenant_123")).toBe("tenant_123");
-    expect(() => validatePgSchemaName("tenant-123")).toThrow(/Invalid PostgreSQL schema name/);
-  });
+	it("validates schema names before using them in SQL", () => {
+		expect(validatePgSchemaName("tenant_123")).toBe("tenant_123");
+		expect(() => validatePgSchemaName("tenant-123")).toThrow(
+			/Invalid PostgreSQL schema name/,
+		);
+	});
 
-  it("qualifies runtime find and insert table references", () => {
-    const users = manifest.tables["users"]!;
-    const posts = manifest.tables["posts"]!;
+	it("qualifies runtime find and insert table references", () => {
+		const users = manifest.tables["users"]!;
+		const posts = manifest.tables["posts"]!;
 
-    const findSql = buildFindManyQuery(users, "", "");
-    const insertSql = buildInsertQuery(posts, ["id", "title"]);
+		const findSql = buildFindManyQuery(users, "", "");
+		const insertSql = buildInsertQuery(posts, ["id", "title"]);
 
-    expect(findSql).toContain('FROM "tenant_a"."users"');
-    expect(insertSql).toContain('INSERT INTO "tenant_a"."posts"');
-  });
+		expect(findSql).toContain('FROM "tenant_a"."users"');
+		expect(insertSql).toContain('INSERT INTO "tenant_a"."posts"');
+	});
 
-  it("qualifies relation filter subqueries", () => {
-    const users = manifest.tables["users"]!;
-    const { sql } = compileWhere(
-      manifest,
-      users,
-      { posts: { some: { published: true } } },
-      postgresDialect,
-    );
+	it("qualifies relation filter subqueries", () => {
+		const users = manifest.tables["users"]!;
+		const { sql } = compileWhere(
+			manifest,
+			users,
+			{ posts: { some: { published: true } } },
+			postgresDialect,
+		);
 
-    expect(sql).toContain('FROM "tenant_a"."posts" AS "_rel"');
-    expect(sql).toContain('"_rel"."author_id" = "tenant_a"."users"."id"');
-  });
+		expect(sql).toContain('FROM "tenant_a"."posts" AS "_rel"');
+		expect(sql).toContain('"_rel"."author_id" = "tenant_a"."users"."id"');
+	});
 
-  it("qualifies eager loading table references", async () => {
-    const posts = manifest.tables["posts"]!;
-    const executor = {
-      query: vi.fn(async () => []),
-      queryOne: vi.fn(async () => null),
-      transaction: vi.fn(async (fn) => fn(executor)),
-    };
+	it("qualifies eager loading table references", async () => {
+		const posts = manifest.tables["posts"]!;
+		const executor = {
+			query: vi.fn(async () => []),
+			queryOne: vi.fn(async () => null),
+			transaction: vi.fn(async (fn) => fn(executor)),
+		};
 
-    await loadRelations(
-      executor,
-      { manifest },
-      posts,
-      [{ id: "post_1", authorId: "user_1" }],
-      { author: true },
-    );
+		await loadRelations(
+			executor,
+			{ manifest },
+			posts,
+			[{ id: "post_1", authorId: "user_1" }],
+			{ author: true },
+		);
 
-    expect(executor.query).toHaveBeenCalledWith(
-      expect.stringContaining('FROM "tenant_a"."users"'),
-      ["user_1"],
-    );
-  });
+		expect(executor.query).toHaveBeenCalledWith(
+			expect.stringContaining('FROM "tenant_a"."users"'),
+			["user_1"],
+		);
+	});
 
-  it("qualifies DDL table, FK, and index references", () => {
-    const posts = manifest.tables["posts"]!;
+	it("qualifies DDL table, FK, and index references", () => {
+		const posts = manifest.tables["posts"]!;
 
-    const createSql = postgresDialect.emitCreateTable(posts);
-    const indexSql = postgresDialect.emitCreateIndex(posts, posts.indexes[0]!);
+		const createSql = postgresDialect.emitCreateTable(posts);
+		const indexSql = postgresDialect.emitCreateIndex(
+			posts,
+			posts.indexes[0]!,
+		);
 
-    expect(createSql).toContain('CREATE TABLE "tenant_a"."posts"');
-    expect(createSql).toContain('REFERENCES "tenant_a"."users"("id")');
-    expect(indexSql).toContain('ON "tenant_a"."posts"');
-  });
+		expect(createSql).toContain('CREATE TABLE "tenant_a"."posts"');
+		expect(createSql).toContain('REFERENCES "tenant_a"."users"("id")');
+		expect(indexSql).toContain('ON "tenant_a"."posts"');
+	});
 
-  it("passes the selected schema to introspection queries", async () => {
-    const pool = mockPool();
+	it("passes the selected schema to introspection queries", async () => {
+		const pool = mockPool();
 
-    await queryTables(pool, "tenant_a");
-    await queryColumns(pool, "users", "tenant_a");
+		await queryTables(pool, "tenant_a");
+		await queryColumns(pool, "users", "tenant_a");
 
-    expect(pool.queries[0]?.params).toEqual(["tenant_a"]);
-    expect(pool.queries[1]?.params).toEqual(["tenant_a", "users"]);
-  });
+		expect(pool.queries[0]?.params).toEqual(["tenant_a"]);
+		expect(pool.queries[1]?.params).toEqual(["tenant_a", "users"]);
+	});
 
-  it("qualifies migration metadata and resets the selected schema", async () => {
-    const pool = mockPool();
+	it("qualifies migration metadata and resets the selected schema", async () => {
+		const pool = mockPool();
 
-    await ensureMigrationsTable(pool, "tenant_a");
-    await resetDatabaseSchema(pool, "tenant_a");
+		await ensureMigrationsTable(pool, "tenant_a");
+		await resetDatabaseSchema(pool, "tenant_a");
 
-    expect(pool.queries[0]?.sql).toContain('CREATE SCHEMA IF NOT EXISTS "tenant_a"');
-    expect(pool.queries[1]?.sql).toContain('CREATE TABLE IF NOT EXISTS "tenant_a"."_neoorm_migrations"');
-    expect(pool.queries[2]?.sql).toContain('DROP SCHEMA "tenant_a" CASCADE');
-    expect(pool.queries[2]?.sql).toContain('CREATE SCHEMA "tenant_a"');
-  });
+		expect(pool.queries[0]?.sql).toContain(
+			'CREATE SCHEMA IF NOT EXISTS "tenant_a"',
+		);
+		expect(pool.queries[1]?.sql).toContain(
+			'CREATE TABLE IF NOT EXISTS "tenant_a"."_neoorm_migrations"',
+		);
+		expect(pool.queries[2]?.sql).toContain(
+			'DROP SCHEMA "tenant_a" CASCADE',
+		);
+		expect(pool.queries[2]?.sql).toContain('CREATE SCHEMA "tenant_a"');
+	});
 });

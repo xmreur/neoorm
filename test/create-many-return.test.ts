@@ -1,87 +1,122 @@
-import { describe, it, expect, vi } from "vitest";
-import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { defineSchema, serial, table, text } from "neoorm/schema";
+import { describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
-import { defineSchema, table, serial, text } from "neoorm/schema";
+import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
-import { createManyAndReturnRecords, createManyRecords } from "../src/runtime/query/create.js";
+import {
+	createManyAndReturnRecords,
+	createManyRecords,
+} from "../src/runtime/query/create.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 
 function createMockExecutor(
-  rows: Record<string, unknown>[],
+	rows: Record<string, unknown>[],
 ): Executor & { queries: { sql: string; params: unknown[] }[] } {
-  const queries: { sql: string; params: unknown[] }[] = [];
-  return {
-    queries,
-    inTransaction: false,
-    query: vi.fn(async <T = Record<string, unknown>>(sql: string, params?: unknown[]) => {
-      queries.push({ sql, params: params ?? [] });
-      return rows as T[];
-    }) as Executor["query"],
-    queryOne: vi.fn(async () => null) as Executor["queryOne"],
-    transaction: vi.fn(async (fn) => fn(createMockExecutor(rows))),
-  };
+	const queries: { sql: string; params: unknown[] }[] = [];
+	return {
+		queries,
+		inTransaction: false,
+		query: vi.fn(
+			async <T = Record<string, unknown>>(
+				sql: string,
+				params?: unknown[],
+			) => {
+				queries.push({ sql, params: params ?? [] });
+				return rows as T[];
+			},
+		) as Executor["query"],
+		queryOne: vi.fn(async () => null) as Executor["queryOne"],
+		transaction: vi.fn(async (fn) => fn(createMockExecutor(rows))),
+	};
 }
 
 const serialSchema = defineSchema({
-  logs: table("logs", {
-    id: serial().primary(),
-    message: text().notNull(),
-  }),
+	logs: table("logs", {
+		id: serial().primary(),
+		message: text().notNull(),
+	}),
 });
 
 describe("createManyAndReturn", () => {
-  const manifest = schemaToManifest(schema);
-  const runtime: QueryRuntime = { manifest };
+	const manifest = schemaToManifest(schema);
+	const runtime: QueryRuntime = { manifest };
 
-  it("returns inserted rows mapped through rowToTs", async () => {
-    const executor = createMockExecutor([
-      { id: "user_1", email: "a@example.com", name: "A", created_at: new Date(), updated_at: new Date() },
-      { id: "user_2", email: "b@example.com", name: "B", created_at: new Date(), updated_at: new Date() },
-    ]);
+	it("returns inserted rows mapped through rowToTs", async () => {
+		const executor = createMockExecutor([
+			{
+				id: "user_1",
+				email: "a@example.com",
+				name: "A",
+				created_at: new Date(),
+				updated_at: new Date(),
+			},
+			{
+				id: "user_2",
+				email: "b@example.com",
+				name: "B",
+				created_at: new Date(),
+				updated_at: new Date(),
+			},
+		]);
 
-    const rows = await createManyAndReturnRecords(executor, runtime, "users", {
-      data: [
-        { email: "a@example.com", name: "A" },
-        { email: "b@example.com", name: "B" },
-      ],
-    });
+		const rows = await createManyAndReturnRecords(
+			executor,
+			runtime,
+			"users",
+			{
+				data: [
+					{ email: "a@example.com", name: "A" },
+					{ email: "b@example.com", name: "B" },
+				],
+			},
+		);
 
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.["email"]).toBe("a@example.com");
-    expect(rows[1]?.["email"]).toBe("b@example.com");
-    expect(executor.queries[0]?.sql).toContain("RETURNING");
-  });
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.["email"]).toBe("a@example.com");
+		expect(rows[1]?.["email"]).toBe("b@example.com");
+		expect(executor.queries[0]?.sql).toContain("RETURNING");
+	});
 
-  it("returns empty array for empty data", async () => {
-    const executor = createMockExecutor([]);
-    const rows = await createManyAndReturnRecords(executor, runtime, "users", { data: [] });
-    expect(rows).toEqual([]);
-    expect(executor.query).not.toHaveBeenCalled();
-  });
+	it("returns empty array for empty data", async () => {
+		const executor = createMockExecutor([]);
+		const rows = await createManyAndReturnRecords(
+			executor,
+			runtime,
+			"users",
+			{ data: [] },
+		);
+		expect(rows).toEqual([]);
+		expect(executor.query).not.toHaveBeenCalled();
+	});
 
-  it("returns empty array for empty objects on a serial-only table", async () => {
-    const serialManifest = schemaToManifest(serialSchema);
-    const serialRuntime: QueryRuntime = { manifest: serialManifest };
-    const executor = createMockExecutor([]);
+	it("returns empty array for empty objects on a serial-only table", async () => {
+		const serialManifest = schemaToManifest(serialSchema);
+		const serialRuntime: QueryRuntime = { manifest: serialManifest };
+		const executor = createMockExecutor([]);
 
-    const rows = await createManyAndReturnRecords(executor, serialRuntime, "logs", {
-      data: [{}],
-    });
+		const rows = await createManyAndReturnRecords(
+			executor,
+			serialRuntime,
+			"logs",
+			{
+				data: [{}],
+			},
+		);
 
-    expect(rows).toEqual([]);
-    expect(executor.query).not.toHaveBeenCalled();
-  });
+		expect(rows).toEqual([]);
+		expect(executor.query).not.toHaveBeenCalled();
+	});
 
-  it("createMany returns 0 for empty objects on a serial-only table", async () => {
-    const serialManifest = schemaToManifest(serialSchema);
-    const serialRuntime: QueryRuntime = { manifest: serialManifest };
-    const executor = createMockExecutor([]);
+	it("createMany returns 0 for empty objects on a serial-only table", async () => {
+		const serialManifest = schemaToManifest(serialSchema);
+		const serialRuntime: QueryRuntime = { manifest: serialManifest };
+		const executor = createMockExecutor([]);
 
-    const count = await createManyRecords(executor, serialRuntime, "logs", {
-      data: [{}],
-    });
+		const count = await createManyRecords(executor, serialRuntime, "logs", {
+			data: [{}],
+		});
 
-    expect(count).toBe(0);
-    expect(executor.query).not.toHaveBeenCalled();
-  });
+		expect(count).toBe(0);
+		expect(executor.query).not.toHaveBeenCalled();
+	});
 });

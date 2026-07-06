@@ -1,172 +1,180 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, relative, dirname } from "node:path";
 import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Manifest } from "../dialect/types.js";
 import { applySchemaToManifest } from "../dialect/postgres.js";
-import {
-  diffManifest,
-  formatDestructiveWarnings,
-  resolveMigrationSql,
-  buildDownSql,
-  emptyManifest,
-} from "./diff-manifest.js";
-import {
-  summarizeGenerateOutcome,
-  type GenerateSummary,
-} from "./generate-summary.js";
-import { emitIncludesTs } from "./emit-includes.js";
-import { emitModelsTs } from "./emit-models.js";
-import type { ManyToManyDef } from "../schema/many-to-many.js";
+import type { Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
+import type { ManyToManyDef } from "../schema/many-to-many.js";
 import type { ColumnDef, ColumnNaming } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
+import {
+	buildDownSql,
+	diffManifest,
+	emptyManifest,
+	formatDestructiveWarnings,
+	resolveMigrationSql,
+} from "./diff-manifest.js";
+import { emitIncludesTs } from "./emit-includes.js";
+import { emitModelsTs } from "./emit-models.js";
+import {
+	type GenerateSummary,
+	summarizeGenerateOutcome,
+} from "./generate-summary.js";
 
 async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
-  const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
-  const fromDist = getManyToManyRegistry();
-  if (fromDist.length > 0) {
-    return [...fromDist];
-  }
+	const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
+	const fromDist = getManyToManyRegistry();
+	if (fromDist.length > 0) {
+		return [...fromDist];
+	}
 
-  // tsx path aliases may load schema DSL from src/ while codegen runs from dist/
-  try {
-    const codegenDir = dirname(fileURLToPath(import.meta.url));
-    const { getManyToManyRegistry: getSrcRegistry } = await import(
-      join(codegenDir, "../../src/schema/many-to-many.js")
-    );
-    const fromSrc = getSrcRegistry();
-    if (fromSrc.length > 0) {
-      return [...fromSrc];
-    }
-  } catch {
-    // src/ not available in published package — dist registry is authoritative
-  }
+	// tsx path aliases may load schema DSL from src/ while codegen runs from dist/
+	try {
+		const codegenDir = dirname(fileURLToPath(import.meta.url));
+		const { getManyToManyRegistry: getSrcRegistry } = await import(
+			join(codegenDir, "../../src/schema/many-to-many.js")
+		);
+		const fromSrc = getSrcRegistry();
+		if (fromSrc.length > 0) {
+			return [...fromSrc];
+		}
+	} catch {
+		// src/ not available in published package — dist registry is authoritative
+	}
 
-  return [];
+	return [];
 }
 
 async function resolvePluginRegistry(): Promise<NeoOrmPlugin[]> {
-  const { getPluginRegistry } = await import("../plugins/registry.js");
-  const fromDist = getPluginRegistry();
-  if (fromDist.length > 1) {
-    return [...fromDist];
-  }
+	const { getPluginRegistry } = await import("../plugins/registry.js");
+	const fromDist = getPluginRegistry();
+	if (fromDist.length > 1) {
+		return [...fromDist];
+	}
 
-  try {
-    const codegenDir = dirname(fileURLToPath(import.meta.url));
-    const { getPluginRegistry: getSrcRegistry } = await import(
-      join(codegenDir, "../../src/plugins/registry.js")
-    );
-    const fromSrc = getSrcRegistry();
-    if (fromSrc.length > 1) {
-      return [...fromSrc];
-    }
-  } catch {
-    // src/ not available in published package — dist registry is authoritative
-  }
+	try {
+		const codegenDir = dirname(fileURLToPath(import.meta.url));
+		const { getPluginRegistry: getSrcRegistry } = await import(
+			join(codegenDir, "../../src/plugins/registry.js")
+		);
+		const fromSrc = getSrcRegistry();
+		if (fromSrc.length > 1) {
+			return [...fromSrc];
+		}
+	} catch {
+		// src/ not available in published package — dist registry is authoritative
+	}
 
-  return [...fromDist];
+	return [...fromDist];
 }
 
 export async function loadSchemaModule(schemaPath: string): Promise<{
-  schema: import("../schema/define-schema.js").SchemaDef<Record<string, import("../schema/table.js").TableDef>>;
-  manyToMany: ManyToManyDef[];
-  plugins: NeoOrmPlugin[];
+	schema: import("../schema/define-schema.js").SchemaDef<
+		Record<string, import("../schema/table.js").TableDef>
+	>;
+	manyToMany: ManyToManyDef[];
+	plugins: NeoOrmPlugin[];
 }> {
-  const { pathToFileURL } = await import("node:url");
-  const { register } = await import("tsx/esm/api");
-  const { clearManyToManyRegistry } = await import("../schema/many-to-many.js");
+	const { pathToFileURL } = await import("node:url");
+	const { register } = await import("tsx/esm/api");
+	const { clearManyToManyRegistry } = await import(
+		"../schema/many-to-many.js"
+	);
 
-  register();
-  clearManyToManyRegistry();
+	register();
+	clearManyToManyRegistry();
 
-  const url = pathToFileURL(schemaPath).href;
-  const mod = await import(url);
+	const url = pathToFileURL(schemaPath).href;
+	const mod = await import(url);
 
-  const schema = mod.schema ?? mod.default?.schema ?? mod.default;
-  if (!schema || !schema._tables) {
-    throw new Error(
-      `Schema file must export a schema via \`export const schema = defineSchema(...)\``,
-    );
-  }
+	const schema = mod.schema ?? mod.default?.schema ?? mod.default;
+	if (!schema || !schema._tables) {
+		throw new Error(
+			`Schema file must export a schema via \`export const schema = defineSchema(...)\``,
+		);
+	}
 
-  const manyToMany = await resolveManyToManyDefs();
-  const plugins = await resolvePluginRegistry();
+	const manyToMany = await resolveManyToManyDefs();
+	const plugins = await resolvePluginRegistry();
 
-  return { schema, manyToMany, plugins };
+	return { schema, manyToMany, plugins };
 }
 
 export function hashManifest(manifest: Manifest): string {
-  return createHash("sha256")
-    .update(JSON.stringify(manifest))
-    .digest("hex")
-    .slice(0, 16);
+	return createHash("sha256")
+		.update(JSON.stringify(manifest))
+		.digest("hex")
+		.slice(0, 16);
 }
 
-export function collectRedundantMapWarnings(
-  schema: {
-    readonly _columnNaming?: ColumnNaming;
-    readonly _tables: Record<
-      string,
-      {
-        readonly _columns: Record<string, ColumnDef>;
-        readonly _columnNaming?: ColumnNaming;
-      }
-    >;
-  },
-): string[] {
-  const warnings: string[] = [];
-  const defaultColumnNaming = schema._columnNaming ?? "snakeCase";
+export function collectRedundantMapWarnings(schema: {
+	readonly _columnNaming?: ColumnNaming;
+	readonly _tables: Record<
+		string,
+		{
+			readonly _columns: Record<string, ColumnDef>;
+			readonly _columnNaming?: ColumnNaming;
+		}
+	>;
+}): string[] {
+	const warnings: string[] = [];
+	const defaultColumnNaming = schema._columnNaming ?? "snakeCase";
 
-  for (const [accessor, table] of Object.entries(schema._tables)) {
-    const columnNaming = table._columnNaming ?? defaultColumnNaming;
-    for (const [tsName, col] of Object.entries(table._columns)) {
-      if (!("_meta" in col) || !col._meta.mapName) continue;
+	for (const [accessor, table] of Object.entries(schema._tables)) {
+		const columnNaming = table._columnNaming ?? defaultColumnNaming;
+		for (const [tsName, col] of Object.entries(table._columns)) {
+			if (!("_meta" in col) || !col._meta.mapName) continue;
 
-      const defaultName = resolveSqlColumnName(tsName, columnNaming);
-      if (col._meta.mapName === defaultName) {
-        warnings.push(
-          `${accessor}.${tsName}.map("${col._meta.mapName}") matches the default ${columnNaming} SQL name — remove .map() or use a different name to rename the column`,
-        );
-      }
-    }
-  }
+			const defaultName = resolveSqlColumnName(tsName, columnNaming);
+			if (col._meta.mapName === defaultName) {
+				warnings.push(
+					`${accessor}.${tsName}.map("${col._meta.mapName}") matches the default ${columnNaming} SQL name — remove .map() or use a different name to rename the column`,
+				);
+			}
+		}
+	}
 
-  return warnings;
+	return warnings;
 }
 
 export async function readSnapshot(outDir: string): Promise<Manifest | null> {
-  try {
-    const content = await readFile(join(outDir, "snapshot.json"), "utf-8");
-    return JSON.parse(content) as Manifest;
-  } catch {
-    return null;
-  }
+	try {
+		const content = await readFile(join(outDir, "snapshot.json"), "utf-8");
+		return JSON.parse(content) as Manifest;
+	} catch {
+		return null;
+	}
 }
 
 export async function writeSnapshot(
-  outDir: string,
-  manifest: Manifest,
+	outDir: string,
+	manifest: Manifest,
 ): Promise<void> {
-  await mkdir(outDir, { recursive: true });
-  await writeFile(
-    join(outDir, "snapshot.json"),
-    JSON.stringify(manifest, null, 2),
-    "utf-8",
-  );
+	await mkdir(outDir, { recursive: true });
+	await writeFile(
+		join(outDir, "snapshot.json"),
+		JSON.stringify(manifest, null, 2),
+		"utf-8",
+	);
 }
 
-export function emitManifestTs(manifest: Manifest, packageImportPath: string): string {
-  return `// Auto-generated by neoorm generate — do not edit
+export function emitManifestTs(
+	manifest: Manifest,
+	packageImportPath: string,
+): string {
+	return `// Auto-generated by neoorm generate — do not edit
 import type { Manifest } from "${packageImportPath}";
 
 export const manifest = ${JSON.stringify(manifest, null, 2)} as const satisfies Manifest;
 `;
 }
 
-export function emitClientTs(schemaImportPath: string, packageImportPath: string): string {
-  return `// Auto-generated by neoorm generate — do not edit
+export function emitClientTs(
+	schemaImportPath: string,
+	packageImportPath: string,
+): string {
+	return `// Auto-generated by neoorm generate — do not edit
 import { createNeoOrmClient } from "${packageImportPath}";
 import type { TypedNeoOrmClient } from "${packageImportPath}";
 import { manifest } from "./manifest.js";
@@ -190,191 +198,199 @@ export type * from "./includes.js";
 }
 
 function toImportPath(fromDir: string, toFile: string): string {
-  let importPath = relative(fromDir, toFile).replace(/\\/g, "/");
-  if (!importPath.startsWith(".")) {
-    importPath = `./${importPath}`;
-  }
-  return importPath.replace(/\.ts$/, ".js");
+	let importPath = relative(fromDir, toFile).replace(/\\/g, "/");
+	if (!importPath.startsWith(".")) {
+		importPath = `./${importPath}`;
+	}
+	return importPath.replace(/\.ts$/, ".js");
 }
 
 function schemaImportPath(outDir: string, schemaPath: string): string {
-  return toImportPath(outDir, schemaPath);
+	return toImportPath(outDir, schemaPath);
 }
 
 const NEOORM_PACKAGE = "neoorm";
 
 export {
-  diffManifest,
-  formatDestructiveWarnings,
-  resolveMigrationSql,
-  buildDownSql,
-  emptyManifest,
-  explainNoMigrationSql,
-  columnsEqual,
-  columnSqlType,
+	buildDownSql,
+	columnSqlType,
+	columnsEqual,
+	diffManifest,
+	emptyManifest,
+	explainNoMigrationSql,
+	formatDestructiveWarnings,
+	resolveMigrationSql,
 } from "./diff-manifest.js";
-export type { GenerateSummary, GenerateStatus } from "./generate-summary.js";
-export { summarizeGenerateOutcome, formatGenerateSummary } from "./generate-summary.js";
+export type { GenerateStatus, GenerateSummary } from "./generate-summary.js";
+export {
+	formatGenerateSummary,
+	summarizeGenerateOutcome,
+} from "./generate-summary.js";
 
 export async function writeMigration(
-  outDir: string,
-  sql: string[],
-  options?: {
-    name?: string;
-    prev?: Manifest | null;
-    next?: Manifest;
-  },
+	outDir: string,
+	sql: string[],
+	options?: {
+		name?: string;
+		prev?: Manifest | null;
+		next?: Manifest;
+	},
 ): Promise<string | null> {
-  if (sql.length === 0) return null;
+	if (sql.length === 0) return null;
 
-  const migrationsDir = join(outDir, "migrations");
-  await mkdir(migrationsDir, { recursive: true });
+	const migrationsDir = join(outDir, "migrations");
+	await mkdir(migrationsDir, { recursive: true });
 
-  const timestamp = new Date()
-    .toISOString()
-    .replace(/[-:T.Z]/g, "")
-    .slice(0, 14);
-  const migrationName = options?.name ?? `${timestamp}_migration`;
-  const migrationDir = join(migrationsDir, migrationName);
-  await mkdir(migrationDir, { recursive: true });
-  await writeFile(join(migrationDir, "migration.sql"), sql.join("\n\n"), "utf-8");
+	const timestamp = new Date()
+		.toISOString()
+		.replace(/[-:T.Z]/g, "")
+		.slice(0, 14);
+	const migrationName = options?.name ?? `${timestamp}_migration`;
+	const migrationDir = join(migrationsDir, migrationName);
+	await mkdir(migrationDir, { recursive: true });
+	await writeFile(
+		join(migrationDir, "migration.sql"),
+		sql.join("\n\n"),
+		"utf-8",
+	);
 
-  if (options?.next) {
-    const prev = options.prev ?? null;
-    const downSql = buildDownSql(prev, options.next);
-    await writeFile(join(migrationDir, "down.sql"), downSql.join("\n\n"), "utf-8");
-    const snapshotBefore = prev ?? emptyManifest();
-    await writeFile(
-      join(migrationDir, "snapshot.before.json"),
-      JSON.stringify(snapshotBefore, null, 2),
-      "utf-8",
-    );
-  }
+	if (options?.next) {
+		const prev = options.prev ?? null;
+		const downSql = buildDownSql(prev, options.next);
+		await writeFile(
+			join(migrationDir, "down.sql"),
+			downSql.join("\n\n"),
+			"utf-8",
+		);
+		const snapshotBefore = prev ?? emptyManifest();
+		await writeFile(
+			join(migrationDir, "snapshot.before.json"),
+			JSON.stringify(snapshotBefore, null, 2),
+			"utf-8",
+		);
+	}
 
-  return migrationName;
+	return migrationName;
 }
 
 export async function writeGeneratedFiles(
-  outDir: string,
-  manifest: Manifest,
-  migrationSql: string[],
-  schemaPath: string,
-  prev: Manifest | null,
+	outDir: string,
+	manifest: Manifest,
+	migrationSql: string[],
+	schemaPath: string,
+	prev: Manifest | null,
 ): Promise<{ migrationName: string | null }> {
-  await mkdir(outDir, { recursive: true });
-  await writeFile(
-    join(outDir, "manifest.ts"),
-    emitManifestTs(manifest, NEOORM_PACKAGE),
-    "utf-8",
-  );
-  await writeFile(
-    join(outDir, "includes.ts"),
-    emitIncludesTs(manifest),
-    "utf-8",
-  );
-  await writeFile(
-    join(outDir, "models.ts"),
-    emitModelsTs(manifest),
-    "utf-8",
-  );
-  await writeFile(
-    join(outDir, "client.ts"),
-    emitClientTs(schemaImportPath(outDir, schemaPath), NEOORM_PACKAGE),
-    "utf-8",
-  );
-  await writeSnapshot(outDir, manifest);
+	await mkdir(outDir, { recursive: true });
+	await writeFile(
+		join(outDir, "manifest.ts"),
+		emitManifestTs(manifest, NEOORM_PACKAGE),
+		"utf-8",
+	);
+	await writeFile(
+		join(outDir, "includes.ts"),
+		emitIncludesTs(manifest),
+		"utf-8",
+	);
+	await writeFile(join(outDir, "models.ts"), emitModelsTs(manifest), "utf-8");
+	await writeFile(
+		join(outDir, "client.ts"),
+		emitClientTs(schemaImportPath(outDir, schemaPath), NEOORM_PACKAGE),
+		"utf-8",
+	);
+	await writeSnapshot(outDir, manifest);
 
-  const migrationName = await writeMigration(outDir, migrationSql, {
-    prev,
-    next: manifest,
-  });
+	const migrationName = await writeMigration(outDir, migrationSql, {
+		prev,
+		next: manifest,
+	});
 
-  return { migrationName };
+	return { migrationName };
 }
 
 export type GenerateResult = {
-  manifest: Manifest;
-  migrationName: string | null;
-  schemaChanged: boolean;
-  warnings: string[];
-  destructiveBlocked: boolean;
-  summary: GenerateSummary;
+	manifest: Manifest;
+	migrationName: string | null;
+	schemaChanged: boolean;
+	warnings: string[];
+	destructiveBlocked: boolean;
+	summary: GenerateSummary;
 };
 
 export type GenerateOptions = {
-  acceptDataLoss?: boolean;
-  enumMode?: "check" | "union" | "native";
-  schema?: string;
+	acceptDataLoss?: boolean;
+	enumMode?: "check" | "union" | "native";
+	schema?: string;
 };
 
 export async function generateFromSchema(
-  schemaPath: string,
-  outDir: string,
-  options: GenerateOptions = {},
+	schemaPath: string,
+	outDir: string,
+	options: GenerateOptions = {},
 ): Promise<GenerateResult> {
-  const { schemaToManifest, validateManifest } = await import(
-    "./schema-to-manifest.js"
-  );
+	const { schemaToManifest, validateManifest } = await import(
+		"./schema-to-manifest.js"
+	);
 
-  const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
-  const schemaManifest = schemaToManifest(schema, manyToMany, plugins, {
-    ...(options.enumMode ? { enumMode: options.enumMode } : {}),
-  });
-  const manifest = applySchemaToManifest(schemaManifest, options.schema);
-  const warnings = collectRedundantMapWarnings(schema);
+	const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
+	const schemaManifest = schemaToManifest(schema, manyToMany, plugins, {
+		...(options.enumMode ? { enumMode: options.enumMode } : {}),
+	});
+	const manifest = applySchemaToManifest(schemaManifest, options.schema);
+	const warnings = collectRedundantMapWarnings(schema);
 
-  const errors = validateManifest(manifest);
-  if (errors.length > 0) {
-    throw new Error(`Schema validation failed:\n${errors.join("\n")}`);
-  }
+	const errors = validateManifest(manifest);
+	if (errors.length > 0) {
+		throw new Error(`Schema validation failed:\n${errors.join("\n")}`);
+	}
 
-  const prev = await readSnapshot(outDir);
-  const schemaChanged = !prev || hashManifest(prev) !== hashManifest(manifest);
-  const manifestDiff = diffManifest(prev, manifest);
-  const { sql, blocked } = resolveMigrationSql(
-    manifestDiff,
-    prev,
-    manifest,
-    options.acceptDataLoss ?? false,
-  );
+	const prev = await readSnapshot(outDir);
+	const schemaChanged =
+		!prev || hashManifest(prev) !== hashManifest(manifest);
+	const manifestDiff = diffManifest(prev, manifest);
+	const { sql, blocked } = resolveMigrationSql(
+		manifestDiff,
+		prev,
+		manifest,
+		options.acceptDataLoss ?? false,
+	);
 
-  const allWarnings = [...warnings];
+	const allWarnings = [...warnings];
 
-  const migrationSql =
-    blocked.length > 0 && !(options.acceptDataLoss ?? false) ? [] : sql;
+	const migrationSql =
+		blocked.length > 0 && !(options.acceptDataLoss ?? false) ? [] : sql;
 
-  const { migrationName } = await writeGeneratedFiles(
-    outDir,
-    manifest,
-    migrationSql,
-    schemaPath,
-    prev,
-  );
+	const { migrationName } = await writeGeneratedFiles(
+		outDir,
+		manifest,
+		migrationSql,
+		schemaPath,
+		prev,
+	);
 
-  const summary = summarizeGenerateOutcome({
-    prev,
-    next: manifest,
-    diff: manifestDiff,
-    sql: migrationSql,
-    blocked,
-    schemaChanged,
-    migrationName,
-  });
+	const summary = summarizeGenerateOutcome({
+		prev,
+		next: manifest,
+		diff: manifestDiff,
+		sql: migrationSql,
+		blocked,
+		schemaChanged,
+		migrationName,
+	});
 
-  const migrationBlocked = summary.status === "migration_blocked";
-  if (migrationBlocked) {
-    allWarnings.push(...formatDestructiveWarnings(blocked));
-    allWarnings.push(
-      "Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
-    );
-  }
+	const migrationBlocked = summary.status === "migration_blocked";
+	if (migrationBlocked) {
+		allWarnings.push(...formatDestructiveWarnings(blocked));
+		allWarnings.push(
+			"Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
+		);
+	}
 
-  return {
-    manifest,
-    migrationName,
-    schemaChanged,
-    warnings: allWarnings,
-    destructiveBlocked: migrationBlocked,
-    summary,
-  };
+	return {
+		manifest,
+		migrationName,
+		schemaChanged,
+		warnings: allWarnings,
+		destructiveBlocked: migrationBlocked,
+		summary,
+	};
 }

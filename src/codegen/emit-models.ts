@@ -1,198 +1,205 @@
-import type { Manifest, ManifestColumn, ManifestTable } from "../dialect/types.js";
-import {
-  effectiveRelations,
-  pascalCase,
-  singularTypeName,
-} from "./manifest-relations.js";
+import type {
+	Manifest,
+	ManifestColumn,
+	ManifestTable,
+} from "../dialect/types.js";
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import {
+	effectiveRelations,
+	pascalCase,
+	singularTypeName,
+} from "./manifest-relations.js";
 
 function columnTsType(col: ManifestColumn): string {
-  if (col.kind === "fk") {
-    return col.nullable ? "string | null" : "string";
-  }
-  return getColumnTypeOrThrow(col.kind).columnTsType(col);
+	if (col.kind === "fk") {
+		return col.nullable ? "string | null" : "string";
+	}
+	return getColumnTypeOrThrow(col.kind).columnTsType(col);
 }
 
 function emitGeoJsonTypes(manifest: Manifest): string[] {
-  const hasPostgis = (manifest.extensions ?? []).includes("postgis");
-  if (!hasPostgis) return [];
+	const hasPostgis = (manifest.extensions ?? []).includes("postgis");
+	if (!hasPostgis) return [];
 
-  return [
-    "export type GeoJsonPoint = {",
-    '  type: "Point";',
-    "  coordinates: [number, number] | [number, number, number];",
-    "};",
-    "",
-    "export type GeoJsonPolygon = {",
-    '  type: "Polygon";',
-    "  coordinates: number[][][];",
-    "};",
-    "",
-    "export type GeoJsonGeometry = GeoJsonPoint | GeoJsonPolygon | Record<string, unknown>;",
-    "",
-  ];
+	return [
+		"export type GeoJsonPoint = {",
+		'  type: "Point";',
+		"  coordinates: [number, number] | [number, number, number];",
+		"};",
+		"",
+		"export type GeoJsonPolygon = {",
+		'  type: "Polygon";',
+		"  coordinates: number[][][];",
+		"};",
+		"",
+		"export type GeoJsonGeometry = GeoJsonPoint | GeoJsonPolygon | Record<string, unknown>;",
+		"",
+	];
 }
 
 function emitBaseModel(table: ManifestTable): string {
-  const name = singularTypeName(table.accessor);
-  const fields = table.columns
-    .map((col) => `  ${col.tsName}: ${columnTsType(col)};`)
-    .join("\n");
-  return `export type ${name} = {\n${fields}\n};`;
+	const name = singularTypeName(table.accessor);
+	const fields = table.columns
+		.map((col) => `  ${col.tsName}: ${columnTsType(col)};`)
+		.join("\n");
+	return `export type ${name} = {\n${fields}\n};`;
 }
 
 function relationFieldType(
-  rel: { name: string; targetAccessor: string; cardinality: "one" | "many" },
-  targetModelName: string,
+	rel: { name: string; targetAccessor: string; cardinality: "one" | "many" },
+	targetModelName: string,
 ): string {
-  if (rel.cardinality === "many") {
-    return `  ${rel.name}?: ${targetModelName}[];`;
-  }
-  return `  ${rel.name}?: ${targetModelName} | null;`;
+	if (rel.cardinality === "many") {
+		return `  ${rel.name}?: ${targetModelName}[];`;
+	}
+	return `  ${rel.name}?: ${targetModelName} | null;`;
 }
 
 function emitPayloadType(manifest: Manifest, table: ManifestTable): string {
-  const baseName = singularTypeName(table.accessor);
-  const payloadName = `${baseName}Payload`;
-  const relations = effectiveRelations(manifest, table);
+	const baseName = singularTypeName(table.accessor);
+	const payloadName = `${baseName}Payload`;
+	const relations = effectiveRelations(manifest, table);
 
-  if (relations.length === 0) {
-    return `export type ${payloadName} = ${baseName};`;
-  }
+	if (relations.length === 0) {
+		return `export type ${payloadName} = ${baseName};`;
+	}
 
-  const relationFields = relations
-    .map((rel) => {
-      const target = manifest.tables[rel.targetAccessor];
-      const targetName = target
-        ? singularTypeName(target.accessor)
-        : singularTypeName(rel.targetAccessor);
-      return relationFieldType(rel, targetName);
-    })
-    .join("\n");
+	const relationFields = relations
+		.map((rel) => {
+			const target = manifest.tables[rel.targetAccessor];
+			const targetName = target
+				? singularTypeName(target.accessor)
+				: singularTypeName(rel.targetAccessor);
+			return relationFieldType(rel, targetName);
+		})
+		.join("\n");
 
-  return `export type ${payloadName} = ${baseName} & {\n${relationFields}\n};`;
+	return `export type ${payloadName} = ${baseName} & {\n${relationFields}\n};`;
 }
 
-function emitWithIncludesType(manifest: Manifest, table: ManifestTable): string {
-  const baseName = singularTypeName(table.accessor);
-  const withName = `${pascalCase(table.accessor)}With`;
-  const includesName = `${baseName}WithIncludes`;
-  const relations = effectiveRelations(manifest, table);
+function emitWithIncludesType(
+	manifest: Manifest,
+	table: ManifestTable,
+): string {
+	const baseName = singularTypeName(table.accessor);
+	const withName = `${pascalCase(table.accessor)}With`;
+	const includesName = `${baseName}WithIncludes`;
+	const relations = effectiveRelations(manifest, table);
 
-  if (relations.length === 0) {
-    return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName};`;
-  }
+	if (relations.length === 0) {
+		return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName};`;
+	}
 
-  const includeParts = relations
-    .map((rel) => {
-      const target = manifest.tables[rel.targetAccessor];
-      const targetName = target
-        ? singularTypeName(target.accessor)
-        : singularTypeName(rel.targetAccessor);
-      const cardinality = rel.cardinality === "many" ? "many" : "one";
-      return `  IncludeRelation<W, "${rel.name}", "${cardinality}", ${targetName}>`;
-    })
-    .join(" &\n");
+	const includeParts = relations
+		.map((rel) => {
+			const target = manifest.tables[rel.targetAccessor];
+			const targetName = target
+				? singularTypeName(target.accessor)
+				: singularTypeName(rel.targetAccessor);
+			const cardinality = rel.cardinality === "many" ? "many" : "one";
+			return `  IncludeRelation<W, "${rel.name}", "${cardinality}", ${targetName}>`;
+		})
+		.join(" &\n");
 
-  return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName} &
+	return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName} &
 ${includeParts} &
   IncludeCount<W>;`;
 }
 
 export function emitModelsTs(manifest: Manifest): string {
-  const tables = Object.values(manifest.tables).sort((a, b) =>
-    a.accessor.localeCompare(b.accessor),
-  );
+	const tables = Object.values(manifest.tables).sort((a, b) =>
+		a.accessor.localeCompare(b.accessor),
+	);
 
-  const withTypeNames = tables.map((t) => `${pascalCase(t.accessor)}With`);
+	const withTypeNames = tables.map((t) => `${pascalCase(t.accessor)}With`);
 
-  const lines: string[] = [
-    "// Auto-generated by neoorm generate — do not edit",
-    `import type { ${withTypeNames.join(", ")} } from "./includes.js";`,
-    "",
-    ...emitGeoJsonTypes(manifest),
-    "type SelectKeys<S> = S extends readonly (infer K extends PropertyKey)[]",
-    "  ? K",
-    "  : S extends Record<string, unknown>",
-    "    ? { [K in keyof S]: S[K] extends true ? K : never }[keyof S]",
-    "    : never;",
-    "",
-    "type ApplySelect<Row extends Record<string, unknown>, S> = Pick<",
-    "  Row,",
-    "  SelectKeys<S> & keyof Row",
-    ">;",
-    "",
-    "type IncludeRelation<",
-    "  W,",
-    "  Key extends PropertyKey,",
-    "  Cardinality extends \"one\" | \"many\",",
-    "  TModel extends Record<string, unknown>,",
-    "> = W extends { [K in Key]?: infer Inc }",
-    "  ? Inc extends { select: infer S }",
-    "    ? Cardinality extends \"many\"",
-    "      ? { [P in Key]: ApplySelect<TModel, S>[] }",
-    "      : { [P in Key]: ApplySelect<TModel, S> | null }",
-    "    : Cardinality extends \"many\"",
-    "      ? { [P in Key]: TModel[] }",
-    "      : { [P in Key]: TModel | null }",
-    "  : {};",
-    "",
-    "type IncludeCount<W> = W extends { _count: infer C }",
-    "  ? C extends Record<string, unknown>",
-    "    ? { _count: { [K in keyof C & string]: number } }",
-    "    : {}",
-    "  : {};",
-    "",
-  ];
+	const lines: string[] = [
+		"// Auto-generated by neoorm generate — do not edit",
+		`import type { ${withTypeNames.join(", ")} } from "./includes.js";`,
+		"",
+		...emitGeoJsonTypes(manifest),
+		"type SelectKeys<S> = S extends readonly (infer K extends PropertyKey)[]",
+		"  ? K",
+		"  : S extends Record<string, unknown>",
+		"    ? { [K in keyof S]: S[K] extends true ? K : never }[keyof S]",
+		"    : never;",
+		"",
+		"type ApplySelect<Row extends Record<string, unknown>, S> = Pick<",
+		"  Row,",
+		"  SelectKeys<S> & keyof Row",
+		">;",
+		"",
+		"type IncludeRelation<",
+		"  W,",
+		"  Key extends PropertyKey,",
+		'  Cardinality extends "one" | "many",',
+		"  TModel extends Record<string, unknown>,",
+		"> = W extends { [K in Key]?: infer Inc }",
+		"  ? Inc extends { select: infer S }",
+		'    ? Cardinality extends "many"',
+		"      ? { [P in Key]: ApplySelect<TModel, S>[] }",
+		"      : { [P in Key]: ApplySelect<TModel, S> | null }",
+		'    : Cardinality extends "many"',
+		"      ? { [P in Key]: TModel[] }",
+		"      : { [P in Key]: TModel | null }",
+		"  : {};",
+		"",
+		"type IncludeCount<W> = W extends { _count: infer C }",
+		"  ? C extends Record<string, unknown>",
+		"    ? { _count: { [K in keyof C & string]: number } }",
+		"    : {}",
+		"  : {};",
+		"",
+	];
 
-  for (const table of tables) {
-    lines.push(emitBaseModel(table));
-    lines.push("");
-  }
+	for (const table of tables) {
+		lines.push(emitBaseModel(table));
+		lines.push("");
+	}
 
-  for (const table of tables) {
-    lines.push(emitPayloadType(manifest, table));
-    lines.push("");
-  }
+	for (const table of tables) {
+		lines.push(emitPayloadType(manifest, table));
+		lines.push("");
+	}
 
-  for (const table of tables) {
-    lines.push(emitWithIncludesType(manifest, table));
-    lines.push("");
-  }
+	for (const table of tables) {
+		lines.push(emitWithIncludesType(manifest, table));
+		lines.push("");
+	}
 
-  const modelEntries = tables
-    .map((t) => `  ${t.accessor}: ${singularTypeName(t.accessor)};`)
-    .join("\n");
+	const modelEntries = tables
+		.map((t) => `  ${t.accessor}: ${singularTypeName(t.accessor)};`)
+		.join("\n");
 
-  const payloadEntries = tables
-    .map((t) => `  ${t.accessor}: ${singularTypeName(t.accessor)}Payload;`)
-    .join("\n");
+	const payloadEntries = tables
+		.map((t) => `  ${t.accessor}: ${singularTypeName(t.accessor)}Payload;`)
+		.join("\n");
 
-  const resultAtCases = tables
-    .map((t) => {
-      const withName = `${pascalCase(t.accessor)}With`;
-      const includesName = `${singularTypeName(t.accessor)}WithIncludes`;
-      return `  K extends "${t.accessor}" ? ${includesName}<\n    W extends ${withName} | undefined ? W : undefined\n  >`;
-    })
-    .join("\n  : ");
+	const resultAtCases = tables
+		.map((t) => {
+			const withName = `${pascalCase(t.accessor)}With`;
+			const includesName = `${singularTypeName(t.accessor)}WithIncludes`;
+			return `  K extends "${t.accessor}" ? ${includesName}<\n    W extends ${withName} | undefined ? W : undefined\n  >`;
+		})
+		.join("\n  : ");
 
-  lines.push(`export type NeoOrmModels = {`);
-  lines.push(modelEntries);
-  lines.push(`};`);
-  lines.push("");
+	lines.push(`export type NeoOrmModels = {`);
+	lines.push(modelEntries);
+	lines.push(`};`);
+	lines.push("");
 
-  lines.push(`export type NeoOrmRowPayloads = {`);
-  lines.push(payloadEntries);
-  lines.push(`};`);
-  lines.push("");
+	lines.push(`export type NeoOrmRowPayloads = {`);
+	lines.push(payloadEntries);
+	lines.push(`};`);
+	lines.push("");
 
-  lines.push(`export type NeoOrmResultAt<`);
-  lines.push(`  K extends keyof NeoOrmModels,`);
-  lines.push(`  W,`);
-  lines.push(`> =`);
-  lines.push(resultAtCases);
-  lines.push(`  : never;`);
-  lines.push("");
+	lines.push(`export type NeoOrmResultAt<`);
+	lines.push(`  K extends keyof NeoOrmModels,`);
+	lines.push(`  W,`);
+	lines.push(`> =`);
+	lines.push(resultAtCases);
+	lines.push(`  : never;`);
+	lines.push("");
 
-  return lines.join("\n");
+	return lines.join("\n");
 }

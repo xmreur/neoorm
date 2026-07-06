@@ -1,5 +1,8 @@
-export function neoormConfigTemplate(schemaPath: string, outDir: string): string {
-  return `import { defineConfig } from "neoorm";
+export function neoormConfigTemplate(
+	schemaPath: string,
+	outDir: string,
+): string {
+	return `import { defineConfig } from "neoorm";
 
 export default defineConfig({
   schema: "${schemaPath}",
@@ -14,7 +17,7 @@ export default defineConfig({
 }
 
 export function schemaTemplate(): string {
-  return `import { defineSchema, table, id, text, timestamp, fk } from "neoorm/schema";
+	return `import { defineSchema, table, id, text, timestamp, fk } from "neoorm/schema";
 
 export const schema = defineSchema({
   users: table("users", {
@@ -40,6 +43,6 @@ export const schema = defineSchema({
 }
 
 export function envExampleTemplate(): string {
-  return `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/myapp
+	return `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/myapp
 `;
 }
