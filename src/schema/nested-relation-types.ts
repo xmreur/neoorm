@@ -142,6 +142,17 @@ export type NestedCreateInput<
 	ParentFkColumnOnChild<TSchema, TParentAccessor, TChildAccessor>
 >;
 
+type ToOneRelationWrite<
+	TSchema extends Record<string, TableDef>,
+	TParentAccessor extends keyof TSchema & string,
+	TChildAccessor extends keyof TSchema & string,
+> = {
+	create?: NestedCreateInput<TSchema, TParentAccessor, TChildAccessor>;
+	connect?: ConnectInput<TSchema[TChildAccessor]["_columns"]>;
+	disconnect?: true;
+	delete?: ConnectInput<TSchema[TChildAccessor]["_columns"]>;
+};
+
 type ToManyRelationWrite<
 	TSchema extends Record<string, TableDef>,
 	TParentAccessor extends keyof TSchema & string,
@@ -186,11 +197,19 @@ type InverseRelationWriteEntriesForTable<
 						> extends true
 						? Inv
 						: never
-					: never]?: ToManyRelationWrite<
-					TSchema,
-					TAccessor,
-					TSourceAccessor
-				>;
+					: never]?: TSchema[TSourceAccessor]["_columns"][K] extends FkBuilder
+					? TSchema[TSourceAccessor]["_columns"][K]["_meta"] extends { unique: true }
+						? ToOneRelationWrite<
+								TSchema,
+								TAccessor,
+								TSourceAccessor
+							>
+						: ToManyRelationWrite<
+								TSchema,
+								TAccessor,
+								TSourceAccessor
+							>
+					: never;
 			};
 
 /** Collapse a union of objects into an intersection (merges keys from each variant). */

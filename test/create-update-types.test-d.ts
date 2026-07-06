@@ -9,6 +9,7 @@ type Schema = typeof schema._tables;
 
 type PostsCreate = CreateInput<Schema["posts"]["_columns"], Schema, "posts">;
 type UsersCreate = CreateInput<Schema["users"]["_columns"], Schema, "users">;
+type UsersUpdate = UpdateInput<Schema["users"]["_columns"], Schema, "users">;
 type PostsUpdate = UpdateInput<Schema["posts"]["_columns"], Schema, "posts">;
 type PostsWhere = WhereInput<Schema["posts"]["_columns"], Schema, "posts">;
 type ProfilesUpdate = UpdateInput<
@@ -22,6 +23,10 @@ function expectPostsCreate(value: PostsCreate): void {
 }
 
 function expectPostsUpdate(value: PostsUpdate): void {
+	void value;
+}
+
+function expectUsersUpdate(value: UsersUpdate): void {
 	void value;
 }
 
@@ -118,5 +123,8 @@ expectPostsCreate({ title: "NeoORM", body: "FK-first relations.", authors: { con
 
 // @ts-expect-error -- missing required scalar body
 expectPostsCreate({ title: "NeoORM", authorId: "user_1" });
+
+// @ts-expect-error -- one-to-one inverse create must be single object, not array
+expectUsersUpdate({ profile: { create: [{ bio: "bad" }] } });
 
 void validUserMinimal;
