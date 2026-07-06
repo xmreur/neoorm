@@ -1,78 +1,79 @@
 {
-  "name": "neoorm",
-  "version": "0.2.2",
-  "description": "TypeScript-first PostgreSQL ORM with schema DSL, codegen, and typed relations",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/xmreur/neoorm.git"
-  },
-  "bugs": {
-    "url": "https://github.com/xmreur/neoorm/issues"
-  },
-  "homepage": "https://github.com/xmreur/neoorm#readme",
-  "packageManager": "pnpm@10.33.0",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "neoorm": "./dist/bin/neoorm.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./schema": {
-      "types": "./dist/schema/index.d.ts",
-      "default": "./dist/schema/index.js"
-    },
-        "./sql": {
-            "types": "./dist/sql/index.d.ts",
-            "default": "./dist/sql/index.js"
-        },
-        "./plugins": {
-            "types": "./dist/plugins/index.d.ts",
-            "default": "./dist/plugins/index.js"
-        },
-        "./plugins/postgis": {
-            "types": "./dist/plugins/postgis/index.d.ts",
-            "default": "./dist/plugins/postgis/index.js"
-        }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "keywords": [
-    "orm",
-    "postgresql",
-    "postgres",
-    "typescript",
-    "schema",
-    "codegen",
-    "database"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dev": "tsc -w -p tsconfig.build.json",
-    "test": "vitest run",
-    "prepublishOnly": "pnpm build && pnpm test"
-  },
-  "devDependencies": {
-    "@types/node": "^26.1.0",
-    "@types/pg": "^8.20.0",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
-  },
-  "dependencies": {
-    "commander": "^15.0.0",
-    "pg": "^8.22.0",
-    "tsx": "^4.23.0"
-  }
+	"name": "neoorm",
+	"version": "0.2.2",
+	"description": "TypeScript-first PostgreSQL ORM with schema DSL, codegen, and typed relations",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/xmreur/neoorm.git"
+	},
+	"bugs": {
+		"url": "https://github.com/xmreur/neoorm/issues"
+	},
+	"homepage": "https://github.com/xmreur/neoorm#readme",
+	"packageManager": "pnpm@10.33.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"bin": {
+		"neoorm": "./dist/bin/neoorm.js"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./schema": {
+			"types": "./dist/schema/index.d.ts",
+			"default": "./dist/schema/index.js"
+		},
+		"./sql": {
+			"types": "./dist/sql/index.d.ts",
+			"default": "./dist/sql/index.js"
+		},
+		"./plugins": {
+			"types": "./dist/plugins/index.d.ts",
+			"default": "./dist/plugins/index.js"
+		},
+		"./plugins/postgis": {
+			"types": "./dist/plugins/postgis/index.d.ts",
+			"default": "./dist/plugins/postgis/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"keywords": [
+		"orm",
+		"postgresql",
+		"postgres",
+		"typescript",
+		"schema",
+		"codegen",
+		"database"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"dev": "tsc -w -p tsconfig.build.json",
+		"test": "vitest run",
+		"prepublishOnly": "pnpm build && pnpm test"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.2",
+		"@types/node": "^26.1.0",
+		"@types/pg": "^8.20.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.9"
+	},
+	"dependencies": {
+		"commander": "^15.0.0",
+		"pg": "^8.22.0",
+		"tsx": "^4.23.0"
+	}
 }

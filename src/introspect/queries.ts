@@ -1,73 +1,79 @@
 import type { Pool } from "pg";
 
 export type TableRow = {
-  table_name: string;
+	table_name: string;
 };
 
 export type ColumnRow = {
-  column_name: string;
-  data_type: string;
-  udt_name: string;
-  is_nullable: string;
-  column_default: string | null;
+	column_name: string;
+	data_type: string;
+	udt_name: string;
+	is_nullable: string;
+	column_default: string | null;
 };
 
 export type FkRow = {
-  column_name: string;
-  foreign_table_name: string;
-  foreign_column_name: string;
-  constraint_name: string;
-  delete_rule: string;
+	column_name: string;
+	foreign_table_name: string;
+	foreign_column_name: string;
+	constraint_name: string;
+	delete_rule: string;
 };
 
 export type IndexRow = {
-  index_name: string;
-  column_name: string;
-  is_unique: boolean;
-  is_primary: boolean;
+	index_name: string;
+	column_name: string;
+	is_unique: boolean;
+	is_primary: boolean;
 };
 
 export type UniqueConstraintRow = {
-  column_name: string;
-  constraint_name: string;
+	column_name: string;
+	constraint_name: string;
 };
 
-export async function queryTables(pool: Pool, schema = "public"): Promise<TableRow[]> {
-  const result = await pool.query<TableRow>(`
+export async function queryTables(
+	pool: Pool,
+	schema = "public",
+): Promise<TableRow[]> {
+	const result = await pool.query<TableRow>(
+		`
     SELECT table_name
     FROM information_schema.tables
     WHERE table_schema = $1
       AND table_type = 'BASE TABLE'
       AND table_name NOT LIKE '_neoorm_%'
     ORDER BY table_name
-  `, [schema]);
-  return result.rows;
+  `,
+		[schema],
+	);
+	return result.rows;
 }
 
 export async function queryColumns(
-  pool: Pool,
-  tableName: string,
-  schema = "public",
+	pool: Pool,
+	tableName: string,
+	schema = "public",
 ): Promise<ColumnRow[]> {
-  const result = await pool.query<ColumnRow>(
-    `
+	const result = await pool.query<ColumnRow>(
+		`
     SELECT column_name, data_type, udt_name, is_nullable, column_default
     FROM information_schema.columns
     WHERE table_schema = $1 AND table_name = $2
     ORDER BY ordinal_position
   `,
-    [schema, tableName],
-  );
-  return result.rows;
+		[schema, tableName],
+	);
+	return result.rows;
 }
 
 export async function queryForeignKeys(
-  pool: Pool,
-  tableName: string,
-  schema = "public",
+	pool: Pool,
+	tableName: string,
+	schema = "public",
 ): Promise<FkRow[]> {
-  const result = await pool.query<FkRow>(
-    `
+	const result = await pool.query<FkRow>(
+		`
     SELECT
       kcu.column_name,
       ccu.table_name AS foreign_table_name,
@@ -88,18 +94,18 @@ export async function queryForeignKeys(
       AND tc.table_schema = $1
       AND tc.table_name = $2
   `,
-    [schema, tableName],
-  );
-  return result.rows;
+		[schema, tableName],
+	);
+	return result.rows;
 }
 
 export async function queryIndexes(
-  pool: Pool,
-  tableName: string,
-  schema = "public",
+	pool: Pool,
+	tableName: string,
+	schema = "public",
 ): Promise<IndexRow[]> {
-  const result = await pool.query<IndexRow>(
-    `
+	const result = await pool.query<IndexRow>(
+		`
     SELECT
       i.relname AS index_name,
       a.attname AS column_name,
@@ -115,18 +121,18 @@ export async function queryIndexes(
       AND NOT ix.indisprimary
     ORDER BY i.relname, array_position(ix.indkey, a.attnum)
   `,
-    [schema, tableName],
-  );
-  return result.rows;
+		[schema, tableName],
+	);
+	return result.rows;
 }
 
 export async function queryUniqueConstraints(
-  pool: Pool,
-  tableName: string,
-  schema = "public",
+	pool: Pool,
+	tableName: string,
+	schema = "public",
 ): Promise<UniqueConstraintRow[]> {
-  const result = await pool.query<UniqueConstraintRow>(
-    `
+	const result = await pool.query<UniqueConstraintRow>(
+		`
     SELECT
       kcu.column_name,
       tc.constraint_name
@@ -138,18 +144,18 @@ export async function queryUniqueConstraints(
       AND tc.table_schema = $1
       AND tc.table_name = $2
   `,
-    [schema, tableName],
-  );
-  return result.rows;
+		[schema, tableName],
+	);
+	return result.rows;
 }
 
 export async function queryPrimaryKeyColumns(
-  pool: Pool,
-  tableName: string,
-  schema = "public",
+	pool: Pool,
+	tableName: string,
+	schema = "public",
 ): Promise<string[]> {
-  const result = await pool.query<{ column_name: string }>(
-    `
+	const result = await pool.query<{ column_name: string }>(
+		`
     SELECT kcu.column_name
     FROM information_schema.table_constraints tc
     JOIN information_schema.key_column_usage kcu
@@ -160,41 +166,47 @@ export async function queryPrimaryKeyColumns(
       AND tc.table_name = $2
     ORDER BY kcu.ordinal_position
   `,
-    [schema, tableName],
-  );
-  return result.rows.map((row) => row.column_name);
+		[schema, tableName],
+	);
+	return result.rows.map((row) => row.column_name);
 }
 
 export async function queryInstalledExtensions(pool: Pool): Promise<string[]> {
-  const result = await pool.query<{ extname: string }>(`
+	const result = await pool.query<{ extname: string }>(`
     SELECT extname
     FROM pg_extension
     WHERE extname NOT IN ('plpgsql')
     ORDER BY extname
   `);
-  return result.rows.map((row) => row.extname);
+	return result.rows.map((row) => row.extname);
 }
 
 export type EnumTypeRow = {
-  typname: string;
-  enumlabel: string;
+	typname: string;
+	enumlabel: string;
 };
 
-export async function queryEnumTypes(pool: Pool, schema = "public"): Promise<Record<string, string[]>> {
-  const result = await pool.query<EnumTypeRow>(`
+export async function queryEnumTypes(
+	pool: Pool,
+	schema = "public",
+): Promise<Record<string, string[]>> {
+	const result = await pool.query<EnumTypeRow>(
+		`
     SELECT t.typname, e.enumlabel
     FROM pg_type t
     JOIN pg_enum e ON t.oid = e.enumtypid
     JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = $1
     ORDER BY t.typname, e.enumsortorder
-  `, [schema]);
+  `,
+		[schema],
+	);
 
-  const enumTypes: Record<string, string[]> = {};
-  for (const row of result.rows) {
-    const existing = enumTypes[row.typname] ?? [];
-    existing.push(row.enumlabel);
-    enumTypes[row.typname] = existing;
-  }
-  return enumTypes;
+	const enumTypes: Record<string, string[]> = {};
+	for (const row of result.rows) {
+		const existing = enumTypes[row.typname] ?? [];
+		existing.push(row.enumlabel);
+		enumTypes[row.typname] = existing;
+	}
+	return enumTypes;
 }
