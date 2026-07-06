@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { schema } from "../examples/blog/schema.js";
+import { defineSchema, table, serial, text } from "neoorm/schema";
 import type { Executor } from "../src/runtime/executor.js";
-import { createManyAndReturnRecords } from "../src/runtime/query/create.js";
+import { createManyAndReturnRecords, createManyRecords } from "../src/runtime/query/create.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 
 function createMockExecutor(
@@ -20,6 +21,13 @@ function createMockExecutor(
     transaction: vi.fn(async (fn) => fn(createMockExecutor(rows))),
   };
 }
+
+const serialSchema = defineSchema({
+  logs: table("logs", {
+    id: serial().primary(),
+    message: text().notNull(),
+  }),
+});
 
 describe("createManyAndReturn", () => {
   const manifest = schemaToManifest(schema);
@@ -48,6 +56,32 @@ describe("createManyAndReturn", () => {
     const executor = createMockExecutor([]);
     const rows = await createManyAndReturnRecords(executor, runtime, "users", { data: [] });
     expect(rows).toEqual([]);
+    expect(executor.query).not.toHaveBeenCalled();
+  });
+
+  it("returns empty array for empty objects on a serial-only table", async () => {
+    const serialManifest = schemaToManifest(serialSchema);
+    const serialRuntime: QueryRuntime = { manifest: serialManifest };
+    const executor = createMockExecutor([]);
+
+    const rows = await createManyAndReturnRecords(executor, serialRuntime, "logs", {
+      data: [{}],
+    });
+
+    expect(rows).toEqual([]);
+    expect(executor.query).not.toHaveBeenCalled();
+  });
+
+  it("createMany returns 0 for empty objects on a serial-only table", async () => {
+    const serialManifest = schemaToManifest(serialSchema);
+    const serialRuntime: QueryRuntime = { manifest: serialManifest };
+    const executor = createMockExecutor([]);
+
+    const count = await createManyRecords(executor, serialRuntime, "logs", {
+      data: [{}],
+    });
+
+    expect(count).toBe(0);
     expect(executor.query).not.toHaveBeenCalled();
   });
 });
