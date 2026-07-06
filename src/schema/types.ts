@@ -269,3 +269,17 @@ export type UpsertArgs<
 	update: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
 };
+
+export type FindOrCreateArgs<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = {
+	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	create: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	with?: WithInputMap<TSchema, TAccessor>;
+};
+
+export type FindOrCreateResult<TRow> = {
+	record: TRow;
+	created: boolean;
+};

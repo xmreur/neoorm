@@ -72,6 +72,20 @@ await db.users.upsert({
 });
 ```
 
+## Find or create
+
+Atomically insert a row or return an existing one when a unique constraint matches. Unlike `upsert`, existing rows are never updated.
+
+`where` must identify a unique constraint (same rules as `findUnique` and `upsert`).
+
+```ts
+const { record, created } = await db.tags.findOrCreate({
+  where: { slug: "orm" },
+  create: { slug: "orm", name: "ORM" },
+});
+// created: true if a new row was inserted, false if an existing row was returned
+```
+
 ## Where clauses
 
 ### Column filters

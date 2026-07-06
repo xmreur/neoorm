@@ -98,6 +98,35 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(Array.isArray(post["tags"])).toBe(true);
 	});
 
+	it("findOrCreate inserts then returns existing row", async () => {
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<
+			typeof schema._tables,
+			NeoOrmIncludes,
+			NeoOrmRowPayloads
+		>(manifest, pool);
+
+		const slug = `find-or-create-${Date.now()}`;
+
+		const first = await db.tags.findOrCreate({
+			where: { slug },
+			create: { slug, name: "Find or create" },
+		});
+
+		expect(first.created).toBe(true);
+		expect(first.record["slug"]).toBe(slug);
+
+		const second = await db.tags.findOrCreate({
+			where: { slug },
+			create: { slug, name: "Should not apply" },
+		});
+
+		expect(second.created).toBe(false);
+		expect(second.record["id"]).toBe(first.record["id"]);
+		expect(second.record["slug"]).toBe(slug);
+		expect(second.record["name"]).toBe("Find or create");
+	});
+
 	it("update with nested create, M2M set, and relation-only writes", async () => {
 		const manifest = schemaToManifest(schema);
 		const db = createNeoOrmClientFromPool<

@@ -27,7 +27,7 @@ export type RunQueryContext = {
 };
 
 type InsertUpsertContext = RunQueryContext & {
-	operation: "insert" | "upsert";
+	operation: "insert" | "upsert" | "findOrCreate";
 	tableAccessor: string;
 };
 
@@ -140,7 +140,9 @@ export async function runQueryOne<T = Record<string, unknown>>(
 		const row = await executor.queryOne<T>(sql, params);
 		if (
 			row === null &&
-			(ctx.operation === "insert" || ctx.operation === "upsert") &&
+			(ctx.operation === "insert" ||
+				ctx.operation === "upsert" ||
+				ctx.operation === "findOrCreate") &&
 			ctx.tableAccessor
 		) {
 			await throwQueryError(

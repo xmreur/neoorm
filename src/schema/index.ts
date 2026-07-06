@@ -75,6 +75,8 @@ export type {
 	FindByIdArgs,
 	FindFirstArgs,
 	FindManyArgs,
+	FindOrCreateArgs,
+	FindOrCreateResult,
 	FindUniqueArgs,
 	InferAggregateResult,
 	InferInsertRow,

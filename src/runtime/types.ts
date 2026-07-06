@@ -9,6 +9,8 @@ import type {
 	DeleteManyArgs,
 	FindFirstArgs,
 	FindManyArgs,
+	FindOrCreateArgs,
+	FindOrCreateResult,
 	FindUniqueArgs,
 	InferAggregateResult,
 	InferWithResult,
@@ -70,6 +72,14 @@ export type UpsertArgsWith<
 	TAccessor extends keyof TSchema & string,
 	TWith,
 > = Omit<UpsertArgs<TSchema, TAccessor>, "with"> & {
+	with?: TWith;
+};
+
+export type FindOrCreateArgsWith<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	TWith,
+> = Omit<FindOrCreateArgs<TSchema, TAccessor>, "with"> & {
 	with?: TWith;
 };
 
@@ -175,6 +185,13 @@ export type TypedTableRepository<
 	upsert<W extends TWith | undefined = undefined>(
 		args: UpsertArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload>>;
+	findOrCreate<W extends TWith | undefined = undefined>(
+		args: FindOrCreateArgsWith<TSchema, TAccessor, W>,
+	): Promise<
+		FindOrCreateResult<
+			InferWithResult<TSchema, TAccessor, W, TRowPayload>
+		>
+	>;
 	update<W extends TWith | undefined = undefined>(
 		args: UpdateArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;

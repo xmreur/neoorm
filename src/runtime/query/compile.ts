@@ -652,6 +652,45 @@ export function buildUpsertQuery(
 	return `INSERT INTO ${tableRef(table)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${allUpdateSets.join(", ")} RETURNING ${selectCols}`;
 }
 
+export const FIND_OR_CREATE_FLAG = "__neoorm_created";
+
+export function buildFindOrCreateQuery(
+	table: ManifestTable,
+	insertKeys: string[],
+	conflictSqlColumns: readonly string[],
+	fallbackWhereBody: string,
+): string {
+	const insertCols = insertKeys.map((k) => {
+		const col = table.columns.find((c) => c.tsName === k);
+		return quoteIdentifier(col?.sqlName ?? k);
+	});
+	const insertPlaceholders = insertKeys
+		.map((k, i) => {
+			const col = table.columns.find((c) => c.tsName === k);
+			return buildValuePlaceholder(col, i + 1);
+		})
+		.join(", ");
+	const selectCols = buildSelectColumns(table);
+	const conflictCols = conflictSqlColumns
+		.map((c) => quoteIdentifier(c))
+		.join(", ");
+	const tableSql = tableRef(table);
+	const fallbackClause = fallbackWhereBody
+		? ` AND (${fallbackWhereBody})`
+		: "";
+
+	return `WITH ins AS (
+  INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders})
+  ON CONFLICT (${conflictCols}) DO NOTHING
+  RETURNING ${selectCols}
+)
+SELECT ${selectCols}, true AS "${FIND_OR_CREATE_FLAG}" FROM ins
+UNION ALL
+SELECT ${selectCols}, false AS "${FIND_OR_CREATE_FLAG}" FROM ${tableSql} t
+WHERE NOT EXISTS (SELECT 1 FROM ins)${fallbackClause}
+LIMIT 1`;
+}
+
 export function buildInsertQuery(
 	table: ManifestTable,
 	dataKeys: string[],

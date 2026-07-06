@@ -6,9 +6,10 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
-import { buildInsertQuery, dataToSqlValues, rowToTs } from "./compile.js";
+import { buildInsertQuery, dataToSqlValues } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import type { WithInput } from "./find.js";
+import { findOrCreatePk } from "./find-or-create.js";
 import {
 	findM2M,
 	findRelation,
@@ -123,58 +124,11 @@ export async function resolveConnectOrCreate(
 		create: Record<string, unknown>;
 	}>,
 ): Promise<string[]> {
-	const { manifest } = runtime;
 	const ids: string[] = [];
-	const targetTable = manifest.tables[targetAccessor];
-	if (!targetTable) throw new Error(`Unknown table: ${targetAccessor}`);
-
-	const pkSql = quoteIdentifier(primaryKeySqlName(targetTable));
-
 	for (const item of items) {
-		const whereKey = Object.keys(item.where)[0];
-		if (!whereKey) continue;
-		const whereVal = item.where[whereKey];
-
-		if (whereVal !== undefined) {
-			const col = targetTable.columns.find((c) => c.tsName === whereKey);
-			const sqlCol = col
-				? quoteIdentifier(col.sqlName)
-				: quoteIdentifier(whereKey);
-			const existing = await runQueryOne(
-				executor,
-				runtime,
-				{ operation: "select", tableAccessor: targetAccessor },
-				`SELECT ${pkSql} FROM ${tableRef(targetTable)} WHERE ${sqlCol} = $1 LIMIT 1`,
-				[whereVal],
-			);
-
-			if (existing) {
-				ids.push(
-					rowScalarPkValue(
-						rowToTs(targetTable, existing),
-						targetTable,
-					),
-				);
-				continue;
-			}
-		}
-
-		const createData = { ...item.create };
-		fillMissingPrimaryKeys(targetTable, createData);
-
-		const { keys, values } = dataToSqlValues(targetTable, createData);
-		const sql = buildInsertQuery(targetTable, keys);
-		const row = await runQueryOne(
-			executor,
-			runtime,
-			{ operation: "insert", tableAccessor: targetAccessor },
-			sql,
-			values,
-		);
-		if (row)
-			ids.push(rowScalarPkValue(rowToTs(targetTable, row), targetTable));
+		const id = await findOrCreatePk(executor, runtime, targetAccessor, item);
+		ids.push(id);
 	}
-
 	return ids;
 }
 
