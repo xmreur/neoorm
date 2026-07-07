@@ -57,7 +57,7 @@ export type TableRepository = {
 		with?: Record<string, WithInput>;
 	}): Promise<Record<string, unknown> | null>;
 	findById(
-		id: string,
+		id: string | Record<string, unknown>,
 		args?: { with?: Record<string, WithInput> },
 	): Promise<Record<string, unknown> | null>;
 	create(args: {
@@ -89,7 +89,7 @@ export type TableRepository = {
 		data: Record<string, unknown>;
 	}): Promise<number>;
 	updateById(
-		id: string,
+		id: string | Record<string, unknown>,
 		args: {
 			data: Record<string, unknown>;
 			with?: Record<string, WithInput>;
@@ -109,7 +109,7 @@ export type TableRepository = {
 		_min?: Record<string, true>;
 		_max?: Record<string, true>;
 	}): Promise<Record<string, unknown>>;
-	deleteById(id: string): Promise<Record<string, unknown> | null>;
+	deleteById(id: string | Record<string, unknown>): Promise<Record<string, unknown> | null>;
 	paginate(args: {
 		where?: Record<string, unknown>;
 		orderBy: Record<string, string>;

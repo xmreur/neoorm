@@ -8,7 +8,7 @@ import {
 } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
-import { primaryKeySqlName, requireScalarPrimaryKey } from "./primary-key.js";
+import { primaryKeySqlName, requireScalarPrimaryKey, resolvePkWhere } from "./primary-key.js";
 
 export async function deleteRecord(
 	executor: Executor,
@@ -95,14 +95,14 @@ export async function deleteById(
 	executor: Executor,
 	runtime: QueryRuntime,
 	tableAccessor: string,
-	id: string,
+	id: string | Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { tsName } = requireScalarPrimaryKey(table, "deleteById");
+	const where = resolvePkWhere(table, id);
 	return deleteRecord(executor, runtime, tableAccessor, {
-		where: { [tsName]: id },
+		where,
 	});
 }

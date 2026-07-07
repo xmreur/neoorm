@@ -172,7 +172,7 @@ export type TypedTableRepository<
 		args: FindUniqueArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	findById<W extends TWith | undefined = undefined>(
-		id: string,
+		id: string | Record<string, unknown>,
 		args?: FindByIdArgsWith<W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	create<W extends TWith | undefined = undefined>(
@@ -197,7 +197,7 @@ export type TypedTableRepository<
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	updateMany(args: UpdateManyArgs<TSchema, TAccessor>): Promise<number>;
 	updateById<W extends TWith | undefined = undefined>(
-		id: string,
+		id: string | Record<string, unknown>,
 		args: {
 			data: UpdateInput<
 				TSchema[TAccessor]["_columns"],
@@ -215,7 +215,7 @@ export type TypedTableRepository<
 	aggregate<TArgs extends AggregateArgs<TSchema, TAccessor>>(
 		args: TArgs,
 	): Promise<InferAggregateResult<TArgs>>;
-	deleteById(id: string): Promise<TRowPayload | null>;
+	deleteById(id: string | Record<string, unknown>): Promise<TRowPayload | null>;
 	paginate<
 		TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 		W extends TWith | undefined = undefined,

@@ -129,7 +129,7 @@ describe("manifest-driven primary keys", () => {
 		);
 	});
 
-	it("points findById users to findFirst for composite PK tables", async () => {
+	it("rejects string id for composite PK tables in findById", async () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
 		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
 		const executor = createMockExecutor();
@@ -137,11 +137,37 @@ describe("manifest-driven primary keys", () => {
 		await expect(
 			findById(executor, compositeRuntime, "items", "item_1"),
 		).rejects.toThrow(
-			'findById requires a single-column primary key on table "items". For composite primary keys, use findFirst({ where: ... }) instead.',
+			'Table "items" has a composite primary key. Pass an object with PK columns (tenantId, itemCode) instead of a string.',
 		);
 	});
 
-	it("points updateById users to update for composite PK tables", async () => {
+	it("accepts object id for composite PK in findById", async () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
+		const executor = createMockExecutor();
+
+		const result = await findById(executor, compositeRuntime, "items", {
+			tenantId: "t1",
+			itemCode: "c1",
+		});
+		expect(result).toBeNull();
+	});
+
+	it("rejects missing PK columns in object id for findById", async () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
+		const executor = createMockExecutor();
+
+		await expect(
+			findById(executor, compositeRuntime, "items", {
+				tenantId: "t1",
+			}),
+		).rejects.toThrow(
+			'Missing primary key column "itemCode" for table "items"',
+		);
+	});
+
+	it("rejects string id for composite PK in updateById", async () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
 		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
 		const executor = createMockExecutor();
@@ -151,11 +177,11 @@ describe("manifest-driven primary keys", () => {
 				data: { name: "Updated" },
 			}),
 		).rejects.toThrow(
-			'updateById requires a single-column primary key on table "items". For composite primary keys, use update({ where: ..., data: ... }) instead.',
+			'Table "items" has a composite primary key. Pass an object with PK columns (tenantId, itemCode) instead of a string.',
 		);
 	});
 
-	it("points deleteById users to delete for composite PK tables", async () => {
+	it("rejects string id for composite PK in deleteById", async () => {
 		const compositeManifest = schemaToManifest(compositePkSchema);
 		const compositeRuntime: QueryRuntime = { manifest: compositeManifest };
 		const executor = createMockExecutor();
@@ -163,7 +189,7 @@ describe("manifest-driven primary keys", () => {
 		await expect(
 			deleteById(executor, compositeRuntime, "items", "item_1"),
 		).rejects.toThrow(
-			'deleteById requires a single-column primary key on table "items". For composite primary keys, use delete({ where: ... }) instead.',
+			'Table "items" has a composite primary key. Pass an object with PK columns (tenantId, itemCode) instead of a string.',
 		);
 	});
 

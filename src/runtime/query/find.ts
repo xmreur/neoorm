@@ -27,6 +27,7 @@ import {
 import {
 	primaryKeyTsNames,
 	requireScalarPrimaryKey,
+	resolvePkWhere,
 	rowPkKey,
 	targetRelationPkSql,
 } from "./primary-key.js";
@@ -585,17 +586,16 @@ export async function findById(
 	executor: Executor,
 	runtime: QueryRuntime,
 	tableAccessor: string,
-	id: string,
+	id: string | Record<string, unknown>,
 	args?: { with?: Record<string, WithInput> },
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { tsName } = requireScalarPrimaryKey(table, "findById");
-
+	const where = resolvePkWhere(table, id);
 	const findArgs: Parameters<typeof findMany>[3] = {
-		where: { [tsName]: id },
+		where,
 		limit: 1,
 	};
 	if (args?.with !== undefined) {
