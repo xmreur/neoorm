@@ -203,7 +203,30 @@ await db.users.findMany({
 });
 ```
 
-## Selective `with` return types
+## Eager loading with `with`
+
+Relations are eagerly loaded in `findMany`, `findFirst`, and `findById` via the `with` option.
+
+### Strategy
+
+NeoORM uses two loading strategies:
+
+- **LEFT JOIN** — to-one relations where the parent table owns the foreign key are resolved in the main query via a single `LEFT JOIN`. No additional round-trips.
+- **Batch query** — to-many, inverse to-one, and many-to-many relations are fetched in separate `WHERE IN (...)` queries (one per relation level). Nested `with` on a to-one relation also falls back to batch loading.
+
+This means the total number of queries equals `1 (main) + number of to-many / M2M / inverse-to-one relation levels`.
+
+```ts
+// Single query — author is resolved via LEFT JOIN
+const posts = await db.posts.findMany({ with: { author: true } });
+
+// Two queries — author via JOIN, comments via batch
+const posts = await db.posts.findMany({
+  with: { author: true, comments: { with: { author: true } } },
+});
+```
+
+### Selective return types
 
 Relation `select` narrows the TypeScript return type at compile time:
 

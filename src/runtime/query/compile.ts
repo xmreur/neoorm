@@ -520,6 +520,8 @@ export function buildFindManyQuery(
 	limit?: number,
 	offset?: number,
 	distinctOn?: readonly string[],
+	extraSelectCols?: string[],
+	joinClauses?: string[],
 ): string {
 	const selectCols = buildSelectColumns(table);
 	let sql = "SELECT ";
@@ -531,7 +533,17 @@ export function buildFindManyQuery(
 			.join(", ");
 		sql += `DISTINCT ON (${distinctCols}) `;
 	}
-	sql += `${selectCols} FROM ${tableRef(table)}`;
+	sql += selectCols;
+
+	if (extraSelectCols && extraSelectCols.length > 0) {
+		sql += `, ${extraSelectCols.join(", ")}`;
+	}
+
+	sql += ` FROM ${tableRef(table)}`;
+
+	if (joinClauses && joinClauses.length > 0) {
+		sql += ` ${joinClauses.join(" ")}`;
+	}
 
 	if (whereSql) sql += ` ${whereSql}`;
 	if (orderSql) sql += ` ${orderSql}`;

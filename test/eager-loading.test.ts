@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { loadRelations } from "../src/runtime/query/find.js";
+import { findMany, loadRelations } from "../src/runtime/query/find.js";
 import { atIndex, manifestTable } from "./helpers/manifest.js";
 
 const eagerLoadingSchema = defineSchema({
@@ -141,6 +141,150 @@ describe("eager loading batching", () => {
 			id: "user_1",
 			name: "Alice",
 		});
+	});
+
+	it("resolves to-one relation via LEFT JOIN in findMany (zero batch queries)", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("LEFT JOIN");
+				expect(sql).toContain("__author");
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: "user_1",
+						"__author__id": "user_1",
+						"__author__name": "Alice",
+					},
+					{
+						id: "post_2",
+						title: "Post B",
+						author_id: "user_2",
+						"__author__id": "user_2",
+						"__author__name": "Bob",
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { author: true },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		const query = atIndex(executor.queries, 0);
+		expect(query.sql).toContain('LEFT JOIN "users" AS "__author"');
+		expect(query.sql).toContain('"__author"."id" = "posts"."author_id"');
+		expect(query.sql).toContain('"__author__id"');
+		expect(query.sql).toContain('"__author__name"');
+
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.author).toEqual({
+			id: "user_1",
+			name: "Alice",
+		});
+		expect(rows[1]?.author).toEqual({
+			id: "user_2",
+			name: "Bob",
+		});
+	});
+
+	it("uses JOIN for to-one and batch for to-many (2 queries total)", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				if (sql.includes("LEFT JOIN")) {
+					return [
+						{
+							id: "post_1",
+							title: "Post A",
+							author_id: "user_1",
+							"__author__id": "user_1",
+							"__author__name": "Alice",
+						},
+						{
+							id: "post_2",
+							title: "Post B",
+							author_id: "user_2",
+							"__author__id": "user_2",
+							"__author__name": "Bob",
+						},
+					];
+				}
+				if (sql.includes("comments") && sql.includes("IN")) {
+					return [
+						{
+							id: "comment_1",
+							post_id: "post_1",
+							author_id: "user_1",
+							body: "Nice",
+						},
+					];
+				}
+				return [];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { author: true, comments: true },
+		});
+
+		expect(executor.queries).toHaveLength(2);
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.author).toEqual({ id: "user_1", name: "Alice" });
+	});
+
+	it("sets relation to null when FK is null", async () => {
+		const executor = createMockExecutor({
+			query: () => {
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: null,
+						"__author__id": null,
+						"__author__name": null,
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { author: true },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.author).toBeNull();
+	});
+
+	it("does not JOIN when relation has nested with (falls back to batch)", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				if (sql.includes("posts") && !sql.includes("LEFT JOIN")) {
+					return [
+						{
+							id: "post_1",
+							title: "Post A",
+							author_id: "user_1",
+						},
+					];
+				}
+				if (sql.includes("users") && sql.includes("IN")) {
+					return [
+						{ id: "user_1", name: "Alice" },
+					];
+				}
+				return [];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { author: { with: {} } },
+		});
+
+		expect(executor.queries).toHaveLength(2);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.author).toEqual({ id: "user_1", name: "Alice" });
 	});
 
 	it("batches deeper nested eager loads with one query per relation level", async () => {
