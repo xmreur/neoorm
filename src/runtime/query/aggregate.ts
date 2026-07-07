@@ -14,7 +14,7 @@ function parseAggregateRow(
 	const result: Record<string, unknown> = {};
 
 	if (selectors._count) {
-		result["_count"] = row["_count"] ?? 0;
+		result["_count"] = row["__count"] ?? 0;
 	}
 
 	for (const key of ["_avg", "_sum", "_min", "_max"] as const) {
