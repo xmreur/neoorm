@@ -30,22 +30,8 @@ export function primaryKeySqlName(table: ManifestTable, index = 0): string {
 export type ScalarPrimaryKeyOperation =
 	| "findById"
 	| "updateById"
-	| "deleteById";
-
-function compositePkAlternative(operation: ScalarPrimaryKeyOperation): string {
-	switch (operation) {
-		case "findById":
-			return "findFirst({ where: ... })";
-		case "updateById":
-			return "update({ where: ..., data: ... })";
-		case "deleteById":
-			return "delete({ where: ... })";
-		default: {
-			const _exhaustive: never = operation;
-			return _exhaustive;
-		}
-	}
-}
+	| "deleteById"
+	| "cursorPaginate";
 
 export function requireScalarPrimaryKey(
 	table: ManifestTable,
@@ -55,11 +41,6 @@ export function requireScalarPrimaryKey(
 	sqlName: string;
 } {
 	if (table.primaryKey.length !== 1) {
-		if (operation) {
-			throw new Error(
-				`${operation} requires a single-column primary key on table "${table.accessor}". For composite primary keys, use ${compositePkAlternative(operation)} instead.`,
-			);
-		}
 		throw new Error(
 			`Operation requires a single-column primary key on table "${table.accessor}"`,
 		);
@@ -83,12 +64,41 @@ export function rowScalarPkValue(
 	row: Record<string, unknown>,
 	table: ManifestTable,
 ): string {
-	const { tsName } = requireScalarPrimaryKey(table);
-	const val = row[tsName];
-	if (val == null) {
-		throw new Error(`Missing primary key "${tsName}" on row`);
+	if (table.primaryKey.length === 1) {
+		const { tsName } = requireScalarPrimaryKey(table);
+		const val = row[tsName];
+		if (val == null) {
+			throw new Error(`Missing primary key "${tsName}" on row`);
+		}
+		return String(val);
 	}
-	return String(val);
+	return rowPkKey(row, table);
+}
+
+export function resolvePkWhere(
+	table: ManifestTable,
+	id: string | Record<string, unknown>,
+): Record<string, unknown> {
+	if (typeof id === "object" && id !== null) {
+		const pkTsNames = primaryKeyTsNames(table);
+		for (const tsName of pkTsNames) {
+			if (!(tsName in id)) {
+				throw new Error(
+					`Missing primary key column "${tsName}" for table "${table.accessor}". The object must include all PK columns: ${pkTsNames.join(", ")}`,
+				);
+			}
+		}
+		return id;
+	}
+
+	if (table.primaryKey.length !== 1) {
+		throw new Error(
+			`Table "${table.accessor}" has a composite primary key. Pass an object with PK columns (${primaryKeyTsNames(table).join(", ")}) instead of a string.`,
+		);
+	}
+
+	const { tsName } = requireScalarPrimaryKey(table);
+	return { [tsName]: id };
 }
 
 export function rowPkKey(

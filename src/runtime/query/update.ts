@@ -17,6 +17,7 @@ import { loadRelations, type WithInput } from "./find.js";
 import {
 	primaryKeySqlName,
 	requireScalarPrimaryKey,
+	resolvePkWhere,
 	rowScalarPkValue,
 } from "./primary-key.js";
 import {
@@ -319,7 +320,7 @@ export async function updateById(
 	executor: Executor,
 	runtime: QueryRuntime,
 	tableAccessor: string,
-	id: string,
+	id: string | Record<string, unknown>,
 	args: {
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
@@ -329,9 +330,9 @@ export async function updateById(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { tsName } = requireScalarPrimaryKey(table, "updateById");
+	const where = resolvePkWhere(table, id);
 	return updateRecord(executor, runtime, tableAccessor, {
-		where: { [tsName]: id },
+		where,
 		data: args.data,
 		...(args.with !== undefined ? { with: args.with } : {}),
 	});

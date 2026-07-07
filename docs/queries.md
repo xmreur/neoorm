@@ -3,8 +3,11 @@
 ## Find
 
 ```ts
-// By ID (requires single-column primary key)
+// By ID (scalar primary key — pass a string)
 const user = await db.users.findById(id);
+
+// By composite primary key — pass an object with all PK columns
+const item = await db.items.findById({ tenantId: "t1", itemCode: "c1" });
 
 // First match (null if not found)
 const user = await db.users.findFirst({ where: { email: "a@b.com" } });
@@ -41,8 +44,12 @@ const user = await db.users.update({
   data: { email: "new@b.com" },
 });
 
-// By ID
+// By ID (scalar PK — string; composite PK — object)
 const user = await db.users.updateById(id, { data: { name: "New" } });
+const item = await db.items.updateById(
+  { tenantId: "t1", itemCode: "c1" },
+  { data: { name: "Updated" } },
+);
 
 // Multiple records
 const count = await db.users.updateMany({
@@ -55,7 +62,12 @@ const count = await db.users.updateMany({
 
 ```ts
 await db.users.delete({ where: { id: userId } });
+
+// Scalar PK — pass a string
 await db.users.deleteById(userId);
+
+// Composite PK — pass an object
+await db.items.deleteById({ tenantId: "t1", itemCode: "c1" });
 
 const count = await db.users.deleteMany({
   where: { email: { contains: "@spam" } },

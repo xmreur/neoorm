@@ -90,6 +90,9 @@ export type ScalarPkName<TColumns extends Record<string, ColumnDef>> = {
 		: never;
 }[keyof TColumns & string];
 
+export type PrimaryKeyColumns<TColumns extends Record<string, ColumnDef>> =
+	ScalarPkName<TColumns>;
+
 export type CursorInput<
 	TColumns extends Record<string, ColumnDef>,
 	TOrderBy extends OrderByInput<TColumns>,
