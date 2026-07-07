@@ -586,7 +586,7 @@ export function buildAggregateQuery(
 	const parts: string[] = [];
 
 	if (selectors._count) {
-		parts.push('COUNT(*)::int AS "_count"');
+		parts.push('COUNT(*)::int AS "__count"');
 	}
 
 	for (const colName of Object.keys(selectors._avg ?? {})) {

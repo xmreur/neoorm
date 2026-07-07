@@ -31,7 +31,7 @@ describe("aggregate SQL", () => {
 			'WHERE "published" = $1',
 		);
 
-		expect(sql).toContain('COUNT(*)::int AS "_count"');
+		expect(sql).toContain('COUNT(*)::int AS "__count"');
 		expect(sql).toContain('AVG("views") AS "_avg_views"');
 		expect(sql).toContain('WHERE "published" = $1');
 	});
