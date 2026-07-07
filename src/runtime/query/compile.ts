@@ -135,6 +135,14 @@ function compileColumnCondition(
 			);
 			continue;
 		}
+		if (Array.isArray(value) && value.length === 0) {
+			if (operator === "in") {
+				conditions.push("1=0");
+			} else if (operator === "notIn") {
+				conditions.push("1=1");
+			}
+			continue;
+		}
 		const transform = operatorParamTransform[operator];
 		const paramValue =
 			operator === "in" || operator === "notIn"
