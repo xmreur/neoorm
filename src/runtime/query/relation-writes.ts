@@ -72,10 +72,13 @@ function isRelationField(
 function normalizeIdList(value: unknown): string[] {
 	if (!value) return [];
 	if (Array.isArray(value)) {
-		return value.map((item) => String((item as { id: string }).id));
+		return value
+			.map((item) => (item as { id?: string }).id)
+			.filter((id): id is string => id != null);
 	}
 	if (typeof value === "object" && "id" in value) {
-		return [String((value as { id: string }).id)];
+		const id = (value as { id?: string }).id;
+		return id != null ? [id] : [];
 	}
 	return [];
 }
