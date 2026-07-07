@@ -493,6 +493,106 @@ async function loadM2MRelation(
 	}
 }
 
+function buildJoinClauses(
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	withSpec: Record<string, WithInput> | undefined,
+): { joins: string[]; selectCols: string[]; joinedRelations: Set<string> } {
+	const joins: string[] = [];
+	const selectCols: string[] = [];
+	const joinedRelations = new Set<string>();
+
+	if (!withSpec) return { joins, selectCols, joinedRelations };
+
+	for (const [relationName, spec] of Object.entries(withSpec)) {
+		if (relationName === "_count") continue;
+
+		const relation = findRelation(parentTable, relationName);
+		if (!relation) continue;
+
+		if (relation.cardinality !== "one") continue;
+		if (!tableOwnsFkColumn(parentTable, relation)) continue;
+
+		const m2m = findM2M(manifest, parentTable.accessor, relationName);
+		if (m2m) continue;
+
+		const nestedSpec = typeof spec === "object" ? spec : undefined;
+		if (nestedSpec?.with) continue;
+
+		const targetTable = manifest.tables[relation.targetAccessor];
+		if (!targetTable) continue;
+
+		const alias = `__${relationName}`;
+		const parentFkCol = quoteIdentifier(relation.fkSqlColumn);
+		const targetPkCol = quoteIdentifier(
+			targetRelationPkSql(targetTable, relation),
+		);
+		const onClause = `${quoteIdentifier(alias)}.${targetPkCol} = ${tableRef(parentTable)}.${parentFkCol}`;
+
+		joins.push(
+			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(alias)} ON ${onClause}`,
+		);
+
+		const selectKeys = nestedSpec?.select
+			? normalizeSelectColumns(nestedSpec.select)
+			: undefined;
+
+		const targetCols =
+			selectKeys && selectKeys.length > 0
+				? targetTable.columns.filter((c) =>
+						selectKeys.includes(c.tsName),
+					)
+				: targetTable.columns;
+
+		for (const col of targetCols) {
+			const prefixedName = `__${relationName}__${col.sqlName}`;
+			selectCols.push(
+				`${quoteIdentifier(alias)}.${quoteIdentifier(col.sqlName)} AS ${quoteIdentifier(prefixedName)}`,
+			);
+		}
+
+		joinedRelations.add(relationName);
+	}
+
+	return { joins, selectCols, joinedRelations };
+}
+
+function extractJoinedRelations(
+	row: Record<string, unknown>,
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	joinedRelations: Set<string>,
+): Record<string, unknown> {
+	const relations: Record<string, unknown> = {};
+
+	for (const relationName of joinedRelations) {
+		const relation = findRelation(parentTable, relationName);
+		if (!relation) continue;
+		const targetTable = manifest.tables[relation.targetAccessor];
+		if (!targetTable) continue;
+
+		const prefix = `__${relationName}__`;
+		const prefixedKeys = Object.keys(row).filter((k) =>
+			k.startsWith(prefix),
+		);
+
+		if (prefixedKeys.length === 0) continue;
+
+		const allNull = prefixedKeys.every((k) => row[k] == null);
+		if (allNull) {
+			relations[relationName] = null;
+		} else {
+			const raw: Record<string, unknown> = {};
+			for (const key of prefixedKeys) {
+				raw[key.slice(prefix.length)] = row[key];
+			}
+			relations[relationName] = rowToTs(targetTable, raw);
+		}
+	}
+
+	return relations;
+}
+
 export async function loadRelations(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -549,6 +649,17 @@ export async function findMany(
 		postgresDialect,
 	);
 	const orderSql = compileOrderBy(table, args?.orderBy);
+
+	const { relationWith, countSpec } = args?.with
+		? splitWithSpec(args.with)
+		: { relationWith: {} as Record<string, WithInput> };
+
+	const { joins, selectCols, joinedRelations } = buildJoinClauses(
+		manifest,
+		table,
+		relationWith,
+	);
+
 	const query = buildFindManyQuery(
 		table,
 		whereSql,
@@ -556,6 +667,8 @@ export async function findMany(
 		args?.limit,
 		args?.offset,
 		distinctOn,
+		selectCols.length > 0 ? selectCols : undefined,
+		joins.length > 0 ? joins : undefined,
 	);
 
 	const rows = await runQuery(
@@ -565,8 +678,41 @@ export async function findMany(
 		query,
 		params,
 	);
-	const mapped = rowsToTs(table, rows);
-	return loadRelations(executor, runtime, table, mapped, args?.with);
+
+	let resultRows: Record<string, unknown>[];
+	if (joinedRelations.size > 0) {
+		resultRows = rows.map((rawRow) => {
+			const relations = extractJoinedRelations(
+				rawRow,
+				manifest,
+				table,
+				joinedRelations,
+			);
+			return { ...rowToTs(table, rawRow), ...relations };
+		});
+	} else {
+		resultRows = rowsToTs(table, rows);
+	}
+
+	const remainingWith: Record<string, WithInput> = {};
+	for (const [key, spec] of Object.entries(relationWith)) {
+		if (!joinedRelations.has(key)) {
+			remainingWith[key] = spec;
+		}
+	}
+	if (countSpec) {
+		remainingWith._count = countSpec as WithInput;
+	}
+
+	await loadRelations(
+		executor,
+		runtime,
+		table,
+		resultRows,
+		Object.keys(remainingWith).length > 0 ? remainingWith : undefined,
+	);
+
+	return resultRows;
 }
 
 export async function findFirst(
