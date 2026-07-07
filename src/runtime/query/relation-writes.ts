@@ -56,7 +56,9 @@ function isRelationWriteObject(
 ): value is Record<string, unknown> {
 	if (!value || typeof value !== "object" || Array.isArray(value))
 		return false;
-	return RELATION_WRITE_KEYS.some((key) => key in value);
+	const keys = Object.keys(value);
+	if (keys.length === 0) return false;
+	return keys.every((k) => (RELATION_WRITE_KEYS as readonly string[]).includes(k));
 }
 
 function isRelationField(
