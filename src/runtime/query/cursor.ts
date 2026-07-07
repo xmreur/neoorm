@@ -128,7 +128,9 @@ export function mergeWhereWithCursor(
 		return { sql: `WHERE ${cursorWhere.sql}`, params: cursorWhere.params };
 	}
 
-	const userBody = userWhereSql.replace(/^WHERE\s+/i, "");
+	const userBody = userWhereSql.startsWith("WHERE ")
+		? userWhereSql.slice(6)
+		: userWhereSql;
 	return {
 		sql: `WHERE ${userBody} AND ${cursorWhere.sql}`,
 		params: [...userParams, ...cursorWhere.params],
