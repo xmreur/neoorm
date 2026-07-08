@@ -14,11 +14,14 @@ import {
 	isSchemaDriftPgCode,
 } from "../pg-error.js";
 
+import type { ManifestIndex } from "./table-index.js";
+
 export type QueryRuntime = {
 	manifest: Manifest;
 	schema?: string;
 	pool?: Pool;
 	migrationsDir?: string;
+	tableIndex?: ManifestIndex;
 };
 
 export type RunQueryContext = {
@@ -102,6 +105,28 @@ export async function runQuery<T = Record<string, unknown>>(
 ): Promise<T[]> {
 	try {
 		return await executor.query<T>(sql, params);
+	} catch (err) {
+		if (isPgError(err)) {
+			const enriched = enrichPgError(
+				err,
+				runtime.manifest,
+				queryBaseContext(ctx, sql),
+			);
+			await throwQueryError(runtime, enriched, err);
+		}
+		throw err;
+	}
+}
+
+export async function runExecute<T = Record<string, unknown>>(
+	executor: Executor,
+	runtime: QueryRuntime,
+	ctx: RunQueryContext,
+	sql: string,
+	params: unknown[] = [],
+): Promise<{ rows: T[]; rowCount: number }> {
+	try {
+		return await executor.execute<T>(sql, params);
 	} catch (err) {
 		if (isPgError(err)) {
 			const enriched = enrichPgError(

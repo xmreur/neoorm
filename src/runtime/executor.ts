@@ -2,6 +2,11 @@ import type { Pool, PoolClient, QueryResult } from "pg";
 import type { CompiledQuery } from "../dialect/types.js";
 import type { TransactionOptions } from "./types.js";
 
+export type ExecuteResult<T = Record<string, unknown>> = {
+	rows: T[];
+	rowCount: number;
+};
+
 export type Executor = {
 	readonly inTransaction?: boolean;
 	query<T = Record<string, unknown>>(
@@ -12,6 +17,10 @@ export type Executor = {
 		text: string,
 		params?: unknown[],
 	): Promise<T | null>;
+	execute<T = Record<string, unknown>>(
+		text: string,
+		params?: unknown[],
+	): Promise<ExecuteResult<T>>;
 	transaction<T>(
 		fn: (tx: Executor) => Promise<T>,
 		options?: TransactionOptions,
@@ -46,6 +55,15 @@ export function buildBeginSql(options?: TransactionOptions): string {
 
 function rowsFromResult(result: QueryResult): Record<string, unknown>[] {
 	return result.rows as Record<string, unknown>[];
+}
+
+function executeFromResult<T = Record<string, unknown>>(
+	result: QueryResult,
+): ExecuteResult<T> {
+	return {
+		rows: rowsFromResult(result) as T[],
+		rowCount: result.rowCount ?? 0,
+	};
 }
 
 type TransactionState = {
@@ -85,6 +103,14 @@ export function createExecutor(pool: Pool): Executor {
 			const result = await pool.query(text, params);
 			const rows = rowsFromResult(result);
 			return (rows[0] as T | undefined) ?? null;
+		},
+
+		async execute<T = Record<string, unknown>>(
+			text: string,
+			params: unknown[] = [],
+		): Promise<ExecuteResult<T>> {
+			const result = await pool.query(text, params);
+			return executeFromResult<T>(result);
 		},
 
 		async transaction<T>(
@@ -130,6 +156,14 @@ function createClientExecutor(state: TransactionState): Executor {
 			const result = await client.query(text, params);
 			const rows = rowsFromResult(result);
 			return (rows[0] as T | undefined) ?? null;
+		},
+
+		async execute<T = Record<string, unknown>>(
+			text: string,
+			params: unknown[] = [],
+		): Promise<ExecuteResult<T>> {
+			const result = await client.query(text, params);
+			return executeFromResult<T>(result);
 		},
 
 		async transaction<T>(

@@ -47,6 +47,7 @@ describe("distinct findMany", () => {
 			inTransaction: false,
 			query: vi.fn(async () => []),
 			queryOne: vi.fn(async () => null),
+			execute: vi.fn(async () => ({ rows: [], rowCount: 0 })),
 			transaction: vi.fn(async (fn) => fn(executor)),
 		};
 

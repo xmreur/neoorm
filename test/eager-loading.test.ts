@@ -55,6 +55,10 @@ function createMockExecutor(handlers?: {
 			},
 		) as Executor["query"],
 		queryOne: vi.fn(async () => null) as Executor["queryOne"],
+		execute: vi.fn(async (sql: string, params?: unknown[]) => {
+			queries.push({ sql, params: params ?? [] });
+			return { rows: [], rowCount: 0 };
+		}) as Executor["execute"],
 		transaction: vi.fn(async (fn) => fn(createMockExecutor(handlers))),
 	};
 }

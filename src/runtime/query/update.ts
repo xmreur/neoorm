@@ -9,10 +9,11 @@ import {
 	buildUpdateQuery,
 	compileWhere,
 	dataToSqlValues,
+	isImpossibleWhere,
 	rowToTs,
 } from "./compile.js";
 import { runCreate } from "./create.js";
-import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
+import { type QueryRuntime, runExecute, runQuery, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import {
 	primaryKeySqlName,
@@ -228,28 +229,46 @@ async function runUpdateMany(
 		);
 	}
 
-	const { sql: whereSql, params: whereParams } = compileWhere(
+	const compiledWhere = compileWhere(
 		manifest,
 		table,
 		args.where,
 		postgresDialect,
 	);
+	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+		return 0;
+	}
+
+	const { sql: whereSql, params: whereParams } = compiledWhere;
 
 	const pkSql = quoteIdentifier(primaryKeySqlName(table));
+	let affectedCount = 0;
 	let parentIds: string[] = [];
 
 	if (keys.length > 0 || exprSets.length > 0) {
 		const query = buildUpdateManyQuery(table, keys, whereSql, exprSets);
-		const rows = await runQuery(
-			executor,
-			runtime,
-			{ operation: "update", tableAccessor },
-			`${query} RETURNING ${pkSql}`,
-			[...values, ...whereParams],
-		);
-		parentIds = rows.map((row) =>
-			rowScalarPkValue(rowToTs(table, row), table),
-		);
+		if (needsPostRelationWrites) {
+			const rows = await runQuery(
+				executor,
+				runtime,
+				{ operation: "update", tableAccessor },
+				`${query} RETURNING ${pkSql}`,
+				[...values, ...whereParams],
+			);
+			parentIds = rows.map((row) =>
+				rowScalarPkValue(rowToTs(table, row), table),
+			);
+			affectedCount = parentIds.length;
+		} else {
+			const { rowCount } = await runExecute(
+				executor,
+				runtime,
+				{ operation: "update", tableAccessor },
+				query,
+				[...values, ...whereParams],
+			);
+			affectedCount = rowCount;
+		}
 	} else {
 		let selectSql = `SELECT ${pkSql} FROM ${tableRef(table)}`;
 		if (whereSql) selectSql += ` ${whereSql}`;
@@ -263,6 +282,7 @@ async function runUpdateMany(
 		parentIds = rows.map((row) =>
 			rowScalarPkValue(rowToTs(table, row), table),
 		);
+		affectedCount = parentIds.length;
 	}
 
 	if (needsPostRelationWrites) {
@@ -278,7 +298,7 @@ async function runUpdateMany(
 		}
 	}
 
-	return parentIds.length;
+	return affectedCount;
 }
 
 export async function updateManyRecords(

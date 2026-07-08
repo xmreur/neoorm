@@ -2,7 +2,6 @@ import { defineSchema, fk, id, primaryKey, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
-import type { Executor } from "../src/runtime/executor.js";
 import {
 	buildFindByIdQuery,
 	compileWhere,
@@ -19,6 +18,7 @@ import {
 } from "../src/runtime/query/primary-key.js";
 import { executeRelationWrites } from "../src/runtime/query/relation-writes.js";
 import { updateById } from "../src/runtime/query/update.js";
+import { createMockExecutor } from "./helpers/mock-executor.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 const mappedPkSchema = defineSchema({
@@ -51,27 +51,6 @@ const compositePkSchema = defineSchema({
 		}),
 	),
 });
-
-function createMockExecutor(handlers?: {
-	query?: (sql: string, params?: unknown[]) => Record<string, unknown>[];
-}): Executor & { queries: { sql: string; params: unknown[] }[] } {
-	const queries: { sql: string; params: unknown[] }[] = [];
-	return {
-		queries,
-		inTransaction: false,
-		query: vi.fn(
-			async <T = Record<string, unknown>>(
-				sql: string,
-				params?: unknown[],
-			) => {
-				queries.push({ sql, params: params ?? [] });
-				return (handlers?.query?.(sql, params) ?? []) as T[];
-			},
-		) as Executor["query"],
-		queryOne: vi.fn(async () => null) as Executor["queryOne"],
-		transaction: vi.fn(async (fn) => fn(createMockExecutor(handlers))),
-	};
-}
 
 describe("manifest-driven primary keys", () => {
 	const manifest = schemaToManifest(mappedPkSchema);

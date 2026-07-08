@@ -6,19 +6,24 @@ import {
 import type {
 	Manifest,
 	ManifestManyToMany,
+	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import {
+	buildFindByIdQuery,
 	buildFindManyQuery,
 	buildSelectColumns,
 	compileOrderBy,
 	compileWhere,
+	isImpossibleWhere,
 	normalizeSelectColumns,
 	rowsToTs,
+	rowsToTsIndexed,
 	rowToTs,
+	rowToTsIndexed,
 } from "./compile.js";
-import { type QueryRuntime, runQuery } from "./execute.js";
+import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import {
 	findM2M,
 	findRelation,
@@ -31,6 +36,7 @@ import {
 	rowPkKey,
 	targetRelationPkSql,
 } from "./primary-key.js";
+import { getTableIndex } from "./table-index.js";
 
 export type WithInput =
 	| boolean
@@ -608,16 +614,18 @@ export async function loadRelations(
 		await loadRelationCounts(executor, runtime, table, rows, countSpec);
 	}
 
-	for (const [relationName, spec] of Object.entries(relationWith)) {
-		await loadOneRelation(
-			executor,
-			runtime,
-			table,
-			rows,
-			relationName,
-			spec,
-		);
-	}
+	await Promise.all(
+		Object.entries(relationWith).map(([relationName, spec]) =>
+			loadOneRelation(
+				executor,
+				runtime,
+				table,
+				rows,
+				relationName,
+				spec,
+			),
+		),
+	);
 
 	return rows;
 }
@@ -639,15 +647,42 @@ export async function findMany(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const queryCtx = { operation: "select" as const, tableAccessor };
+
+	const isSimpleFind =
+		!args?.where &&
+		!args?.orderBy &&
+		!args?.with &&
+		!args?.distinct &&
+		args?.limit === undefined &&
+		args?.offset === undefined;
+
+	if (isSimpleFind && tableIndex) {
+		const rows = await runQuery(
+			executor,
+			runtime,
+			queryCtx,
+			tableIndex.findAllSql,
+			[],
+		);
+		return rowsToTsIndexed(tableIndex, table, rows);
+	}
+
 	const distinctOn = normalizeSelectColumns(args?.distinct);
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
 
-	const { sql: whereSql, params } = compileWhere(
+	const compiledWhere = compileWhere(
 		manifest,
 		table,
 		args?.where,
 		postgresDialect,
 	);
+	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+		return [];
+	}
+
+	const { sql: whereSql, params } = compiledWhere;
 	const orderSql = compileOrderBy(table, args?.orderBy);
 
 	const { relationWith, countSpec } = args?.with
@@ -691,7 +726,9 @@ export async function findMany(
 			return { ...rowToTs(table, rawRow), ...relations };
 		});
 	} else {
-		resultRows = rowsToTs(table, rows);
+		resultRows = tableIndex
+			? rowsToTsIndexed(tableIndex, table, rows)
+			: rowsToTs(table, rows);
 	}
 
 	const remainingWith: Record<string, WithInput> = {};
@@ -728,6 +765,147 @@ export async function findFirst(
 	return rows[0] ?? null;
 }
 
+function extractScalarPkValue(
+	table: ManifestTable,
+	id: string | Record<string, unknown>,
+): unknown {
+	const where = resolvePkWhere(table, id);
+	const { tsName } = requireScalarPrimaryKey(table);
+	return where[tsName];
+}
+
+function inlineRelationColumnAlias(relationName: string): string {
+	return `__neoorm_${relationName}`;
+}
+
+function tryGetInlineManyRelationLoad(
+	manifest: Manifest,
+	table: ManifestTable,
+	withSpec: Record<string, WithInput> | undefined,
+): {
+	relationName: string;
+	relation: ManifestRelation;
+	targetTable: ManifestTable;
+	nestedSpec:
+		| {
+				select?: readonly string[] | Record<string, boolean | undefined>;
+				orderBy?: Record<string, string>;
+				limit?: number;
+				with?: Record<string, WithInput>;
+		  }
+		| undefined;
+} | null {
+	if (!withSpec) return null;
+
+	const { relationWith, countSpec } = splitWithSpec(withSpec);
+	if (countSpec) return null;
+
+	const entries = Object.entries(relationWith);
+	if (entries.length !== 1) return null;
+
+	const [relationName, withInput] = entries[0]!;
+	if (isM2MRelation(manifest, table.accessor, relationName)) return null;
+
+	const relation = findRelation(table, relationName);
+	if (!relation || relation.cardinality !== "many") return null;
+	if (tableOwnsFkColumn(table, relation)) return null;
+
+	const nestedSpec = typeof withInput === "object" ? withInput : undefined;
+	if (nestedSpec?.with) return null;
+
+	const targetTable = manifest.tables[relation.targetAccessor];
+	if (!targetTable) return null;
+
+	return { relationName, relation, targetTable, nestedSpec };
+}
+
+const INLINE_RELATION_PARENT_ALIAS = "u";
+const INLINE_RELATION_CHILD_ALIAS = "r";
+
+function buildInlineManyRelationSubquery(
+	parentAlias: string,
+	parentTable: ManifestTable,
+	relation: ManifestRelation,
+	targetTable: ManifestTable,
+	nestedSpec:
+		| {
+				select?: readonly string[] | Record<string, boolean | undefined>;
+				orderBy?: Record<string, string>;
+				limit?: number;
+		  }
+		| undefined,
+): string {
+	const { sqlName: parentPkSql } = requireScalarPrimaryKey(parentTable);
+	const parentPkCol = quoteIdentifier(parentPkSql);
+	const fkCol = quoteIdentifier(relation.fkSqlColumn);
+	const childAlias = INLINE_RELATION_CHILD_ALIAS;
+	const childRef = tableRef(targetTable);
+	const parentRef = quoteIdentifier(parentAlias);
+
+	let sql = `(SELECT json_agg(${quoteIdentifier(childAlias)}.*) FROM ${childRef} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`;
+	if (nestedSpec?.orderBy) {
+		sql += ` ${compileOrderBy(targetTable, nestedSpec.orderBy, childAlias)}`;
+	}
+	if (nestedSpec?.limit !== undefined) {
+		sql += ` LIMIT ${nestedSpec.limit}`;
+	}
+	const alias = quoteIdentifier(inlineRelationColumnAlias(relation.name));
+	return `${sql}) AS ${alias}`;
+}
+
+function buildFindByIdWithInlineRelationQuery(
+	table: ManifestTable,
+	inlineSubquery: string,
+): string {
+	const parentAlias = INLINE_RELATION_PARENT_ALIAS;
+	const { sqlName } = requireScalarPrimaryKey(table);
+	const pkCol = quoteIdentifier(sqlName);
+	const ref = quoteIdentifier(parentAlias);
+	return `SELECT ${ref}.*, ${inlineSubquery} FROM ${tableRef(table)} ${ref} WHERE ${ref}.${pkCol} = $1 LIMIT 1`;
+}
+
+function hydrateInlineManyRelationRow(
+	parentIndex: ReturnType<typeof getTableIndex>,
+	targetIndex: ReturnType<typeof getTableIndex>,
+	parentTable: ManifestTable,
+	targetTable: ManifestTable,
+	relationName: string,
+	rawRow: Record<string, unknown>,
+): Record<string, unknown> {
+	const alias = inlineRelationColumnAlias(relationName);
+	const jsonVal = rawRow[alias];
+
+	const parentRaw: Record<string, unknown> = {};
+	for (const col of parentTable.columns) {
+		if (col.sqlName in rawRow) {
+			parentRaw[col.sqlName] = rawRow[col.sqlName];
+		}
+	}
+
+	const parent = parentIndex
+		? rowToTsIndexed(parentIndex, parentTable, parentRaw)
+		: rowToTs(parentTable, parentRaw);
+
+	let children: Record<string, unknown>[] = [];
+	if (jsonVal != null) {
+		const parsed =
+			typeof jsonVal === "string"
+				? (JSON.parse(jsonVal) as unknown)
+				: jsonVal;
+		if (Array.isArray(parsed)) {
+			children = parsed.map((row) => {
+				const childRow = row as Record<string, unknown>;
+				return targetIndex
+					? rowToTsIndexed(targetIndex, targetTable, childRow)
+					: rowToTs(targetTable, childRow);
+			});
+		}
+	}
+
+	parent[relationName] = children;
+	return parent;
+}
+
 export async function findById(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -739,14 +917,71 @@ export async function findById(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
+	if (table.primaryKey.length !== 1) {
+		const where = resolvePkWhere(table, id);
+		const findArgs: Parameters<typeof findMany>[3] = {
+			where,
+			limit: 1,
+		};
+		if (args?.with !== undefined) {
+			findArgs.with = args.with;
+		}
+		const rows = await findMany(executor, runtime, tableAccessor, findArgs);
+		return rows[0] ?? null;
+	}
+
+	const pkValue = extractScalarPkValue(table, id);
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const ctx = { operation: "select" as const, tableAccessor };
+
+	if (!args?.with) {
+		const query = tableIndex?.findByIdSql || buildFindByIdQuery(table);
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			ctx,
+			query,
+			[pkValue],
+		);
+		return row ? (tableIndex ? rowToTsIndexed(tableIndex, table, row) : rowToTs(table, row)) : null;
+	}
+
+	const inlineLoad = tryGetInlineManyRelationLoad(
+		manifest,
+		table,
+		args.with,
+	);
+	if (inlineLoad) {
+		const subquery = buildInlineManyRelationSubquery(
+			INLINE_RELATION_PARENT_ALIAS,
+			table,
+			inlineLoad.relation,
+			inlineLoad.targetTable,
+			inlineLoad.nestedSpec,
+		);
+		const query = buildFindByIdWithInlineRelationQuery(table, subquery);
+		const row = await runQueryOne(executor, runtime, ctx, query, [pkValue]);
+		if (!row) return null;
+		const targetIndex = getTableIndex(
+			runtime.tableIndex,
+			inlineLoad.targetTable.accessor,
+		);
+		return hydrateInlineManyRelationRow(
+			tableIndex,
+			targetIndex,
+			table,
+			inlineLoad.targetTable,
+			inlineLoad.relationName,
+			row,
+		);
+	}
+
 	const where = resolvePkWhere(table, id);
 	const findArgs: Parameters<typeof findMany>[3] = {
 		where,
 		limit: 1,
+		with: args.with,
 	};
-	if (args?.with !== undefined) {
-		findArgs.with = args.with;
-	}
 	const rows = await findMany(executor, runtime, tableAccessor, findArgs);
 	return rows[0] ?? null;
 }

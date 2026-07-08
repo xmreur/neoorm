@@ -20,6 +20,7 @@ import {
 export type WhereClause = {
 	sql: string;
 	params: unknown[];
+	impossible?: boolean;
 };
 
 type CompiledNode = {
@@ -430,10 +431,22 @@ export function compileWhere(
 		dialect,
 		startParamIndex,
 	);
+	const impossible = isImpossibleWhereSql(result.sql);
 	return {
 		sql: result.sql ? `WHERE ${result.sql}` : "",
 		params: result.params,
+		...(impossible ? { impossible: true } : {}),
 	};
+}
+
+export function isImpossibleWhereSql(sql: string): boolean {
+	if (!sql) return false;
+	return /\b1\s*=\s*0\b/.test(sql);
+}
+
+export function isImpossibleWhere(whereSql: string): boolean {
+	if (!whereSql) return false;
+	return isImpossibleWhereSql(whereSql.replace(/^WHERE\s+/i, ""));
 }
 
 function buildValuePlaceholder(
@@ -459,15 +472,17 @@ function buildSetExpression(
 export function compileOrderBy(
 	table: ManifestTable,
 	orderBy: Record<string, string> | undefined,
+	tableAlias?: string,
 ): string {
 	if (!orderBy || Object.keys(orderBy).length === 0) return "";
 
+	const prefix = tableAlias ? `${quoteIdentifier(tableAlias)}.` : "";
 	const parts: string[] = [];
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
 		const col = table.columns.find((c) => c.tsName === tsKey);
 		if (!col) continue;
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
-		parts.push(`${quoteIdentifier(col.sqlName)} ${dir}`);
+		parts.push(`${prefix}${quoteIdentifier(col.sqlName)} ${dir}`);
 	}
 
 	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
@@ -506,11 +521,28 @@ export function buildSelectColumns(
 	return cols.map((c) => selectExpression(c)).join(", ");
 }
 
+export function buildQualifiedSelectColumns(
+	table: ManifestTable,
+	select?: readonly string[],
+): string {
+	const ref = tableRef(table);
+	const cols =
+		select && select.length > 0
+			? table.columns.filter((c) => select.includes(c.tsName))
+			: table.columns;
+
+	return cols.map((c) => `${ref}.${selectExpression(c)}`).join(", ");
+}
+
 export function buildFindByIdQuery(table: ManifestTable): string {
 	const { sqlName } = requireScalarPrimaryKey(table);
 	const sqlCol = quoteIdentifier(sqlName);
 	const selectCols = buildSelectColumns(table);
 	return `SELECT ${selectCols} FROM ${tableRef(table)} WHERE ${sqlCol} = $1`;
+}
+
+export function buildFindAllQuery(table: ManifestTable): string {
+	return `SELECT ${buildSelectColumns(table)} FROM ${tableRef(table)}`;
 }
 
 export function buildFindManyQuery(
@@ -523,13 +555,20 @@ export function buildFindManyQuery(
 	extraSelectCols?: string[],
 	joinClauses?: string[],
 ): string {
-	const selectCols = buildSelectColumns(table);
+	const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
+	const selectCols = hasJoins
+		? buildQualifiedSelectColumns(table)
+		: buildSelectColumns(table);
 	let sql = "SELECT ";
 	if (distinctOn && distinctOn.length > 0) {
 		const distinctCols = distinctOn
 			.map((tsName) => table.columns.find((c) => c.tsName === tsName))
 			.filter((col): col is ManifestColumn => col !== undefined)
-			.map((col) => quoteIdentifier(col.sqlName))
+			.map((col) =>
+				hasJoins
+					? `${tableRef(table)}.${quoteIdentifier(col.sqlName)}`
+					: quoteIdentifier(col.sqlName),
+			)
 			.join(", ");
 		sql += `DISTINCT ON (${distinctCols}) `;
 	}
@@ -895,6 +934,36 @@ export function rowToTs(
 		}
 	}
 	return result;
+}
+
+export function rowToTsIndexed(
+	index: { deserializeColumns: ManifestColumn[] },
+	table: ManifestTable,
+	row: Record<string, unknown>,
+): Record<string, unknown> {
+	const result: Record<string, unknown> = {};
+	for (const col of table.columns) {
+		if (col.sqlName in row) {
+			result[col.tsName] = row[col.sqlName];
+		}
+	}
+	for (const col of index.deserializeColumns) {
+		if (col.sqlName in row) {
+			const plugin = getColumnType(col.kind);
+			if (plugin?.deserializeValue) {
+				result[col.tsName] = plugin.deserializeValue(col, row[col.sqlName]);
+			}
+		}
+	}
+	return result;
+}
+
+export function rowsToTsIndexed(
+	index: { deserializeColumns: ManifestColumn[] },
+	table: ManifestTable,
+	rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+	return rows.map((row) => rowToTsIndexed(index, table, row));
 }
 
 export function rowsToTs(

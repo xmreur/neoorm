@@ -1,14 +1,15 @@
-import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
 	buildDeleteManyQuery,
 	buildDeleteQuery,
 	compileWhere,
+	isImpossibleWhere,
 	rowToTs,
 } from "./compile.js";
-import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
+import { type QueryRuntime, runExecute, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
-import { primaryKeySqlName, requireScalarPrimaryKey, resolvePkWhere } from "./primary-key.js";
+import { resolvePkWhere } from "./primary-key.js";
 
 export async function deleteRecord(
 	executor: Executor,
@@ -72,23 +73,26 @@ export async function deleteManyRecords(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { sql: whereSql, params } = compileWhere(
+	const { sql: whereSql, params, impossible } = compileWhere(
 		manifest,
 		table,
 		args?.where,
 		postgresDialect,
 	);
 
+	if (impossible || isImpossibleWhere(whereSql)) {
+		return 0;
+	}
+
 	const query = buildDeleteManyQuery(table, whereSql);
-	const pkSql = quoteIdentifier(primaryKeySqlName(table));
-	const result = await runQuery(
+	const { rowCount } = await runExecute(
 		executor,
 		runtime,
 		{ operation: "delete", tableAccessor },
-		`${query} RETURNING ${pkSql}`,
+		query,
 		params,
 	);
-	return result.length;
+	return rowCount;
 }
 
 export async function deleteById(
