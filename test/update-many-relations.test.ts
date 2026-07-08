@@ -45,6 +45,13 @@ function createMockExecutor(
 			},
 		) as Executor["query"],
 		queryOne: vi.fn(async () => null) as Executor["queryOne"],
+		execute: vi.fn(async (sql: string, params?: unknown[]) => {
+			queries.push({ sql, params: params ?? [] });
+			if (sql.includes("UPDATE") && sql.includes("posts")) {
+				return { rows: [], rowCount: parentIds.length };
+			}
+			return { rows: [], rowCount: 0 };
+		}) as Executor["execute"],
 		transaction: vi.fn(async (fn) => {
 			const tx = { ...executor, inTransaction: true };
 			return fn(tx);

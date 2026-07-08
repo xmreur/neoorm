@@ -1,3 +1,4 @@
+import type { Manifest, ManifestTable } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import {
 	buildInsertManyQuery,
@@ -8,12 +9,41 @@ import {
 } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
+import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import {
 	applyToOnePreWrites,
 	executeRelationWrites,
+	hasPostRelationWrites,
+	type ParsedRelationWrite,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
+
+function createNeedsTransaction(
+	table: ManifestTable,
+	manifest: Manifest,
+	tableAccessor: string,
+	relationWrites: ParsedRelationWrite[],
+): boolean {
+	if (relationWrites.length === 0) return false;
+	if (hasPostRelationWrites(table, manifest, tableAccessor, relationWrites)) {
+		return true;
+	}
+	for (const write of relationWrites) {
+		const rel = findRelation(table, write.relationName);
+		if (!rel || rel.cardinality !== "one" || !tableOwnsFkColumn(table, rel)) {
+			continue;
+		}
+		if (
+			typeof write.value === "object" &&
+			write.value !== null &&
+			"create" in write.value
+		) {
+			return true;
+		}
+	}
+	return false;
+}
 
 export async function runCreate(
 	executor: Executor,
@@ -91,7 +121,24 @@ export async function createRecord(
 		with?: Record<string, WithInput>;
 	},
 ): Promise<Record<string, unknown>> {
-	if (executor.inTransaction) {
+	const { manifest } = runtime;
+	const table = manifest.tables[tableAccessor];
+	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const { relationWrites } = splitScalarsAndRelationWrites(
+		manifest,
+		tableAccessor,
+		table,
+		args.data,
+	);
+	const needsTransaction = createNeedsTransaction(
+		table,
+		manifest,
+		tableAccessor,
+		relationWrites,
+	);
+
+	if (executor.inTransaction || !needsTransaction) {
 		return runCreate(executor, runtime, tableAccessor, args);
 	}
 

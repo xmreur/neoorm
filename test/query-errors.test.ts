@@ -34,6 +34,7 @@ function createMockExecutor(behavior?: {
 			}
 			return null;
 		}) as Executor["queryOne"],
+		execute: vi.fn(async () => ({ rows: [], rowCount: 0 })) as Executor["execute"],
 		transaction: vi.fn(async (fn) => fn(createMockExecutor(behavior))),
 	};
 }

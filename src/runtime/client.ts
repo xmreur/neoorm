@@ -15,8 +15,8 @@ import {
 	createRecord,
 } from "./query/create.js";
 import { deleteById, deleteManyRecords, deleteRecord } from "./query/delete.js";
-import type { QueryRuntime } from "./query/execute.js";
-import { runQuery } from "./query/execute.js";
+import { buildManifestIndex } from "./query/table-index.js";
+import { runQuery, type QueryRuntime } from "./query/execute.js";
 import type { WithInput } from "./query/find.js";
 import { findById, findFirst, findMany } from "./query/find.js";
 import { paginateRecords } from "./query/paginate.js";
@@ -304,8 +304,10 @@ export function createNeoOrmClient<
 	const pool = new Pool({ connectionString: url });
 	const schema = resolvePgSchemaName(options.schema);
 	const executor = createExecutor(pool);
+	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
-		manifest: applySchemaToManifest(manifest, schema),
+		manifest: appliedManifest,
+		tableIndex: buildManifestIndex(appliedManifest),
 		schema,
 		pool,
 		...(options.migrationsDir !== undefined
@@ -341,8 +343,10 @@ export function createNeoOrmClientFromPool<
 
 	const schema = resolvePgSchemaName(options?.schema);
 	const executor = createExecutor(pool);
+	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
-		manifest: applySchemaToManifest(manifest, schema),
+		manifest: appliedManifest,
+		tableIndex: buildManifestIndex(appliedManifest),
 		schema,
 		pool,
 		...(options?.migrationsDir !== undefined
