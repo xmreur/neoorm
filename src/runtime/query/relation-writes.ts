@@ -198,7 +198,7 @@ async function insertM2MLinks(
 			}
 		}
 
-		fillMissingPrimaryKeys(throughTable, data);
+		fillMissingPrimaryKeys(throughTable, data, throughIndex);
 
 		const { keys, values } = dataToSqlValues(
 			throughTable,
