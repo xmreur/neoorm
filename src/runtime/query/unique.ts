@@ -1,5 +1,11 @@
 import type { ManifestTable } from "../../dialect/types.js";
 import { primaryKeyTsNames } from "./primary-key.js";
+import {
+	columnBySqlName,
+	columnByTsName,
+	getTableIndex,
+	type TableIndex,
+} from "./table-index.js";
 
 export type UniqueConstraint = {
 	sqlColumns: readonly string[];
@@ -23,11 +29,12 @@ function matchesKeys(
 export function resolveUniqueConstraint(
 	table: ManifestTable,
 	where: Record<string, unknown>,
+	tableIndex?: TableIndex,
 ): UniqueConstraint | null {
 	const whereKeyList = whereKeys(where);
 	if (whereKeyList.length === 0) return null;
 
-	const pkTsNames = primaryKeyTsNames(table);
+	const pkTsNames = primaryKeyTsNames(table, tableIndex);
 	if (matchesKeys(pkTsNames, whereKeyList)) {
 		return { sqlColumns: table.primaryKey, tsKeys: pkTsNames };
 	}
@@ -35,7 +42,7 @@ export function resolveUniqueConstraint(
 	if (whereKeyList.length === 1) {
 		const key = whereKeyList[0];
 		if (!key) return null;
-		const col = table.columns.find((c) => c.tsName === key);
+		const col = columnByTsName(tableIndex, table, key);
 		if (col && (col.primary || col.unique)) {
 			return { sqlColumns: [col.sqlName], tsKeys: [col.tsName] };
 		}
@@ -47,7 +54,7 @@ export function resolveUniqueConstraint(
 		const indexTsNames = index.columns
 			.map(
 				(sqlName) =>
-					table.columns.find((c) => c.sqlName === sqlName)?.tsName,
+					columnBySqlName(tableIndex, table, sqlName)?.tsName,
 			)
 			.filter((name): name is string => name !== undefined);
 
@@ -63,8 +70,9 @@ export function assertUniqueWhere(
 	table: ManifestTable,
 	where: Record<string, unknown>,
 	operation: string,
+	tableIndex?: TableIndex,
 ): UniqueConstraint {
-	const constraint = resolveUniqueConstraint(table, where);
+	const constraint = resolveUniqueConstraint(table, where, tableIndex);
 	if (!constraint) {
 		throw new Error(
 			`${operation} requires a unique \`where\` clause (primary key, @unique column, or composite unique index) for table "${table.accessor}"`,

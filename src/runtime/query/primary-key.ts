@@ -5,14 +5,22 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { generateUuid, resolveUuidVersion } from "../../utils/uuid.js";
+import {
+	columnBySqlName,
+	columnByTsName,
+	type TableIndex,
+} from "./table-index.js";
 
 const PK_KEY_SEP = "\0";
 
-export function primaryKeyTsNames(table: ManifestTable): string[] {
+export function primaryKeyTsNames(
+	table: ManifestTable,
+	tableIndex?: TableIndex,
+): string[] {
 	return table.primaryKey
 		.map(
 			(sqlName) =>
-				table.columns.find((c) => c.sqlName === sqlName)?.tsName,
+				columnBySqlName(tableIndex, table, sqlName)?.tsName,
 		)
 		.filter((name): name is string => name !== undefined);
 }
@@ -36,6 +44,7 @@ export type ScalarPrimaryKeyOperation =
 export function requireScalarPrimaryKey(
 	table: ManifestTable,
 	operation?: ScalarPrimaryKeyOperation,
+	tableIndex?: TableIndex,
 ): {
 	tsName: string;
 	sqlName: string;
@@ -51,7 +60,7 @@ export function requireScalarPrimaryKey(
 			`Primary key column not found for table "${table.accessor}"`,
 		);
 	}
-	const col = table.columns.find((c) => c.sqlName === sqlName);
+	const col = columnBySqlName(tableIndex, table, sqlName);
 	if (!col) {
 		throw new Error(
 			`Primary key column not found for table "${table.accessor}"`,
@@ -78,9 +87,10 @@ export function rowScalarPkValue(
 export function resolvePkWhere(
 	table: ManifestTable,
 	id: string | Record<string, unknown>,
+	tableIndex?: TableIndex,
 ): Record<string, unknown> {
 	if (typeof id === "object" && id !== null) {
-		const pkTsNames = primaryKeyTsNames(table);
+		const pkTsNames = primaryKeyTsNames(table, tableIndex);
 		for (const tsName of pkTsNames) {
 			if (!(tsName in id)) {
 				throw new Error(
@@ -93,19 +103,20 @@ export function resolvePkWhere(
 
 	if (table.primaryKey.length !== 1) {
 		throw new Error(
-			`Table "${table.accessor}" has a composite primary key. Pass an object with PK columns (${primaryKeyTsNames(table).join(", ")}) instead of a string.`,
+			`Table "${table.accessor}" has a composite primary key. Pass an object with PK columns (${primaryKeyTsNames(table, tableIndex).join(", ")}) instead of a string.`,
 		);
 	}
 
-	const { tsName } = requireScalarPrimaryKey(table);
+	const { tsName } = requireScalarPrimaryKey(table, undefined, tableIndex);
 	return { [tsName]: id };
 }
 
 export function rowPkKey(
 	row: Record<string, unknown>,
 	table: ManifestTable,
+	tableIndex?: TableIndex,
 ): string {
-	const tsNames = primaryKeyTsNames(table);
+	const tsNames = primaryKeyTsNames(table, tableIndex);
 	if (tsNames.length === 0) {
 		throw new Error(`No primary key defined for table "${table.accessor}"`);
 	}
@@ -125,13 +136,14 @@ export function targetRelationPkSql(
 export function resolveFkTargetSqlColumn(
 	targetTable: ManifestTable,
 	colRef: string | undefined,
+	tableIndex?: TableIndex,
 ): string {
 	if (!colRef) {
 		return primaryKeySqlName(targetTable);
 	}
 	const col =
-		targetTable.columns.find((c) => c.tsName === colRef) ??
-		targetTable.columns.find((c) => c.sqlName === colRef);
+		columnByTsName(tableIndex, targetTable, colRef) ??
+		columnBySqlName(tableIndex, targetTable, colRef);
 	return col?.sqlName ?? colRef;
 }
 

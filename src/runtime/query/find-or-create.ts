@@ -8,6 +8,7 @@ import {
 	rowToTs,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
+import { getTableIndex } from "./table-index.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import { assertUniqueWhere } from "./unique.js";
@@ -31,7 +32,13 @@ export async function findOrCreateRecord(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const constraint = assertUniqueWhere(table, args.where, "findOrCreate");
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const constraint = assertUniqueWhere(
+		table,
+		args.where,
+		"findOrCreate",
+		tableIndex,
+	);
 
 	const createData = { ...args.create, ...args.where };
 	fillMissingPrimaryKeys(table, createData);
@@ -39,6 +46,8 @@ export async function findOrCreateRecord(
 	const { keys: insertKeys, values: insertValues } = dataToSqlValues(
 		table,
 		createData,
+		undefined,
+		runtime.tableIndex,
 	);
 
 	const { sql: whereSql, params: whereParams } = compileWhere(
@@ -47,6 +56,7 @@ export async function findOrCreateRecord(
 		args.where,
 		postgresDialect,
 		insertValues.length + 1,
+		runtime.tableIndex,
 	);
 	const fallbackWhereBody = whereSql.replace(/^WHERE\s+/i, "");
 
@@ -55,6 +65,7 @@ export async function findOrCreateRecord(
 		insertKeys,
 		constraint.sqlColumns,
 		fallbackWhereBody,
+		runtime.tableIndex,
 	);
 
 	const row = await runQueryOne<Record<string, unknown>>(

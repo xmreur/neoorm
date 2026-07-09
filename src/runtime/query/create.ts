@@ -12,6 +12,10 @@ import { loadRelations, type WithInput } from "./find.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import {
+	columnByTsName,
+	relationByName,
+} from "./table-index.js";
+import {
 	applyToOnePreWrites,
 	executeRelationWrites,
 	hasPostRelationWrites,
@@ -63,6 +67,7 @@ export async function runCreate(
 		tableAccessor,
 		table,
 		args.data,
+		runtime.tableIndex,
 	);
 
 	await applyToOnePreWrites(
@@ -76,8 +81,13 @@ export async function runCreate(
 
 	fillMissingPrimaryKeys(table, scalarData);
 
-	const { keys, values } = dataToSqlValues(table, scalarData);
-	const insertSql = buildInsertQuery(table, keys);
+	const { keys, values } = dataToSqlValues(
+		table,
+		scalarData,
+		undefined,
+		runtime.tableIndex,
+	);
+	const insertSql = buildInsertQuery(table, keys, runtime.tableIndex);
 	const row = await runQueryOne(
 		executor,
 		runtime,
@@ -130,6 +140,7 @@ export async function createRecord(
 		tableAccessor,
 		table,
 		args.data,
+		runtime.tableIndex,
 	);
 	const needsTransaction = createNeedsTransaction(
 		table,
@@ -159,7 +170,12 @@ export async function createManyRecords(
 	if (!prepared) return 0;
 
 	const { table, dataKeys, valueRows, values } = prepared;
-	const sql = buildInsertManyQuery(table, dataKeys, valueRows);
+	const sql = buildInsertManyQuery(
+		table,
+		dataKeys,
+		valueRows,
+		runtime.tableIndex,
+	);
 	const result = await runQuery(
 		executor,
 		runtime,
@@ -182,7 +198,12 @@ export async function createManyAndReturnRecords(
 	if (!prepared) return [];
 
 	const { table, dataKeys, valueRows, values } = prepared;
-	const sql = buildInsertManyQuery(table, dataKeys, valueRows);
+	const sql = buildInsertManyQuery(
+		table,
+		dataKeys,
+		valueRows,
+		runtime.tableIndex,
+	);
 	const rows = await runQuery(
 		executor,
 		runtime,
@@ -211,17 +232,19 @@ function prepareCreateManyRows(
 
 	const scalarRows: Record<string, unknown>[] = [];
 
+	const tableIndex = runtime.tableIndex?.get(tableAccessor);
+
 	for (const item of data) {
 		const scalarData: Record<string, unknown> = {};
 
 		for (const [key, value] of Object.entries(item)) {
-			const col = table.columns.find((c) => c.tsName === key);
+			const col = columnByTsName(tableIndex, table, key);
 			if (col) {
 				scalarData[key] = value;
 				continue;
 			}
 
-			const rel = table.relations.find((r) => r.name === key);
+			const rel = relationByName(tableIndex, table, key);
 			if (rel) {
 				throw new Error(
 					`createMany does not support nested relation writes (field: ${key})`,
@@ -235,7 +258,12 @@ function prepareCreateManyRows(
 
 	const keySet = new Set<string>();
 	for (const row of scalarRows) {
-		const { keys } = dataToSqlValues(table, row);
+		const { keys } = dataToSqlValues(
+			table,
+			row,
+			undefined,
+			runtime.tableIndex,
+		);
 		for (const k of keys) keySet.add(k);
 	}
 
@@ -246,7 +274,12 @@ function prepareCreateManyRows(
 	if (dataKeys.length === 0) return null;
 
 	const rowValues = scalarRows.map((row) => {
-		const { keys, values } = dataToSqlValues(table, row);
+		const { keys, values } = dataToSqlValues(
+			table,
+			row,
+			undefined,
+			runtime.tableIndex,
+		);
 		const valueByKey = new Map(keys.map((k, i) => [k, values[i]]));
 		return dataKeys.map((k) => valueByKey.get(k));
 	});
@@ -255,6 +288,7 @@ function prepareCreateManyRows(
 		table,
 		dataKeys,
 		rowValues,
+		runtime.tableIndex,
 	);
 	return { table, dataKeys, valueRows, values };
 }

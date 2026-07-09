@@ -16,6 +16,24 @@ import {
 	requireScalarPrimaryKey,
 	targetRelationPkSql,
 } from "./primary-key.js";
+import {
+	columnByTsName,
+	columnsByTsNames,
+	getTableIndex,
+	type ManifestIndex,
+} from "./table-index.js";
+
+function colByTs(
+	table: ManifestTable,
+	tsName: string,
+	manifestIndex?: ManifestIndex,
+): ManifestColumn | undefined {
+	return columnByTsName(
+		getTableIndex(manifestIndex, table.accessor),
+		table,
+		tsName,
+	);
+}
 
 export type WhereClause = {
 	sql: string;
@@ -174,12 +192,16 @@ function compileRelationCondition(
 	rawValue: unknown,
 	dialect: Dialect,
 	paramIndex: number,
+	manifestIndex?: ManifestIndex,
 ): CompiledNode {
 	const m2m = findM2M(manifest, parentTable.accessor, relation.name);
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) {
 		return { sql: "", params: [], nextParamIndex: paramIndex };
 	}
+
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const targetTableIndex = getTableIndex(manifestIndex, targetTable.accessor);
 
 	if (relation.cardinality === "one") {
 		if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
@@ -196,9 +218,12 @@ function compileRelationCondition(
 			dialect,
 			paramIndex,
 			columnRef,
+			manifestIndex,
 		);
-		const parentFkCol = parentTable.columns.find(
-			(c) => c.tsName === relation.fkColumn,
+		const parentFkCol = columnByTsName(
+			parentTableIndex,
+			parentTable,
+			relation.fkColumn,
 		);
 		const parentFkRef = parentFkCol
 			? `${tableRef(parentTable)}.${quoteIdentifier(parentFkCol.sqlName)}`
@@ -241,6 +266,7 @@ function compileRelationCondition(
 		dialect,
 		paramIndex,
 		columnRef,
+		manifestIndex,
 	);
 
 	let fromClause: string;
@@ -308,14 +334,18 @@ function compileWhereNode(
 	dialect: Dialect,
 	startParamIndex: number,
 	columnRef: (col: ManifestColumn) => string = defaultColumnRef,
+	manifestIndex?: ManifestIndex,
 ): CompiledNode {
 	const conditions: string[] = [];
 	const params: unknown[] = [];
 	let paramIndex = startParamIndex;
 
-	const relations = new Map(
-		effectiveRelations(manifest, table).map((rel) => [rel.name, rel]),
-	);
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const relations =
+		tableIndex?.effectiveRelationsByName ??
+		new Map(
+			effectiveRelations(manifest, table).map((rel) => [rel.name, rel]),
+		);
 
 	for (const [key, value] of Object.entries(where)) {
 		if (key === "AND" && Array.isArray(value)) {
@@ -330,6 +360,7 @@ function compileWhereNode(
 					dialect,
 					paramIndex,
 					columnRef,
+					manifestIndex,
 				);
 				if (compiled.sql) parts.push(`(${compiled.sql})`);
 				params.push(...compiled.params);
@@ -351,6 +382,7 @@ function compileWhereNode(
 					dialect,
 					paramIndex,
 					columnRef,
+					manifestIndex,
 				);
 				if (compiled.sql) parts.push(`(${compiled.sql})`);
 				params.push(...compiled.params);
@@ -368,6 +400,7 @@ function compileWhereNode(
 				dialect,
 				paramIndex,
 				columnRef,
+				manifestIndex,
 			);
 			if (compiled.sql) conditions.push(`NOT (${compiled.sql})`);
 			params.push(...compiled.params);
@@ -384,6 +417,7 @@ function compileWhereNode(
 				value,
 				dialect,
 				paramIndex,
+				manifestIndex,
 			);
 			if (compiled.sql) conditions.push(compiled.sql);
 			params.push(...compiled.params);
@@ -391,7 +425,7 @@ function compileWhereNode(
 			continue;
 		}
 
-		const col = table.columns.find((c) => c.tsName === key);
+		const col = columnByTsName(tableIndex, table, key);
 		if (!col) continue;
 
 		const compiled = compileColumnCondition(
@@ -419,6 +453,7 @@ export function compileWhere(
 	where: Record<string, unknown> | undefined,
 	dialect: Dialect,
 	startParamIndex = 1,
+	manifestIndex?: ManifestIndex,
 ): WhereClause {
 	if (!where || Object.keys(where).length === 0) {
 		return { sql: "", params: [] };
@@ -430,6 +465,8 @@ export function compileWhere(
 		where,
 		dialect,
 		startParamIndex,
+		defaultColumnRef,
+		manifestIndex,
 	);
 	const impossible = isImpossibleWhereSql(result.sql);
 	return {
@@ -473,13 +510,15 @@ export function compileOrderBy(
 	table: ManifestTable,
 	orderBy: Record<string, string> | undefined,
 	tableAlias?: string,
+	manifestIndex?: ManifestIndex,
 ): string {
 	if (!orderBy || Object.keys(orderBy).length === 0) return "";
 
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const prefix = tableAlias ? `${quoteIdentifier(tableAlias)}.` : "";
 	const parts: string[] = [];
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
-		const col = table.columns.find((c) => c.tsName === tsKey);
+		const col = columnByTsName(tableIndex, table, tsKey);
 		if (!col) continue;
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
 		parts.push(`${prefix}${quoteIdentifier(col.sqlName)} ${dir}`);
@@ -512,10 +551,12 @@ function selectExpression(col: ManifestColumn): string {
 export function buildSelectColumns(
 	table: ManifestTable,
 	select?: readonly string[],
+	manifestIndex?: ManifestIndex,
 ): string {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols =
 		select && select.length > 0
-			? table.columns.filter((c) => select.includes(c.tsName))
+			? columnsByTsNames(tableIndex, table, select)
 			: table.columns;
 
 	return cols.map((c) => selectExpression(c)).join(", ");
@@ -524,11 +565,13 @@ export function buildSelectColumns(
 export function buildQualifiedSelectColumns(
 	table: ManifestTable,
 	select?: readonly string[],
+	manifestIndex?: ManifestIndex,
 ): string {
 	const ref = tableRef(table);
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols =
 		select && select.length > 0
-			? table.columns.filter((c) => select.includes(c.tsName))
+			? columnsByTsNames(tableIndex, table, select)
 			: table.columns;
 
 	return cols.map((c) => `${ref}.${selectExpression(c)}`).join(", ");
@@ -554,16 +597,16 @@ export function buildFindManyQuery(
 	distinctOn?: readonly string[],
 	extraSelectCols?: string[],
 	joinClauses?: string[],
+	manifestIndex?: ManifestIndex,
 ): string {
 	const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const selectCols = hasJoins
-		? buildQualifiedSelectColumns(table)
-		: buildSelectColumns(table);
+		? buildQualifiedSelectColumns(table, undefined, manifestIndex)
+		: buildSelectColumns(table, undefined, manifestIndex);
 	let sql = "SELECT ";
 	if (distinctOn && distinctOn.length > 0) {
-		const distinctCols = distinctOn
-			.map((tsName) => table.columns.find((c) => c.tsName === tsName))
-			.filter((col): col is ManifestColumn => col !== undefined)
+		const distinctCols = columnsByTsNames(tableIndex, table, distinctOn)
 			.map((col) =>
 				hasJoins
 					? `${tableRef(table)}.${quoteIdentifier(col.sqlName)}`
@@ -599,6 +642,7 @@ export function buildPaginateQuery(
 	take: number,
 	extraSelectCols?: string[],
 	joinClauses?: string[],
+	manifestIndex?: ManifestIndex,
 ): string {
 	return buildFindManyQuery(
 		table,
@@ -609,6 +653,7 @@ export function buildPaginateQuery(
 		undefined,
 		extraSelectCols,
 		joinClauses,
+		manifestIndex,
 	);
 }
 
@@ -632,8 +677,10 @@ export type AggregateSelectors = {
 function aggregateSqlCol(
 	table: ManifestTable,
 	tsName: string,
+	manifestIndex?: ManifestIndex,
 ): string | undefined {
-	const col = table.columns.find((c) => c.tsName === tsName);
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const col = columnByTsName(tableIndex, table, tsName);
 	if (!col) return undefined;
 	const sqlCol = quoteIdentifier(col.sqlName);
 	if (col.kind === "decimal") return `${sqlCol}::numeric`;
@@ -644,6 +691,7 @@ export function buildAggregateQuery(
 	table: ManifestTable,
 	selectors: AggregateSelectors,
 	whereSql: string,
+	manifestIndex?: ManifestIndex,
 ): string {
 	const parts: string[] = [];
 
@@ -652,22 +700,22 @@ export function buildAggregateQuery(
 	}
 
 	for (const colName of Object.keys(selectors._avg ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName);
+		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
 		if (sqlCol) parts.push(`AVG(${sqlCol}) AS "_avg_${colName}"`);
 	}
 
 	for (const colName of Object.keys(selectors._sum ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName);
+		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
 		if (sqlCol) parts.push(`SUM(${sqlCol}) AS "_sum_${colName}"`);
 	}
 
 	for (const colName of Object.keys(selectors._min ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName);
+		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
 		if (sqlCol) parts.push(`MIN(${sqlCol}) AS "_min_${colName}"`);
 	}
 
 	for (const colName of Object.keys(selectors._max ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName);
+		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
 		if (sqlCol) parts.push(`MAX(${sqlCol}) AS "_max_${colName}"`);
 	}
 
@@ -686,18 +734,19 @@ export function buildUpsertQuery(
 	updateKeys: string[],
 	conflictSqlColumns: readonly string[],
 	exprSets: string[] = [],
+	manifestIndex?: ManifestIndex,
 ): string {
 	const insertCols = insertKeys.map((k) => {
-		const col = table.columns.find((c) => c.tsName === k);
+		const col = colByTs(table, k, manifestIndex);
 		return quoteIdentifier(col?.sqlName ?? k);
 	});
 	const insertPlaceholders = insertKeys
 		.map((k, i) => {
-			const col = table.columns.find((c) => c.tsName === k);
+			const col = colByTs(table, k, manifestIndex);
 			return buildValuePlaceholder(col, i + 1);
 		})
 		.join(", ");
-	const selectCols = buildSelectColumns(table);
+	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
 
 	const conflictCols = conflictSqlColumns
 		.map((c) => quoteIdentifier(c))
@@ -706,7 +755,7 @@ export function buildUpsertQuery(
 	const updateSets =
 		updateKeys.length > 0
 			? updateKeys.map((k) => {
-					const col = table.columns.find((c) => c.tsName === k);
+					const col = colByTs(table, k, manifestIndex);
 					const sqlCol = quoteIdentifier(col?.sqlName ?? k);
 					return `${sqlCol} = EXCLUDED.${sqlCol}`;
 				})
@@ -729,18 +778,19 @@ export function buildFindOrCreateQuery(
 	insertKeys: string[],
 	conflictSqlColumns: readonly string[],
 	fallbackWhereBody: string,
+	manifestIndex?: ManifestIndex,
 ): string {
 	const insertCols = insertKeys.map((k) => {
-		const col = table.columns.find((c) => c.tsName === k);
+		const col = colByTs(table, k, manifestIndex);
 		return quoteIdentifier(col?.sqlName ?? k);
 	});
 	const insertPlaceholders = insertKeys
 		.map((k, i) => {
-			const col = table.columns.find((c) => c.tsName === k);
+			const col = colByTs(table, k, manifestIndex);
 			return buildValuePlaceholder(col, i + 1);
 		})
 		.join(", ");
-	const selectCols = buildSelectColumns(table);
+	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
 	const conflictCols = conflictSqlColumns
 		.map((c) => quoteIdentifier(c))
 		.join(", ");
@@ -764,22 +814,23 @@ LIMIT 1`;
 export function buildInsertQuery(
 	table: ManifestTable,
 	dataKeys: string[],
+	manifestIndex?: ManifestIndex,
 ): string {
 	if (dataKeys.length === 0) {
 		throw new Error("Cannot build INSERT query with no columns");
 	}
 
 	const cols = dataKeys.map((k) => {
-		const col = table.columns.find((c) => c.tsName === k);
+		const col = colByTs(table, k, manifestIndex);
 		return quoteIdentifier(col?.sqlName ?? k);
 	});
 	const placeholders = dataKeys
 		.map((k, i) => {
-			const col = table.columns.find((c) => c.tsName === k);
+			const col = colByTs(table, k, manifestIndex);
 			return buildValuePlaceholder(col, i + 1);
 		})
 		.join(", ");
-	const selectCols = buildSelectColumns(table);
+	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
 
 	return `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders}) RETURNING ${selectCols}`;
 }
@@ -788,6 +839,7 @@ export function buildInsertManyValueRows(
 	table: ManifestTable,
 	dataKeys: string[],
 	rows: Array<Array<unknown | undefined>>,
+	manifestIndex?: ManifestIndex,
 ): { valueRows: string[]; values: unknown[] } {
 	if (dataKeys.length === 0) {
 		throw new Error("Cannot build INSERT many value rows with no columns");
@@ -804,7 +856,7 @@ export function buildInsertManyValueRows(
 			if (key === undefined) {
 				throw new Error("dataKeys index out of bounds");
 			}
-			const col = table.columns.find((c) => c.tsName === key);
+			const col = colByTs(table, key, manifestIndex);
 			const val = row[i];
 			if (val === undefined) {
 				placeholders.push("DEFAULT");
@@ -824,16 +876,17 @@ export function buildInsertManyQuery(
 	table: ManifestTable,
 	dataKeys: string[],
 	valueRows: string[],
+	manifestIndex?: ManifestIndex,
 ): string {
 	if (dataKeys.length === 0) {
 		throw new Error("Cannot build INSERT many query with no columns");
 	}
 
 	const cols = dataKeys.map((k) => {
-		const col = table.columns.find((c) => c.tsName === k);
+		const col = colByTs(table, k, manifestIndex);
 		return quoteIdentifier(col?.sqlName ?? k);
 	});
-	const selectCols = buildSelectColumns(table);
+	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
 
 	return `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")} RETURNING ${selectCols}`;
 }
@@ -843,13 +896,14 @@ export function buildUpdateQuery(
 	dataKeys: string[],
 	whereSql: string,
 	exprSets: string[] = [],
+	manifestIndex?: ManifestIndex,
 ): string {
 	const paramSets = dataKeys.map((k, i) => {
-		const col = table.columns.find((c) => c.tsName === k);
+		const col = colByTs(table, k, manifestIndex);
 		return buildSetExpression(col, i + 1);
 	});
 	const sets = [...paramSets, ...exprSets];
-	const selectCols = buildSelectColumns(table);
+	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
 	const whereOffset = dataKeys.length;
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
@@ -888,9 +942,10 @@ export function buildUpdateManyQuery(
 	dataKeys: string[],
 	whereSql: string,
 	exprSets: string[] = [],
+	manifestIndex?: ManifestIndex,
 ): string {
 	const paramSets = dataKeys.map((k, i) => {
-		const col = table.columns.find((c) => c.tsName === k);
+		const col = colByTs(table, k, manifestIndex);
 		return buildSetExpression(col, i + 1);
 	});
 	const sets = [...paramSets, ...exprSets];
@@ -910,12 +965,14 @@ export function dataToSqlValues(
 	table: ManifestTable,
 	data: Record<string, unknown>,
 	options?: { excludePrimary?: boolean },
+	manifestIndex?: ManifestIndex,
 ): { keys: string[]; values: unknown[] } {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const keys: string[] = [];
 	const values: unknown[] = [];
 
 	for (const [key, value] of Object.entries(data)) {
-		const col = table.columns.find((c) => c.tsName === key);
+		const col = columnByTsName(tableIndex, table, key);
 		if (!col) continue;
 		if (options?.excludePrimary && col.primary) continue;
 		if (value === undefined) continue;

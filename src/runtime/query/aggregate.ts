@@ -61,8 +61,15 @@ export async function aggregateRecords(
 		table,
 		args.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
-	const query = buildAggregateQuery(table, selectors, whereSql);
+	const query = buildAggregateQuery(
+		table,
+		selectors,
+		whereSql,
+		runtime.tableIndex,
+	);
 	const row = await runQueryOne(
 		executor,
 		runtime,

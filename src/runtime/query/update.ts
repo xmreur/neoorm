@@ -51,6 +51,7 @@ async function runUpdate(
 		tableAccessor,
 		table,
 		args.data,
+		runtime.tableIndex,
 	);
 
 	await applyToOnePreWrites(
@@ -67,6 +68,8 @@ async function runUpdate(
 		table,
 		args.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 
 	if (!whereSql) {
@@ -74,9 +77,14 @@ async function runUpdate(
 	}
 
 	stripUpdatedAtFromData(table, scalarData);
-	const { keys, values } = dataToSqlValues(table, scalarData, {
-		excludePrimary: true,
-	});
+	const { keys, values } = dataToSqlValues(
+		table,
+		scalarData,
+		{
+			excludePrimary: true,
+		},
+		runtime.tableIndex,
+	);
 	const exprSets = updatedAtSetExpressions(table);
 	const needsRelationWrites = hasPostRelationWrites(
 		table,
@@ -105,7 +113,13 @@ async function runUpdate(
 		if (!row) return null;
 		result = rowToTs(table, row);
 	} else {
-		const query = buildUpdateQuery(table, keys, whereSql, exprSets);
+		const query = buildUpdateQuery(
+			table,
+			keys,
+			whereSql,
+			exprSets,
+			runtime.tableIndex,
+		);
 		const row = await runQueryOne(
 			executor,
 			runtime,
@@ -161,6 +175,7 @@ export async function updateRecord(
 		tableAccessor,
 		table,
 		args.data,
+		runtime.tableIndex,
 	);
 	const needsTransaction = hasPostRelationWrites(
 		table,
@@ -196,6 +211,7 @@ async function runUpdateMany(
 		tableAccessor,
 		table,
 		args.data,
+		runtime.tableIndex,
 	);
 
 	await applyToOnePreWrites(
@@ -208,9 +224,14 @@ async function runUpdateMany(
 	);
 
 	stripUpdatedAtFromData(table, scalarData);
-	const { keys, values } = dataToSqlValues(table, scalarData, {
-		excludePrimary: true,
-	});
+	const { keys, values } = dataToSqlValues(
+		table,
+		scalarData,
+		{
+			excludePrimary: true,
+		},
+		runtime.tableIndex,
+	);
 	const exprSets = updatedAtSetExpressions(table);
 	const needsPostRelationWrites = hasPostRelationWrites(
 		table,
@@ -234,6 +255,8 @@ async function runUpdateMany(
 		table,
 		args.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
 		return 0;
@@ -246,7 +269,13 @@ async function runUpdateMany(
 	let parentIds: string[] = [];
 
 	if (keys.length > 0 || exprSets.length > 0) {
-		const query = buildUpdateManyQuery(table, keys, whereSql, exprSets);
+		const query = buildUpdateManyQuery(
+			table,
+			keys,
+			whereSql,
+			exprSets,
+			runtime.tableIndex,
+		);
 		if (needsPostRelationWrites) {
 			const rows = await runQuery(
 				executor,
@@ -319,6 +348,7 @@ export async function updateManyRecords(
 		tableAccessor,
 		table,
 		args.data,
+		runtime.tableIndex,
 	);
 	const needsTransaction = hasPostRelationWrites(
 		table,
