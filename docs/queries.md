@@ -209,18 +209,26 @@ Relations are eagerly loaded in `findMany`, `findFirst`, and `findById` via the 
 
 ### Strategy
 
-NeoORM uses two loading strategies:
+NeoORM uses a relation-loading planner that picks the fewest round-trips per `with` tree:
 
-- **LEFT JOIN** — to-one relations where the parent table owns the foreign key are resolved in the main query via a single `LEFT JOIN`. No additional round-trips.
-- **Batch query** — to-many, inverse to-one, and many-to-many relations are fetched in separate `WHERE IN (...)` queries (one per relation level). Nested `with` on a to-one relation also falls back to batch loading.
+- **LEFT JOIN** — to-one relations where the parent table owns the foreign key are resolved in the main query. No additional round-trips.
+- **Correlated `json_agg` subquery** — inverse has-many relations (and simple linear nested chains) are embedded in the main `SELECT` as correlated subqueries. Multiple top-level relations can be inlined in the same query alongside JOINs.
+- **Inline `COUNT` subquery** — simple `_count` on has-many relations is embedded in the main `SELECT`.
+- **Batch query** — many-to-many, nested `with` on to-one, sibling-heavy trees, and other complex shapes fall back to batched `WHERE IN (...)` queries (one per relation level). Sibling batch queries at the same level run in parallel.
 
-This means the total number of queries equals `1 (main) + number of to-many / M2M / inverse-to-one relation levels`.
+Typical query counts:
+
+- `with: { author: true }` → **1** query (JOIN)
+- `with: { posts: true }` → **1** query (`json_agg` subquery)
+- `with: { author: true, comments: true }` → **1** query (JOIN + `json_agg`)
+- `with: { posts: { with: { comments: { with: { author: true } } } } }` on a linear chain → **1** query (nested `json_agg`)
+- M2M or sibling nested relations → **1 + batch levels** (parallel per level)
 
 ```ts
-// Single query — author is resolved via LEFT JOIN
+// Single query — author via LEFT JOIN
 const posts = await db.posts.findMany({ with: { author: true } });
 
-// Two queries — author via JOIN, comments via batch
+// Single query — author via JOIN, comments via correlated json_agg
 const posts = await db.posts.findMany({
   with: { author: true, comments: { with: { author: true } } },
 });

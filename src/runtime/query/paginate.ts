@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
-import { buildPaginateQuery, compileWhere, rowsToTs } from "./compile.js";
+import { buildPaginateQuery, compileWhere } from "./compile.js";
 import {
 	compileCursorWhere,
 	compileOrderByFromSpec,
@@ -9,7 +9,11 @@ import {
 	resolveOrderSpec,
 } from "./cursor.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
-import { loadRelations, type WithInput } from "./find.js";
+import { hydrateAndLoadRelations, type WithInput } from "./find.js";
+import {
+	buildPlanExtraSelectCols,
+	planRelationLoad,
+} from "./relation-planner.js";
 
 export type PaginateArgs = {
 	where?: Record<string, unknown>;
@@ -66,7 +70,18 @@ export async function paginateRecords(
 	}
 
 	const orderSql = compileOrderByFromSpec(orderSpec);
-	const query = buildPaginateQuery(table, whereSql, orderSql, args.take);
+	const plan = planRelationLoad(manifest, table, args.with);
+	const extraSelectCols = args.with
+		? buildPlanExtraSelectCols(manifest, table, plan)
+		: [];
+	const query = buildPaginateQuery(
+		table,
+		whereSql,
+		orderSql,
+		args.take,
+		extraSelectCols.length > 0 ? extraSelectCols : undefined,
+		plan.joins.length > 0 ? plan.joins : undefined,
+	);
 
 	const rows = await runQuery(
 		executor,
@@ -75,18 +90,18 @@ export async function paginateRecords(
 		query,
 		params,
 	);
-	const mapped = rowsToTs(table, rows);
-	const hasMore = mapped.length > args.take;
-	const items = hasMore ? mapped.slice(0, args.take) : mapped;
-	const loaded = await loadRelations(
+	const hasMore = rows.length > args.take;
+	const pageRows = hasMore ? rows.slice(0, args.take) : rows;
+	const loaded = await hydrateAndLoadRelations(
 		executor,
 		runtime,
 		table,
-		items,
+		pageRows,
 		args.with,
+		plan,
 	);
 
-	const lastItem = items[items.length - 1];
+	const lastItem = loaded[loaded.length - 1];
 	const nextCursor =
 		hasMore && lastItem ? cursorFromRow(orderSpec, lastItem) : null;
 

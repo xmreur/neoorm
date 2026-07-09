@@ -121,11 +121,15 @@ describe("read path optimizations", () => {
 	it("findById with single many-relation uses one inline json_agg query", async () => {
 		const runtime = createRuntime();
 		const executor = createMockExecutor({
-			queryOne: () => ({
-				id: "u1",
-				name: "Alice",
-				__neoorm_posts: [{ id: "p1", title: "Post 1", author_id: "u1" }],
-			}),
+			query: () => [
+				{
+					id: "u1",
+					name: "Alice",
+					__neoorm_posts: [
+						{ id: "p1", title: "Post 1", author_id: "u1" },
+					],
+				},
+			],
 		});
 
 		const row = await findById(executor, runtime, "users", "u1", {
@@ -139,7 +143,34 @@ describe("read path optimizations", () => {
 		expect(executor.queries).toHaveLength(1);
 		expect(executor.queries[0]?.sql).toContain("json_agg");
 		expect(executor.queries[0]?.sql).toContain(`FROM "posts"`);
-		expect(executor.queries[0]?.sql).toContain(`"u".*`);
+		expect(executor.queries[0]?.sql).toContain(`"users"`);
+	});
+
+	it("findMany with single many-relation uses one inline json_agg query", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "u1",
+					name: "Alice",
+					__neoorm_posts: [
+						{ id: "p1", title: "Post 1", author_id: "u1" },
+					],
+				},
+			],
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: { posts: { limit: 3 } },
+		});
+
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.posts).toEqual([
+			{ id: "p1", title: "Post 1", authorId: "u1" },
+		]);
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.sql).toContain("json_agg");
+		expect(executor.queries[0]?.sql).toContain(`LIMIT 3`);
 	});
 
 	it("findById without relations uses cached findById SQL", async () => {
