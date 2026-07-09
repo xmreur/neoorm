@@ -5,7 +5,7 @@ import {
 	compileWhere,
 	dataToSqlValues,
 	FIND_OR_CREATE_FLAG,
-	rowToTs,
+	mapRowToTs,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { getTableIndex } from "./table-index.js";
@@ -78,7 +78,11 @@ export async function findOrCreateRecord(
 
 	const created = row[FIND_OR_CREATE_FLAG] === true;
 	const { [FIND_OR_CREATE_FLAG]: _createdFlag, ...rawRow } = row;
-	const result = rowToTs(table, rawRow);
+	const result = mapRowToTs(
+		getTableIndex(runtime.tableIndex, tableAccessor),
+		table,
+		rawRow,
+	);
 
 	let record = result;
 	if (args.with) {

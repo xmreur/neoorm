@@ -16,11 +16,10 @@ import {
 	compileOrderBy,
 	compileWhere,
 	isImpossibleWhere,
+	mapRowToTs,
+	mapRowsToTs,
 	normalizeSelectColumns,
-	rowsToTs,
 	rowsToTsIndexed,
-	rowToTs,
-	rowToTsIndexed,
 } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import {
@@ -354,7 +353,11 @@ async function loadOneRelation(
 			fkValues,
 		);
 
-		const mapped = rowsToTs(targetTable, rows);
+		const targetTableIndex = getTableIndex(
+			runtime.tableIndex,
+			targetTable.accessor,
+		);
+		const mapped = mapRowsToTs(targetTableIndex, targetTable, rows);
 		const byId = new Map(mapped.map((r) => [String(r[targetPkTsName]), r]));
 
 		for (const parent of parentRows) {
@@ -388,12 +391,12 @@ async function loadOneRelation(
 			sql,
 			parentIds,
 		);
-		const mapped = rowsToTs(targetTable, rows);
-
 		const targetTableIndex = getTableIndex(
 			runtime.tableIndex,
 			targetTable.accessor,
 		);
+		const mapped = mapRowsToTs(targetTableIndex, targetTable, rows);
+
 		const fkTargetCol = columnBySqlName(
 			targetTableIndex,
 			targetTable,
@@ -496,10 +499,14 @@ async function loadM2MRelation(
 		parentIds,
 	);
 
+	const targetTableIndex = getTableIndex(
+		runtime.tableIndex,
+		targetTable.accessor,
+	);
 	const grouped = new Map<string, Record<string, unknown>[]>();
 	for (const row of rows) {
 		const parentId = String(row["_parent_id"]);
-		const mapped = rowToTs(targetTable, row);
+		const mapped = mapRowToTs(targetTableIndex, targetTable, row);
 		let bucket = grouped.get(parentId);
 		if (!bucket) {
 			bucket = [];
@@ -532,9 +539,7 @@ export async function hydrateAndLoadRelations(
 		resultRows = hydrateRowsWithPlan(runtime, table, rawRows, resolvedPlan);
 	} else {
 		const tableIndex = getTableIndex(runtime.tableIndex, table.accessor);
-		resultRows = tableIndex
-			? rowsToTsIndexed(tableIndex, table, rawRows)
-			: rowsToTs(table, rawRows);
+		resultRows = mapRowsToTs(tableIndex, table, rawRows);
 	}
 
 	const batchWith = resolvedPlan.batchWith;
@@ -734,7 +739,7 @@ export async function findById(
 			query,
 			[pkValue],
 		);
-		return row ? (tableIndex ? rowToTsIndexed(tableIndex, table, row) : rowToTs(table, row)) : null;
+		return row ? mapRowToTs(tableIndex, table, row) : null;
 	}
 
 	const where = resolvePkWhere(table, id);

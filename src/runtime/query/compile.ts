@@ -22,6 +22,7 @@ import {
 	columnsByTsNames,
 	getTableIndex,
 	type ManifestIndex,
+	type TableIndex,
 } from "./table-index.js";
 
 function colByTs(
@@ -1058,4 +1059,24 @@ export function rowsToTs(
 	rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
 	return rows.map((row) => rowToTs(table, row));
+}
+
+export function mapRowToTs(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	row: Record<string, unknown>,
+): Record<string, unknown> {
+	return tableIndex
+		? rowToTsIndexed(tableIndex, table, row)
+		: rowToTs(table, row);
+}
+
+export function mapRowsToTs(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+	return tableIndex
+		? rowsToTsIndexed(tableIndex, table, rows)
+		: rowsToTs(table, rows);
 }
