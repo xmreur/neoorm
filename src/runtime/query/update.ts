@@ -10,7 +10,7 @@ import {
 	compileWhere,
 	dataToSqlValues,
 	isImpossibleWhere,
-	rowToTs,
+	mapRowToTs,
 } from "./compile.js";
 import { runCreate } from "./create.js";
 import { type QueryRuntime, runExecute, runQuery, runQueryOne } from "./execute.js";
@@ -31,6 +31,7 @@ import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
 } from "./updated-at.js";
+import { getTableIndex } from "./table-index.js";
 
 async function runUpdate(
 	executor: Executor,
@@ -100,6 +101,7 @@ async function runUpdate(
 	}
 
 	let result: Record<string, unknown> | null;
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 
 	if (keys.length === 0 && exprSets.length === 0) {
 		const selectSql = `SELECT * FROM ${tableRef(table)} WHERE ${whereSql} LIMIT 1`;
@@ -111,7 +113,7 @@ async function runUpdate(
 			whereParams,
 		);
 		if (!row) return null;
-		result = rowToTs(table, row);
+		result = mapRowToTs(tableIndex, table, row);
 	} else {
 		const query = buildUpdateQuery(
 			table,
@@ -128,7 +130,7 @@ async function runUpdate(
 			[...values, ...whereParams],
 		);
 		if (!row) return null;
-		result = rowToTs(table, row);
+		result = mapRowToTs(tableIndex, table, row);
 	}
 
 	const recordId = rowScalarPkValue(result, table);
@@ -265,6 +267,7 @@ async function runUpdateMany(
 	const { sql: whereSql, params: whereParams } = compiledWhere;
 
 	const pkSql = quoteIdentifier(primaryKeySqlName(table));
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	let affectedCount = 0;
 	let parentIds: string[] = [];
 
@@ -285,7 +288,7 @@ async function runUpdateMany(
 				[...values, ...whereParams],
 			);
 			parentIds = rows.map((row) =>
-				rowScalarPkValue(rowToTs(table, row), table),
+				rowScalarPkValue(mapRowToTs(tableIndex, table, row), table),
 			);
 			affectedCount = parentIds.length;
 		} else {
@@ -309,7 +312,7 @@ async function runUpdateMany(
 			whereParams,
 		);
 		parentIds = rows.map((row) =>
-			rowScalarPkValue(rowToTs(table, row), table),
+			rowScalarPkValue(mapRowToTs(tableIndex, table, row), table),
 		);
 		affectedCount = parentIds.length;
 	}

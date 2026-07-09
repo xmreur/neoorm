@@ -1,5 +1,5 @@
 import type { Executor } from "../executor.js";
-import { buildUpsertQuery, dataToSqlValues, rowToTs } from "./compile.js";
+import { buildUpsertQuery, dataToSqlValues, mapRowToTs } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
@@ -69,7 +69,11 @@ export async function upsertRecord(
 		insertValues,
 	);
 
-	const result = rowToTs(table, row);
+	const result = mapRowToTs(
+		getTableIndex(runtime.tableIndex, tableAccessor),
+		table,
+		row,
+	);
 
 	if (args.with) {
 		const [withLoaded] = await loadRelations(

@@ -11,9 +11,8 @@ import type {
 import {
 	compileOrderBy,
 	compileWhere,
+	mapRowToTs,
 	normalizeSelectColumns,
-	rowToTs,
-	rowToTsIndexed,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
@@ -536,6 +535,7 @@ function extractJoinedRelations(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	joinedRelations: Set<string>,
+	manifestIndex?: ManifestIndex,
 ): Record<string, unknown> {
 	const relations: Record<string, unknown> = {};
 
@@ -560,7 +560,11 @@ function extractJoinedRelations(
 			for (const key of prefixedKeys) {
 				raw[key.slice(prefix.length)] = row[key];
 			}
-			relations[relationName] = rowToTs(targetTable, raw);
+			const targetIndex = getTableIndex(
+				manifestIndex,
+				targetTable.accessor,
+			);
+			relations[relationName] = mapRowToTs(targetIndex, targetTable, raw);
 		}
 	}
 
@@ -593,9 +597,7 @@ function hydrateInlineChainValue(
 		if (!Array.isArray(parsed)) return [];
 		return parsed.map((row) => {
 			const childRow = row as Record<string, unknown>;
-			const mapped = targetIndex
-				? rowToTsIndexed(targetIndex, node.targetTable, childRow)
-				: rowToTs(node.targetTable, childRow);
+			const mapped = mapRowToTs(targetIndex, node.targetTable, childRow);
 
 			if (node.child) {
 				const nestedVal = childRow[node.child.relationName];
@@ -614,13 +616,11 @@ function hydrateInlineChainValue(
 	if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return null;
 	}
-	return targetIndex
-		? rowToTsIndexed(
-				targetIndex,
-				node.targetTable,
-				parsed as Record<string, unknown>,
-			)
-		: rowToTs(node.targetTable, parsed as Record<string, unknown>);
+	return mapRowToTs(
+		targetIndex,
+		node.targetTable,
+		parsed as Record<string, unknown>,
+	);
 }
 
 export function hydrateRowsWithPlan(
@@ -643,12 +643,11 @@ export function hydrateRowsWithPlan(
 						manifest,
 						parentTable,
 						plan.joinedRelations,
+						runtime.tableIndex,
 					)
 				: {};
 
-		const parent = tableIndex
-			? rowToTsIndexed(tableIndex, parentTable, rawRow)
-			: rowToTs(parentTable, rawRow);
+		const parent = mapRowToTs(tableIndex, parentTable, rawRow);
 
 		const row = { ...parent, ...joined };
 

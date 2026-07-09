@@ -5,11 +5,12 @@ import {
 	buildDeleteQuery,
 	compileWhere,
 	isImpossibleWhere,
-	rowToTs,
+	mapRowToTs,
 } from "./compile.js";
 import { type QueryRuntime, runExecute, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { resolvePkWhere } from "./primary-key.js";
+import { getTableIndex } from "./table-index.js";
 
 export async function deleteRecord(
 	executor: Executor,
@@ -68,7 +69,11 @@ export async function deleteRecord(
 	);
 	if (!row) return null;
 
-	const result = rowToTs(table, row);
+	const result = mapRowToTs(
+		getTableIndex(runtime.tableIndex, tableAccessor),
+		table,
+		row,
+	);
 
 	if (args.with) {
 		const [withLoaded] = await loadRelations(

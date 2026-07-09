@@ -5,7 +5,8 @@ import {
 	buildInsertManyValueRows,
 	buildInsertQuery,
 	dataToSqlValues,
-	rowToTs,
+	mapRowToTs,
+	mapRowsToTs,
 } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
@@ -13,6 +14,7 @@ import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import {
 	columnByTsName,
+	getTableIndex,
 	relationByName,
 } from "./table-index.js";
 import {
@@ -96,7 +98,11 @@ export async function runCreate(
 		values,
 	);
 
-	const result = rowToTs(table, row);
+	const result = mapRowToTs(
+		getTableIndex(runtime.tableIndex, tableAccessor),
+		table,
+		row,
+	);
 	const recordId = rowScalarPkValue(result, table);
 
 	await executeRelationWrites(
@@ -211,7 +217,11 @@ export async function createManyAndReturnRecords(
 		sql,
 		values,
 	);
-	return rows.map((row) => rowToTs(table, row));
+	return mapRowsToTs(
+		getTableIndex(runtime.tableIndex, tableAccessor),
+		table,
+		rows,
+	);
 }
 
 function prepareCreateManyRows(
