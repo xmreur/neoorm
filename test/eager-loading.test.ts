@@ -193,11 +193,12 @@ describe("eager loading batching", () => {
 		});
 	});
 
-	it("uses JOIN for to-one and inline json_agg for to-many (1 query total)", async () => {
+	it("uses JOIN for to-one and JOIN aggregate for to-many (1 query total)", async () => {
 		const executor = createMockExecutor({
 			query: (sql) => {
 				expect(sql).toContain("LEFT JOIN");
 				expect(sql).toContain("json_agg");
+				expect(sql).toContain("GROUP BY");
 				return [
 					{
 						id: "post_1",
@@ -365,11 +366,16 @@ describe("eager loading batching", () => {
 		expect(authorsQuery.params).toEqual(["user_1", "user_2"]);
 	});
 
-	it("inlines has-many on findMany in a single query", async () => {
+	it("loads has-many via JOIN aggregate on findMany in a single query", async () => {
 		const executor = createMockExecutor({
 			query: (sql) => {
 				expect(sql).toContain("json_agg");
-				expect(sql).not.toContain("LEFT JOIN");
+				expect(sql).toContain("LEFT JOIN");
+				expect(sql).toContain("GROUP BY");
+				expect(sql).toContain('"_hm_posts"');
+				expect(sql).not.toMatch(
+					/WHERE\s+"_r_posts"\."author_id"\s*=\s*"users"\."id"/,
+				);
 				return [
 					{
 						id: "user_1",
@@ -454,7 +460,29 @@ describe("eager loading batching", () => {
 		});
 
 		expect(executor.queries).toHaveLength(1);
-		expect(executor.queries[0]?.sql).toContain("COUNT(*)");
+		expect(executor.queries[0]?.sql).toContain("COUNT(");
+		expect(executor.queries[0]?.sql).toContain("GROUP BY");
+		expect(executor.queries[0]?.sql).toContain("LEFT JOIN");
 		expect(rows[0]?._count).toEqual({ posts: 2 });
+	});
+
+	it("orders _count via GROUP BY query when orderBy._count is set", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					name: "Alice",
+					__neoorm_count_posts: 2,
+				},
+			],
+		});
+
+		await findMany(executor, runtime, "users", {
+			with: { _count: { posts: true } },
+			orderBy: { _count: { posts: "desc" } } as Record<string, string>,
+		});
+
+		expect(executor.queries[0]?.sql).toContain("ORDER BY COUNT(");
+		expect(executor.queries[0]?.sql).toContain("DESC");
 	});
 });

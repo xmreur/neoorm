@@ -9,10 +9,13 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import {
+	buildQualifiedSelectColumns,
+	buildSelectColumns,
 	compileOrderBy,
 	compileWhere,
 	mapRowToTs,
 	normalizeSelectColumns,
+	orderByShapeKey,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
@@ -28,6 +31,7 @@ import {
 import {
 	columnByTsName,
 	columnsByTsNames,
+	getOrSetSqlCache,
 	getTableIndex,
 	type ManifestIndex,
 } from "./table-index.js";
@@ -59,6 +63,20 @@ export type InlineCountPlan = {
 	spec: RelationCountSpec;
 };
 
+export type CountAggregatePlan = {
+	joins: string[];
+	selectCols: string[];
+	groupByCols: string[];
+	inlineCounts: InlineCountPlan[];
+};
+
+export type HasManyAggregatePlan = {
+	joins: string[];
+	selectCols: string[];
+	groupByCols: string[];
+	inlineJsonAgg: InlineJsonAggPlan[];
+};
+
 export type RelationLoadPlan = {
 	joins: string[];
 	joinSelectCols: string[];
@@ -66,7 +84,21 @@ export type RelationLoadPlan = {
 	inlineJsonAgg: InlineJsonAggPlan[];
 	inlineCounts: InlineCountPlan[];
 	batchWith: Record<string, WithInput>;
+	countAggregate?: CountAggregatePlan;
+	hasManyAggregate?: HasManyAggregatePlan;
 };
+
+export type RelationPlanOptions = {
+	useHasManyAggregate?: boolean;
+};
+
+function relationPlanCacheKey(
+	withSpec: Record<string, WithInput>,
+	options?: RelationPlanOptions,
+): string {
+	const useHasManyAggregate = options?.useHasManyAggregate !== false;
+	return `${withShapeSignature(withSpec)}|${useHasManyAggregate ? "agg" : "corr"}`;
+}
 
 export function inlineRelationColumnAlias(relationName: string): string {
 	return `__neoorm_${relationName}`;
@@ -206,6 +238,148 @@ function canInlineCount(
 	if (findM2M(manifest, parentTable.accessor, relationName)) return false;
 	const relation = findRelation(parentTable, relationName);
 	return relation?.cardinality === "many";
+}
+
+function isSimpleCountSpec(spec: RelationCountSpec): boolean {
+	return (
+		spec === true ||
+		(typeof spec === "object" && spec.where === undefined)
+	);
+}
+
+function tryBuildCountAggregatePlan(
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	countSpec: Record<string, RelationCountSpec>,
+	manifestIndex?: ManifestIndex,
+): CountAggregatePlan | undefined {
+	for (const spec of Object.values(countSpec)) {
+		if (!isSimpleCountSpec(spec)) return undefined;
+	}
+
+	const parentRef = tableRef(parentTable);
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const groupByCols = parentTable.columns.map(
+		(col) => `${parentRef}.${quoteIdentifier(col.sqlName)}`,
+	);
+
+	const joins: string[] = [];
+	const selectCols: string[] = [];
+	const inlineCounts: InlineCountPlan[] = [];
+
+	for (const [relationName, spec] of Object.entries(countSpec)) {
+		if (!canInlineCount(manifest, parentTable, relationName)) {
+			return undefined;
+		}
+
+		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		if (!relation) return undefined;
+
+		const targetTable = manifest.tables[relation.targetAccessor];
+		if (!targetTable) return undefined;
+
+		const targetAlias = `_cnt_${relationName}`;
+		const fkCol = quoteIdentifier(relation.fkSqlColumn);
+		const parentPkCol = quoteIdentifier(
+			requireScalarPrimaryKey(parentTable).sqlName,
+		);
+		const targetPkCol = quoteIdentifier(
+			targetRelationPkSql(targetTable, relation),
+		);
+
+		joins.push(
+			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
+		);
+		selectCols.push(
+			`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol})::int AS ${quoteIdentifier(inlineCountColumnAlias(relationName))}`,
+		);
+		inlineCounts.push({ relationName, spec });
+	}
+
+	return { joins, selectCols, groupByCols, inlineCounts };
+}
+
+function canHasManyAggregate(
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	chain: InlineChainNode,
+): boolean {
+	if (findM2M(manifest, parentTable.accessor, chain.relationName)) {
+		return false;
+	}
+	if (chain.child) return false;
+	if (tableOwnsFkColumn(parentTable, chain.relation)) return false;
+
+	const spec = chain.nestedSpec;
+	if (spec?.with && Object.keys(spec.with).length > 0) return false;
+	if (spec?.orderBy) return false;
+	if (spec?.limit !== undefined) return false;
+
+	return true;
+}
+
+function groupByExpressionsFromJoinSelectCols(selectCols: string[]): string[] {
+	return selectCols.map((col) => {
+		const asIdx = col.search(/\s+AS\s+/i);
+		return asIdx >= 0 ? col.slice(0, asIdx).trim() : col;
+	});
+}
+
+function tryBuildHasManyAggregatePlan(
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	chains: InlineJsonAggPlan[],
+	toOneJoins: {
+		joins: string[];
+		selectCols: string[];
+		joinedRelations: Set<string>;
+	},
+	manifestIndex?: ManifestIndex,
+): HasManyAggregatePlan | undefined {
+	if (chains.length === 0) return undefined;
+
+	const parentRef = tableRef(parentTable);
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const parentPkCol = quoteIdentifier(
+		requireScalarPrimaryKey(parentTable).sqlName,
+	);
+
+	const groupByCols = parentTable.columns.map(
+		(col) => `${parentRef}.${quoteIdentifier(col.sqlName)}`,
+	);
+	groupByCols.push(...groupByExpressionsFromJoinSelectCols(toOneJoins.selectCols));
+
+	const joins = [...toOneJoins.joins];
+	const selectCols: string[] = [];
+
+	for (const { relationName, chain } of chains) {
+		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		if (!relation) return undefined;
+
+		const targetTable = manifest.tables[relation.targetAccessor];
+		if (!targetTable) return undefined;
+
+		const targetAlias = `_hm_${relationName}`;
+		const fkCol = quoteIdentifier(relation.fkSqlColumn);
+		const targetPkCol = quoteIdentifier(
+			targetRelationPkSql(targetTable, relation),
+		);
+
+		joins.push(
+			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
+		);
+
+		const rowExpr = buildHasManyRowExpression(
+			chain,
+			targetAlias,
+			manifestIndex,
+		);
+		selectCols.push(
+			`COALESCE(json_agg(${rowExpr}) FILTER (WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL), '[]') AS ${quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
+		);
+	}
+
+	return { joins, selectCols, groupByCols, inlineJsonAgg: chains };
 }
 
 function buildJoinClauses(
@@ -449,6 +623,7 @@ export function planRelationLoad(
 	parentTable: ManifestTable,
 	withSpec: Record<string, WithInput> | undefined,
 	manifestIndex?: ManifestIndex,
+	options?: RelationPlanOptions,
 ): RelationLoadPlan {
 	const emptyPlan: RelationLoadPlan = {
 		joins: [],
@@ -465,6 +640,7 @@ export function planRelationLoad(
 	const { relationWith, countSpec } = splitWithSpec(withSpec);
 	const joinCandidates: Record<string, WithInput> = {};
 	const batchWith: Record<string, WithInput> = {};
+	const pendingHasMany: InlineJsonAggPlan[] = [];
 	const inlineJsonAgg: InlineJsonAggPlan[] = [];
 	const inlineCounts: InlineCountPlan[] = [];
 	const batchCounts: Record<string, RelationCountSpec> = {};
@@ -481,7 +657,7 @@ export function planRelationLoad(
 			chain.relation.cardinality === "many" &&
 			!tableOwnsFkColumn(parentTable, chain.relation, parentTableIndex)
 		) {
-			inlineJsonAgg.push({ relationName, chain });
+			pendingHasMany.push({ relationName, chain });
 			continue;
 		}
 
@@ -499,13 +675,12 @@ export function planRelationLoad(
 		batchWith[relationName] = withInput;
 	}
 
-	if (countSpec) {
-		for (const [relationName, spec] of Object.entries(countSpec)) {
-			if (canInlineCount(manifest, parentTable, relationName)) {
-				inlineCounts.push({ relationName, spec });
-			} else {
-				batchCounts[relationName] = spec;
-			}
+	const aggregateChains: InlineJsonAggPlan[] = [];
+	for (const item of pendingHasMany) {
+		if (canHasManyAggregate(manifest, parentTable, item.chain)) {
+			aggregateChains.push(item);
+		} else {
+			inlineJsonAgg.push(item);
 		}
 	}
 
@@ -516,8 +691,73 @@ export function planRelationLoad(
 		manifestIndex,
 	);
 
+	let hasManyAggregate: HasManyAggregatePlan | undefined;
+	const useHasManyAggregate = options?.useHasManyAggregate !== false;
+	if (
+		useHasManyAggregate &&
+		aggregateChains.length > 0 &&
+		aggregateChains.length === pendingHasMany.length
+	) {
+		hasManyAggregate = tryBuildHasManyAggregatePlan(
+			manifest,
+			parentTable,
+			aggregateChains,
+			{ joins, selectCols, joinedRelations },
+			manifestIndex,
+		);
+	} else {
+		inlineJsonAgg.push(...aggregateChains);
+	}
+
+	if (countSpec) {
+		const canAggregate =
+			Object.keys(relationWith).length === 0 &&
+			pendingHasMany.length === 0 &&
+			Object.keys(joinCandidates).length === 0;
+
+		if (canAggregate) {
+			const aggregatePlan = tryBuildCountAggregatePlan(
+				manifest,
+				parentTable,
+				countSpec,
+				manifestIndex,
+			);
+			if (aggregatePlan) {
+				return {
+					joins: aggregatePlan.joins,
+					joinSelectCols: [],
+					joinedRelations: new Set(),
+					inlineJsonAgg: [],
+					inlineCounts: aggregatePlan.inlineCounts,
+					batchWith: {},
+					countAggregate: aggregatePlan,
+				};
+			}
+		}
+
+		for (const [relationName, spec] of Object.entries(countSpec)) {
+			if (canInlineCount(manifest, parentTable, relationName)) {
+				inlineCounts.push({ relationName, spec });
+			} else {
+				batchCounts[relationName] = spec;
+			}
+		}
+	}
+
 	if (Object.keys(batchCounts).length > 0) {
 		batchWith._count = batchCounts as unknown as WithInput;
+	}
+
+	if (hasManyAggregate) {
+		return {
+			joins: [],
+			joinSelectCols: selectCols,
+			joinedRelations,
+			inlineJsonAgg: hasManyAggregate.inlineJsonAgg,
+			inlineCounts,
+			batchWith,
+			hasManyAggregate,
+		};
 	}
 
 	return {
@@ -681,6 +921,14 @@ export function buildPlanExtraSelectCols(
 	plan: RelationLoadPlan,
 	manifestIndex?: ManifestIndex,
 ): string[] {
+	if (plan.countAggregate) {
+		return [...plan.countAggregate.selectCols];
+	}
+
+	if (plan.hasManyAggregate) {
+		return [...plan.joinSelectCols, ...plan.hasManyAggregate.selectCols];
+	}
+
 	const cols = [...plan.joinSelectCols];
 	for (const inline of plan.inlineJsonAgg) {
 		cols.push(
@@ -705,10 +953,177 @@ export function buildPlanExtraSelectCols(
 	return cols;
 }
 
+export function buildAggregateGroupBy(plan: RelationLoadPlan): string {
+	if (plan.hasManyAggregate && plan.hasManyAggregate.groupByCols.length > 0) {
+		return `GROUP BY ${plan.hasManyAggregate.groupByCols.join(", ")}`;
+	}
+	if (plan.countAggregate && plan.countAggregate.groupByCols.length > 0) {
+		return `GROUP BY ${plan.countAggregate.groupByCols.join(", ")}`;
+	}
+	return "";
+}
+
+/** @deprecated Use buildAggregateGroupBy */
+export function buildCountAggregateGroupBy(plan: RelationLoadPlan): string {
+	return buildAggregateGroupBy(plan);
+}
+
+export function compileCountOrderBy(
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	orderBy: Record<string, unknown> | undefined,
+	plan: RelationLoadPlan,
+	manifestIndex?: ManifestIndex,
+): string {
+	if (!orderBy || !plan.countAggregate) return "";
+
+	const countOrder = orderBy._count;
+	if (!countOrder || typeof countOrder !== "object" || Array.isArray(countOrder)) {
+		return "";
+	}
+
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const parts: string[] = [];
+
+	for (const [relationName, direction] of Object.entries(
+		countOrder as Record<string, string>,
+	)) {
+		if (typeof direction !== "string") continue;
+		const countPlan = plan.countAggregate.inlineCounts.find(
+			(c) => c.relationName === relationName,
+		);
+		if (!countPlan) continue;
+
+		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		if (!relation) continue;
+
+		const targetTable = manifest.tables[relation.targetAccessor];
+		if (!targetTable) continue;
+
+		const targetAlias = `_cnt_${relationName}`;
+		const targetPkCol = quoteIdentifier(
+			targetRelationPkSql(targetTable, relation),
+		);
+		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+		parts.push(
+			`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol}) ${dir}`,
+		);
+	}
+
+	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
+}
+
 export function hasPlanMainQueryExtras(plan: RelationLoadPlan): boolean {
 	return (
 		plan.joinedRelations.size > 0 ||
 		plan.inlineJsonAgg.length > 0 ||
-		plan.inlineCounts.length > 0
+		plan.inlineCounts.length > 0 ||
+		plan.countAggregate !== undefined ||
+		plan.hasManyAggregate !== undefined
 	);
+}
+
+export function withShapeSignature(
+	withSpec: Record<string, WithInput>,
+): string {
+	const parts: string[] = [];
+	const sorted = Object.entries(withSpec).sort(([a], [b]) =>
+		a.localeCompare(b),
+	);
+	for (const [name, input] of sorted) {
+		if (input === true) {
+			parts.push(name);
+			continue;
+		}
+		if (typeof input === "object" && input !== null) {
+			const spec = input as InlineRelationSpec;
+			const bits = [name];
+			if (spec.limit !== undefined) bits.push(`l${spec.limit}`);
+			if (spec.orderBy) bits.push(`o${orderByShapeKey(spec.orderBy)}`);
+			if (spec.with) {
+				bits.push(
+					`w${withShapeSignature(spec.with as Record<string, WithInput>)}`,
+				);
+			}
+			parts.push(bits.join(":"));
+		}
+	}
+	return parts.join("|");
+}
+
+export function planIsFullyInline(plan: RelationLoadPlan): boolean {
+	return Object.keys(plan.batchWith).length === 0;
+}
+
+export function getCachedRelationPlan(
+	manifest: Manifest,
+	table: ManifestTable,
+	withSpec: Record<string, WithInput>,
+	manifestIndex?: ManifestIndex,
+	options?: RelationPlanOptions,
+): RelationLoadPlan {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const signature = relationPlanCacheKey(withSpec, options);
+	const cached = tableIndex?.relationPlanBySignature.get(signature);
+	if (cached) return cached;
+
+	const plan = planRelationLoad(manifest, table, withSpec, manifestIndex, options);
+	tableIndex?.relationPlanBySignature.set(signature, plan);
+	return plan;
+}
+
+export function getCachedFindByIdWithQuery(
+	manifest: Manifest,
+	table: ManifestTable,
+	withSpec: Record<string, WithInput>,
+	manifestIndex?: ManifestIndex,
+): { sql: string; plan: RelationLoadPlan } | null {
+	const plan = getCachedRelationPlan(manifest, table, withSpec, manifestIndex, {
+		useHasManyAggregate: false,
+	});
+	if (!planIsFullyInline(plan)) return null;
+	if (plan.countAggregate) return null;
+
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const signature = `${withShapeSignature(withSpec)}|corr`;
+	const { sqlName } = requireScalarPrimaryKey(table);
+	const pkCol = quoteIdentifier(sqlName);
+
+	const build = (): string => {
+		const joinClauses =
+			plan.hasManyAggregate && plan.hasManyAggregate.joins.length > 0
+				? plan.hasManyAggregate.joins
+				: plan.joins.length > 0
+					? plan.joins
+					: undefined;
+		const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
+		const selectCols = hasJoins
+			? buildQualifiedSelectColumns(table, undefined, manifestIndex)
+			: buildSelectColumns(table, undefined, manifestIndex);
+		const extraCols = buildPlanExtraSelectCols(
+			manifest,
+			table,
+			plan,
+			manifestIndex,
+		);
+		let sql = `SELECT ${selectCols}`;
+		if (extraCols.length > 0) sql += `, ${extraCols.join(", ")}`;
+		sql += ` FROM ${tableRef(table)}`;
+		if (joinClauses) sql += ` ${joinClauses.join(" ")}`;
+		sql += ` WHERE ${tableRef(table)}.${pkCol} = $1`;
+		const groupBySql = buildAggregateGroupBy(plan);
+		if (groupBySql) sql += ` ${groupBySql}`;
+		return sql;
+	};
+
+	if (!tableIndex) {
+		return { sql: build(), plan };
+	}
+
+	const sql = getOrSetSqlCache(
+		tableIndex.findByIdWithSqlBySignature,
+		signature,
+		build,
+	);
+	return { sql, plan };
 }

@@ -82,6 +82,7 @@ describe("table index lookups", () => {
 
 	it("tracks needsRowRename and initializes SQL caches", () => {
 		expect(usersIndex.needsRowRename).toBe(false);
+		expect(usersIndex.renameColumns).toEqual([]);
 		expect(usersIndex.insertSqlByKeys).toBeInstanceOf(Map);
 		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
 
@@ -90,5 +91,6 @@ describe("table index lookups", () => {
 		);
 		const postsIndex = blogIndex.get("posts")!;
 		expect(postsIndex.needsRowRename).toBe(true);
+		expect(postsIndex.renameColumns.length).toBeGreaterThan(0);
 	});
 });

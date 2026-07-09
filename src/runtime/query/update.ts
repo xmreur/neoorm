@@ -9,6 +9,7 @@ import {
 	compileWhere,
 	dataToSqlValues,
 	getCachedUpdateManyQuery,
+	getCachedWhereClause,
 	isImpossibleWhere,
 	mapRowToTs,
 	type UpdateReturning,
@@ -33,7 +34,18 @@ import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
 } from "./updated-at.js";
-import { getTableIndex } from "./table-index.js";
+import { getTableIndex, relationByName } from "./table-index.js";
+
+function dataHasRelationKeys(
+	tableIndex: ReturnType<typeof getTableIndex>,
+	table: Parameters<typeof relationByName>[1],
+	data: Record<string, unknown>,
+): boolean {
+	for (const key of Object.keys(data)) {
+		if (relationByName(tableIndex, table, key)) return true;
+	}
+	return false;
+}
 
 async function runUpdate(
 	executor: Executor,
@@ -137,17 +149,17 @@ async function runUpdate(
 				whereSql,
 				exprSets,
 				runtime.tableIndex,
-				"none",
+				"pk",
 			);
-			const { rowCount } = await runExecute(
+			const row = await runQueryOne(
 				executor,
 				runtime,
 				{ operation: "update", tableAccessor },
 				query,
 				[...values, ...whereParams],
 			);
-			if (rowCount === 0) return null;
-			result = {};
+			if (!row) return null;
+			result = mapRowToTs(tableIndex, table, row);
 		} else {
 			const returning: UpdateReturning = args.returnUpdated ? "full" : "pk";
 			const query = buildUpdateQuery(
@@ -305,7 +317,7 @@ async function runUpdateMany(
 		);
 	}
 
-	const compiledWhere = compileWhere(
+	const compiledWhere = getCachedWhereClause(
 		manifest,
 		table,
 		args.where,
@@ -386,6 +398,67 @@ async function runUpdateMany(
 	return affectedCount;
 }
 
+async function runUpdateManyScalar(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	args: {
+		where?: Record<string, unknown>;
+		data: Record<string, unknown>;
+	},
+): Promise<number> {
+	const { manifest } = runtime;
+	const table = manifest.tables[tableAccessor];
+	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	stripUpdatedAtFromData(table, args.data, tableIndex);
+	const { keys, values } = dataToSqlValues(
+		table,
+		args.data,
+		{ excludePrimary: true },
+		runtime.tableIndex,
+	);
+	const exprSets = updatedAtSetExpressions(table, tableIndex);
+
+	if (keys.length === 0 && exprSets.length === 0) {
+		throw new Error(
+			"Update requires at least one scalar field or relation write",
+		);
+	}
+
+	const compiledWhere = getCachedWhereClause(
+		manifest,
+		table,
+		args.where,
+		postgresDialect,
+		1,
+		runtime.tableIndex,
+	);
+	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+		return 0;
+	}
+
+	const { sql: whereSql, params: whereParams } = compiledWhere;
+
+	const query = getCachedUpdateManyQuery(
+		tableIndex,
+		table,
+		keys,
+		whereSql,
+		exprSets,
+		runtime.tableIndex,
+	);
+	const { rowCount } = await runExecute(
+		executor,
+		runtime,
+		{ operation: "update", tableAccessor },
+		query,
+		[...values, ...whereParams],
+	);
+	return rowCount;
+}
+
 export async function updateManyRecords(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -398,6 +471,11 @@ export async function updateManyRecords(
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	if (!dataHasRelationKeys(tableIndex, table, args.data)) {
+		return runUpdateManyScalar(executor, runtime, tableAccessor, args);
+	}
 
 	const split = splitScalarsAndRelationWrites(
 		manifest,

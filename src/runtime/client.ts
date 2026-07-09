@@ -312,6 +312,7 @@ export function createNeoOrmClient<
 
 	const pool = new Pool({
 		connectionString: url,
+		max: options.pool?.max ?? 20,
 		...options.pool,
 	});
 	const schema = resolvePgSchemaName(options.schema);

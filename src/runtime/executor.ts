@@ -73,8 +73,14 @@ function executeFromResult<T = Record<string, unknown>>(
 
 type Queryable = Pick<Pool, "query">;
 
+const statementNameCache = new Map<string, string>();
+
 function statementName(text: string): string {
-	return `neoorm_${createHash("sha256").update(text).digest("hex").slice(0, 32)}`;
+	const cached = statementNameCache.get(text);
+	if (cached !== undefined) return cached;
+	const name = `neoorm_${createHash("sha256").update(text).digest("hex").slice(0, 32)}`;
+	statementNameCache.set(text, name);
+	return name;
 }
 
 async function runQuery(

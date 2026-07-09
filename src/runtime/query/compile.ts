@@ -94,6 +94,11 @@ function defaultColumnRef(col: ManifestColumn): string {
 	return quoteIdentifier(col.sqlName);
 }
 
+function qualifiedColumnRefForTable(table: ManifestTable) {
+	return (col: ManifestColumn) =>
+		`${tableRef(table)}.${quoteIdentifier(col.sqlName)}`;
+}
+
 function parentPkRef(table: ManifestTable): string {
 	const pkSql = primaryKeySqlName(table);
 	return `${tableRef(table)}.${quoteIdentifier(pkSql)}`;
@@ -459,10 +464,15 @@ export function compileWhere(
 	dialect: Dialect,
 	startParamIndex = 1,
 	manifestIndex?: ManifestIndex,
+	qualifyColumns = false,
 ): WhereClause {
 	if (!where || Object.keys(where).length === 0) {
 		return { sql: "", params: [] };
 	}
+
+	const columnRef = qualifyColumns
+		? qualifiedColumnRefForTable(table)
+		: defaultColumnRef;
 
 	const result = compileWhereNode(
 		manifest,
@@ -470,7 +480,7 @@ export function compileWhere(
 		where,
 		dialect,
 		startParamIndex,
-		defaultColumnRef,
+		columnRef,
 		manifestIndex,
 	);
 	const impossible = isImpossibleWhereSql(result.sql);
@@ -479,6 +489,221 @@ export function compileWhere(
 		params: result.params,
 		...(impossible ? { impossible: true } : {}),
 	};
+}
+
+function whereShapeKey(where: Record<string, unknown>): string {
+	const parts: string[] = [];
+	for (const [key, value] of Object.entries(where).sort(([a], [b]) =>
+		a.localeCompare(b),
+	)) {
+		if (key === "AND" && Array.isArray(value)) {
+			parts.push(
+				`AND:${value.map((item) => whereShapeKey(item as Record<string, unknown>)).join(",")}`,
+			);
+			continue;
+		}
+		if (key === "OR" && Array.isArray(value)) {
+			parts.push(
+				`OR:${value.map((item) => whereShapeKey(item as Record<string, unknown>)).join(",")}`,
+			);
+			continue;
+		}
+		if (key === "NOT" && isOperatorObject(value)) {
+			parts.push(`NOT:${whereShapeKey(value as Record<string, unknown>)}`);
+			continue;
+		}
+		if (isOperatorObject(value) && !(value instanceof Date)) {
+			const ops = Object.keys(value).sort();
+			if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
+				parts.push(`${key}:rel:${ops.join(",")}`);
+			} else if (ops.includes("in") || ops.includes("notIn")) {
+				const arr = value.in ?? value.notIn;
+				const len = Array.isArray(arr) ? arr.length : 0;
+				const op = ops.includes("in") ? "in" : "notIn";
+				parts.push(`${key}:${op}:${len}`);
+			} else {
+				parts.push(`${key}:${ops.join(",")}`);
+			}
+			continue;
+		}
+		parts.push(`${key}:eq`);
+	}
+	return parts.join("&");
+}
+
+function bindWhereParams(where: Record<string, unknown>): unknown[] {
+	const values: unknown[] = [];
+	function walk(node: Record<string, unknown>): void {
+		for (const [key, value] of Object.entries(node).sort(([a], [b]) =>
+			a.localeCompare(b),
+		)) {
+			if (key === "AND" || key === "OR") {
+				if (Array.isArray(value)) {
+					for (const item of value) {
+						if (item && typeof item === "object" && !Array.isArray(item)) {
+							walk(item as Record<string, unknown>);
+						}
+					}
+				}
+				continue;
+			}
+			if (key === "NOT" && isOperatorObject(value)) {
+				walk(value as Record<string, unknown>);
+				continue;
+			}
+			if (isOperatorObject(value) && !(value instanceof Date)) {
+				const ops = Object.keys(value).sort();
+				if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
+					values.push(key, ops.join(","));
+					continue;
+				}
+				for (const op of ops) {
+					const raw = value[op];
+					const transform = operatorParamTransform[op as WhereOperator];
+					values.push(transform ? transform(raw) : raw);
+				}
+				continue;
+			}
+			values.push(value);
+		}
+	}
+	walk(where);
+	return values;
+}
+
+function whereValuesFingerprint(where: Record<string, unknown>): string {
+	const values: unknown[] = [];
+	function walk(node: Record<string, unknown>): void {
+		for (const [key, value] of Object.entries(node).sort(([a], [b]) =>
+			a.localeCompare(b),
+		)) {
+			if (key === "AND" || key === "OR") {
+				if (Array.isArray(value)) {
+					for (const item of value) {
+						if (item && typeof item === "object" && !Array.isArray(item)) {
+							walk(item as Record<string, unknown>);
+						}
+					}
+				}
+				continue;
+			}
+			if (key === "NOT" && isOperatorObject(value)) {
+				walk(value as Record<string, unknown>);
+				continue;
+			}
+			if (isOperatorObject(value) && !(value instanceof Date)) {
+				const ops = Object.keys(value).sort();
+				if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
+					values.push(key, ops.join(","));
+					continue;
+				}
+				for (const op of ops) {
+					const raw = value[op];
+					const transform = operatorParamTransform[op as WhereOperator];
+					values.push(transform ? transform(raw) : raw);
+				}
+				continue;
+			}
+			values.push(value);
+		}
+	}
+	walk(where);
+	return JSON.stringify(values);
+}
+
+export function getCachedWhereClause(
+	manifest: Manifest,
+	table: ManifestTable,
+	where: Record<string, unknown> | undefined,
+	dialect: Dialect,
+	startParamIndex = 1,
+	manifestIndex?: ManifestIndex,
+	qualifyColumns = false,
+): WhereClause {
+	if (!where || Object.keys(where).length === 0) {
+		return { sql: "", params: [] };
+	}
+
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const shape = qualifyColumns
+		? `${whereShapeKey(where)}|qualified`
+		: whereShapeKey(where);
+
+	const shellCached = tableIndex?.whereClauseByShape.get(shape);
+	if (shellCached) {
+		return {
+			sql: shellCached.sql,
+			params: bindWhereParams(where),
+			...(shellCached.impossible ? { impossible: true } : {}),
+		};
+	}
+
+	const fingerprint = whereValuesFingerprint(where);
+	const cacheKey = `${shape}\0${fingerprint}`;
+
+	const cached = tableIndex?.whereClauseByFingerprint.get(cacheKey);
+	if (cached) return cached;
+
+	const compiled = compileWhere(
+		manifest,
+		table,
+		where,
+		dialect,
+		startParamIndex,
+		manifestIndex,
+		qualifyColumns,
+	);
+	tableIndex?.whereClauseByShape.set(shape, {
+		sql: compiled.sql,
+		...(compiled.impossible ? { impossible: true } : {}),
+	});
+	tableIndex?.whereClauseByFingerprint.set(cacheKey, compiled);
+	return compiled;
+}
+
+export function orderByShapeKey(
+	orderBy: Record<string, string> | undefined,
+	tableAlias?: string,
+): string {
+	if (!orderBy || Object.keys(orderBy).length === 0) return "";
+	const entries = Object.entries(orderBy)
+		.filter(([key]) => key !== "_count")
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([key, direction]) => `${key}:${direction.toUpperCase()}`);
+	if (entries.length === 0) return "";
+	const base = entries.join("|");
+	return tableAlias ? `${base}|@${tableAlias}` : base;
+}
+
+export function getCachedOrderByClause(
+	table: ManifestTable,
+	orderBy: Record<string, string> | undefined,
+	tableAlias?: string,
+	manifestIndex?: ManifestIndex,
+): string {
+	if (!orderBy || Object.keys(orderBy).length === 0) return "";
+
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const shape = orderByShapeKey(orderBy, tableAlias);
+	if (!shape) return "";
+	if (!tableIndex) {
+		return compileOrderBy(table, orderBy, tableAlias, manifestIndex);
+	}
+	return getOrSetSqlCache(tableIndex.orderBySqlByShape, shape, () =>
+		compileOrderBy(table, orderBy, tableAlias, manifestIndex),
+	);
+}
+
+export function getCachedDeleteManyQuery(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	whereSql: string,
+): string {
+	const cacheKey = whereSql || "";
+	if (!tableIndex) return buildDeleteManyQuery(table, whereSql);
+	return getOrSetSqlCache(tableIndex.deleteManySqlByWhereShape, cacheKey, () =>
+		buildDeleteManyQuery(table, whereSql),
+	);
 }
 
 export function isImpossibleWhereSql(sql: string): boolean {
@@ -523,6 +748,7 @@ export function compileOrderBy(
 	const prefix = tableAlias ? `${quoteIdentifier(tableAlias)}.` : "";
 	const parts: string[] = [];
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
+		if (tsKey === "_count" || typeof direction !== "string") continue;
 		const col = columnByTsName(tableIndex, table, tsKey);
 		if (!col) continue;
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
@@ -542,15 +768,20 @@ export function normalizeSelectColumns(
 		.map(([key]) => key);
 }
 
+function aliasToTsName(expression: string, col: ManifestColumn): string {
+	if (col.sqlName === col.tsName) return expression;
+	return `${expression} AS ${quoteIdentifier(col.tsName)}`;
+}
+
 function selectExpression(col: ManifestColumn): string {
 	if (col.kind === "fk") {
-		return quoteIdentifier(col.sqlName);
+		return aliasToTsName(quoteIdentifier(col.sqlName), col);
 	}
 	const plugin = getColumnType(col.kind);
 	if (plugin?.selectExpression) {
-		return plugin.selectExpression(col);
+		return aliasToTsName(plugin.selectExpression(col), col);
 	}
-	return quoteIdentifier(col.sqlName);
+	return aliasToTsName(quoteIdentifier(col.sqlName), col);
 }
 
 export function buildSelectColumns(
@@ -603,6 +834,7 @@ export function buildFindManyQuery(
 	extraSelectCols?: string[],
 	joinClauses?: string[],
 	manifestIndex?: ManifestIndex,
+	groupBySql?: string,
 ): string {
 	const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
@@ -633,6 +865,7 @@ export function buildFindManyQuery(
 	}
 
 	if (whereSql) sql += ` ${whereSql}`;
+	if (groupBySql) sql += ` ${groupBySql}`;
 	if (orderSql) sql += ` ${orderSql}`;
 	if (limit !== undefined) sql += ` LIMIT ${limit}`;
 	if (offset !== undefined) sql += ` OFFSET ${offset}`;
@@ -1134,11 +1367,40 @@ export function rowToTs(
 	return result;
 }
 
+function rowHasSqlNames(
+	index: TableIndex,
+	row: Record<string, unknown>,
+): boolean {
+	for (const col of index.renameColumns) {
+		if (col.sqlName !== col.tsName && col.sqlName in row) {
+			return true;
+		}
+	}
+	return false;
+}
+
 export function rowToTsIndexed(
 	index: TableIndex,
 	table: ManifestTable,
 	row: Record<string, unknown>,
 ): Record<string, unknown> {
+	if (index.selectUsesColumnAliases && !rowHasSqlNames(index, row)) {
+		if (index.deserializeColumns.length === 0) {
+			return row;
+		}
+		const result: Record<string, unknown> = { ...row };
+		for (const col of index.deserializeColumns) {
+			const key = col.tsName in row ? col.tsName : col.sqlName;
+			if (key in row) {
+				const plugin = getColumnType(col.kind);
+				if (plugin?.deserializeValue) {
+					result[col.tsName] = plugin.deserializeValue(col, row[key]);
+				}
+			}
+		}
+		return result;
+	}
+
 	if (!index.needsRowRename && index.deserializeColumns.length === 0) {
 		return row;
 	}
@@ -1178,6 +1440,13 @@ export function rowsToTsIndexed(
 	table: ManifestTable,
 	rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
+	if (
+		index.selectUsesColumnAliases &&
+		index.deserializeColumns.length === 0 &&
+		!index.needsRowRename
+	) {
+		return rows;
+	}
 	if (!index.needsRowRename && index.deserializeColumns.length === 0) {
 		return rows;
 	}

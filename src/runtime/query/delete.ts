@@ -4,6 +4,8 @@ import {
 	buildDeleteManyQuery,
 	buildDeleteQuery,
 	compileWhere,
+	getCachedDeleteManyQuery,
+	getCachedWhereClause,
 	isImpossibleWhere,
 	mapRowToTs,
 } from "./compile.js";
@@ -101,7 +103,7 @@ export async function deleteManyRecords(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { sql: whereSql, params, impossible } = compileWhere(
+	const { sql: whereSql, params, impossible } = getCachedWhereClause(
 		manifest,
 		table,
 		args?.where,
@@ -114,7 +116,8 @@ export async function deleteManyRecords(
 		return 0;
 	}
 
-	const query = buildDeleteManyQuery(table, whereSql);
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const query = getCachedDeleteManyQuery(tableIndex, table, whereSql);
 	const { rowCount } = await runExecute(
 		executor,
 		runtime,
