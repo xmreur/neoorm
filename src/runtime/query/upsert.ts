@@ -44,14 +44,14 @@ export async function upsertRecord(
 	);
 
 	const updateData = { ...args.update };
-	stripUpdatedAtFromData(table, updateData);
+	stripUpdatedAtFromData(table, updateData, tableIndex);
 	const updateKeys = Object.keys(updateData).filter((key) => {
 		const col = columnByTsName(tableIndex, table, key);
 		return (
 			col !== undefined && !col.primary && updateData[key] !== undefined
 		);
 	});
-	const exprSets = updatedAtSetExpressions(table);
+	const exprSets = updatedAtSetExpressions(table, tableIndex);
 
 	const upsertSql = buildUpsertQuery(
 		table,

@@ -16,6 +16,7 @@ import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
 } from "../src/runtime/query/updated-at.js";
+import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
@@ -81,5 +82,16 @@ describe("updatedAt", () => {
 		expect(() => schemaToManifest(invalid)).toThrow(
 			/only supported on timestamp/,
 		);
+	});
+
+	it("no-ops for tables without updatedAt column", () => {
+		const manifest = blogManifest();
+		const tags = manifestTable(manifest, "tags");
+		const tagsIndex = buildManifestIndex(manifest).get("tags")!;
+		const data = { slug: "hello", name: "Hello" };
+
+		stripUpdatedAtFromData(tags, data, tagsIndex);
+		expect(data).toEqual({ slug: "hello", name: "Hello" });
+		expect(updatedAtSetExpressions(tags, tagsIndex)).toEqual([]);
 	});
 });

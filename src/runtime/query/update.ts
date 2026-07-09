@@ -77,7 +77,8 @@ async function runUpdate(
 		throw new Error("Update requires a where clause");
 	}
 
-	stripUpdatedAtFromData(table, scalarData);
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	stripUpdatedAtFromData(table, scalarData, tableIndex);
 	const { keys, values } = dataToSqlValues(
 		table,
 		scalarData,
@@ -86,7 +87,7 @@ async function runUpdate(
 		},
 		runtime.tableIndex,
 	);
-	const exprSets = updatedAtSetExpressions(table);
+	const exprSets = updatedAtSetExpressions(table, tableIndex);
 	const needsRelationWrites = hasPostRelationWrites(
 		table,
 		manifest,
@@ -101,7 +102,6 @@ async function runUpdate(
 	}
 
 	let result: Record<string, unknown> | null;
-	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 
 	if (keys.length === 0 && exprSets.length === 0) {
 		const selectSql = `SELECT * FROM ${tableRef(table)} WHERE ${whereSql} LIMIT 1`;
@@ -225,7 +225,8 @@ async function runUpdateMany(
 		runCreate,
 	);
 
-	stripUpdatedAtFromData(table, scalarData);
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	stripUpdatedAtFromData(table, scalarData, tableIndex);
 	const { keys, values } = dataToSqlValues(
 		table,
 		scalarData,
@@ -234,7 +235,7 @@ async function runUpdateMany(
 		},
 		runtime.tableIndex,
 	);
-	const exprSets = updatedAtSetExpressions(table);
+	const exprSets = updatedAtSetExpressions(table, tableIndex);
 	const needsPostRelationWrites = hasPostRelationWrites(
 		table,
 		manifest,
@@ -267,7 +268,6 @@ async function runUpdateMany(
 	const { sql: whereSql, params: whereParams } = compiledWhere;
 
 	const pkSql = quoteIdentifier(primaryKeySqlName(table));
-	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	let affectedCount = 0;
 	let parentIds: string[] = [];
 
