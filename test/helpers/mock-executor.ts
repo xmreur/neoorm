@@ -44,7 +44,7 @@ export function createMockExecutor(handlers?: {
 				return handlers.execute(sql, params);
 			}
 			const rows = handlers?.query?.(sql, params) ?? [];
-			return { rows, rowCount: rows.length };
+			return { rows, rowCount: rows.length > 0 ? rows.length : 1 };
 		}) as Executor["execute"],
 		transaction: vi.fn(async (fn) =>
 			fn(createMockExecutor(handlers)),

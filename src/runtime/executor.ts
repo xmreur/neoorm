@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { CompiledQuery } from "../dialect/types.js";
 import type { TransactionOptions } from "./types.js";
@@ -25,6 +26,10 @@ export type Executor = {
 		fn: (tx: Executor) => Promise<T>,
 		options?: TransactionOptions,
 	): Promise<T>;
+};
+
+export type ExecutorOptions = {
+	preparedStatements?: boolean;
 };
 
 const isolationLevelSql: Record<
@@ -66,6 +71,28 @@ function executeFromResult<T = Record<string, unknown>>(
 	};
 }
 
+type Queryable = Pick<Pool, "query">;
+
+function statementName(text: string): string {
+	return `neoorm_${createHash("sha256").update(text).digest("hex").slice(0, 32)}`;
+}
+
+async function runQuery(
+	client: Queryable,
+	text: string,
+	params: unknown[],
+	usePrepared: boolean,
+): Promise<QueryResult> {
+	if (usePrepared) {
+		return client.query({
+			name: statementName(text),
+			text,
+			values: params,
+		});
+	}
+	return client.query(text, params);
+}
+
 type TransactionState = {
 	client: PoolClient;
 	savepointCounter: number;
@@ -86,13 +113,16 @@ function assertNoSavepointOptions(options?: TransactionOptions): void {
 	}
 }
 
-export function createExecutor(pool: Pool): Executor {
+function createQueryMethods(
+	client: Queryable,
+	usePrepared: boolean,
+): Pick<Executor, "query" | "queryOne" | "execute"> {
 	return {
 		async query<T = Record<string, unknown>>(
 			text: string,
 			params: unknown[] = [],
 		): Promise<T[]> {
-			const result = await pool.query(text, params);
+			const result = await runQuery(client, text, params, usePrepared);
 			return rowsFromResult(result) as T[];
 		},
 
@@ -100,7 +130,7 @@ export function createExecutor(pool: Pool): Executor {
 			text: string,
 			params: unknown[] = [],
 		): Promise<T | null> {
-			const result = await pool.query(text, params);
+			const result = await runQuery(client, text, params, usePrepared);
 			const rows = rowsFromResult(result);
 			return (rows[0] as T | undefined) ?? null;
 		},
@@ -109,9 +139,21 @@ export function createExecutor(pool: Pool): Executor {
 			text: string,
 			params: unknown[] = [],
 		): Promise<ExecuteResult<T>> {
-			const result = await pool.query(text, params);
+			const result = await runQuery(client, text, params, usePrepared);
 			return executeFromResult<T>(result);
 		},
+	};
+}
+
+export function createExecutor(
+	pool: Pool,
+	options?: ExecutorOptions,
+): Executor {
+	const usePrepared = options?.preparedStatements ?? true;
+	const queryMethods = createQueryMethods(pool, usePrepared);
+
+	return {
+		...queryMethods,
 
 		async transaction<T>(
 			fn: (tx: Executor) => Promise<T>,
@@ -121,7 +163,7 @@ export function createExecutor(pool: Pool): Executor {
 			try {
 				await client.query(buildBeginSql(options));
 				const state: TransactionState = { client, savepointCounter: 0 };
-				const tx = createClientExecutor(state);
+				const tx = createClientExecutor(state, usePrepared);
 				const result = await fn(tx);
 				await client.query("COMMIT");
 				return result;
@@ -135,36 +177,16 @@ export function createExecutor(pool: Pool): Executor {
 	};
 }
 
-function createClientExecutor(state: TransactionState): Executor {
+function createClientExecutor(
+	state: TransactionState,
+	usePrepared: boolean,
+): Executor {
 	const { client } = state;
+	const queryMethods = createQueryMethods(client, usePrepared);
 
 	return {
 		inTransaction: true,
-
-		async query<T = Record<string, unknown>>(
-			text: string,
-			params: unknown[] = [],
-		): Promise<T[]> {
-			const result = await client.query(text, params);
-			return rowsFromResult(result) as T[];
-		},
-
-		async queryOne<T = Record<string, unknown>>(
-			text: string,
-			params: unknown[] = [],
-		): Promise<T | null> {
-			const result = await client.query(text, params);
-			const rows = rowsFromResult(result);
-			return (rows[0] as T | undefined) ?? null;
-		},
-
-		async execute<T = Record<string, unknown>>(
-			text: string,
-			params: unknown[] = [],
-		): Promise<ExecuteResult<T>> {
-			const result = await client.query(text, params);
-			return executeFromResult<T>(result);
-		},
+		...queryMethods,
 
 		async transaction<T>(
 			fn: (tx: Executor) => Promise<T>,
@@ -177,7 +199,7 @@ function createClientExecutor(state: TransactionState): Executor {
 
 			await client.query(`SAVEPOINT ${savepointName}`);
 			try {
-				const result = await fn(createClientExecutor(state));
+				const result = await fn(createClientExecutor(state, usePrepared));
 				await client.query(`RELEASE SAVEPOINT ${savepointName}`);
 				return result;
 			} catch (err) {

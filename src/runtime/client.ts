@@ -36,6 +36,11 @@ export type NeoOrmClientOptions = {
 	connectionString?: string;
 	migrationsDir?: string;
 	schema?: string;
+	preparedStatements?: boolean;
+	pool?: {
+		max?: number;
+		idleTimeoutMillis?: number;
+	};
 };
 
 export type TableRepository = {
@@ -63,6 +68,7 @@ export type TableRepository = {
 	create(args: {
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnCreated?: boolean;
 	}): Promise<Record<string, unknown>>;
 	createMany(args: { data: Record<string, unknown>[] }): Promise<number>;
 	createManyAndReturn(args: {
@@ -83,6 +89,7 @@ export type TableRepository = {
 		where: Record<string, unknown>;
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnUpdated?: boolean;
 	}): Promise<Record<string, unknown> | null>;
 	updateMany(args: {
 		where?: Record<string, unknown>;
@@ -93,6 +100,7 @@ export type TableRepository = {
 		args: {
 			data: Record<string, unknown>;
 			with?: Record<string, WithInput>;
+			returnUpdated?: boolean;
 		},
 	): Promise<Record<string, unknown> | null>;
 	delete(args: {
@@ -302,9 +310,16 @@ export function createNeoOrmClient<
 		throw new Error("DATABASE_URL is required");
 	}
 
-	const pool = new Pool({ connectionString: url });
+	const pool = new Pool({
+		connectionString: url,
+		...options.pool,
+	});
 	const schema = resolvePgSchemaName(options.schema);
-	const executor = createExecutor(pool);
+	const executorOptions =
+		options.preparedStatements !== undefined
+			? { preparedStatements: options.preparedStatements }
+			: undefined;
+	const executor = createExecutor(pool, executorOptions);
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
@@ -338,12 +353,19 @@ export function createNeoOrmClientFromPool<
 >(
 	manifest: Manifest,
 	pool: Pool,
-	options?: Pick<NeoOrmClientOptions, "migrationsDir" | "schema">,
+	options?: Pick<
+		NeoOrmClientOptions,
+		"migrationsDir" | "schema" | "preparedStatements"
+	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
 
 	const schema = resolvePgSchemaName(options?.schema);
-	const executor = createExecutor(pool);
+	const executorOptions =
+		options?.preparedStatements !== undefined
+			? { preparedStatements: options.preparedStatements }
+			: undefined;
+	const executor = createExecutor(pool, executorOptions);
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,

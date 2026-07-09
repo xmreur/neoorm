@@ -16,13 +16,28 @@ function mockQueryResult(rows: Record<string, unknown>[] = []): QueryResult {
 	};
 }
 
+type PgQueryInput =
+	| string
+	| { text: string; values?: unknown[]; name?: string };
+
+function resolveQuery(
+	input: PgQueryInput,
+	params?: unknown[],
+): { text: string; params: unknown[] } {
+	if (typeof input === "string") {
+		return { text: input, params: params ?? [] };
+	}
+	return { text: input.text, params: input.values ?? [] };
+}
+
 function createMockPool() {
 	const queries: Array<{ text: string; params?: unknown[] }> = [];
 	let shouldFail = false;
 
 	const client: PoolClient = {
-		query: vi.fn(async (text: string, params?: unknown[]) => {
-			queries.push(params === undefined ? { text } : { text, params });
+		query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+			const resolved = resolveQuery(input, params);
+			queries.push(resolved);
 			if (shouldFail) {
 				throw new Error("query failed");
 			}
@@ -32,8 +47,9 @@ function createMockPool() {
 	} as unknown as PoolClient;
 
 	const pool = {
-		query: vi.fn(async (text: string, params?: unknown[]) => {
-			queries.push(params === undefined ? { text } : { text, params });
+		query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+			const resolved = resolveQuery(input, params);
+			queries.push(resolved);
 			return mockQueryResult();
 		}),
 		connect: vi.fn(async () => client),
@@ -152,10 +168,12 @@ describe("executor.transaction", () => {
 		const queries: Array<{ text: string; params?: unknown[] }> = [];
 
 		const client: PoolClient = {
-			query: vi.fn(async (text: string, params?: unknown[]) => {
-				queries.push(
-					params === undefined ? { text } : { text, params },
+			query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+				const { text, params: resolvedParams } = resolveQuery(
+					input,
+					params,
 				);
+				queries.push({ text, params: resolvedParams });
 				if (text === "INSERT INTO comments DEFAULT VALUES") {
 					throw new Error("query failed");
 				}

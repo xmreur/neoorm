@@ -554,6 +554,8 @@ export async function applyToOnePreWrites(
 	relationWrites: ParsedRelationWrite[],
 	runCreate: CreateRunner,
 ): Promise<void> {
+	if (relationWrites.length === 0) return;
+
 	for (const write of relationWrites) {
 		const rel = findRelation(table, write.relationName);
 		if (!rel || rel.cardinality !== "one" || !tableOwnsFkColumn(table, rel))

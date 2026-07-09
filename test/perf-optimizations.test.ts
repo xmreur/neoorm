@@ -5,6 +5,7 @@ import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { deleteManyRecords, deleteRecord } from "../src/runtime/query/delete.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { createRecord } from "../src/runtime/query/create.js";
+import { getCachedInsertQuery } from "../src/runtime/query/compile.js";
 import { findById, findMany } from "../src/runtime/query/find.js";
 import { updateManyRecords } from "../src/runtime/query/update.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
@@ -219,11 +220,39 @@ describe("read path optimizations", () => {
 	});
 });
 
+describe("SQL template cache", () => {
+	it("insert SQL cache uses canonical column order regardless of key order", () => {
+		const runtime = createRuntime();
+		const tableIndex = runtime.tableIndex?.get("users");
+		const users = runtime.manifest.tables.users;
+		expect(tableIndex).toBeDefined();
+		expect(users).toBeDefined();
+
+		const sql = getCachedInsertQuery(
+			tableIndex,
+			users!,
+			["name", "id"],
+			"pk",
+			runtime.tableIndex,
+		);
+		expect(sql.indexOf('"id"')).toBeLessThan(sql.indexOf('"name"'));
+
+		const sqlAgain = getCachedInsertQuery(
+			tableIndex,
+			users!,
+			["id", "name"],
+			"pk",
+			runtime.tableIndex,
+		);
+		expect(sqlAgain).toBe(sql);
+	});
+});
+
 describe("create transaction elision", () => {
 	it("skips transaction for scalar-only creates", async () => {
 		const runtime = createRuntime();
 		const executor = createMockExecutor({
-			queryOne: () => ({ id: "u1", email: "a@test.com", name: "Alice" }),
+			execute: () => ({ rows: [], rowCount: 1 }),
 		});
 
 		await createRecord(executor, runtime, "users", {
@@ -231,5 +260,40 @@ describe("create transaction elision", () => {
 		});
 
 		expect(executor.transaction).not.toHaveBeenCalled();
+		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
+	});
+});
+
+describe("insert/update returning optimizations", () => {
+	it("create uses full RETURNING when returnCreated is set", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			queryOne: () => ({ id: "u1", email: "a@test.com", name: "Alice" }),
+		});
+
+		await createRecord(executor, runtime, "users", {
+			data: { email: "a@test.com", name: "Alice" },
+			returnCreated: true,
+		});
+
+		expect(executor.queries[0]?.sql).toContain("RETURNING");
+		expect(executor.queries[0]?.sql).toContain("name");
+	});
+
+	it("update uses rowCount without RETURNING by default", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			execute: () => ({ rows: [], rowCount: 1 }),
+		});
+
+		const { updateRecord } = await import("../src/runtime/query/update.js");
+		const result = await updateRecord(executor, runtime, "users", {
+			where: { id: "u1" },
+			data: { name: "Bob" },
+		});
+
+		expect(result).toEqual({});
+		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
+		expect(executor.execute).toHaveBeenCalled();
 	});
 });

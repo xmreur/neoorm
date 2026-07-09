@@ -19,6 +19,7 @@ const schema = defineSchema({
 function createMockExecutor(behavior?: {
 	queryOne?: () => Promise<Record<string, unknown> | null>;
 	query?: () => Promise<never>;
+	execute?: () => Promise<{ rows: Record<string, unknown>[]; rowCount: number }>;
 }): Executor {
 	return {
 		inTransaction: false,
@@ -34,7 +35,12 @@ function createMockExecutor(behavior?: {
 			}
 			return null;
 		}) as Executor["queryOne"],
-		execute: vi.fn(async () => ({ rows: [], rowCount: 0 })) as Executor["execute"],
+		execute: vi.fn(async () => {
+			if (behavior?.execute) {
+				return behavior.execute();
+			}
+			return { rows: [], rowCount: 0 };
+		}) as Executor["execute"],
 		transaction: vi.fn(async (fn) => fn(createMockExecutor(behavior))),
 	};
 }
@@ -180,7 +186,7 @@ describe("query errors", () => {
 		});
 
 		const executor = createMockExecutor({
-			queryOne: async () => {
+			execute: async () => {
 				throw pgError;
 			},
 		});

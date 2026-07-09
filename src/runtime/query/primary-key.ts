@@ -162,6 +162,22 @@ export function defaultPrimaryKeyValue(
 	return generateTextId(table.accessor);
 }
 
+export function scalarPkAvailable(
+	table: ManifestTable,
+	data: Record<string, unknown>,
+	tableIndex?: TableIndex,
+): boolean {
+	if (table.primaryKey.length === 0) return false;
+	for (const sqlName of table.primaryKey) {
+		const col = columnBySqlName(tableIndex, table, sqlName);
+		if (!col) return false;
+		if (col.kind === "serial" || col.generated) return false;
+		const current = data[col.tsName];
+		if (current === undefined || current === null) return false;
+	}
+	return true;
+}
+
 export function fillMissingPrimaryKeys(
 	table: ManifestTable,
 	data: Record<string, unknown>,

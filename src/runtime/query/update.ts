@@ -5,12 +5,13 @@ import {
 } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
-	buildUpdateManyQuery,
 	buildUpdateQuery,
 	compileWhere,
 	dataToSqlValues,
+	getCachedUpdateManyQuery,
 	isImpossibleWhere,
 	mapRowToTs,
+	type UpdateReturning,
 } from "./compile.js";
 import { runCreate } from "./create.js";
 import { type QueryRuntime, runExecute, runQuery, runQueryOne } from "./execute.js";
@@ -25,6 +26,7 @@ import {
 	applyToOnePreWrites,
 	executeRelationWrites,
 	hasPostRelationWrites,
+	type ParsedRelationWrite,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
 import {
@@ -41,19 +43,29 @@ async function runUpdate(
 		where: Record<string, unknown>;
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnUpdated?: boolean;
+		scalarData?: Record<string, unknown>;
+		relationWrites?: ParsedRelationWrite[];
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { scalarData, relationWrites } = splitScalarsAndRelationWrites(
-		manifest,
-		tableAccessor,
-		table,
-		args.data,
-		runtime.tableIndex,
-	);
+	const split =
+		args.scalarData !== undefined && args.relationWrites !== undefined
+			? {
+					scalarData: args.scalarData,
+					relationWrites: args.relationWrites,
+				}
+			: splitScalarsAndRelationWrites(
+					manifest,
+					tableAccessor,
+					table,
+					args.data,
+					runtime.tableIndex,
+				);
+	const { scalarData, relationWrites } = split;
 
 	await applyToOnePreWrites(
 		executor,
@@ -115,25 +127,53 @@ async function runUpdate(
 		if (!row) return null;
 		result = mapRowToTs(tableIndex, table, row);
 	} else {
-		const query = buildUpdateQuery(
-			table,
-			keys,
-			whereSql,
-			exprSets,
-			runtime.tableIndex,
-		);
-		const row = await runQueryOne(
-			executor,
-			runtime,
-			{ operation: "update", tableAccessor },
-			query,
-			[...values, ...whereParams],
-		);
-		if (!row) return null;
-		result = mapRowToTs(tableIndex, table, row);
+		const needsReturning =
+			args.returnUpdated || args.with || needsRelationWrites;
+
+		if (!needsReturning) {
+			const query = buildUpdateQuery(
+				table,
+				keys,
+				whereSql,
+				exprSets,
+				runtime.tableIndex,
+				"none",
+			);
+			const { rowCount } = await runExecute(
+				executor,
+				runtime,
+				{ operation: "update", tableAccessor },
+				query,
+				[...values, ...whereParams],
+			);
+			if (rowCount === 0) return null;
+			result = {};
+		} else {
+			const returning: UpdateReturning = args.returnUpdated ? "full" : "pk";
+			const query = buildUpdateQuery(
+				table,
+				keys,
+				whereSql,
+				exprSets,
+				runtime.tableIndex,
+				returning,
+			);
+			const row = await runQueryOne(
+				executor,
+				runtime,
+				{ operation: "update", tableAccessor },
+				query,
+				[...values, ...whereParams],
+			);
+			if (!row) return null;
+			result = mapRowToTs(tableIndex, table, row);
+		}
 	}
 
-	const recordId = rowScalarPkValue(result, table);
+	const recordId =
+		Object.keys(result).length === 0
+			? rowScalarPkValue(args.where, table)
+			: rowScalarPkValue(result, table);
 
 	await executeRelationWrites(
 		executor,
@@ -166,13 +206,14 @@ export async function updateRecord(
 		where: Record<string, unknown>;
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnUpdated?: boolean;
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { relationWrites } = splitScalarsAndRelationWrites(
+	const split = splitScalarsAndRelationWrites(
 		manifest,
 		tableAccessor,
 		table,
@@ -183,15 +224,17 @@ export async function updateRecord(
 		table,
 		manifest,
 		tableAccessor,
-		relationWrites,
+		split.relationWrites,
 	);
 
+	const runArgs = { ...args, ...split };
+
 	if (executor.inTransaction || !needsTransaction) {
-		return runUpdate(executor, runtime, tableAccessor, args);
+		return runUpdate(executor, runtime, tableAccessor, runArgs);
 	}
 
 	return executor.transaction((tx) =>
-		runUpdate(tx, runtime, tableAccessor, args),
+		runUpdate(tx, runtime, tableAccessor, runArgs),
 	);
 }
 
@@ -202,19 +245,28 @@ async function runUpdateMany(
 	args: {
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
+		scalarData?: Record<string, unknown>;
+		relationWrites?: ParsedRelationWrite[];
 	},
 ): Promise<number> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { scalarData, relationWrites } = splitScalarsAndRelationWrites(
-		manifest,
-		tableAccessor,
-		table,
-		args.data,
-		runtime.tableIndex,
-	);
+	const split =
+		args.scalarData !== undefined && args.relationWrites !== undefined
+			? {
+					scalarData: args.scalarData,
+					relationWrites: args.relationWrites,
+				}
+			: splitScalarsAndRelationWrites(
+					manifest,
+					tableAccessor,
+					table,
+					args.data,
+					runtime.tableIndex,
+				);
+	const { scalarData, relationWrites } = split;
 
 	await applyToOnePreWrites(
 		executor,
@@ -272,7 +324,8 @@ async function runUpdateMany(
 	let parentIds: string[] = [];
 
 	if (keys.length > 0 || exprSets.length > 0) {
-		const query = buildUpdateManyQuery(
+		const query = getCachedUpdateManyQuery(
+			tableIndex,
 			table,
 			keys,
 			whereSql,
@@ -346,7 +399,7 @@ export async function updateManyRecords(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { relationWrites } = splitScalarsAndRelationWrites(
+	const split = splitScalarsAndRelationWrites(
 		manifest,
 		tableAccessor,
 		table,
@@ -357,15 +410,17 @@ export async function updateManyRecords(
 		table,
 		manifest,
 		tableAccessor,
-		relationWrites,
+		split.relationWrites,
 	);
 
+	const runArgs = { ...args, ...split };
+
 	if (executor.inTransaction || !needsTransaction) {
-		return runUpdateMany(executor, runtime, tableAccessor, args);
+		return runUpdateMany(executor, runtime, tableAccessor, runArgs);
 	}
 
 	return executor.transaction((tx) =>
-		runUpdateMany(tx, runtime, tableAccessor, args),
+		runUpdateMany(tx, runtime, tableAccessor, runArgs),
 	);
 }
 
@@ -377,6 +432,7 @@ export async function updateById(
 	args: {
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnUpdated?: boolean;
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
@@ -388,5 +444,8 @@ export async function updateById(
 		where,
 		data: args.data,
 		...(args.with !== undefined ? { with: args.with } : {}),
+		...(args.returnUpdated !== undefined
+			? { returnUpdated: args.returnUpdated }
+			: {}),
 	});
 }

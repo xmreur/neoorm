@@ -78,19 +78,20 @@ describe("citext, bytea, and array columns", () => {
 		expect(byteaPlugin.serializeValue?.(blobCol, buffer)).toBe(buffer);
 		expect(byteaPlugin.deserializeValue?.(blobCol, buffer)).toEqual(buffer);
 
-		const { values } = dataToSqlValues(samples, {
+		const { keys, values } = dataToSqlValues(samples, {
 			id: "s1",
 			email: "Test@Example.com",
 			blob: buffer,
 			tags: ["a", "b"],
 			scores: [1, 2],
 		});
+		expect(keys).toEqual(["blob", "email", "id", "scores", "tags"]);
 		expect(values).toEqual([
-			"s1",
-			"Test@Example.com",
 			buffer,
-			["a", "b"],
+			"Test@Example.com",
+			"s1",
 			[1, 2],
+			["a", "b"],
 		]);
 	});
 });

@@ -20,7 +20,44 @@ export type TableIndex = {
 	deserializeColumns: ManifestColumn[];
 	updatedAtColumns: ManifestColumn[];
 	updatedAtSetExprs: string[];
+	needsRowRename: boolean;
+	insertSqlByKeys: Map<string, string>;
+	updateManySqlByKeys: Map<string, string>;
+	aggregateSqlBySelector: Map<string, string>;
+	findManySqlBySignature: Map<string, string>;
 };
+
+export function sortedKeysCacheKey(keys: readonly string[]): string {
+	return [...keys].sort().join("\0");
+}
+
+export function reorderKeyValues(
+	keys: string[],
+	values: unknown[],
+): { keys: string[]; values: unknown[] } {
+	if (keys.length <= 1) return { keys, values };
+	const pairs = keys.map((key, index) => ({
+		key,
+		value: values[index],
+	}));
+	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	return {
+		keys: pairs.map((pair) => pair.key),
+		values: pairs.map((pair) => pair.value),
+	};
+}
+
+export function getOrSetSqlCache(
+	cache: Map<string, string>,
+	key: string,
+	build: () => string,
+): string {
+	const cached = cache.get(key);
+	if (cached !== undefined) return cached;
+	const sql = build();
+	cache.set(key, sql);
+	return sql;
+}
 
 export type ManifestIndex = Map<string, TableIndex>;
 
@@ -71,6 +108,10 @@ export function buildTableIndex(
 		findByIdSql = "";
 	}
 
+	const needsRowRename = table.columns.some(
+		(col) => col.sqlName !== col.tsName,
+	);
+
 	return {
 		columnsByTsName,
 		columnsBySqlName,
@@ -82,6 +123,11 @@ export function buildTableIndex(
 		deserializeColumns,
 		updatedAtColumns,
 		updatedAtSetExprs,
+		needsRowRename,
+		insertSqlByKeys: new Map(),
+		updateManySqlByKeys: new Map(),
+		aggregateSqlBySelector: new Map(),
+		findManySqlBySignature: new Map(),
 	};
 }
 

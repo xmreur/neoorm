@@ -123,6 +123,7 @@ export type CreateArgs<
 > = {
 	data: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	returnCreated?: boolean;
 };
 
 export type CreateManyInput<TColumns extends Record<string, ColumnDef>> =
@@ -161,6 +162,7 @@ export type UpdateArgs<
 	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	returnUpdated?: boolean;
 };
 
 export type UpdateManyArgs<
