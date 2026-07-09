@@ -30,16 +30,30 @@ describe("update/delete SQL compilation", () => {
 		expect(query).toContain("RETURNING");
 	});
 
-	it("builds delete query", () => {
+	it("builds delete query with pk returning", () => {
 		const { sql: whereSql } = compileWhere(
 			manifest,
 			posts,
 			{ published: false },
 			postgresDialect,
 		);
-		const query = buildDeleteQuery(posts, whereSql);
+		const query = buildDeleteQuery(posts, whereSql, "pk");
+		expect(query).toContain("DELETE FROM");
+		expect(query).toContain('RETURNING "id"');
+		expect(query).not.toContain("title");
+	});
+
+	it("builds delete query with full returning", () => {
+		const { sql: whereSql } = compileWhere(
+			manifest,
+			posts,
+			{ published: false },
+			postgresDialect,
+		);
+		const query = buildDeleteQuery(posts, whereSql, "full");
 		expect(query).toContain("DELETE FROM");
 		expect(query).toContain("RETURNING");
+		expect(query).toContain("title");
 	});
 
 	it("builds multi-row insert query", () => {

@@ -17,6 +17,7 @@ import {
 	targetRelationPkSql,
 } from "./primary-key.js";
 import {
+	columnBySqlName,
 	columnByTsName,
 	columnsByTsNames,
 	getTableIndex,
@@ -917,11 +918,29 @@ export function buildUpdateQuery(
 	return sql;
 }
 
+export function buildReturningPkColumns(
+	table: ManifestTable,
+	manifestIndex?: ManifestIndex,
+): string {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	return table.primaryKey
+		.map((sqlName) => {
+			const col = columnBySqlName(tableIndex, table, sqlName);
+			return quoteIdentifier(col?.sqlName ?? sqlName);
+		})
+		.join(", ");
+}
+
 export function buildDeleteQuery(
 	table: ManifestTable,
 	whereSql: string,
+	returning: "full" | "pk",
+	manifestIndex?: ManifestIndex,
 ): string {
-	const selectCols = buildSelectColumns(table);
+	const selectCols =
+		returning === "full"
+			? buildSelectColumns(table, undefined, manifestIndex)
+			: buildReturningPkColumns(table, manifestIndex);
 	let sql = `DELETE FROM ${tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	sql += ` RETURNING ${selectCols}`;

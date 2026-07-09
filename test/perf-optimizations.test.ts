@@ -2,7 +2,7 @@ import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
-import { deleteManyRecords } from "../src/runtime/query/delete.js";
+import { deleteManyRecords, deleteRecord } from "../src/runtime/query/delete.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { createRecord } from "../src/runtime/query/create.js";
 import { findById, findMany } from "../src/runtime/query/find.js";
@@ -60,6 +60,37 @@ describe("write count optimizations", () => {
 
 		expect(count).toBe(0);
 		expect(executor.queries).toHaveLength(0);
+	});
+
+	it("delete uses rowCount without RETURNING by default", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			execute: () => ({ rows: [], rowCount: 1 }),
+		});
+
+		const result = await deleteRecord(executor, runtime, "users", {
+			where: { id: "u1" },
+		});
+
+		expect(result).toEqual({});
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
+		expect(executor.execute).toHaveBeenCalled();
+	});
+
+	it("delete with returnDeleted uses RETURNING", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			queryOne: () => ({ id: "u1", name: "Alice" }),
+		});
+
+		const result = await deleteRecord(executor, runtime, "users", {
+			where: { id: "u1" },
+			returnDeleted: true,
+		});
+
+		expect(result).toEqual({ id: "u1", name: "Alice" });
+		expect(executor.queries[0]?.sql).toContain("RETURNING");
 	});
 
 	it("updateMany uses rowCount without RETURNING when no relation writes", async () => {
