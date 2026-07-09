@@ -597,8 +597,19 @@ export function buildPaginateQuery(
 	whereSql: string,
 	orderSql: string,
 	take: number,
+	extraSelectCols?: string[],
+	joinClauses?: string[],
 ): string {
-	return buildFindManyQuery(table, whereSql, orderSql, take + 1);
+	return buildFindManyQuery(
+		table,
+		whereSql,
+		orderSql,
+		take + 1,
+		undefined,
+		undefined,
+		extraSelectCols,
+		joinClauses,
+	);
 }
 
 export function buildCountQuery(

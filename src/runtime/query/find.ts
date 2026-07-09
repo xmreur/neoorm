@@ -6,7 +6,6 @@ import {
 import type {
 	Manifest,
 	ManifestManyToMany,
-	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
@@ -37,6 +36,12 @@ import {
 	targetRelationPkSql,
 } from "./primary-key.js";
 import { getTableIndex } from "./table-index.js";
+import {
+	buildPlanExtraSelectCols,
+	hydrateRowsWithPlan,
+	type RelationLoadPlan,
+	planRelationLoad,
+} from "./relation-planner.js";
 
 export type WithInput =
 	| boolean
@@ -103,31 +108,32 @@ async function loadRelationCounts(
 ): Promise<void> {
 	if (parentRows.length === 0) return;
 
-	const { manifest } = runtime;
 	const parentIds = parentRows
 		.map((r) => rowPkKey(r, parentTable))
 		.filter(Boolean);
 	if (parentIds.length === 0) return;
 
-	for (const [relationName, spec] of Object.entries(countSpec)) {
-		const whereFilter = typeof spec === "object" ? spec.where : undefined;
-		const counts = await countRelationLinks(
-			executor,
-			runtime,
-			parentTable,
-			relationName,
-			parentIds,
-			whereFilter,
-		);
+	await Promise.all(
+		Object.entries(countSpec).map(async ([relationName, spec]) => {
+			const whereFilter = typeof spec === "object" ? spec.where : undefined;
+			const counts = await countRelationLinks(
+				executor,
+				runtime,
+				parentTable,
+				relationName,
+				parentIds,
+				whereFilter,
+			);
 
-		for (const parent of parentRows) {
-			const parentKey = rowPkKey(parent, parentTable);
-			const bucket =
-				(parent["_count"] as Record<string, number> | undefined) ?? {};
-			bucket[relationName] = counts.get(parentKey) ?? 0;
-			parent["_count"] = bucket;
-		}
-	}
+			for (const parent of parentRows) {
+				const parentKey = rowPkKey(parent, parentTable);
+				const bucket =
+					(parent["_count"] as Record<string, number> | undefined) ?? {};
+				bucket[relationName] = counts.get(parentKey) ?? 0;
+				parent["_count"] = bucket;
+			}
+		}),
+	);
 }
 
 async function countRelationLinks(
@@ -255,14 +261,6 @@ function columnsForSelect(
 	return buildSelectColumns(table, selectKeys ? [...selectKeys] : undefined);
 }
 
-function isM2MRelation(
-	manifest: Manifest,
-	tableAccessor: string,
-	relationName: string,
-): boolean {
-	return findM2M(manifest, tableAccessor, relationName) !== undefined;
-}
-
 async function loadNestedRelations(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -272,16 +270,18 @@ async function loadNestedRelations(
 ): Promise<void> {
 	if (childRows.length === 0) return;
 
-	for (const [nestedName, nestedWithSpec] of Object.entries(nestedWith)) {
-		await loadOneRelation(
-			executor,
-			runtime,
-			targetTable,
-			childRows,
-			nestedName,
-			nestedWithSpec,
-		);
-	}
+	await Promise.all(
+		Object.entries(nestedWith).map(([nestedName, nestedWithSpec]) =>
+			loadOneRelation(
+				executor,
+				runtime,
+				targetTable,
+				childRows,
+				nestedName,
+				nestedWithSpec,
+			),
+		),
+	);
 }
 
 async function loadOneRelation(
@@ -499,104 +499,35 @@ async function loadM2MRelation(
 	}
 }
 
-function buildJoinClauses(
-	manifest: Manifest,
-	parentTable: ManifestTable,
+export async function hydrateAndLoadRelations(
+	executor: Executor,
+	runtime: QueryRuntime,
+	table: ManifestTable,
+	rawRows: Record<string, unknown>[],
 	withSpec: Record<string, WithInput> | undefined,
-): { joins: string[]; selectCols: string[]; joinedRelations: Set<string> } {
-	const joins: string[] = [];
-	const selectCols: string[] = [];
-	const joinedRelations = new Set<string>();
+	plan?: RelationLoadPlan,
+): Promise<Record<string, unknown>[]> {
+	if (rawRows.length === 0) return [];
 
-	if (!withSpec) return { joins, selectCols, joinedRelations };
+	const resolvedPlan =
+		plan ?? planRelationLoad(runtime.manifest, table, withSpec);
 
-	for (const [relationName, spec] of Object.entries(withSpec)) {
-		if (relationName === "_count") continue;
-
-		const relation = findRelation(parentTable, relationName);
-		if (!relation) continue;
-
-		if (relation.cardinality !== "one") continue;
-		if (!tableOwnsFkColumn(parentTable, relation)) continue;
-
-		const m2m = findM2M(manifest, parentTable.accessor, relationName);
-		if (m2m) continue;
-
-		const nestedSpec = typeof spec === "object" ? spec : undefined;
-		if (nestedSpec?.with) continue;
-
-		const targetTable = manifest.tables[relation.targetAccessor];
-		if (!targetTable) continue;
-
-		const alias = `__${relationName}`;
-		const parentFkCol = quoteIdentifier(relation.fkSqlColumn);
-		const targetPkCol = quoteIdentifier(
-			targetRelationPkSql(targetTable, relation),
-		);
-		const onClause = `${quoteIdentifier(alias)}.${targetPkCol} = ${tableRef(parentTable)}.${parentFkCol}`;
-
-		joins.push(
-			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(alias)} ON ${onClause}`,
-		);
-
-		const selectKeys = nestedSpec?.select
-			? normalizeSelectColumns(nestedSpec.select)
-			: undefined;
-
-		const targetCols =
-			selectKeys && selectKeys.length > 0
-				? targetTable.columns.filter((c) =>
-						selectKeys.includes(c.tsName),
-					)
-				: targetTable.columns;
-
-		for (const col of targetCols) {
-			const prefixedName = `__${relationName}__${col.sqlName}`;
-			selectCols.push(
-				`${quoteIdentifier(alias)}.${quoteIdentifier(col.sqlName)} AS ${quoteIdentifier(prefixedName)}`,
-			);
-		}
-
-		joinedRelations.add(relationName);
+	let resultRows: Record<string, unknown>[];
+	if (withSpec) {
+		resultRows = hydrateRowsWithPlan(runtime, table, rawRows, resolvedPlan);
+	} else {
+		const tableIndex = getTableIndex(runtime.tableIndex, table.accessor);
+		resultRows = tableIndex
+			? rowsToTsIndexed(tableIndex, table, rawRows)
+			: rowsToTs(table, rawRows);
 	}
 
-	return { joins, selectCols, joinedRelations };
-}
-
-function extractJoinedRelations(
-	row: Record<string, unknown>,
-	manifest: Manifest,
-	parentTable: ManifestTable,
-	joinedRelations: Set<string>,
-): Record<string, unknown> {
-	const relations: Record<string, unknown> = {};
-
-	for (const relationName of joinedRelations) {
-		const relation = findRelation(parentTable, relationName);
-		if (!relation) continue;
-		const targetTable = manifest.tables[relation.targetAccessor];
-		if (!targetTable) continue;
-
-		const prefix = `__${relationName}__`;
-		const prefixedKeys = Object.keys(row).filter((k) =>
-			k.startsWith(prefix),
-		);
-
-		if (prefixedKeys.length === 0) continue;
-
-		const allNull = prefixedKeys.every((k) => row[k] == null);
-		if (allNull) {
-			relations[relationName] = null;
-		} else {
-			const raw: Record<string, unknown> = {};
-			for (const key of prefixedKeys) {
-				raw[key.slice(prefix.length)] = row[key];
-			}
-			relations[relationName] = rowToTs(targetTable, raw);
-		}
+	const batchWith = resolvedPlan.batchWith;
+	if (Object.keys(batchWith).length > 0) {
+		await loadRelations(executor, runtime, table, resultRows, batchWith);
 	}
 
-	return relations;
+	return resultRows;
 }
 
 export async function loadRelations(
@@ -685,15 +616,10 @@ export async function findMany(
 	const { sql: whereSql, params } = compiledWhere;
 	const orderSql = compileOrderBy(table, args?.orderBy);
 
-	const { relationWith, countSpec } = args?.with
-		? splitWithSpec(args.with)
-		: { relationWith: {} as Record<string, WithInput> };
-
-	const { joins, selectCols, joinedRelations } = buildJoinClauses(
-		manifest,
-		table,
-		relationWith,
-	);
+	const plan = planRelationLoad(manifest, table, args?.with);
+	const extraSelectCols = args?.with
+		? buildPlanExtraSelectCols(manifest, table, plan)
+		: [];
 
 	const query = buildFindManyQuery(
 		table,
@@ -702,8 +628,8 @@ export async function findMany(
 		args?.limit,
 		args?.offset,
 		distinctOn,
-		selectCols.length > 0 ? selectCols : undefined,
-		joins.length > 0 ? joins : undefined,
+		extraSelectCols.length > 0 ? extraSelectCols : undefined,
+		plan.joins.length > 0 ? plan.joins : undefined,
 	);
 
 	const rows = await runQuery(
@@ -714,39 +640,13 @@ export async function findMany(
 		params,
 	);
 
-	let resultRows: Record<string, unknown>[];
-	if (joinedRelations.size > 0) {
-		resultRows = rows.map((rawRow) => {
-			const relations = extractJoinedRelations(
-				rawRow,
-				manifest,
-				table,
-				joinedRelations,
-			);
-			return { ...rowToTs(table, rawRow), ...relations };
-		});
-	} else {
-		resultRows = tableIndex
-			? rowsToTsIndexed(tableIndex, table, rows)
-			: rowsToTs(table, rows);
-	}
-
-	const remainingWith: Record<string, WithInput> = {};
-	for (const [key, spec] of Object.entries(relationWith)) {
-		if (!joinedRelations.has(key)) {
-			remainingWith[key] = spec;
-		}
-	}
-	if (countSpec) {
-		remainingWith._count = countSpec as WithInput;
-	}
-
-	await loadRelations(
+	const resultRows = await hydrateAndLoadRelations(
 		executor,
 		runtime,
 		table,
-		resultRows,
-		Object.keys(remainingWith).length > 0 ? remainingWith : undefined,
+		rows,
+		args?.with,
+		plan,
 	);
 
 	return resultRows;
@@ -772,138 +672,6 @@ function extractScalarPkValue(
 	const where = resolvePkWhere(table, id);
 	const { tsName } = requireScalarPrimaryKey(table);
 	return where[tsName];
-}
-
-function inlineRelationColumnAlias(relationName: string): string {
-	return `__neoorm_${relationName}`;
-}
-
-function tryGetInlineManyRelationLoad(
-	manifest: Manifest,
-	table: ManifestTable,
-	withSpec: Record<string, WithInput> | undefined,
-): {
-	relationName: string;
-	relation: ManifestRelation;
-	targetTable: ManifestTable;
-	nestedSpec:
-		| {
-				select?: readonly string[] | Record<string, boolean | undefined>;
-				orderBy?: Record<string, string>;
-				limit?: number;
-				with?: Record<string, WithInput>;
-		  }
-		| undefined;
-} | null {
-	if (!withSpec) return null;
-
-	const { relationWith, countSpec } = splitWithSpec(withSpec);
-	if (countSpec) return null;
-
-	const entries = Object.entries(relationWith);
-	if (entries.length !== 1) return null;
-
-	const [relationName, withInput] = entries[0]!;
-	if (isM2MRelation(manifest, table.accessor, relationName)) return null;
-
-	const relation = findRelation(table, relationName);
-	if (!relation || relation.cardinality !== "many") return null;
-	if (tableOwnsFkColumn(table, relation)) return null;
-
-	const nestedSpec = typeof withInput === "object" ? withInput : undefined;
-	if (nestedSpec?.with) return null;
-
-	const targetTable = manifest.tables[relation.targetAccessor];
-	if (!targetTable) return null;
-
-	return { relationName, relation, targetTable, nestedSpec };
-}
-
-const INLINE_RELATION_PARENT_ALIAS = "u";
-const INLINE_RELATION_CHILD_ALIAS = "r";
-
-function buildInlineManyRelationSubquery(
-	parentAlias: string,
-	parentTable: ManifestTable,
-	relation: ManifestRelation,
-	targetTable: ManifestTable,
-	nestedSpec:
-		| {
-				select?: readonly string[] | Record<string, boolean | undefined>;
-				orderBy?: Record<string, string>;
-				limit?: number;
-		  }
-		| undefined,
-): string {
-	const { sqlName: parentPkSql } = requireScalarPrimaryKey(parentTable);
-	const parentPkCol = quoteIdentifier(parentPkSql);
-	const fkCol = quoteIdentifier(relation.fkSqlColumn);
-	const childAlias = INLINE_RELATION_CHILD_ALIAS;
-	const childRef = tableRef(targetTable);
-	const parentRef = quoteIdentifier(parentAlias);
-
-	let sql = `(SELECT json_agg(${quoteIdentifier(childAlias)}.*) FROM ${childRef} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`;
-	if (nestedSpec?.orderBy) {
-		sql += ` ${compileOrderBy(targetTable, nestedSpec.orderBy, childAlias)}`;
-	}
-	if (nestedSpec?.limit !== undefined) {
-		sql += ` LIMIT ${nestedSpec.limit}`;
-	}
-	const alias = quoteIdentifier(inlineRelationColumnAlias(relation.name));
-	return `${sql}) AS ${alias}`;
-}
-
-function buildFindByIdWithInlineRelationQuery(
-	table: ManifestTable,
-	inlineSubquery: string,
-): string {
-	const parentAlias = INLINE_RELATION_PARENT_ALIAS;
-	const { sqlName } = requireScalarPrimaryKey(table);
-	const pkCol = quoteIdentifier(sqlName);
-	const ref = quoteIdentifier(parentAlias);
-	return `SELECT ${ref}.*, ${inlineSubquery} FROM ${tableRef(table)} ${ref} WHERE ${ref}.${pkCol} = $1 LIMIT 1`;
-}
-
-function hydrateInlineManyRelationRow(
-	parentIndex: ReturnType<typeof getTableIndex>,
-	targetIndex: ReturnType<typeof getTableIndex>,
-	parentTable: ManifestTable,
-	targetTable: ManifestTable,
-	relationName: string,
-	rawRow: Record<string, unknown>,
-): Record<string, unknown> {
-	const alias = inlineRelationColumnAlias(relationName);
-	const jsonVal = rawRow[alias];
-
-	const parentRaw: Record<string, unknown> = {};
-	for (const col of parentTable.columns) {
-		if (col.sqlName in rawRow) {
-			parentRaw[col.sqlName] = rawRow[col.sqlName];
-		}
-	}
-
-	const parent = parentIndex
-		? rowToTsIndexed(parentIndex, parentTable, parentRaw)
-		: rowToTs(parentTable, parentRaw);
-
-	let children: Record<string, unknown>[] = [];
-	if (jsonVal != null) {
-		const parsed =
-			typeof jsonVal === "string"
-				? (JSON.parse(jsonVal) as unknown)
-				: jsonVal;
-		if (Array.isArray(parsed)) {
-			children = parsed.map((row) => {
-				const childRow = row as Record<string, unknown>;
-				return targetIndex
-					? rowToTsIndexed(targetIndex, targetTable, childRow)
-					: rowToTs(targetTable, childRow);
-			});
-		}
-	}
-
-	parent[relationName] = children;
-	return parent;
 }
 
 export async function findById(
@@ -944,36 +712,6 @@ export async function findById(
 			[pkValue],
 		);
 		return row ? (tableIndex ? rowToTsIndexed(tableIndex, table, row) : rowToTs(table, row)) : null;
-	}
-
-	const inlineLoad = tryGetInlineManyRelationLoad(
-		manifest,
-		table,
-		args.with,
-	);
-	if (inlineLoad) {
-		const subquery = buildInlineManyRelationSubquery(
-			INLINE_RELATION_PARENT_ALIAS,
-			table,
-			inlineLoad.relation,
-			inlineLoad.targetTable,
-			inlineLoad.nestedSpec,
-		);
-		const query = buildFindByIdWithInlineRelationQuery(table, subquery);
-		const row = await runQueryOne(executor, runtime, ctx, query, [pkValue]);
-		if (!row) return null;
-		const targetIndex = getTableIndex(
-			runtime.tableIndex,
-			inlineLoad.targetTable.accessor,
-		);
-		return hydrateInlineManyRelationRow(
-			tableIndex,
-			targetIndex,
-			table,
-			inlineLoad.targetTable,
-			inlineLoad.relationName,
-			row,
-		);
 	}
 
 	const where = resolvePkWhere(table, id);

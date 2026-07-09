@@ -193,38 +193,36 @@ describe("eager loading batching", () => {
 		});
 	});
 
-	it("uses JOIN for to-one and batch for to-many (2 queries total)", async () => {
+	it("uses JOIN for to-one and inline json_agg for to-many (1 query total)", async () => {
 		const executor = createMockExecutor({
 			query: (sql) => {
-				if (sql.includes("LEFT JOIN")) {
-					return [
-						{
-							id: "post_1",
-							title: "Post A",
-							author_id: "user_1",
-							"__author__id": "user_1",
-							"__author__name": "Alice",
-						},
-						{
-							id: "post_2",
-							title: "Post B",
-							author_id: "user_2",
-							"__author__id": "user_2",
-							"__author__name": "Bob",
-						},
-					];
-				}
-				if (sql.includes("comments") && sql.includes("IN")) {
-					return [
-						{
-							id: "comment_1",
-							post_id: "post_1",
-							author_id: "user_1",
-							body: "Nice",
-						},
-					];
-				}
-				return [];
+				expect(sql).toContain("LEFT JOIN");
+				expect(sql).toContain("json_agg");
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: "user_1",
+						"__author__id": "user_1",
+						"__author__name": "Alice",
+						__neoorm_comments: [
+							{
+								id: "comment_1",
+								post_id: "post_1",
+								author_id: "user_1",
+								body: "Nice",
+							},
+						],
+					},
+					{
+						id: "post_2",
+						title: "Post B",
+						author_id: "user_2",
+						"__author__id": "user_2",
+						"__author__name": "Bob",
+						__neoorm_comments: [],
+					},
+				];
 			},
 		});
 
@@ -232,9 +230,17 @@ describe("eager loading batching", () => {
 			with: { author: true, comments: true },
 		});
 
-		expect(executor.queries).toHaveLength(2);
+		expect(executor.queries).toHaveLength(1);
 		expect(rows).toHaveLength(2);
 		expect(rows[0]?.author).toEqual({ id: "user_1", name: "Alice" });
+		expect(rows[0]?.comments).toEqual([
+			{
+				id: "comment_1",
+				postId: "post_1",
+				authorId: "user_1",
+				body: "Nice",
+			},
+		]);
 	});
 
 	it("sets relation to null when FK is null", async () => {
@@ -357,5 +363,98 @@ describe("eager loading batching", () => {
 		const authorsQuery = atIndex(executor.queries, 2);
 		expect(authorsQuery.sql).toContain('"users"');
 		expect(authorsQuery.params).toEqual(["user_1", "user_2"]);
+	});
+
+	it("inlines has-many on findMany in a single query", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("json_agg");
+				expect(sql).not.toContain("LEFT JOIN");
+				return [
+					{
+						id: "user_1",
+						name: "Alice",
+						__neoorm_posts: [
+							{ id: "post_1", title: "Post A", author_id: "user_1" },
+						],
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: { posts: true },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(rows[0]?.posts).toEqual([
+			{ id: "post_1", title: "Post A", authorId: "user_1" },
+		]);
+	});
+
+	it("collapses a linear nested has-many chain into one findMany query", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("json_agg");
+				expect(sql).toContain("json_build_object");
+				return [
+					{
+						id: "user_1",
+						name: "Alice",
+						__neoorm_posts: [
+							{
+								id: "post_1",
+								title: "Post A",
+								author_id: "user_1",
+								comments: [
+									{
+										id: "comment_1",
+										post_id: "post_1",
+										author_id: "user_1",
+										body: "On A",
+										author: { id: "user_1", name: "Alice" },
+									},
+								],
+							},
+						],
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: {
+				posts: {
+					with: {
+						comments: { with: { author: true } },
+					},
+				},
+			},
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		const posts = rows[0]?.posts as Record<string, unknown>[];
+		const comments = posts[0]?.comments as Record<string, unknown>[];
+		expect(comments[0]?.author).toEqual({ id: "user_1", name: "Alice" });
+	});
+
+	it("inlines simple _count into the main findMany query", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					name: "Alice",
+					__neoorm_count_posts: 2,
+				},
+			],
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: { _count: { posts: true } },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.sql).toContain("COUNT(*)");
+		expect(rows[0]?._count).toEqual({ posts: 2 });
 	});
 });
