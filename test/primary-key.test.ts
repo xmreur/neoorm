@@ -10,6 +10,7 @@ import { deleteById } from "../src/runtime/query/delete.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findById, loadRelations } from "../src/runtime/query/find.js";
 import {
+	fillMissingPrimaryKeys,
 	primaryKeyTsNames,
 	requireScalarPrimaryKey,
 	rowPkKey,
@@ -177,6 +178,26 @@ describe("manifest-driven primary keys", () => {
 		const items = manifestTable(compositeManifest, "items");
 		const row = { tenantId: "t1", itemCode: "c1", name: "Widget" };
 		expect(rowPkKey(row, items)).toBe("t1\0c1");
+	});
+
+	it("skips fillMissingPrimaryKeys when all PKs are provided", () => {
+		const data = { id: "user_abc", name: "Ada" };
+		fillMissingPrimaryKeys(users, data);
+		expect(data.id).toBe("user_abc");
+		expect(data.name).toBe("Ada");
+	});
+
+	it("fills only missing composite PK columns", () => {
+		const compositeManifest = schemaToManifest(compositePkSchema);
+		const items = manifestTable(compositeManifest, "items");
+		const data: Record<string, unknown> = {
+			tenantId: "t1",
+			name: "Widget",
+		};
+		fillMissingPrimaryKeys(items, data);
+		expect(data.tenantId).toBe("t1");
+		expect(typeof data.itemCode).toBe("string");
+		expect(data.name).toBe("Widget");
 	});
 
 	it("loads to-one relation using target PK sql column", async () => {

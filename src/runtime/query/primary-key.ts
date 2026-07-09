@@ -165,10 +165,23 @@ export function defaultPrimaryKeyValue(
 export function fillMissingPrimaryKeys(
 	table: ManifestTable,
 	data: Record<string, unknown>,
+	tableIndex?: TableIndex,
 ): void {
-	for (const col of table.columns) {
-		if (!col.primary) continue;
-		if (col.kind === "serial" || col.generated) continue;
+	let needsFill = false;
+	for (const sqlName of table.primaryKey) {
+		const col = columnBySqlName(tableIndex, table, sqlName);
+		if (!col || col.kind === "serial" || col.generated) continue;
+		const current = data[col.tsName];
+		if (current === undefined || current === null) {
+			needsFill = true;
+			break;
+		}
+	}
+	if (!needsFill) return;
+
+	for (const sqlName of table.primaryKey) {
+		const col = columnBySqlName(tableIndex, table, sqlName);
+		if (!col || col.kind === "serial" || col.generated) continue;
 		const current = data[col.tsName];
 		if (current !== undefined && current !== null) continue;
 		data[col.tsName] = defaultPrimaryKeyValue(table, col);

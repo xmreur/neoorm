@@ -41,7 +41,7 @@ export async function findOrCreateRecord(
 	);
 
 	const createData = { ...args.create, ...args.where };
-	fillMissingPrimaryKeys(table, createData);
+	fillMissingPrimaryKeys(table, createData, tableIndex);
 
 	const { keys: insertKeys, values: insertValues } = dataToSqlValues(
 		table,

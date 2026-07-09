@@ -81,7 +81,11 @@ export async function runCreate(
 		runCreate,
 	);
 
-	fillMissingPrimaryKeys(table, scalarData);
+	fillMissingPrimaryKeys(
+		table,
+		scalarData,
+		getTableIndex(runtime.tableIndex, tableAccessor),
+	);
 
 	const { keys, values } = dataToSqlValues(
 		table,
@@ -262,7 +266,7 @@ function prepareCreateManyRows(
 			}
 		}
 
-		fillMissingPrimaryKeys(table, scalarData);
+		fillMissingPrimaryKeys(table, scalarData, tableIndex);
 		scalarRows.push(scalarData);
 	}
 
