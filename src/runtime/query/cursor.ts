@@ -2,6 +2,11 @@ import { quoteIdentifier } from "../../dialect/postgres.js";
 import type { ManifestColumn, ManifestTable } from "../../dialect/types.js";
 import { serializeColumnValue } from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
+import {
+	columnByTsName,
+	getTableIndex,
+	type ManifestIndex,
+} from "./table-index.js";
 
 export type OrderKeySpec = {
 	tsName: string;
@@ -13,18 +18,20 @@ export type OrderKeySpec = {
 export function resolveOrderSpec(
 	table: ManifestTable,
 	orderBy: Record<string, string> | undefined,
+	manifestIndex?: ManifestIndex,
 ): OrderKeySpec[] {
 	if (!orderBy || Object.keys(orderBy).length === 0) {
 		throw new Error("paginate requires orderBy");
 	}
 
-	requireScalarPrimaryKey(table);
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	requireScalarPrimaryKey(table, "cursorPaginate", tableIndex);
 
 	const specs: OrderKeySpec[] = [];
 	const directions = new Set<"asc" | "desc">();
 
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
-		const col = table.columns.find((c) => c.tsName === tsKey);
+		const col = columnByTsName(tableIndex, table, tsKey);
 		if (!col) {
 			throw new Error(
 				`Unknown orderBy column "${tsKey}" on table "${table.accessor}"`,
@@ -47,9 +54,9 @@ export function resolveOrderSpec(
 	}
 
 	const { tsName: pkTsName, sqlName: pkSqlName } =
-		requireScalarPrimaryKey(table);
+		requireScalarPrimaryKey(table, "cursorPaginate", tableIndex);
 	if (!specs.some((spec) => spec.tsName === pkTsName)) {
-		const pkCol = table.columns.find((c) => c.tsName === pkTsName);
+		const pkCol = columnByTsName(tableIndex, table, pkTsName);
 		if (!pkCol) {
 			throw new Error(
 				`Primary key column not found for table "${table.accessor}"`,

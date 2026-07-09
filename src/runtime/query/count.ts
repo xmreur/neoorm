@@ -3,6 +3,7 @@ import type { Executor } from "../executor.js";
 import { buildCountQuery, compileWhere } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findFirst } from "./find.js";
+import { getTableIndex } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 
 export async function countRecords(
@@ -17,11 +18,15 @@ export async function countRecords(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+
 	const { sql: whereSql, params } = compileWhere(
 		manifest,
 		table,
 		args?.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 	const query = buildCountQuery(table, whereSql);
 	const row = await runQueryOne<{ count: number }>(
@@ -47,7 +52,8 @@ export async function findUnique(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	assertUniqueWhere(table, args.where, "findUnique");
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	assertUniqueWhere(table, args.where, "findUnique", tableIndex);
 
 	return findFirst(executor, runtime, tableAccessor, {
 		where: args.where,

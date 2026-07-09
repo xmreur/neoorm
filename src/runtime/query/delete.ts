@@ -29,6 +29,8 @@ export async function deleteRecord(
 		table,
 		args.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 
 	if (!whereSql) {
@@ -78,6 +80,8 @@ export async function deleteManyRecords(
 		table,
 		args?.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 
 	if (impossible || isImpossibleWhere(whereSql)) {

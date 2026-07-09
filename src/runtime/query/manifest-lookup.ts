@@ -4,6 +4,11 @@ import type {
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
+import {
+	relationByName,
+	type TableIndex,
+	tableOwnsFk,
+} from "./table-index.js";
 
 export function findM2M(
 	manifest: Manifest,
@@ -20,15 +25,15 @@ export function findM2M(
 export function findRelation(
 	table: ManifestTable,
 	name: string,
+	tableIndex?: TableIndex,
 ): ManifestRelation | undefined {
-	return table.relations.find((r) => r.name === name);
+	return relationByName(tableIndex, table, name);
 }
 
 export function tableOwnsFkColumn(
 	table: ManifestTable,
 	rel: ManifestRelation,
+	tableIndex?: TableIndex,
 ): boolean {
-	return table.columns.some(
-		(c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
-	);
+	return tableOwnsFk(tableIndex, table, rel);
 }

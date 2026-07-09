@@ -26,7 +26,12 @@ import {
 	requireScalarPrimaryKey,
 	targetRelationPkSql,
 } from "./primary-key.js";
-import { getTableIndex } from "./table-index.js";
+import {
+	columnByTsName,
+	columnsByTsNames,
+	getTableIndex,
+	type ManifestIndex,
+} from "./table-index.js";
 
 export type RelationCountSpec = true | { where?: Record<string, unknown> };
 
@@ -115,10 +120,15 @@ function parentPkRefForAlias(
 function columnsForInlineSelect(
 	table: ManifestTable,
 	nestedSpec?: InlineRelationSpec,
+	manifestIndex?: ManifestIndex,
 ): ManifestTable["columns"] {
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
 	if (!selectKeys || selectKeys.length === 0) return table.columns;
-	return table.columns.filter((c) => selectKeys.includes(c.tsName));
+	return columnsByTsNames(
+		getTableIndex(manifestIndex, table.accessor),
+		table,
+		selectKeys,
+	);
 }
 
 function tryBuildInlineChainNode(
@@ -203,17 +213,19 @@ function buildJoinClauses(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	withSpec: Record<string, WithInput>,
+	manifestIndex?: ManifestIndex,
 ): { joins: string[]; selectCols: string[]; joinedRelations: Set<string> } {
 	const joins: string[] = [];
 	const selectCols: string[] = [];
 	const joinedRelations = new Set<string>();
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 
 	for (const [relationName, spec] of Object.entries(withSpec)) {
-		const relation = findRelation(parentTable, relationName);
+		const relation = findRelation(parentTable, relationName, parentTableIndex);
 		if (!relation) continue;
 
 		if (relation.cardinality !== "one") continue;
-		if (!tableOwnsFkColumn(parentTable, relation)) continue;
+		if (!tableOwnsFkColumn(parentTable, relation, parentTableIndex)) continue;
 
 		if (findM2M(manifest, parentTable.accessor, relationName)) continue;
 
@@ -234,13 +246,17 @@ function buildJoinClauses(
 			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(alias)} ON ${onClause}`,
 		);
 
+		const targetTableIndex = getTableIndex(
+			manifestIndex,
+			targetTable.accessor,
+		);
 		const selectKeys = nestedSpec?.select
 			? normalizeSelectColumns(nestedSpec.select)
 			: undefined;
 
 		const targetCols =
 			selectKeys && selectKeys.length > 0
-				? targetTable.columns.filter((c) => selectKeys.includes(c.tsName))
+				? columnsByTsNames(targetTableIndex, targetTable, selectKeys)
 				: targetTable.columns;
 
 		for (const col of targetCols) {
@@ -259,6 +275,7 @@ function buildJoinClauses(
 function buildToOneScalarSubquery(
 	node: InlineChainNode,
 	parentRowAlias: string,
+	manifestIndex?: ManifestIndex,
 ): string {
 	const { relation, targetTable } = node;
 	const targetAlias = `${parentRowAlias}_rel`;
@@ -266,7 +283,11 @@ function buildToOneScalarSubquery(
 		targetRelationPkSql(targetTable, relation),
 	);
 	const parentFkCol = quoteIdentifier(relation.fkSqlColumn);
-	const cols = columnsForInlineSelect(targetTable, node.nestedSpec);
+	const cols = columnsForInlineSelect(
+		targetTable,
+		node.nestedSpec,
+		manifestIndex,
+	);
 	const selectList = cols
 		.map(
 			(col) =>
@@ -280,9 +301,14 @@ function buildToOneScalarSubquery(
 function buildHasManyRowExpression(
 	node: InlineChainNode,
 	rowAlias: string,
+	manifestIndex?: ManifestIndex,
 ): string {
 	if (node.child) {
-		const cols = columnsForInlineSelect(node.targetTable, node.nestedSpec);
+		const cols = columnsForInlineSelect(
+			node.targetTable,
+			node.nestedSpec,
+			manifestIndex,
+		);
 		const entries = cols.map(
 			(col) =>
 				`'${col.sqlName}', ${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
@@ -291,6 +317,7 @@ function buildHasManyRowExpression(
 			node.child,
 			rowAlias,
 			node.targetTable,
+			manifestIndex,
 		);
 		entries.push(`'${node.child.relationName}', ${nested}`);
 		return `json_build_object(${entries.join(", ")})`;
@@ -303,15 +330,21 @@ function buildHasManySubqueryFromRef(
 	node: InlineChainNode,
 	parentTable: ManifestTable,
 	parentCorrelationRef: string,
+	manifestIndex?: ManifestIndex,
 ): string {
 	const childAlias = `_r_${node.relationName}`;
 	const fkCol = quoteIdentifier(node.relation.fkSqlColumn);
-	const rowExpr = buildHasManyRowExpression(node, childAlias);
+	const rowExpr = buildHasManyRowExpression(node, childAlias, manifestIndex);
 
 	let sql = `(SELECT json_agg(agg_row) FROM (SELECT ${rowExpr} AS agg_row FROM ${tableRef(node.targetTable)} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
 
 	if (node.nestedSpec?.orderBy) {
-		sql += ` ${compileOrderBy(node.targetTable, node.nestedSpec.orderBy, childAlias)}`;
+		sql += ` ${compileOrderBy(
+			node.targetTable,
+			node.nestedSpec.orderBy,
+			childAlias,
+			manifestIndex,
+		)}`;
 	}
 	if (node.nestedSpec?.limit !== undefined) {
 		sql += ` LIMIT ${node.nestedSpec.limit}`;
@@ -324,20 +357,27 @@ function buildChildAggregationExpr(
 	node: InlineChainNode,
 	parentRowAlias: string,
 	parentTable: ManifestTable,
+	manifestIndex?: ManifestIndex,
 ): string {
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	if (
 		node.relation.cardinality === "one" &&
-		tableOwnsFkColumn(parentTable, node.relation)
+		tableOwnsFkColumn(parentTable, node.relation, parentTableIndex)
 	) {
-		return buildToOneScalarSubquery(node, parentRowAlias);
+		return buildToOneScalarSubquery(node, parentRowAlias, manifestIndex);
 	}
 
 	if (
 		node.relation.cardinality === "many" &&
-		!tableOwnsFkColumn(parentTable, node.relation)
+		!tableOwnsFkColumn(parentTable, node.relation, parentTableIndex)
 	) {
 		const parentRef = parentPkRefForAlias(parentTable, parentRowAlias);
-		return buildHasManySubqueryFromRef(node, parentTable, parentRef);
+		return buildHasManySubqueryFromRef(
+			node,
+			parentTable,
+			parentRef,
+			manifestIndex,
+		);
 	}
 
 	throw new Error(
@@ -348,9 +388,15 @@ function buildChildAggregationExpr(
 export function buildInlineJsonAggSelectCol(
 	parentTable: ManifestTable,
 	chain: InlineChainNode,
+	manifestIndex?: ManifestIndex,
 ): string {
 	const parentRef = parentPkRef(parentTable);
-	const subquery = buildHasManySubqueryFromRef(chain, parentTable, parentRef);
+	const subquery = buildHasManySubqueryFromRef(
+		chain,
+		parentTable,
+		parentRef,
+		manifestIndex,
+	);
 	const alias = quoteIdentifier(inlineRelationColumnAlias(chain.relationName));
 	return `${subquery} AS ${alias}`;
 }
@@ -360,8 +406,10 @@ export function buildInlineCountSelectCol(
 	parentTable: ManifestTable,
 	relationName: string,
 	spec: RelationCountSpec,
+	manifestIndex?: ManifestIndex,
 ): string {
-	const relation = findRelation(parentTable, relationName);
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const relation = findRelation(parentTable, relationName, parentTableIndex);
 	if (!relation || relation.cardinality !== "many") {
 		throw new Error(`Cannot inline count for relation: ${relationName}`);
 	}
@@ -383,6 +431,8 @@ export function buildInlineCountSelectCol(
 			targetTable,
 			whereFilter,
 			postgresDialect,
+			1,
+			manifestIndex,
 		);
 		if (compiled.sql) {
 			const adjusted = compiled.sql.replace(/^WHERE\s+/i, "");
@@ -399,6 +449,7 @@ export function planRelationLoad(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	withSpec: Record<string, WithInput> | undefined,
+	manifestIndex?: ManifestIndex,
 ): RelationLoadPlan {
 	const emptyPlan: RelationLoadPlan = {
 		joins: [],
@@ -411,6 +462,7 @@ export function planRelationLoad(
 
 	if (!withSpec) return emptyPlan;
 
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	const { relationWith, countSpec } = splitWithSpec(withSpec);
 	const joinCandidates: Record<string, WithInput> = {};
 	const batchWith: Record<string, WithInput> = {};
@@ -428,16 +480,16 @@ export function planRelationLoad(
 		if (
 			chain &&
 			chain.relation.cardinality === "many" &&
-			!tableOwnsFkColumn(parentTable, chain.relation)
+			!tableOwnsFkColumn(parentTable, chain.relation, parentTableIndex)
 		) {
 			inlineJsonAgg.push({ relationName, chain });
 			continue;
 		}
 
-		const relation = findRelation(parentTable, relationName);
+		const relation = findRelation(parentTable, relationName, parentTableIndex);
 		if (
 			relation?.cardinality === "one" &&
-			tableOwnsFkColumn(parentTable, relation) &&
+			tableOwnsFkColumn(parentTable, relation, parentTableIndex) &&
 			!findM2M(manifest, parentTable.accessor, relationName) &&
 			!toInlineSpec(withInput)?.with
 		) {
@@ -462,6 +514,7 @@ export function planRelationLoad(
 		manifest,
 		parentTable,
 		joinCandidates,
+		manifestIndex,
 	);
 
 	if (Object.keys(batchCounts).length > 0) {
@@ -627,10 +680,17 @@ export function buildPlanExtraSelectCols(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	plan: RelationLoadPlan,
+	manifestIndex?: ManifestIndex,
 ): string[] {
 	const cols = [...plan.joinSelectCols];
 	for (const inline of plan.inlineJsonAgg) {
-		cols.push(buildInlineJsonAggSelectCol(parentTable, inline.chain));
+		cols.push(
+			buildInlineJsonAggSelectCol(
+				parentTable,
+				inline.chain,
+				manifestIndex,
+			),
+		);
 	}
 	for (const countPlan of plan.inlineCounts) {
 		cols.push(
@@ -639,6 +699,7 @@ export function buildPlanExtraSelectCols(
 				parentTable,
 				countPlan.relationName,
 				countPlan.spec,
+				manifestIndex,
 			),
 		);
 	}

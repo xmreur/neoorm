@@ -35,7 +35,7 @@ import {
 	rowPkKey,
 	targetRelationPkSql,
 } from "./primary-key.js";
-import { getTableIndex } from "./table-index.js";
+import { getTableIndex, columnBySqlName } from "./table-index.js";
 import {
 	buildPlanExtraSelectCols,
 	hydrateRowsWithPlan,
@@ -176,6 +176,8 @@ async function countRelationLinks(
 			targetTable,
 			whereFilter,
 			postgresDialect,
+			1,
+			runtime.tableIndex,
 		);
 		if (compiled.sql) {
 			const adjusted = compiled.sql.replace(
@@ -228,6 +230,8 @@ async function countM2MLinks(
 			targetTable,
 			whereFilter,
 			postgresDialect,
+			1,
+			runtime.tableIndex,
 		);
 		joinSql = ` JOIN ${tableRef(targetTable)} t ON t.${quoteIdentifier(targetRelationPkSql(targetTable))} = j.${quoteIdentifier(targetFkCol)}`;
 		if (compiled.sql) {
@@ -366,7 +370,12 @@ async function loadOneRelation(
 		let sql = `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})`;
 
 		if (nestedSpec?.orderBy) {
-			sql += ` ${compileOrderBy(targetTable, nestedSpec.orderBy)}`;
+			sql += ` ${compileOrderBy(
+				targetTable,
+				nestedSpec.orderBy,
+				undefined,
+				runtime.tableIndex,
+			)}`;
 		}
 		if (nestedSpec?.limit !== undefined) {
 			sql += ` LIMIT ${nestedSpec.limit}`;
@@ -381,8 +390,14 @@ async function loadOneRelation(
 		);
 		const mapped = rowsToTs(targetTable, rows);
 
-		const fkTargetCol = targetTable.columns.find(
-			(c) => c.sqlName === relation.fkSqlColumn,
+		const targetTableIndex = getTableIndex(
+			runtime.tableIndex,
+			targetTable.accessor,
+		);
+		const fkTargetCol = columnBySqlName(
+			targetTableIndex,
+			targetTable,
+			relation.fkSqlColumn,
 		);
 		const fkTsName = fkTargetCol?.tsName ?? relation.fkColumn;
 
@@ -510,7 +525,7 @@ export async function hydrateAndLoadRelations(
 	if (rawRows.length === 0) return [];
 
 	const resolvedPlan =
-		plan ?? planRelationLoad(runtime.manifest, table, withSpec);
+		plan ?? planRelationLoad(runtime.manifest, table, withSpec, runtime.tableIndex);
 
 	let resultRows: Record<string, unknown>[];
 	if (withSpec) {
@@ -608,17 +623,24 @@ export async function findMany(
 		table,
 		args?.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
 		return [];
 	}
 
 	const { sql: whereSql, params } = compiledWhere;
-	const orderSql = compileOrderBy(table, args?.orderBy);
+	const orderSql = compileOrderBy(
+		table,
+		args?.orderBy,
+		undefined,
+		runtime.tableIndex,
+	);
 
-	const plan = planRelationLoad(manifest, table, args?.with);
+	const plan = planRelationLoad(manifest, table, args?.with, runtime.tableIndex);
 	const extraSelectCols = args?.with
-		? buildPlanExtraSelectCols(manifest, table, plan)
+		? buildPlanExtraSelectCols(manifest, table, plan, runtime.tableIndex)
 		: [];
 
 	const query = buildFindManyQuery(
@@ -630,6 +652,7 @@ export async function findMany(
 		distinctOn,
 		extraSelectCols.length > 0 ? extraSelectCols : undefined,
 		plan.joins.length > 0 ? plan.joins : undefined,
+		runtime.tableIndex,
 	);
 
 	const rows = await runQuery(

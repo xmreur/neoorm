@@ -3,6 +3,7 @@ import { buildUpsertQuery, dataToSqlValues, rowToTs } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
+import { columnByTsName, getTableIndex } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 import {
 	stripUpdatedAtFromData,
@@ -24,7 +25,13 @@ export async function upsertRecord(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const constraint = assertUniqueWhere(table, args.where, "upsert");
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const constraint = assertUniqueWhere(
+		table,
+		args.where,
+		"upsert",
+		tableIndex,
+	);
 
 	const createData = { ...args.create, ...args.where };
 	fillMissingPrimaryKeys(table, createData);
@@ -32,12 +39,14 @@ export async function upsertRecord(
 	const { keys: insertKeys, values: insertValues } = dataToSqlValues(
 		table,
 		createData,
+		undefined,
+		runtime.tableIndex,
 	);
 
 	const updateData = { ...args.update };
 	stripUpdatedAtFromData(table, updateData);
 	const updateKeys = Object.keys(updateData).filter((key) => {
-		const col = table.columns.find((c) => c.tsName === key);
+		const col = columnByTsName(tableIndex, table, key);
 		return (
 			col !== undefined && !col.primary && updateData[key] !== undefined
 		);
@@ -50,6 +59,7 @@ export async function upsertRecord(
 		updateKeys,
 		constraint.sqlColumns,
 		exprSets,
+		runtime.tableIndex,
 	);
 	const row = await runQueryOne(
 		executor,

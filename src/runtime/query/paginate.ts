@@ -43,12 +43,14 @@ export async function paginateRecords(
 		throw new Error("paginate requires take to be a positive integer");
 	}
 
-	const orderSpec = resolveOrderSpec(table, args.orderBy);
+	const orderSpec = resolveOrderSpec(table, args.orderBy, runtime.tableIndex);
 	const { sql: userWhereSql, params: userParams } = compileWhere(
 		manifest,
 		table,
 		args?.where,
 		postgresDialect,
+		1,
+		runtime.tableIndex,
 	);
 
 	let whereSql = userWhereSql;
@@ -70,9 +72,9 @@ export async function paginateRecords(
 	}
 
 	const orderSql = compileOrderByFromSpec(orderSpec);
-	const plan = planRelationLoad(manifest, table, args.with);
+	const plan = planRelationLoad(manifest, table, args.with, runtime.tableIndex);
 	const extraSelectCols = args.with
-		? buildPlanExtraSelectCols(manifest, table, plan)
+		? buildPlanExtraSelectCols(manifest, table, plan, runtime.tableIndex)
 		: [];
 	const query = buildPaginateQuery(
 		table,
@@ -81,6 +83,7 @@ export async function paginateRecords(
 		args.take,
 		extraSelectCols.length > 0 ? extraSelectCols : undefined,
 		plan.joins.length > 0 ? plan.joins : undefined,
+		runtime.tableIndex,
 	);
 
 	const rows = await runQuery(

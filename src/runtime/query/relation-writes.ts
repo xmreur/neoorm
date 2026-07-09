@@ -21,6 +21,13 @@ import {
 	rowScalarPkValue,
 	targetRelationPkSql,
 } from "./primary-key.js";
+import {
+	columnBySqlName,
+	columnByTsName,
+	getTableIndex,
+	type ManifestIndex,
+	type TableIndex,
+} from "./table-index.js";
 
 const RELATION_WRITE_KEYS = [
 	"delete",
@@ -66,8 +73,9 @@ function isRelationField(
 	tableAccessor: string,
 	table: ManifestTable,
 	key: string,
+	tableIndex?: TableIndex,
 ): boolean {
-	if (findRelation(table, key)) return true;
+	if (findRelation(table, key, tableIndex)) return true;
 	return findM2M(manifest, tableAccessor, key) !== undefined;
 }
 
@@ -98,19 +106,21 @@ export function splitScalarsAndRelationWrites(
 	tableAccessor: string,
 	table: ManifestTable,
 	data: Record<string, unknown>,
+	manifestIndex?: ManifestIndex,
 ): SplitDataResult {
+	const tableIndex = getTableIndex(manifestIndex, tableAccessor);
 	const scalarData: Record<string, unknown> = {};
 	const relationWrites: ParsedRelationWrite[] = [];
 
 	for (const [key, value] of Object.entries(data)) {
-		const col = table.columns.find((c) => c.tsName === key);
+		const col = columnByTsName(tableIndex, table, key);
 		if (col) {
 			scalarData[key] = value;
 			continue;
 		}
 
 		if (
-			isRelationField(manifest, tableAccessor, table, key) &&
+			isRelationField(manifest, tableAccessor, table, key, tableIndex) &&
 			isRelationWriteObject(value)
 		) {
 			relationWrites.push({ relationName: key, value });
@@ -149,12 +159,17 @@ async function insertM2MLinks(
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return;
 
+	const throughIndex = getTableIndex(runtime.tableIndex, throughTable.accessor);
 	const isLeft = m2m.leftAccessor === parentAccessor;
-	const leftCol = throughTable.columns.find(
-		(c) => c.sqlName === (isLeft ? m2m.leftFkColumn : m2m.rightFkColumn),
+	const leftCol = columnBySqlName(
+		throughIndex,
+		throughTable,
+		isLeft ? m2m.leftFkColumn : m2m.rightFkColumn,
 	);
-	const rightCol = throughTable.columns.find(
-		(c) => c.sqlName === (isLeft ? m2m.rightFkColumn : m2m.leftFkColumn),
+	const rightCol = columnBySqlName(
+		throughIndex,
+		throughTable,
+		isLeft ? m2m.rightFkColumn : m2m.leftFkColumn,
 	);
 	if (!leftCol || !rightCol) return;
 
@@ -185,8 +200,13 @@ async function insertM2MLinks(
 
 		fillMissingPrimaryKeys(throughTable, data);
 
-		const { keys, values } = dataToSqlValues(throughTable, data);
-		const sql = buildInsertQuery(throughTable, keys);
+		const { keys, values } = dataToSqlValues(
+			throughTable,
+			data,
+			undefined,
+			runtime.tableIndex,
+		);
+		const sql = buildInsertQuery(throughTable, keys, runtime.tableIndex);
 		await runQuery(
 			executor,
 			runtime,
@@ -237,14 +257,13 @@ async function deleteJunctionRows(
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return;
 
+	const throughIndex = getTableIndex(runtime.tableIndex, throughTable.accessor);
 	const isLeft = m2m.leftAccessor === parentAccessor;
 	const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 	const otherFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
 
-	const parentCol = throughTable.columns.find(
-		(c) => c.sqlName === parentFkCol,
-	);
-	const otherCol = throughTable.columns.find((c) => c.sqlName === otherFkCol);
+	const parentCol = columnBySqlName(throughIndex, throughTable, parentFkCol);
+	const otherCol = columnBySqlName(throughIndex, throughTable, otherFkCol);
 	if (!parentCol || !otherCol) return;
 
 	const params: unknown[] = [parentId];
@@ -268,10 +287,11 @@ async function deleteJunctionRows(
 function childFkColumnMeta(
 	targetTable: ManifestTable,
 	relation: ManifestRelation,
+	tableIndex?: TableIndex,
 ) {
 	const col =
-		targetTable.columns.find((c) => c.tsName === relation.fkColumn) ??
-		targetTable.columns.find((c) => c.sqlName === relation.fkSqlColumn);
+		columnByTsName(tableIndex, targetTable, relation.fkColumn) ??
+		columnBySqlName(tableIndex, targetTable, relation.fkSqlColumn);
 	if (!col) {
 		throw new Error(`FK column not found for relation ${relation.name}`);
 	}
@@ -289,7 +309,11 @@ async function connectInverseMany(
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable || childIds.length === 0) return;
 
-	const fkCol = childFkColumnMeta(targetTable, relation);
+	const fkCol = childFkColumnMeta(
+		targetTable,
+		relation,
+		getTableIndex(runtime.tableIndex, targetTable.accessor),
+	);
 	const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
 	const targetPkCol = quoteIdentifier(
 		targetRelationPkSql(targetTable, relation),
@@ -314,7 +338,11 @@ async function disconnectInverseMany(
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return;
 
-	const fkCol = childFkColumnMeta(targetTable, relation);
+	const fkCol = childFkColumnMeta(
+		targetTable,
+		relation,
+		getTableIndex(runtime.tableIndex, targetTable.accessor),
+	);
 	if (!fkCol.nullable) {
 		throw new Error(
 			`Cannot disconnect relation ${relation.name}: FK column is not nullable`,
@@ -370,7 +398,11 @@ async function deleteInverseManyChildren(
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return;
 
-	const fkCol = childFkColumnMeta(targetTable, relation);
+	const fkCol = childFkColumnMeta(
+		targetTable,
+		relation,
+		getTableIndex(runtime.tableIndex, targetTable.accessor),
+	);
 	const targetPkCol = quoteIdentifier(
 		targetRelationPkSql(targetTable, relation),
 	);
@@ -403,14 +435,13 @@ async function listM2MLinkedIds(
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return [];
 
+	const throughIndex = getTableIndex(runtime.tableIndex, throughTable.accessor);
 	const isLeft = m2m.leftAccessor === parentAccessor;
 	const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 	const otherFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
 
-	const parentCol = throughTable.columns.find(
-		(c) => c.sqlName === parentFkCol,
-	);
-	const otherCol = throughTable.columns.find((c) => c.sqlName === otherFkCol);
+	const parentCol = columnBySqlName(throughIndex, throughTable, parentFkCol);
+	const otherCol = columnBySqlName(throughIndex, throughTable, otherFkCol);
 	if (!parentCol || !otherCol) return [];
 
 	const rows = await runQuery<Record<string, unknown>>(
@@ -481,7 +512,8 @@ async function executeToOneWrite(
 	runCreate: CreateRunner,
 ): Promise<void> {
 	const { manifest } = runtime;
-	const rel = findRelation(table, relationName);
+	const tableIndex = getTableIndex(runtime.tableIndex, table.accessor);
+	const rel = findRelation(table, relationName, tableIndex);
 	if (!rel || rel.cardinality !== "one") return;
 
 	if ("connect" in value) {
@@ -491,9 +523,9 @@ async function executeToOneWrite(
 	}
 
 	if ("disconnect" in value) {
-		const fkCol = table.columns.find(
-			(c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
-		);
+		const fkCol =
+			columnByTsName(tableIndex, table, rel.fkColumn) ??
+			columnBySqlName(tableIndex, table, rel.fkSqlColumn);
 		if (fkCol && !fkCol.nullable) {
 			throw new Error(
 				`Cannot disconnect relation ${relationName}: FK column is not nullable`,
