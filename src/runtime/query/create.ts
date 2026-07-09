@@ -3,15 +3,21 @@ import type { Executor } from "../executor.js";
 import {
 	buildInsertManyQuery,
 	buildInsertManyValueRows,
-	buildInsertQuery,
 	dataToSqlValues,
+	getCachedInsertQuery,
+	type InsertReturning,
 	mapRowToTs,
 	mapRowsToTs,
 } from "./compile.js";
-import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
+import { type QueryRuntime, runExecute, runQuery, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
-import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
+import {
+	fillMissingPrimaryKeys,
+	primaryKeyTsNames,
+	rowScalarPkValue,
+	scalarPkAvailable,
+} from "./primary-key.js";
 import {
 	columnByTsName,
 	getTableIndex,
@@ -58,19 +64,29 @@ export async function runCreate(
 	args: {
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnCreated?: boolean;
+		scalarData?: Record<string, unknown>;
+		relationWrites?: ParsedRelationWrite[];
 	},
 ): Promise<Record<string, unknown>> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { scalarData, relationWrites } = splitScalarsAndRelationWrites(
-		manifest,
-		tableAccessor,
-		table,
-		args.data,
-		runtime.tableIndex,
-	);
+	const split =
+		args.scalarData !== undefined && args.relationWrites !== undefined
+			? {
+					scalarData: args.scalarData,
+					relationWrites: args.relationWrites,
+				}
+			: splitScalarsAndRelationWrites(
+					manifest,
+					tableAccessor,
+					table,
+					args.data,
+					runtime.tableIndex,
+				);
+	const { scalarData, relationWrites } = split;
 
 	await applyToOnePreWrites(
 		executor,
@@ -81,11 +97,9 @@ export async function runCreate(
 		runCreate,
 	);
 
-	fillMissingPrimaryKeys(
-		table,
-		scalarData,
-		getTableIndex(runtime.tableIndex, tableAccessor),
-	);
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+
+	fillMissingPrimaryKeys(table, scalarData, tableIndex);
 
 	const { keys, values } = dataToSqlValues(
 		table,
@@ -93,21 +107,67 @@ export async function runCreate(
 		undefined,
 		runtime.tableIndex,
 	);
-	const insertSql = buildInsertQuery(table, keys, runtime.tableIndex);
-	const row = await runQueryOne(
-		executor,
-		runtime,
-		{ operation: "insert", tableAccessor },
-		insertSql,
-		values,
-	);
 
-	const result = mapRowToTs(
-		getTableIndex(runtime.tableIndex, tableAccessor),
-		table,
-		row,
-	);
-	const recordId = rowScalarPkValue(result, table);
+	const needsFullReturning = args.returnCreated || args.with;
+	const needsPkReturning =
+		relationWrites.length > 0 ||
+		hasPostRelationWrites(table, manifest, tableAccessor, relationWrites);
+	const pkKnown = scalarPkAvailable(table, scalarData, tableIndex);
+
+	let returning: InsertReturning;
+	if (needsFullReturning) {
+		returning = "full";
+	} else if (!pkKnown || needsPkReturning) {
+		returning = "pk";
+	} else {
+		returning = "none";
+	}
+
+	let result: Record<string, unknown>;
+
+	if (returning === "none") {
+		const insertSql = getCachedInsertQuery(
+			tableIndex,
+			table,
+			keys,
+			"none",
+			runtime.tableIndex,
+		);
+		const { rowCount } = await runExecute(
+			executor,
+			runtime,
+			{ operation: "insert", tableAccessor },
+			insertSql,
+			values,
+		);
+		if (rowCount === 0) {
+			throw new Error(`Insert failed for table "${tableAccessor}"`);
+		}
+		result = {};
+		for (const tsName of primaryKeyTsNames(table, tableIndex)) {
+			if (tsName in scalarData) {
+				result[tsName] = scalarData[tsName];
+			}
+		}
+	} else {
+		const insertSql = getCachedInsertQuery(
+			tableIndex,
+			table,
+			keys,
+			returning,
+			runtime.tableIndex,
+		);
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			{ operation: "insert", tableAccessor },
+			insertSql,
+			values,
+		);
+		result = mapRowToTs(tableIndex, table, row);
+	}
+
+	const recordId = rowScalarPkValue({ ...scalarData, ...result }, table);
 
 	await executeRelationWrites(
 		executor,
@@ -139,13 +199,14 @@ export async function createRecord(
 	args: {
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnCreated?: boolean;
 	},
 ): Promise<Record<string, unknown>> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { relationWrites } = splitScalarsAndRelationWrites(
+	const split = splitScalarsAndRelationWrites(
 		manifest,
 		tableAccessor,
 		table,
@@ -156,15 +217,17 @@ export async function createRecord(
 		table,
 		manifest,
 		tableAccessor,
-		relationWrites,
+		split.relationWrites,
 	);
 
+	const runArgs = { ...args, ...split };
+
 	if (executor.inTransaction || !needsTransaction) {
-		return runCreate(executor, runtime, tableAccessor, args);
+		return runCreate(executor, runtime, tableAccessor, runArgs);
 	}
 
 	return executor.transaction((tx) =>
-		runCreate(tx, runtime, tableAccessor, args),
+		runCreate(tx, runtime, tableAccessor, runArgs),
 	);
 }
 

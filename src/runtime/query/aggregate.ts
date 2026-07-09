@@ -2,7 +2,7 @@ import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
-	buildAggregateQuery,
+	getCachedAggregateQuery,
 	compileWhere,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
@@ -64,7 +64,8 @@ export async function aggregateRecords(
 		1,
 		runtime.tableIndex,
 	);
-	const query = buildAggregateQuery(
+	const query = getCachedAggregateQuery(
+		runtime.tableIndex?.get(tableAccessor),
 		table,
 		selectors,
 		whereSql,

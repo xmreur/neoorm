@@ -79,4 +79,18 @@ describe("table index lookups", () => {
 		expect(tagsIndex.updatedAtColumns).toEqual([]);
 		expect(tagsIndex.updatedAtSetExprs).toEqual([]);
 	});
+
+	it("tracks needsRowRename and initializes SQL caches", () => {
+		expect(usersIndex.needsRowRename).toBe(false);
+		expect(usersIndex.renameColumns).toEqual([]);
+		expect(usersIndex.insertSqlByKeys).toBeInstanceOf(Map);
+		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
+
+		const blogIndex = buildManifestIndex(
+			schemaToManifest(blogSchema, getManyToManyRegistry()),
+		);
+		const postsIndex = blogIndex.get("posts")!;
+		expect(postsIndex.needsRowRename).toBe(true);
+		expect(postsIndex.renameColumns.length).toBeGreaterThan(0);
+	});
 });

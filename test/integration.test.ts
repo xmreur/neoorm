@@ -457,6 +457,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		const updated = await db.users.update({
 			where: { id: user["id"] as string },
 			data: { name: "After" },
+			returnUpdated: true,
 		});
 		expect(updated?.["name"]).toBe("After");
 
@@ -663,6 +664,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		const post = await db.posts.create({
+			returnCreated: true,
 			data: {
 				title: `updated-at-post-${Date.now()}`,
 				body: "body",
@@ -677,6 +679,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
 		const updated = await db.posts.updateById(post["id"] as string, {
+			returnUpdated: true,
 			data: {
 				title: `${post["title"] as string}-edited`,
 				// @ts-expect-error — verify runtime strips user-provided updatedAt
@@ -688,6 +691,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(updated?.["updatedAt"]).not.toBe("1999-01-01T00:00:00.000Z");
 
 		const sibling = await db.posts.create({
+			returnCreated: true,
 			data: {
 				title: `updated-at-sibling-${Date.now()}`,
 				body: "body",

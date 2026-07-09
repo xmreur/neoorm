@@ -252,6 +252,7 @@ export type TypedNeoOrmClient<
 		text: string;
 		params: unknown[];
 	}): Promise<Record<string, unknown>[]>;
+	$connect(): Promise<void>;
 	$disconnect(): Promise<void>;
 	$transaction<T>(
 		fn: (

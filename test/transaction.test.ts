@@ -16,13 +16,28 @@ function mockQueryResult(rows: Record<string, unknown>[] = []): QueryResult {
 	};
 }
 
+type PgQueryInput =
+	| string
+	| { text: string; values?: unknown[]; name?: string };
+
+function resolveQuery(
+	input: PgQueryInput,
+	params?: unknown[],
+): { text: string; params: unknown[] } {
+	if (typeof input === "string") {
+		return { text: input, params: params ?? [] };
+	}
+	return { text: input.text, params: input.values ?? [] };
+}
+
 function createMockPool() {
 	const queries: Array<{ text: string; params?: unknown[] }> = [];
 	let shouldFail = false;
 
 	const client: PoolClient = {
-		query: vi.fn(async (text: string, params?: unknown[]) => {
-			queries.push(params === undefined ? { text } : { text, params });
+		query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+			const resolved = resolveQuery(input, params);
+			queries.push(resolved);
 			if (shouldFail) {
 				throw new Error("query failed");
 			}
@@ -32,8 +47,9 @@ function createMockPool() {
 	} as unknown as PoolClient;
 
 	const pool = {
-		query: vi.fn(async (text: string, params?: unknown[]) => {
-			queries.push(params === undefined ? { text } : { text, params });
+		query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+			const resolved = resolveQuery(input, params);
+			queries.push(resolved);
 			return mockQueryResult();
 		}),
 		connect: vi.fn(async () => client),
@@ -152,10 +168,12 @@ describe("executor.transaction", () => {
 		const queries: Array<{ text: string; params?: unknown[] }> = [];
 
 		const client: PoolClient = {
-			query: vi.fn(async (text: string, params?: unknown[]) => {
-				queries.push(
-					params === undefined ? { text } : { text, params },
+			query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+				const { text, params: resolvedParams } = resolveQuery(
+					input,
+					params,
 				);
+				queries.push({ text, params: resolvedParams });
 				if (text === "INSERT INTO comments DEFAULT VALUES") {
 					throw new Error("query failed");
 				}
@@ -323,5 +341,77 @@ describe("client $transaction", () => {
 		);
 		expect(queries[0]?.text).toBe("BEGIN");
 		expect(queries.at(-1)?.text).toBe("COMMIT");
+	});
+});
+
+describe("client $connect", () => {
+	it("issues SELECT 1 on pool", async () => {
+		const { pool, queries } = createMockPool();
+		const { createNeoOrmClientFromPool } = await import(
+			"../src/runtime/client.js"
+		);
+		const { schemaToManifest } = await import(
+			"../src/codegen/schema-to-manifest.js"
+		);
+		const { schema } = await import("../examples/blog/schema.js");
+
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			manifest,
+			pool,
+		);
+
+		await db.$connect();
+
+		expect(queries).toHaveLength(1);
+		expect(queries[0]?.text).toBe("SELECT 1");
+	});
+
+	it("throws inside a transaction", async () => {
+		const { pool } = createMockPool();
+		const { createNeoOrmClientFromPool } = await import(
+			"../src/runtime/client.js"
+		);
+		const { schemaToManifest } = await import(
+			"../src/codegen/schema-to-manifest.js"
+		);
+		const { schema } = await import("../examples/blog/schema.js");
+
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			manifest,
+			pool,
+		);
+
+		await expect(
+			db.$transaction(async (tx) => {
+				await tx.$connect();
+			}),
+		).rejects.toThrow("Cannot connect inside a transaction");
+	});
+});
+
+describe("createExecutor preparedStatements", () => {
+	it("defaults to simple query text without prepared name", async () => {
+		const { pool } = createMockPool();
+		const executor = createExecutor(pool);
+
+		await executor.query("SELECT 1");
+
+		expect(pool.query).toHaveBeenCalledWith("SELECT 1", []);
+	});
+
+	it("uses prepared statements when opt-in", async () => {
+		const { pool } = createMockPool();
+		const executor = createExecutor(pool, { preparedStatements: true });
+
+		await executor.query("SELECT 1");
+
+		expect(pool.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				text: "SELECT 1",
+				name: expect.stringMatching(/^neoorm_/),
+			}),
+		);
 	});
 });

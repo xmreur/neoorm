@@ -8,6 +8,7 @@ import type {
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
 import { buildFindAllQuery, buildFindByIdQuery } from "./compile.js";
+import type { RelationLoadPlan } from "./relation-planner.js";
 
 export type TableIndex = {
 	columnsByTsName: Map<string, ManifestColumn>;
@@ -18,9 +19,54 @@ export type TableIndex = {
 	findAllSql: string;
 	findByIdSql: string;
 	deserializeColumns: ManifestColumn[];
+	renameColumns: ManifestColumn[];
 	updatedAtColumns: ManifestColumn[];
 	updatedAtSetExprs: string[];
+	needsRowRename: boolean;
+	selectUsesColumnAliases: boolean;
+	insertSqlByKeys: Map<string, string>;
+	updateManySqlByKeys: Map<string, string>;
+	aggregateSqlBySelector: Map<string, string>;
+	findManySqlBySignature: Map<string, string>;
+	findByIdWithSqlBySignature: Map<string, string>;
+	relationPlanBySignature: Map<string, RelationLoadPlan>;
+	whereClauseByFingerprint: Map<string, { sql: string; params: unknown[]; impossible?: boolean }>;
+	whereClauseByShape: Map<string, { sql: string; impossible?: boolean }>;
+	orderBySqlByShape: Map<string, string>;
+	deleteManySqlByWhereShape: Map<string, string>;
 };
+
+export function sortedKeysCacheKey(keys: readonly string[]): string {
+	return [...keys].sort().join("\0");
+}
+
+export function reorderKeyValues(
+	keys: string[],
+	values: unknown[],
+): { keys: string[]; values: unknown[] } {
+	if (keys.length <= 1) return { keys, values };
+	const pairs = keys.map((key, index) => ({
+		key,
+		value: values[index],
+	}));
+	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	return {
+		keys: pairs.map((pair) => pair.key),
+		values: pairs.map((pair) => pair.value),
+	};
+}
+
+export function getOrSetSqlCache(
+	cache: Map<string, string>,
+	key: string,
+	build: () => string,
+): string {
+	const cached = cache.get(key);
+	if (cached !== undefined) return cached;
+	const sql = build();
+	cache.set(key, sql);
+	return sql;
+}
 
 export type ManifestIndex = Map<string, TableIndex>;
 
@@ -71,6 +117,13 @@ export function buildTableIndex(
 		findByIdSql = "";
 	}
 
+	const needsRowRename = table.columns.some(
+		(col) => col.sqlName !== col.tsName,
+	);
+	const renameColumns = table.columns.filter(
+		(col) => col.sqlName !== col.tsName,
+	);
+
 	return {
 		columnsByTsName,
 		columnsBySqlName,
@@ -80,8 +133,21 @@ export function buildTableIndex(
 		findAllSql: buildFindAllQuery(table),
 		findByIdSql,
 		deserializeColumns,
+		renameColumns,
 		updatedAtColumns,
 		updatedAtSetExprs,
+		needsRowRename,
+		selectUsesColumnAliases: true,
+		insertSqlByKeys: new Map(),
+		updateManySqlByKeys: new Map(),
+		aggregateSqlBySelector: new Map(),
+		findManySqlBySignature: new Map(),
+		findByIdWithSqlBySignature: new Map(),
+		relationPlanBySignature: new Map(),
+		whereClauseByFingerprint: new Map(),
+		whereClauseByShape: new Map(),
+		orderBySqlByShape: new Map(),
+		deleteManySqlByWhereShape: new Map(),
 	};
 }
 

@@ -33,7 +33,7 @@ function createMockExecutor(): Executor & {
 		) as Executor["queryOne"],
 		execute: vi.fn(async (sql: string, params?: unknown[]) => {
 			queries.push({ sql, params: params ?? [] });
-			return { rows: [], rowCount: 0 };
+			return { rows: [], rowCount: 1 };
 		}) as Executor["execute"],
 		transaction: vi.fn(async (fn) => fn(createMockExecutor())),
 	};

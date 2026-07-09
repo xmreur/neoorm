@@ -15,6 +15,9 @@ import {
 	buildSelectColumns,
 	compileOrderBy,
 	compileWhere,
+	getCachedFindManyQuery,
+	getCachedOrderByClause,
+	getCachedWhereClause,
 	isImpossibleWhere,
 	mapRowToTs,
 	mapRowsToTs,
@@ -36,10 +39,16 @@ import {
 } from "./primary-key.js";
 import { getTableIndex, columnBySqlName } from "./table-index.js";
 import {
+	buildCountAggregateGroupBy,
 	buildPlanExtraSelectCols,
+	compileCountOrderBy,
+	getCachedFindByIdWithQuery,
+	getCachedRelationPlan,
 	hydrateRowsWithPlan,
 	type RelationLoadPlan,
+	type RelationPlanOptions,
 	planRelationLoad,
+	withShapeSignature,
 } from "./relation-planner.js";
 
 export type WithInput =
@@ -550,6 +559,127 @@ export async function hydrateAndLoadRelations(
 	return resultRows;
 }
 
+type FindManyArgs = {
+	where?: Record<string, unknown>;
+	orderBy?: Record<string, string>;
+	limit?: number;
+	offset?: number;
+	distinct?: readonly string[] | Record<string, boolean | undefined>;
+	with?: Record<string, WithInput>;
+};
+
+async function executeFindManyWithRelations(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	table: ManifestTable,
+	tableIndex: ReturnType<typeof getTableIndex>,
+	args: FindManyArgs & { with: Record<string, WithInput> },
+	whereSql: string,
+	params: unknown[],
+	planOptions?: RelationPlanOptions,
+): Promise<Record<string, unknown>[]> {
+	const { manifest } = runtime;
+
+	const plan = getCachedRelationPlan(
+		manifest,
+		table,
+		args.with,
+		runtime.tableIndex,
+		planOptions,
+	);
+
+	const needsQualifiedRefs =
+		plan.joins.length > 0 ||
+		plan.countAggregate !== undefined ||
+		plan.hasManyAggregate !== undefined ||
+		plan.joinedRelations.size > 0;
+
+	if (needsQualifiedRefs && whereSql) {
+		const qualifiedWhere = getCachedWhereClause(
+			manifest,
+			table,
+			args.where,
+			postgresDialect,
+			1,
+			runtime.tableIndex,
+			true,
+		);
+		whereSql = qualifiedWhere.sql;
+		params = qualifiedWhere.params;
+	}
+
+	const extraSelectCols = buildPlanExtraSelectCols(
+		manifest,
+		table,
+		plan,
+		runtime.tableIndex,
+	);
+
+	const countOrderSql = compileCountOrderBy(
+		manifest,
+		table,
+		args.orderBy as Record<string, unknown> | undefined,
+		plan,
+		runtime.tableIndex,
+	);
+	const orderSqlForWith =
+		countOrderSql ||
+		getCachedOrderByClause(
+			table,
+			args.orderBy,
+			needsQualifiedRefs ? table.sqlName : undefined,
+			runtime.tableIndex,
+		);
+
+	const joinClauses =
+		plan.countAggregate && plan.countAggregate.joins.length > 0
+			? plan.countAggregate.joins
+			: plan.hasManyAggregate && plan.hasManyAggregate.joins.length > 0
+				? plan.hasManyAggregate.joins
+				: plan.joins.length > 0
+					? plan.joins
+					: undefined;
+	const groupBySql = buildCountAggregateGroupBy(plan);
+
+	const distinctOn = normalizeSelectColumns(args.distinct);
+	const withSignature = withShapeSignature(args.with);
+	const planMode =
+		planOptions?.useHasManyAggregate === false ? "corr" : "agg";
+	const signature = `${whereSql}|${orderSqlForWith}|${args.limit ?? ""}|${args.offset ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}`;
+	const query = getCachedFindManyQuery(tableIndex, signature, () =>
+		buildFindManyQuery(
+			table,
+			whereSql,
+			orderSqlForWith,
+			args.limit,
+			args.offset,
+			distinctOn,
+			extraSelectCols.length > 0 ? extraSelectCols : undefined,
+			joinClauses,
+			runtime.tableIndex,
+			groupBySql || undefined,
+		),
+	);
+
+	const rows = await runQuery(
+		executor,
+		runtime,
+		{ operation: "select", tableAccessor },
+		query,
+		params,
+	);
+
+	return await hydrateAndLoadRelations(
+		executor,
+		runtime,
+		table,
+		rows,
+		args.with,
+		plan,
+	);
+}
+
 export async function loadRelations(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -617,13 +747,13 @@ export async function findMany(
 			tableIndex.findAllSql,
 			[],
 		);
-		return rowsToTsIndexed(tableIndex, table, rows);
+		return mapRowsToTs(tableIndex, table, rows);
 	}
 
 	const distinctOn = normalizeSelectColumns(args?.distinct);
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
 
-	const compiledWhere = compileWhere(
+	const compiledWhere = getCachedWhereClause(
 		manifest,
 		table,
 		args?.where,
@@ -635,49 +765,57 @@ export async function findMany(
 		return [];
 	}
 
-	const { sql: whereSql, params } = compiledWhere;
-	const orderSql = compileOrderBy(
-		table,
-		args?.orderBy,
-		undefined,
-		runtime.tableIndex,
+	let whereSql = compiledWhere.sql;
+	let params = compiledWhere.params;
+
+	const hasWith = Boolean(
+		args?.with && Object.keys(args.with).length > 0,
 	);
 
-	const plan = planRelationLoad(manifest, table, args?.with, runtime.tableIndex);
-	const extraSelectCols = args?.with
-		? buildPlanExtraSelectCols(manifest, table, plan, runtime.tableIndex)
-		: [];
+	if (!hasWith) {
+		const orderSql = getCachedOrderByClause(
+			table,
+			args?.orderBy,
+			undefined,
+			runtime.tableIndex,
+		);
+		const signature = `${whereSql}|${orderSql}|${args?.limit ?? ""}|${args?.offset ?? ""}|${distinctOn?.join(",") ?? ""}`;
+		const query = getCachedFindManyQuery(tableIndex, signature, () =>
+			buildFindManyQuery(
+				table,
+				whereSql,
+				orderSql,
+				args?.limit,
+				args?.offset,
+				distinctOn,
+				undefined,
+				undefined,
+				runtime.tableIndex,
+			),
+		);
 
-	const query = buildFindManyQuery(
+		const rows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "select", tableAccessor },
+			query,
+			params,
+		);
+
+		return mapRowsToTs(tableIndex, table, rows);
+	}
+
+	return executeFindManyWithRelations(
+		executor,
+		runtime,
+		tableAccessor,
 		table,
+		tableIndex,
+		{ ...(args ?? {}), with: args!.with! },
 		whereSql,
-		orderSql,
-		args?.limit,
-		args?.offset,
-		distinctOn,
-		extraSelectCols.length > 0 ? extraSelectCols : undefined,
-		plan.joins.length > 0 ? plan.joins : undefined,
-		runtime.tableIndex,
-	);
-
-	const rows = await runQuery(
-		executor,
-		runtime,
-		{ operation: "select", tableAccessor },
-		query,
 		params,
+		{ useHasManyAggregate: true },
 	);
-
-	const resultRows = await hydrateAndLoadRelations(
-		executor,
-		runtime,
-		table,
-		rows,
-		args?.with,
-		plan,
-	);
-
-	return resultRows;
 }
 
 export async function findFirst(
@@ -686,10 +824,98 @@ export async function findFirst(
 	tableAccessor: string,
 	args?: Parameters<typeof findMany>[3],
 ): Promise<Record<string, unknown> | null> {
-	const rows = await findMany(executor, runtime, tableAccessor, {
-		...args,
-		limit: 1,
-	});
+	const hasWith = Boolean(
+		args?.with && Object.keys(args.with).length > 0,
+	);
+	const canFastPath =
+		!hasWith && !args?.distinct && args?.offset === undefined;
+
+	if (canFastPath) {
+		const { manifest } = runtime;
+		const table = manifest.tables[tableAccessor];
+		if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+		const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+
+		const compiledWhere = getCachedWhereClause(
+			manifest,
+			table,
+			args?.where,
+			postgresDialect,
+			1,
+			runtime.tableIndex,
+		);
+		if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+			return null;
+		}
+
+		const { sql: whereSql, params } = compiledWhere;
+		const orderSql = getCachedOrderByClause(
+			table,
+			args?.orderBy,
+			undefined,
+			runtime.tableIndex,
+		);
+
+		const signature = `${whereSql}|${orderSql}|1||`;
+		const query = getCachedFindManyQuery(tableIndex, signature, () =>
+			buildFindManyQuery(
+				table,
+				whereSql,
+				orderSql,
+				1,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				runtime.tableIndex,
+			),
+		);
+
+		const rows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "select", tableAccessor },
+			query,
+			params,
+		);
+
+		if (rows.length === 0) return null;
+		return mapRowToTs(tableIndex, table, rows[0]!);
+	}
+
+	const { manifest } = runtime;
+	const table = manifest.tables[tableAccessor];
+	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+
+	const compiledWhere = getCachedWhereClause(
+		manifest,
+		table,
+		args?.where,
+		postgresDialect,
+		1,
+		runtime.tableIndex,
+	);
+	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+		return null;
+	}
+
+	const distinctOn = normalizeSelectColumns(args?.distinct);
+	validateDistinctOrderBy(distinctOn, args?.orderBy);
+
+	const rows = await executeFindManyWithRelations(
+		executor,
+		runtime,
+		tableAccessor,
+		table,
+		tableIndex,
+		{ ...args, with: args!.with!, limit: 1 },
+		compiledWhere.sql,
+		compiledWhere.params,
+		{ useHasManyAggregate: false },
+	);
 	return rows[0] ?? null;
 }
 
@@ -713,21 +939,43 @@ export async function findById(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+
 	if (table.primaryKey.length !== 1) {
 		const where = resolvePkWhere(table, id);
-		const findArgs: Parameters<typeof findMany>[3] = {
+		if (args?.with) {
+			const compiledWhere = getCachedWhereClause(
+				manifest,
+				table,
+				where,
+				postgresDialect,
+				1,
+				runtime.tableIndex,
+			);
+			if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+				return null;
+			}
+			const rows = await executeFindManyWithRelations(
+				executor,
+				runtime,
+				tableAccessor,
+				table,
+				tableIndex,
+				{ where, limit: 1, with: args.with },
+				compiledWhere.sql,
+				compiledWhere.params,
+				{ useHasManyAggregate: false },
+			);
+			return rows[0] ?? null;
+		}
+		const rows = await findMany(executor, runtime, tableAccessor, {
 			where,
 			limit: 1,
-		};
-		if (args?.with !== undefined) {
-			findArgs.with = args.with;
-		}
-		const rows = await findMany(executor, runtime, tableAccessor, findArgs);
+		});
 		return rows[0] ?? null;
 	}
 
 	const pkValue = extractScalarPkValue(table, id);
-	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const ctx = { operation: "select" as const, tableAccessor };
 
 	if (!args?.with) {
@@ -742,12 +990,47 @@ export async function findById(
 		return row ? mapRowToTs(tableIndex, table, row) : null;
 	}
 
+	const cached = getCachedFindByIdWithQuery(
+		manifest,
+		table,
+		args.with,
+		runtime.tableIndex,
+	);
+	if (cached) {
+		const rows = await runQuery(
+			executor,
+			runtime,
+			ctx,
+			cached.sql,
+			[pkValue],
+		);
+		if (rows.length === 0) return null;
+		const hydrated = hydrateRowsWithPlan(runtime, table, rows, cached.plan);
+		return hydrated[0] ?? null;
+	}
+
 	const where = resolvePkWhere(table, id);
-	const findArgs: Parameters<typeof findMany>[3] = {
+	const compiledWhere = getCachedWhereClause(
+		manifest,
+		table,
 		where,
-		limit: 1,
-		with: args.with,
-	};
-	const rows = await findMany(executor, runtime, tableAccessor, findArgs);
+		postgresDialect,
+		1,
+		runtime.tableIndex,
+	);
+	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+		return null;
+	}
+	const rows = await executeFindManyWithRelations(
+		executor,
+		runtime,
+		tableAccessor,
+		table,
+		tableIndex,
+		{ where, limit: 1, with: args.with },
+		compiledWhere.sql,
+		compiledWhere.params,
+		{ useHasManyAggregate: false },
+	);
 	return rows[0] ?? null;
 }

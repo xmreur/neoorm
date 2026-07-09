@@ -36,6 +36,12 @@ export type NeoOrmClientOptions = {
 	connectionString?: string;
 	migrationsDir?: string;
 	schema?: string;
+	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). Default: false. */
+	preparedStatements?: boolean;
+	pool?: {
+		max?: number;
+		idleTimeoutMillis?: number;
+	};
 };
 
 export type TableRepository = {
@@ -63,6 +69,7 @@ export type TableRepository = {
 	create(args: {
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnCreated?: boolean;
 	}): Promise<Record<string, unknown>>;
 	createMany(args: { data: Record<string, unknown>[] }): Promise<number>;
 	createManyAndReturn(args: {
@@ -83,6 +90,7 @@ export type TableRepository = {
 		where: Record<string, unknown>;
 		data: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnUpdated?: boolean;
 	}): Promise<Record<string, unknown> | null>;
 	updateMany(args: {
 		where?: Record<string, unknown>;
@@ -93,6 +101,7 @@ export type TableRepository = {
 		args: {
 			data: Record<string, unknown>;
 			with?: Record<string, WithInput>;
+			returnUpdated?: boolean;
 		},
 	): Promise<Record<string, unknown> | null>;
 	delete(args: {
@@ -134,11 +143,13 @@ export interface NeoOrmClient {
 		text: string;
 		params: unknown[];
 	}): Promise<Record<string, unknown>[]>;
+	$connect(): Promise<void>;
 	$disconnect(): Promise<void>;
 	[tableAccessor: string]:
 		| TableRepository
 		| NeoOrmClient["sql"]
 		| NeoOrmClient["execute"]
+		| NeoOrmClient["$connect"]
 		| NeoOrmClient["$disconnect"];
 }
 
@@ -218,6 +229,15 @@ function buildClient<
 				query.params,
 			);
 		},
+
+		$connect: transactional
+			? async () => {
+					throw new Error("Cannot connect inside a transaction");
+				}
+			: async () => {
+					if (!runtime.pool) return;
+					await runtime.pool.query("SELECT 1");
+				},
 
 		$disconnect: transactional
 			? async () => {
@@ -302,9 +322,17 @@ export function createNeoOrmClient<
 		throw new Error("DATABASE_URL is required");
 	}
 
-	const pool = new Pool({ connectionString: url });
+	const pool = new Pool({
+		connectionString: url,
+		max: options.pool?.max ?? 20,
+		...options.pool,
+	});
 	const schema = resolvePgSchemaName(options.schema);
-	const executor = createExecutor(pool);
+	const executorOptions =
+		options.preparedStatements !== undefined
+			? { preparedStatements: options.preparedStatements }
+			: undefined;
+	const executor = createExecutor(pool, executorOptions);
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
@@ -338,12 +366,19 @@ export function createNeoOrmClientFromPool<
 >(
 	manifest: Manifest,
 	pool: Pool,
-	options?: Pick<NeoOrmClientOptions, "migrationsDir" | "schema">,
+	options?: Pick<
+		NeoOrmClientOptions,
+		"migrationsDir" | "schema" | "preparedStatements"
+	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
 
 	const schema = resolvePgSchemaName(options?.schema);
-	const executor = createExecutor(pool);
+	const executorOptions =
+		options?.preparedStatements !== undefined
+			? { preparedStatements: options.preparedStatements }
+			: undefined;
+	const executor = createExecutor(pool, executorOptions);
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
