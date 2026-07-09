@@ -177,6 +177,7 @@ export type DeleteArgs<
 > = {
 	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	returnDeleted?: boolean;
 };
 
 export type DeleteManyArgs<

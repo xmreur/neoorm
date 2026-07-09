@@ -61,7 +61,14 @@ const count = await db.users.updateMany({
 ## Delete
 
 ```ts
+// Returns {} on success, null if no row matched
 await db.users.delete({ where: { id: userId } });
+
+// Pass returnDeleted: true to get the deleted row back
+const deleted = await db.users.delete({
+  where: { id: userId },
+  returnDeleted: true,
+});
 
 // Scalar PK — pass a string
 await db.users.deleteById(userId);

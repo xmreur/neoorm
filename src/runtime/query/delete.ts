@@ -18,6 +18,7 @@ export async function deleteRecord(
 	args: {
 		where: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnDeleted?: boolean;
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
@@ -37,7 +38,27 @@ export async function deleteRecord(
 		throw new Error("Delete requires a where clause");
 	}
 
-	const query = buildDeleteQuery(table, whereSql);
+	const needsReturning = args.returnDeleted || args.with;
+
+	if (!needsReturning) {
+		const query = buildDeleteManyQuery(table, whereSql);
+		const { rowCount } = await runExecute(
+			executor,
+			runtime,
+			{ operation: "delete", tableAccessor },
+			query,
+			params,
+		);
+		return rowCount > 0 ? {} : null;
+	}
+
+	const returning = args.returnDeleted ? "full" : "pk";
+	const query = buildDeleteQuery(
+		table,
+		whereSql,
+		returning,
+		runtime.tableIndex,
+	);
 	const row = await runQueryOne(
 		executor,
 		runtime,

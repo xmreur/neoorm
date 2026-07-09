@@ -98,6 +98,7 @@ export type TableRepository = {
 	delete(args: {
 		where: Record<string, unknown>;
 		with?: Record<string, WithInput>;
+		returnDeleted?: boolean;
 	}): Promise<Record<string, unknown> | null>;
 	deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
 	count(args?: { where?: Record<string, unknown> }): Promise<number>;

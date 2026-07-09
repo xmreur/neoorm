@@ -467,7 +467,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(count).toBeGreaterThanOrEqual(1);
 
 		const deleted = await db.users.deleteById(user["id"] as string);
-		expect(deleted?.["email"]).toBe("mutate@example.com");
+		expect(deleted).toEqual({});
 
 		const remaining = await db.users.findById(user["id"] as string);
 		expect(remaining).toBeNull();
