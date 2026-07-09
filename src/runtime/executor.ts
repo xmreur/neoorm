@@ -155,7 +155,7 @@ export function createExecutor(
 	pool: Pool,
 	options?: ExecutorOptions,
 ): Executor {
-	const usePrepared = options?.preparedStatements ?? true;
+	const usePrepared = options?.preparedStatements ?? false;
 	const queryMethods = createQueryMethods(pool, usePrepared);
 
 	return {

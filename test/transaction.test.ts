@@ -343,3 +343,75 @@ describe("client $transaction", () => {
 		expect(queries.at(-1)?.text).toBe("COMMIT");
 	});
 });
+
+describe("client $connect", () => {
+	it("issues SELECT 1 on pool", async () => {
+		const { pool, queries } = createMockPool();
+		const { createNeoOrmClientFromPool } = await import(
+			"../src/runtime/client.js"
+		);
+		const { schemaToManifest } = await import(
+			"../src/codegen/schema-to-manifest.js"
+		);
+		const { schema } = await import("../examples/blog/schema.js");
+
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			manifest,
+			pool,
+		);
+
+		await db.$connect();
+
+		expect(queries).toHaveLength(1);
+		expect(queries[0]?.text).toBe("SELECT 1");
+	});
+
+	it("throws inside a transaction", async () => {
+		const { pool } = createMockPool();
+		const { createNeoOrmClientFromPool } = await import(
+			"../src/runtime/client.js"
+		);
+		const { schemaToManifest } = await import(
+			"../src/codegen/schema-to-manifest.js"
+		);
+		const { schema } = await import("../examples/blog/schema.js");
+
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			manifest,
+			pool,
+		);
+
+		await expect(
+			db.$transaction(async (tx) => {
+				await tx.$connect();
+			}),
+		).rejects.toThrow("Cannot connect inside a transaction");
+	});
+});
+
+describe("createExecutor preparedStatements", () => {
+	it("defaults to simple query text without prepared name", async () => {
+		const { pool } = createMockPool();
+		const executor = createExecutor(pool);
+
+		await executor.query("SELECT 1");
+
+		expect(pool.query).toHaveBeenCalledWith("SELECT 1", []);
+	});
+
+	it("uses prepared statements when opt-in", async () => {
+		const { pool } = createMockPool();
+		const executor = createExecutor(pool, { preparedStatements: true });
+
+		await executor.query("SELECT 1");
+
+		expect(pool.query).toHaveBeenCalledWith(
+			expect.objectContaining({
+				text: "SELECT 1",
+				name: expect.stringMatching(/^neoorm_/),
+			}),
+		);
+	});
+});

@@ -36,6 +36,7 @@ export type NeoOrmClientOptions = {
 	connectionString?: string;
 	migrationsDir?: string;
 	schema?: string;
+	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). Default: false. */
 	preparedStatements?: boolean;
 	pool?: {
 		max?: number;
@@ -142,11 +143,13 @@ export interface NeoOrmClient {
 		text: string;
 		params: unknown[];
 	}): Promise<Record<string, unknown>[]>;
+	$connect(): Promise<void>;
 	$disconnect(): Promise<void>;
 	[tableAccessor: string]:
 		| TableRepository
 		| NeoOrmClient["sql"]
 		| NeoOrmClient["execute"]
+		| NeoOrmClient["$connect"]
 		| NeoOrmClient["$disconnect"];
 }
 
@@ -226,6 +229,15 @@ function buildClient<
 				query.params,
 			);
 		},
+
+		$connect: transactional
+			? async () => {
+					throw new Error("Cannot connect inside a transaction");
+				}
+			: async () => {
+					if (!runtime.pool) return;
+					await runtime.pool.query("SELECT 1");
+				},
 
 		$disconnect: transactional
 			? async () => {
