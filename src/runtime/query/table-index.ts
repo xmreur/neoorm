@@ -1,4 +1,5 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
+import { quoteIdentifier } from "../../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestColumn,
@@ -17,6 +18,8 @@ export type TableIndex = {
 	findAllSql: string;
 	findByIdSql: string;
 	deserializeColumns: ManifestColumn[];
+	updatedAtColumns: ManifestColumn[];
+	updatedAtSetExprs: string[];
 };
 
 export type ManifestIndex = Map<string, TableIndex>;
@@ -54,6 +57,12 @@ export function buildTableIndex(
 		const plugin = getColumnType(col.kind);
 		return plugin?.deserializeValue != null;
 	});
+	const updatedAtColumns = table.columns.filter((col) => col.updatedAt === true);
+	const updatedAtSetExprs = updatedAtColumns.map((col) => {
+		const plugin = getColumnType(col.kind);
+		const expr = plugin?.updatedAtExpression?.(col) ?? "NOW()";
+		return `${quoteIdentifier(col.sqlName)} = ${expr}`;
+	});
 
 	let findByIdSql = "";
 	try {
@@ -71,6 +80,8 @@ export function buildTableIndex(
 		findAllSql: buildFindAllQuery(table),
 		findByIdSql,
 		deserializeColumns,
+		updatedAtColumns,
+		updatedAtSetExprs,
 	};
 }
 

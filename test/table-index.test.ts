@@ -1,5 +1,6 @@
-import { defineSchema, fk, id, table, text } from "neoorm/schema";
+import { defineSchema, fk, getManyToManyRegistry, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
+import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import {
 	buildManifestIndex,
@@ -64,5 +65,18 @@ describe("table index lookups", () => {
 			"title",
 		);
 		expect(relationByName(undefined, postsTable, "author")?.name).toBe("author");
+	});
+
+	it("caches updatedAt columns and expressions on index", () => {
+		const blogIndex = buildManifestIndex(
+			schemaToManifest(blogSchema, getManyToManyRegistry()),
+		);
+		const postsIndex = blogIndex.get("posts")!;
+		const tagsIndex = blogIndex.get("tags")!;
+
+		expect(postsIndex.updatedAtColumns).toHaveLength(1);
+		expect(postsIndex.updatedAtSetExprs).toEqual(['"updated_at" = NOW()']);
+		expect(tagsIndex.updatedAtColumns).toEqual([]);
+		expect(tagsIndex.updatedAtSetExprs).toEqual([]);
 	});
 });
