@@ -843,6 +843,15 @@ export function buildFindAllQuery(table: ManifestTable): string {
 	return `SELECT ${buildSelectColumns(table)} FROM ${tableRef(table)}`;
 }
 
+export function normalizeLimitOffset(value: unknown, label: string): number {
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+		throw new Error(
+			`${label} must be a non-negative integer, got ${JSON.stringify(value)}`,
+		);
+	}
+	return value;
+}
+
 export function buildFindManyQuery(
 	table: ManifestTable,
 	whereSql: string,
@@ -886,8 +895,12 @@ export function buildFindManyQuery(
 	if (whereSql) sql += ` ${whereSql}`;
 	if (groupBySql) sql += ` ${groupBySql}`;
 	if (orderSql) sql += ` ${orderSql}`;
-	if (limit !== undefined) sql += ` LIMIT ${limit}`;
-	if (offset !== undefined) sql += ` OFFSET ${offset}`;
+	if (limit !== undefined) {
+		sql += ` LIMIT ${normalizeLimitOffset(limit, "limit")}`;
+	}
+	if (offset !== undefined) {
+		sql += ` OFFSET ${normalizeLimitOffset(offset, "offset")}`;
+	}
 
 	return sql;
 }
