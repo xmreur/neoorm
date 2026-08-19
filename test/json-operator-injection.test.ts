@@ -40,10 +40,15 @@ describe("json path operator", () => {
 		const evil = "role}' = $1 OR true --";
 		const where = compilePathWhere([evil], "user");
 		expect(where.sql).toBe('WHERE "meta" #>> $1 = $2');
-		expect(where.params[0]).toBe(`{${evil}}`);
+		expect(where.params[0]).toBe(`{"${evil}"}`);
 		expect(where.sql).not.toContain(evil);
 		expect(where.sql).not.toContain("OR true");
 		expect(where.sql).not.toContain("--");
+	});
+
+	it("quotes path segments that contain array-literal syntax", () => {
+		const where = compilePathWhere(["a b", 'c"d'], "user");
+		expect(where.params[0]).toBe('{"a b","c\\"d"}');
 	});
 
 	it("parameterizes the path in the jsonContains variant", () => {
@@ -122,11 +127,10 @@ describe.skipIf(!databaseUrl)("json path operator injection (integration)", () =
 			postgresDialect,
 			1,
 		);
-		await expect(
-			pool.query(
-				`SELECT "id", "name", "meta" FROM "jpath_users" ${attacked.sql}`,
-				attacked.params,
-			),
-		).rejects.toThrow(/malformed array literal/);
+		const attackedRes = await pool.query(
+			`SELECT "id", "name", "meta" FROM "jpath_users" ${attacked.sql}`,
+			attacked.params,
+		);
+		expect(attackedRes.rows).toEqual([]);
 	});
 });

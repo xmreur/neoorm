@@ -10,7 +10,14 @@ function jsonParam(value: unknown): string {
 }
 
 function pgPath(segments: readonly string[]): string {
-	return `{${segments.join(",")}}`;
+	return `{${segments.map(escapeArrayElement).join(",")}}`;
+}
+
+function escapeArrayElement(segment: string): string {
+	if (/^[^{},\s"\\]+$/.test(segment)) {
+		return segment;
+	}
+	return `"${segment.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 export const jsonWhereOperators: Record<string, PluginWhereOperator> = {
