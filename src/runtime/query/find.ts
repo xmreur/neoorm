@@ -21,6 +21,7 @@ import {
 	isImpossibleWhere,
 	mapRowToTs,
 	mapRowsToTs,
+	normalizeLimitOffset,
 	normalizeSelectColumns,
 	rowsToTsIndexed,
 } from "./compile.js";
@@ -390,7 +391,7 @@ async function loadOneRelation(
 			)}`;
 		}
 		if (nestedSpec?.limit !== undefined) {
-			sql += ` LIMIT ${nestedSpec.limit}`;
+			sql += ` LIMIT ${normalizeLimitOffset(nestedSpec.limit, "limit")}`;
 		}
 
 		const rows = await runQuery(
