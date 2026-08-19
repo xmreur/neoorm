@@ -227,6 +227,15 @@ export {
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
 
+function sanitizeMigrationName(name: string): string {
+	const cleaned = name
+		.replace(/[\\/]/g, "_")
+		.replace(/\.\./g, "_")
+		.replace(/\0/g, "");
+	const trimmed = cleaned.trim();
+	return trimmed.length > 0 ? trimmed : "migration";
+}
+
 export async function writeMigration(
 	outDir: string,
 	sql: string[],
@@ -245,7 +254,9 @@ export async function writeMigration(
 		.toISOString()
 		.replace(/[-:T.Z]/g, "")
 		.slice(0, 14);
-	const migrationName = options?.name ?? `${timestamp}_migration`;
+	const migrationName = options?.name
+		? sanitizeMigrationName(options.name)
+		: `${timestamp}_migration`;
 	const migrationDir = join(migrationsDir, migrationName);
 	await mkdir(migrationDir, { recursive: true });
 	await writeFile(
