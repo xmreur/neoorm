@@ -126,9 +126,10 @@ export function pgStorageSqlType(dataType: string, udtName: string): string {
 		case "boolean":
 			return "BOOLEAN";
 		case "integer":
-		case "bigint":
 		case "smallint":
 			return "INTEGER";
+		case "bigint":
+			return "BIGINT";
 		case "timestamp with time zone":
 			return "TIMESTAMPTZ";
 		case "timestamp without time zone":

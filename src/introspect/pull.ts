@@ -203,9 +203,10 @@ function pgTypeToKind(dataType: string): string {
 		case "boolean":
 			return "bool";
 		case "integer":
-		case "bigint":
 		case "smallint":
 			return "int";
+		case "bigint":
+			return "bigint";
 		case "timestamp with time zone":
 		case "timestamp without time zone":
 			return "timestamp";
