@@ -128,6 +128,7 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 
 export {
 	bool,
+	bigint,
 	bytea,
 	citext,
 	decimal,

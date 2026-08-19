@@ -159,11 +159,35 @@ const intType: ColumnTypePlugin = {
 		return scalarTsType(col, "number");
 	},
 	introspect(pgDataType) {
-		return (
-			pgDataType === "integer" ||
-			pgDataType === "bigint" ||
-			pgDataType === "smallint"
-		);
+		return pgDataType === "integer" || pgDataType === "smallint";
+	},
+};
+
+const bigintType: ColumnTypePlugin = {
+	kind: "bigint",
+	createBuilder() {
+		return createColumnBuilder<bigint | null, ColumnMeta>({
+			kind: "bigint",
+			nullable: true,
+			unique: false,
+			primary: false,
+			defaultNow: false,
+		});
+	},
+	columnType() {
+		return "BIGINT";
+	},
+	columnTsType(col) {
+		return scalarTsType(col, "bigint");
+	},
+	introspect(pgDataType) {
+		return pgDataType === "bigint";
+	},
+	serializeValue(_col, value) {
+		return value == null ? null : String(value);
+	},
+	deserializeValue(_col, value) {
+		return value == null ? null : BigInt(String(value));
 	},
 };
 
@@ -481,6 +505,7 @@ export const builtinPlugin: NeoOrmPlugin = {
 		idType,
 		textType,
 		boolType,
+		bigintType,
 		intType,
 		timestampType,
 		uuidType,
@@ -525,6 +550,10 @@ export function bool(): ColumnBuilder<boolean | null> {
 
 export function int(): ColumnBuilder<number | null> {
 	return intType.createBuilder() as ColumnBuilder<number | null>;
+}
+
+export function bigint(): ColumnBuilder<bigint | null> {
+	return bigintType.createBuilder() as ColumnBuilder<bigint | null>;
 }
 
 export function timestamp(): ColumnBuilder<Date | null> {

@@ -6,6 +6,7 @@ export type {
 export type { ColumnBuilder, ColumnKind, ColumnMeta } from "./column.js";
 export {
 	bool,
+	bigint,
 	bytea,
 	citext,
 	decimal,
