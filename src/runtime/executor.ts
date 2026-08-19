@@ -11,6 +11,7 @@ import {
 	sqliteClient,
 	type SqliteDatabaseLike,
 } from "./driver.js";
+import { CappedMap } from "./query/table-index.js";
 
 export type ExecuteResult<T = Record<string, unknown>> = {
 	rows: T[];
@@ -56,7 +57,7 @@ function executeFromResult<T = Record<string, unknown>>(
 
 type Queryable = Pick<Pool, "query">;
 
-const statementNameCache = new Map<string, string>();
+const statementNameCache = new CappedMap<string, string>(500);
 
 function statementName(text: string): string {
 	const cached = statementNameCache.get(text);

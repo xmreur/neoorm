@@ -11,6 +11,18 @@ export function toCamelCase(str: string): string {
 	return str.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
+/** Escape a value for embedding inside a double-quoted TypeScript string literal. */
+export function escapeTsString(str: string): string {
+	return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/** Coerce an arbitrary string into a valid TypeScript identifier. */
+export function sanitizeTsIdentifier(str: string): string {
+	const sanitized = str.replace(/[^A-Za-z0-9_$]/g, "_");
+	if (/^[0-9]/.test(sanitized)) return `_${sanitized}`;
+	return sanitized;
+}
+
 export function resolveSqlColumnName(
 	tsName: string,
 	strategy: ColumnNaming,

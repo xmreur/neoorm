@@ -61,9 +61,10 @@ function pgTypeToKind(
 		case "boolean":
 			return "bool";
 		case "integer":
-		case "bigint":
 		case "smallint":
 			return "int";
+		case "bigint":
+			return "bigint";
 		case "timestamp with time zone":
 		case "timestamp without time zone":
 			return "timestamp";
@@ -95,6 +96,13 @@ function parseDefaultValue(
 				defaultNow: false,
 				defaultValue: kind === "int" ? Number(match[1]) : match[1],
 			};
+		}
+	}
+	if (kind === "bigint") {
+		const match = columnDefault.match(/^(-?\d+)/);
+		if (match) {
+			// keep the exact literal; JS numbers cannot represent int8 exactly
+			return { defaultNow: false, defaultValue: match[1] };
 		}
 	}
 	if (kind === "json" || kind === "jsonb") {
