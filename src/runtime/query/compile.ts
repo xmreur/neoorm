@@ -10,6 +10,7 @@ import type {
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
+import { rebaseParamRefs } from "../../sql/template.js";
 import { findM2M } from "./manifest-lookup.js";
 import {
 	primaryKeySqlName,
@@ -493,18 +494,28 @@ export function compileWhere(
 
 function whereShapeKey(where: Record<string, unknown>): string {
 	const parts: string[] = [];
-	for (const [key, value] of Object.entries(where).sort(([a], [b]) =>
-		a.localeCompare(b),
-	)) {
+	for (const [key, value] of Object.entries(where)) {
 		if (key === "AND" && Array.isArray(value)) {
 			parts.push(
-				`AND:${value.map((item) => whereShapeKey(item as Record<string, unknown>)).join(",")}`,
+				`AND:${value
+					.filter(
+						(item): item is Record<string, unknown> =>
+							!!item && typeof item === "object" && !Array.isArray(item),
+					)
+					.map((item) => whereShapeKey(item))
+					.join(",")}`,
 			);
 			continue;
 		}
 		if (key === "OR" && Array.isArray(value)) {
 			parts.push(
-				`OR:${value.map((item) => whereShapeKey(item as Record<string, unknown>)).join(",")}`,
+				`OR:${value
+					.filter(
+						(item): item is Record<string, unknown> =>
+							!!item && typeof item === "object" && !Array.isArray(item),
+					)
+					.map((item) => whereShapeKey(item))
+					.join(",")}`,
 			);
 			continue;
 		}
@@ -515,7 +526,13 @@ function whereShapeKey(where: Record<string, unknown>): string {
 		if (isOperatorObject(value) && !(value instanceof Date)) {
 			const ops = Object.keys(value).sort();
 			if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
-				parts.push(`${key}:rel:${ops.join(",")}`);
+				const mode = ops.find(
+					(op) => op === "some" || op === "every" || op === "none",
+				);
+				const nested = value[mode ?? ""];
+				parts.push(
+					`${key}:rel:${mode}:${isOperatorObject(nested) ? whereShapeKey(nested) : "{}"}`,
+				);
 			} else if (ops.includes("in") || ops.includes("notIn")) {
 				const arr = value.in ?? value.notIn;
 				const len = Array.isArray(arr) ? arr.length : 0;
@@ -531,84 +548,81 @@ function whereShapeKey(where: Record<string, unknown>): string {
 	return parts.join("&");
 }
 
-function bindWhereParams(where: Record<string, unknown>): unknown[] {
-	const values: unknown[] = [];
-	function walk(node: Record<string, unknown>): void {
-		for (const [key, value] of Object.entries(node).sort(([a], [b]) =>
-			a.localeCompare(b),
-		)) {
+function collectWhereParams(
+	manifest: Manifest,
+	table: ManifestTable,
+	where: Record<string, unknown>,
+	dialect: Dialect,
+	manifestIndex?: ManifestIndex,
+): unknown[] {
+	const params: unknown[] = [];
+
+	function walk(
+		node: Record<string, unknown>,
+		columnRef: (col: ManifestColumn) => string,
+	): void {
+		const tableIndex = getTableIndex(manifestIndex, table.accessor);
+		const relations =
+			tableIndex?.effectiveRelationsByName ??
+			new Map(
+				effectiveRelations(manifest, table).map((rel) => [rel.name, rel]),
+			);
+
+		for (const [key, value] of Object.entries(node)) {
 			if (key === "AND" || key === "OR") {
 				if (Array.isArray(value)) {
 					for (const item of value) {
 						if (item && typeof item === "object" && !Array.isArray(item)) {
-							walk(item as Record<string, unknown>);
+							walk(item as Record<string, unknown>, columnRef);
 						}
 					}
 				}
 				continue;
 			}
 			if (key === "NOT" && isOperatorObject(value)) {
-				walk(value as Record<string, unknown>);
+				walk(value as Record<string, unknown>, columnRef);
 				continue;
 			}
-			if (isOperatorObject(value) && !(value instanceof Date)) {
-				const ops = Object.keys(value).sort();
-				if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
-					values.push(key, ops.join(","));
-					continue;
-				}
-				for (const op of ops) {
-					const raw = value[op];
-					const transform = operatorParamTransform[op as WhereOperator];
-					values.push(transform ? transform(raw) : raw);
-				}
+			if (relations.get(key)) {
+				const compiled = compileRelationCondition(
+					manifest,
+					table,
+					relations.get(key)!,
+					value,
+					dialect,
+					1,
+					manifestIndex,
+				);
+				params.push(...compiled.params);
 				continue;
 			}
-			values.push(value);
+			const col = columnByTsName(tableIndex, table, key);
+			if (!col) continue;
+			const compiled = compileColumnCondition(
+				col,
+				value,
+				dialect,
+				1,
+				columnRef,
+			);
+			params.push(...compiled.params);
 		}
 	}
-	walk(where);
-	return values;
+
+	walk(where, defaultColumnRef);
+	return params;
 }
 
-function whereValuesFingerprint(where: Record<string, unknown>): string {
-	const values: unknown[] = [];
-	function walk(node: Record<string, unknown>): void {
-		for (const [key, value] of Object.entries(node).sort(([a], [b]) =>
-			a.localeCompare(b),
-		)) {
-			if (key === "AND" || key === "OR") {
-				if (Array.isArray(value)) {
-					for (const item of value) {
-						if (item && typeof item === "object" && !Array.isArray(item)) {
-							walk(item as Record<string, unknown>);
-						}
-					}
-				}
-				continue;
-			}
-			if (key === "NOT" && isOperatorObject(value)) {
-				walk(value as Record<string, unknown>);
-				continue;
-			}
-			if (isOperatorObject(value) && !(value instanceof Date)) {
-				const ops = Object.keys(value).sort();
-				if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
-					values.push(key, ops.join(","));
-					continue;
-				}
-				for (const op of ops) {
-					const raw = value[op];
-					const transform = operatorParamTransform[op as WhereOperator];
-					values.push(transform ? transform(raw) : raw);
-				}
-				continue;
-			}
-			values.push(value);
-		}
-	}
-	walk(where);
-	return JSON.stringify(values);
+function whereValuesFingerprint(
+	manifest: Manifest,
+	table: ManifestTable,
+	where: Record<string, unknown>,
+	dialect: Dialect,
+	manifestIndex?: ManifestIndex,
+): string {
+	return JSON.stringify(
+		collectWhereParams(manifest, table, where, dialect, manifestIndex),
+	);
 }
 
 export function getCachedWhereClause(
@@ -633,12 +647,18 @@ export function getCachedWhereClause(
 	if (shellCached) {
 		return {
 			sql: shellCached.sql,
-			params: bindWhereParams(where),
+			params: collectWhereParams(manifest, table, where, dialect, manifestIndex),
 			...(shellCached.impossible ? { impossible: true } : {}),
 		};
 	}
 
-	const fingerprint = whereValuesFingerprint(where);
+	const fingerprint = whereValuesFingerprint(
+		manifest,
+		table,
+		where,
+		dialect,
+		manifestIndex,
+	);
 	const cacheKey = `${shape}\0${fingerprint}`;
 
 	const cached = tableIndex?.whereClauseByFingerprint.get(cacheKey);
@@ -824,6 +844,15 @@ export function buildFindAllQuery(table: ManifestTable): string {
 	return `SELECT ${buildSelectColumns(table)} FROM ${tableRef(table)}`;
 }
 
+export function normalizeLimitOffset(value: unknown, label: string): number {
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+		throw new Error(
+			`${label} must be a non-negative integer, got ${JSON.stringify(value)}`,
+		);
+	}
+	return value;
+}
+
 export function buildFindManyQuery(
 	table: ManifestTable,
 	whereSql: string,
@@ -867,8 +896,12 @@ export function buildFindManyQuery(
 	if (whereSql) sql += ` ${whereSql}`;
 	if (groupBySql) sql += ` ${groupBySql}`;
 	if (orderSql) sql += ` ${orderSql}`;
-	if (limit !== undefined) sql += ` LIMIT ${limit}`;
-	if (offset !== undefined) sql += ` OFFSET ${offset}`;
+	if (limit !== undefined) {
+		sql += ` LIMIT ${normalizeLimitOffset(limit, "limit")}`;
+	}
+	if (offset !== undefined) {
+		sql += ` OFFSET ${normalizeLimitOffset(offset, "offset")}`;
+	}
 
 	return sql;
 }
@@ -1208,9 +1241,7 @@ export function buildUpdateQuery(
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
-		const adjustedWhere = whereSql.replace(/\$(\d+)/g, (_, n: string) => {
-			return `$${Number(n) + whereOffset}`;
-		});
+		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
 	}
 	if (returning === "none") return sql;
@@ -1277,9 +1308,7 @@ export function buildUpdateManyQuery(
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
-		const adjustedWhere = whereSql.replace(/\$(\d+)/g, (_, n: string) => {
-			return `$${Number(n) + whereOffset}`;
-		});
+		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
 	}
 	return sql;

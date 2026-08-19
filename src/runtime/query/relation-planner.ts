@@ -14,6 +14,7 @@ import {
 	compileOrderBy,
 	compileWhere,
 	mapRowToTs,
+	normalizeLimitOffset,
 	normalizeSelectColumns,
 	orderByShapeKey,
 } from "./compile.js";
@@ -520,7 +521,7 @@ function buildHasManySubqueryFromRef(
 		)}`;
 	}
 	if (node.nestedSpec?.limit !== undefined) {
-		sql += ` LIMIT ${node.nestedSpec.limit}`;
+		sql += ` LIMIT ${normalizeLimitOffset(node.nestedSpec.limit, "limit")}`;
 	}
 	sql += ") agg)";
 	return sql;

@@ -2,7 +2,12 @@ import type { Pool } from "pg";
 import { resolvePgSchemaName } from "../dialect/postgres.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
 import type { ColumnNaming } from "../schema/table.js";
-import { resolveSqlColumnName, toCamelCase } from "../utils/case.js";
+import {
+	escapeTsString,
+	resolveSqlColumnName,
+	sanitizeTsIdentifier,
+	toCamelCase,
+} from "../utils/case.js";
 import { queryColumns, queryForeignKeys, queryTables } from "./queries.js";
 
 export async function introspectPostgres(
@@ -27,23 +32,23 @@ export async function introspectPostgres(
 			cols.map((col) => col.column_name),
 		);
 
-		const accessor = toCamelCase(
-			table_name.endsWith("s") ? table_name : `${table_name}s`,
+		const accessor = sanitizeTsIdentifier(
+			toCamelCase(table_name.endsWith("s") ? table_name : `${table_name}s`),
 		);
 		const blockLines: string[] = [
-			`  ${accessor}: table("${table_name}", {`,
+			`  ${accessor}: table("${escapeTsString(table_name)}", {`,
 		];
 
 		for (const col of cols) {
-			const tsName = toCamelCase(col.column_name);
+			const tsName = sanitizeTsIdentifier(toCamelCase(col.column_name));
 			const fk = fkMap.get(col.column_name);
 
 			if (fk) {
 				const relName = tsName.replace(/Id$/, "");
 				let def = [
-					`    ${tsName}: fk("${fk.foreign_table_name}.${fk.foreign_column_name}", {`,
-					`      as: "${relName}",`,
-					`      inverse: "${accessor}",`,
+					`    ${tsName}: fk("${escapeTsString(fk.foreign_table_name)}.${escapeTsString(fk.foreign_column_name)}", {`,
+					`      as: "${escapeTsString(relName)}",`,
+					`      inverse: "${escapeTsString(accessor)}",`,
 					`      nullable: ${col.is_nullable === "YES"},`,
 					`    })`,
 				].join("\n");
@@ -190,7 +195,7 @@ function appendMapModifier(
 	if (sqlName === resolveSqlColumnName(tsName, columnNaming)) {
 		return def;
 	}
-	return `${def}.map("${sqlName}")`;
+	return `${def}.map("${escapeTsString(sqlName)}")`;
 }
 
 function pgTypeToKind(dataType: string): string {
