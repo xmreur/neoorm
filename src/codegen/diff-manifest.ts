@@ -1,9 +1,7 @@
 import {
 	canAutoCastType,
 	DEFAULT_PG_SCHEMA,
-	emitCreateEnumTypes,
 	postgresDialect,
-	resolveColumnSqlType,
 	resolveFkConstraintName,
 	resolveIndexSqlName,
 	resolveUniqueConstraintName,
@@ -11,6 +9,7 @@ import {
 import type {
 	ColumnAlter,
 	DestructiveChange,
+	Dialect,
 	FkChange,
 	Manifest,
 	ManifestColumn,
@@ -29,22 +28,31 @@ function tablesBySqlName(manifest: Manifest): Map<string, ManifestTable> {
 export function columnSqlType(
 	col: ManifestColumn,
 	manifest?: Manifest,
+	dialect: Dialect = postgresDialect,
 ): string {
-	return resolveColumnSqlType(col, manifest);
+	return dialect.columnType(col, manifest);
 }
 
-function isUnsafeTypeChange(alter: ColumnAlter, manifest?: Manifest): boolean {
+function isUnsafeTypeChange(
+	alter: ColumnAlter,
+	manifest?: Manifest,
+	dialect: Dialect = postgresDialect,
+): boolean {
 	if (!alter.setType || alter.fromSqlType === undefined) {
 		return false;
 	}
 	return !canAutoCastType(
 		alter.fromSqlType,
-		columnSqlType(alter.setType, manifest),
+		columnSqlType(alter.setType, manifest, dialect),
 	);
 }
 
 function effectiveNullable(col: ManifestColumn): boolean {
 	return col.primary ? false : col.nullable;
+}
+
+function onDeleteEqual(a: string | undefined, b: string | undefined): boolean {
+	return (a ?? "no action") === (b ?? "no action");
 }
 
 function isColumnUniqueIndex(
@@ -74,6 +82,7 @@ export function columnsEqual(
 	a: ManifestColumn,
 	b: ManifestColumn,
 	manifest?: Manifest,
+	dialect: Dialect = postgresDialect,
 ): boolean {
 	return (
 		a.kind === b.kind &&
@@ -84,9 +93,10 @@ export function columnsEqual(
 		defaultsEqual(a, b) &&
 		typeOptionsEqual(a.typeOptions, b.typeOptions) &&
 		a.checkExpression === b.checkExpression &&
-		columnSqlType(a, manifest) === columnSqlType(b, manifest) &&
+		columnSqlType(a, manifest, dialect) ===
+			columnSqlType(b, manifest, dialect) &&
 		(a.kind !== "fk" ||
-			(a.fkTarget === b.fkTarget && a.onDelete === b.onDelete))
+			(a.fkTarget === b.fkTarget && onDeleteEqual(a.onDelete, b.onDelete)))
 	);
 }
 
@@ -198,7 +208,7 @@ function diffForeignKeys(
 
 		if (
 			prevCol.fkTarget !== nextCol.fkTarget ||
-			prevCol.onDelete !== nextCol.onDelete
+			!onDeleteEqual(prevCol.onDelete, nextCol.onDelete)
 		) {
 			const add: NonNullable<FkChange["add"]> = {
 				target: nextCol.fkTarget,
@@ -240,16 +250,17 @@ function buildColumnAlter(
 	alterSqlName: string,
 	prevManifest?: Manifest,
 	nextManifest?: Manifest,
+	dialect: Dialect = postgresDialect,
 ): ColumnAlter | null {
 	const alter: ColumnAlter = { sqlName: alterSqlName };
 	let hasAlter = false;
 
 	if (
-		columnSqlType(prevCol, prevManifest) !==
-		columnSqlType(nextCol, nextManifest)
+		columnSqlType(prevCol, prevManifest, dialect) !==
+		columnSqlType(nextCol, nextManifest, dialect)
 	) {
 		alter.setType = { ...nextCol, sqlName: alterSqlName };
-		alter.fromSqlType = columnSqlType(prevCol, prevManifest);
+		alter.fromSqlType = columnSqlType(prevCol, prevManifest, dialect);
 		hasAlter = true;
 	}
 
@@ -295,6 +306,7 @@ function diffColumns(
 	nextTable: ManifestTable,
 	prevManifest?: Manifest,
 	nextManifest?: Manifest,
+	dialect: Dialect = postgresDialect,
 ): {
 	addColumns: ManifestColumn[];
 	dropColumns: string[];
@@ -351,6 +363,7 @@ function diffColumns(
 			alterSqlName,
 			prevManifest,
 			nextManifest,
+			dialect,
 		);
 		if (alter) {
 			alterColumns.push(alter);
@@ -365,6 +378,7 @@ function diffTable(
 	nextTable: ManifestTable | undefined,
 	prevManifest?: Manifest,
 	nextManifest?: Manifest,
+	dialect: Dialect = postgresDialect,
 ): TableDiff | null {
 	if (!prevTable && nextTable) {
 		return {
@@ -389,6 +403,7 @@ function diffTable(
 		nextTable,
 		prevManifest,
 		nextManifest,
+		dialect,
 	);
 	const { addColumns, dropColumns, renameColumns, alterColumns } = columnDiff;
 	const { addIndexes, dropIndexes } = diffIndexes(prevTable, nextTable);
@@ -423,6 +438,7 @@ function diffTable(
 function classifyDestructive(
 	diff: TableDiff,
 	prevTable?: ManifestTable,
+	dialect: Dialect = postgresDialect,
 ): DestructiveChange[] {
 	const changes: DestructiveChange[] = [];
 	const tableName = diff.table.sqlName;
@@ -433,7 +449,7 @@ function classifyDestructive(
 			kind: "drop_table",
 			table: tableName,
 			detail: `Drop table "${tableName}"`,
-			sql: postgresDialect.emitDropTable(diff.table),
+			sql: dialect.emitDropTable(diff.table),
 		});
 		return changes;
 	}
@@ -443,18 +459,18 @@ function classifyDestructive(
 			kind: "drop_column",
 			table: tableName,
 			detail: `Drop column "${tableName}"."${col}"`,
-			sql: `ALTER TABLE ${postgresDialect.quoteIdentifier(tableName)} DROP COLUMN ${postgresDialect.quoteIdentifier(col)};`,
+			sql: `ALTER TABLE ${dialect.quoteIdentifier(tableName)} DROP COLUMN ${dialect.quoteIdentifier(col)};`,
 		});
 	}
 
 	for (const alter of diff.alterColumns ?? []) {
-		if (alter.setType && isUnsafeTypeChange(alter, manifest)) {
-			for (const sql of postgresDialect.emitAlterColumn(
+		if (alter.setType && isUnsafeTypeChange(alter, manifest, dialect)) {
+			for (const sql of dialect.emitAlterColumn(
 				diff.table,
 				alter,
 				manifest,
 			)) {
-				if (sql.includes(" TYPE ")) {
+				if (sql.includes(" TYPE ") || sql.includes("CREATE TABLE ")) {
 					changes.push({
 						kind: "alter_column_type_manual",
 						table: tableName,
@@ -493,7 +509,7 @@ function classifyDestructive(
 			kind: "drop_index",
 			table: tableName,
 			detail: `Drop index "${indexName}" on "${tableName}"`,
-			sql: postgresDialect.emitDropIndex(indexName),
+			sql: dialect.emitDropIndex(indexName),
 		});
 	}
 
@@ -503,7 +519,7 @@ function classifyDestructive(
 				kind: "drop_fk",
 				table: tableName,
 				detail: `Drop foreign key on "${tableName}"."${change.column}"`,
-				sql: postgresDialect.emitDropConstraint(tableName, change.drop),
+				sql: dialect.emitDropConstraint(tableName, change.drop),
 			});
 		}
 	}
@@ -511,14 +527,18 @@ function classifyDestructive(
 	return changes;
 }
 
-function stripDestructiveFromDiff(diff: TableDiff): TableDiff | null {
+function stripDestructiveFromDiff(
+	diff: TableDiff,
+	dialect: Dialect = postgresDialect,
+): TableDiff | null {
 	if (diff.drop) {
 		return null;
 	}
 
 	const fkChanges = diff.fkChanges?.filter((change) => !change.drop);
 	const alterColumns = diff.alterColumns?.filter(
-		(alter) => !alter.setType || !isUnsafeTypeChange(alter, diff.manifest),
+		(alter) =>
+			!alter.setType || !isUnsafeTypeChange(alter, diff.manifest, dialect),
 	);
 
 	const stripped: TableDiff = {
@@ -553,8 +573,10 @@ export function buildMigrationSql(
 	extensions: string[] = [],
 	manifest?: Manifest,
 	newEnumTypes?: Record<string, { values: readonly string[] }>,
+	dialect: Dialect = postgresDialect,
 ): string[] {
 	const sql: string[] = [];
+	const isSqlite = dialect.name === "sqlite";
 	const schemaNames = new Set(
 		Object.values(manifest?.tables ?? {})
 			.map((table) => table.schemaName)
@@ -565,15 +587,18 @@ export function buildMigrationSql(
 	);
 
 	for (const schema of schemaNames) {
-		sql.push(postgresDialect.emitCreateSchema(schema));
+		const schemaSql = dialect.emitCreateSchema(schema);
+		if (schemaSql) {
+			sql.push(schemaSql);
+		}
 	}
 
 	if (extensions.length > 0) {
-		sql.push(...postgresDialect.emitCreateExtensions(extensions));
+		sql.push(...dialect.emitCreateExtensions(extensions));
 	}
 
 	if (newEnumTypes && Object.keys(newEnumTypes).length > 0) {
-		sql.push(...emitCreateEnumTypes(newEnumTypes));
+		sql.push(...dialect.emitCreateEnumTypes(newEnumTypes));
 	}
 
 	const alterDiffs = tableDiffs.filter((d) => !d.create && !d.drop);
@@ -581,27 +606,29 @@ export function buildMigrationSql(
 	const createDiffs = tableDiffs.filter((d) => d.create);
 
 	for (const diff of alterDiffs) {
-		sql.push(...postgresDialect.emitAlterTable(diff.table, diff));
+		sql.push(...dialect.emitAlterTable(diff.table, diff));
 	}
 
 	for (const diff of dropDiffs) {
-		sql.push(postgresDialect.emitDropTable(diff.table));
+		sql.push(dialect.emitDropTable(diff.table));
 	}
 
 	for (const diff of createDiffs) {
 		sql.push(
-			postgresDialect.emitCreateTable(diff.table, {
-				inlineForeignKeys: false,
+			dialect.emitCreateTable(diff.table, {
+				inlineForeignKeys: isSqlite,
 				...(manifest ? { manifest } : {}),
 			}),
 		);
 		for (const index of diff.table.indexes) {
 			if (!index.unique) {
-				sql.push(postgresDialect.emitCreateIndex(diff.table, index));
+				sql.push(dialect.emitCreateIndex(diff.table, index));
 			}
 		}
-		for (const col of fkColumns(diff.table)) {
-			sql.push(postgresDialect.emitAddForeignKey(diff.table, col));
+		if (!isSqlite) {
+			for (const col of fkColumns(diff.table)) {
+				sql.push(dialect.emitAddForeignKey(diff.table, col));
+			}
 		}
 	}
 
@@ -645,6 +672,7 @@ function diffEnumTypes(
 export function diffManifest(
 	prev: Manifest | null,
 	next: Manifest,
+	dialect: Dialect = postgresDialect,
 ): ManifestDiff {
 	if (!prev) {
 		const sql: string[] = [];
@@ -657,23 +685,26 @@ export function diffManifest(
 				),
 		);
 		for (const schema of schemaNames) {
-			sql.push(postgresDialect.emitCreateSchema(schema));
+			const schemaSql = dialect.emitCreateSchema(schema);
+			if (schemaSql) {
+				sql.push(schemaSql);
+			}
 		}
 		const extensions = next.extensions ?? [];
-		sql.push(...postgresDialect.emitCreateExtensions(extensions));
+		sql.push(...dialect.emitCreateExtensions(extensions));
 
 		if (next.enumTypes) {
-			sql.push(...emitCreateEnumTypes(next.enumTypes));
+			sql.push(...dialect.emitCreateEnumTypes(next.enumTypes));
 		}
 
 		const tables = Object.values(next.tables);
 		for (const table of tables) {
 			sql.push(
-				postgresDialect.emitCreateTable(table, { manifest: next }),
+				dialect.emitCreateTable(table, { manifest: next }),
 			);
 			for (const index of table.indexes) {
 				if (!index.unique) {
-					sql.push(postgresDialect.emitCreateIndex(table, index));
+					sql.push(dialect.emitCreateIndex(table, index));
 				}
 			}
 		}
@@ -700,10 +731,10 @@ export function diffManifest(
 	for (const sqlName of allSqlNames) {
 		const prevTable = prevBySql.get(sqlName);
 		const nextTable = nextBySql.get(sqlName);
-		const diff = diffTable(prevTable, nextTable, prev, next);
+		const diff = diffTable(prevTable, nextTable, prev, next, dialect);
 		if (!diff) continue;
 		tableDiffs.push(diff);
-		destructive.push(...classifyDestructive(diff, prevTable));
+		destructive.push(...classifyDestructive(diff, prevTable, dialect));
 	}
 
 	destructive.push(...enumDestructive);
@@ -713,6 +744,7 @@ export function diffManifest(
 		newExtensions,
 		next,
 		newEnumTypes,
+		dialect,
 	);
 
 	return { isInitial: false, sql, destructive };
@@ -727,10 +759,14 @@ export function emptyManifest(): Manifest {
 }
 
 /** SQL to roll back a forward migration (next → prev). */
-export function buildDownSql(prev: Manifest | null, next: Manifest): string[] {
+export function buildDownSql(
+	prev: Manifest | null,
+	next: Manifest,
+	dialect: Dialect = postgresDialect,
+): string[] {
 	const target = prev ?? emptyManifest();
-	const diff = diffManifest(next, target);
-	const { sql } = resolveMigrationSql(diff, next, target, true);
+	const diff = diffManifest(next, target, dialect);
+	const { sql } = resolveMigrationSql(diff, next, target, true, dialect);
 	return sql;
 }
 
@@ -739,6 +775,7 @@ export function resolveMigrationSql(
 	prev: Manifest | null,
 	next: Manifest,
 	acceptDataLoss: boolean,
+	dialect: Dialect = postgresDialect,
 ): { sql: string[]; blocked: DestructiveChange[] } {
 	if (acceptDataLoss) {
 		const blocked = diff.destructive.filter(
@@ -772,9 +809,9 @@ export function resolveMigrationSql(
 	for (const sqlName of allSqlNames) {
 		const prevTable = prevBySql.get(sqlName);
 		const nextTable = nextBySql.get(sqlName);
-		const tableDiff = diffTable(prevTable, nextTable, prev, next);
+		const tableDiff = diffTable(prevTable, nextTable, prev, next, dialect);
 		if (!tableDiff) continue;
-		const stripped = stripDestructiveFromDiff(tableDiff);
+		const stripped = stripDestructiveFromDiff(tableDiff, dialect);
 		if (stripped) {
 			safeDiffs.push(stripped);
 		}
@@ -786,7 +823,7 @@ export function resolveMigrationSql(
 	);
 
 	return {
-		sql: buildMigrationSql(safeDiffs, newExtensions, next),
+		sql: buildMigrationSql(safeDiffs, newExtensions, next, undefined, dialect),
 		blocked: diff.destructive,
 	};
 }

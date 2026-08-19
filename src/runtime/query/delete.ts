@@ -24,6 +24,7 @@ export async function deleteRecord(
 		returnDeleted?: boolean;
 	},
 ): Promise<Record<string, unknown> | null> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -32,7 +33,7 @@ export async function deleteRecord(
 		manifest,
 		table,
 		args.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -99,6 +100,7 @@ export async function deleteManyRecords(
 		where?: Record<string, unknown>;
 	},
 ): Promise<number> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -107,7 +109,7 @@ export async function deleteManyRecords(
 		manifest,
 		table,
 		args?.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);

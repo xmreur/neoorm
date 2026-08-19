@@ -1,6 +1,7 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
-import { quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
 import type {
+	Dialect,
 	Manifest,
 	ManifestColumn,
 	ManifestRelation,
@@ -85,6 +86,7 @@ export function buildTableIndex(
 	manifest: Manifest,
 	accessor: string,
 	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
 ): TableIndex {
 	const columnsByTsName = new Map(
 		table.columns.map((col) => [col.tsName, col]),
@@ -106,7 +108,9 @@ export function buildTableIndex(
 	const updatedAtColumns = table.columns.filter((col) => col.updatedAt === true);
 	const updatedAtSetExprs = updatedAtColumns.map((col) => {
 		const plugin = getColumnType(col.kind);
-		const expr = plugin?.updatedAtExpression?.(col) ?? "NOW()";
+		const expr =
+			plugin?.updatedAtExpression?.(col, dialect) ??
+			dialect.defaultNowExpression();
 		return `${quoteIdentifier(col.sqlName)} = ${expr}`;
 	});
 
@@ -151,10 +155,13 @@ export function buildTableIndex(
 	};
 }
 
-export function buildManifestIndex(manifest: Manifest): ManifestIndex {
+export function buildManifestIndex(
+	manifest: Manifest,
+	dialect: Dialect = postgresDialect,
+): ManifestIndex {
 	const index = new Map<string, TableIndex>();
 	for (const [accessor, table] of Object.entries(manifest.tables)) {
-		index.set(accessor, buildTableIndex(manifest, accessor, table));
+		index.set(accessor, buildTableIndex(manifest, accessor, table, dialect));
 	}
 	return index;
 }

@@ -60,6 +60,7 @@ async function runUpdate(
 		relationWrites?: ParsedRelationWrite[];
 	},
 ): Promise<Record<string, unknown> | null> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -92,7 +93,7 @@ async function runUpdate(
 		manifest,
 		table,
 		args.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -128,7 +129,7 @@ async function runUpdate(
 	let result: Record<string, unknown> | null;
 
 	if (keys.length === 0 && exprSets.length === 0) {
-		const selectSql = `SELECT * FROM ${tableRef(table)} WHERE ${whereSql} LIMIT 1`;
+		const selectSql = `SELECT * FROM ${tableRef(table)} ${whereSql} LIMIT 1`;
 		const row = await runQueryOne(
 			executor,
 			runtime,
@@ -261,6 +262,7 @@ async function runUpdateMany(
 		relationWrites?: ParsedRelationWrite[];
 	},
 ): Promise<number> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -321,7 +323,7 @@ async function runUpdateMany(
 		manifest,
 		table,
 		args.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -407,6 +409,7 @@ async function runUpdateManyScalar(
 		data: Record<string, unknown>;
 	},
 ): Promise<number> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -431,7 +434,7 @@ async function runUpdateManyScalar(
 		manifest,
 		table,
 		args.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);

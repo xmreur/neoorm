@@ -1,9 +1,10 @@
-import type { Pool } from "pg";
-import type { Manifest } from "../../dialect/types.js";
+import type { Dialect, Manifest } from "../../dialect/types.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import {
 	getAppliedMigrations,
 	listPendingMigrations,
 } from "../../migrate/runner.js";
+import type { DatabaseClient } from "../driver.js";
 import type { QueryOperation } from "../errors.js";
 import { NeoOrmQueryError, type QueryErrorContext } from "../errors.js";
 import type { Executor } from "../executor.js";
@@ -19,7 +20,8 @@ import type { ManifestIndex } from "./table-index.js";
 export type QueryRuntime = {
 	manifest: Manifest;
 	schema?: string;
-	pool?: Pool;
+	driver?: DatabaseClient;
+	dialect?: Dialect;
 	migrationsDir?: string;
 	tableIndex?: ManifestIndex;
 };
@@ -35,17 +37,18 @@ type InsertUpsertContext = RunQueryContext & {
 };
 
 async function resolveMigrationHint(
-	pool: Pool | undefined,
+	driver: DatabaseClient | undefined,
+	dialect: Dialect,
 	migrationsDir: string | undefined,
 	schema: string | undefined,
 	pgCode: string | undefined,
 ): Promise<string | undefined> {
-	if (!pool || !isSchemaDriftPgCode(pgCode)) {
+	if (!driver || !isSchemaDriftPgCode(pgCode)) {
 		return undefined;
 	}
 
 	try {
-		const applied = await getAppliedMigrations(pool, schema);
+		const applied = await getAppliedMigrations(driver, dialect, schema);
 		const appliedList = [...applied];
 		const lastApplied = appliedList.at(-1);
 
@@ -76,7 +79,8 @@ async function throwQueryError(
 	cause?: unknown,
 ): Promise<never> {
 	const migrationHint = await resolveMigrationHint(
-		runtime.pool,
+		runtime.driver,
+		runtime.dialect ?? postgresDialect,
 		runtime.migrationsDir,
 		runtime.schema,
 		context.pgCode,

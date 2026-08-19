@@ -40,6 +40,22 @@
 			"default": "./dist/plugins/postgis/index.js"
 		}
 	},
+	"typesVersions": {
+		"*": {
+			"schema": [
+				"dist/schema/index.d.ts"
+			],
+			"sql": [
+				"dist/sql/index.d.ts"
+			],
+			"plugins": [
+				"dist/plugins/index.d.ts"
+			],
+			"plugins/postgis": [
+				"dist/plugins/postgis/index.d.ts"
+			]
+		}
+	},
 	"files": [
 		"dist",
 		"README.md",

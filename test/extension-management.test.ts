@@ -1,5 +1,6 @@
 import { defineSchema, id, table, text, uuid } from "neoorm/schema";
 import type { Pool } from "pg";
+import { pgClient } from "../src/runtime/driver.js";
 import { describe, expect, it, vi } from "vitest";
 import { diffManifest } from "../src/codegen/diff-manifest.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -125,7 +126,7 @@ describe("extension management", () => {
 	it("preserves registered-plugin extensions during db pull", async () => {
 		const pool = mockPool();
 
-		const manifest = await introspectToManifest(pool);
+		const manifest = await introspectToManifest(pgClient(pool));
 
 		expect(manifest.extensions).toContain("postgis");
 		expect(manifest.extensions).not.toContain("pg_trgm");

@@ -229,7 +229,7 @@ describe("query errors", () => {
 
 		const runtimeWithPool: QueryRuntime = {
 			manifest,
-			pool: pool as never,
+			driver: pool as never,
 		};
 
 		try {

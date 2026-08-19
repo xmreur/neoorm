@@ -2,14 +2,14 @@ export type NeoOrmConfig = {
 	schema: string;
 	out: string;
 	datasource: {
-		provider: "postgresql";
+		provider: "postgresql" | "sqlite";
 		url: string;
 		schema?: string;
 		enum?: "check" | "union" | "native";
 	};
 };
 
-const SUPPORTED_PROVIDERS = ["postgresql"] as const;
+const SUPPORTED_PROVIDERS = ["postgresql", "sqlite"] as const;
 const SUPPORTED_ENUM_MODES = ["check", "union", "native"] as const;
 
 type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];

@@ -1,10 +1,10 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { createExecutor } from "../src/runtime/executor.js";
 import {
 	buildBeginSql,
 	buildSavepointName,
-	createExecutor,
-} from "../src/runtime/executor.js";
+} from "../src/runtime/transaction.js";
 
 function mockQueryResult(rows: Record<string, unknown>[] = []): QueryResult {
 	return {

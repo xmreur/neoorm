@@ -1,5 +1,9 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
 import { parseFkTarget } from "./fk.js";
+import {
+	quoteIdentifier as q,
+	tableRef,
+} from "./shared.js";
 import type {
 	ColumnAlter,
 	CreateTableOptions,
@@ -11,10 +15,6 @@ import type {
 	OperatorMap,
 	TableDiff,
 } from "./types.js";
-
-function q(name: string): string {
-	return `"${name.replace(/"/g, '""')}"`;
-}
 
 export const DEFAULT_PG_SCHEMA = "public";
 
@@ -39,11 +39,8 @@ export function quoteQualifiedIdentifier(
 	return `${q(resolved)}.${q(name)}`;
 }
 
-export function tableRef(table: ManifestTable): string {
-	return table.schemaName && table.schemaName !== DEFAULT_PG_SCHEMA
-		? quoteQualifiedIdentifier(table.schemaName, table.sqlName)
-		: q(table.sqlName);
-}
+export { tableRef } from "./shared.js";
+export { quoteIdentifier } from "./shared.js";
 
 function sameSchemaRef(table: ManifestTable, sqlName: string): string {
 	return table.schemaName && table.schemaName !== DEFAULT_PG_SCHEMA
@@ -192,7 +189,7 @@ function formatDefaultValue(col: ManifestColumn): string | null {
 
 	const plugin = getColumnTypeOrThrow(col.kind);
 	if (plugin.formatDefault) {
-		return plugin.formatDefault(col, col.defaultValue);
+		return plugin.formatDefault(col, col.defaultValue, postgresDialect);
 	}
 
 	return typeof col.defaultValue === "string"
@@ -552,6 +549,7 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 export const postgresDialect: Dialect = {
 	name: "postgresql",
 	quoteIdentifier: q,
+	tableRef,
 	columnType,
 	resolveIndexSqlName,
 	emitCreateExtensions,
@@ -567,6 +565,17 @@ export const postgresDialect: Dialect = {
 	emitAddForeignKey,
 	whereOperators,
 	defaultNowExpression,
+	emitCreateMigrationsTable: (ref) =>
+		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+	castToInt: (expr) => `${expr}::int`,
+	castToNumeric: (expr) => `${expr}::numeric`,
+	rowToJsonObject(_columns, _refs, aliasExpr) {
+		return `row_to_json(${aliasExpr})`;
+	},
+	jsonBuildObjectExpr(entries) {
+		return `json_build_object(${entries.join(", ")})`;
+	},
+	jsonAggExpr(expr) {
+		return `json_agg(${expr})`;
+	},
 };
-
-export { q as quoteIdentifier };

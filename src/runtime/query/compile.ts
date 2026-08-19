@@ -1,5 +1,5 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
-import { quoteIdentifier, tableRef } from "../../dialect/postgres.js";
+import { postgresDialect, quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	Manifest,
@@ -81,11 +81,12 @@ function pluginWhereOperators(
 export function serializeColumnValue(
 	col: ManifestColumn,
 	value: unknown,
+	dialect: Dialect = postgresDialect,
 ): unknown {
 	if (col.kind === "fk") return value;
 	const plugin = getColumnType(col.kind);
 	if (plugin?.serializeValue) {
-		return plugin.serializeValue(col, value);
+		return plugin.serializeValue(col, value, dialect);
 	}
 	return value;
 }
@@ -898,8 +899,9 @@ export function buildPaginateQuery(
 export function buildCountQuery(
 	table: ManifestTable,
 	whereSql: string,
+	dialect: Dialect = postgresDialect,
 ): string {
-	let sql = `SELECT COUNT(*)::int AS count FROM ${tableRef(table)}`;
+	let sql = `SELECT ${dialect.castToInt("COUNT(*)")} AS count FROM ${tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	return sql;
 }
@@ -915,13 +917,14 @@ export type AggregateSelectors = {
 function aggregateSqlCol(
 	table: ManifestTable,
 	tsName: string,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string | undefined {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const col = columnByTsName(tableIndex, table, tsName);
 	if (!col) return undefined;
 	const sqlCol = quoteIdentifier(col.sqlName);
-	if (col.kind === "decimal") return `${sqlCol}::numeric`;
+	if (col.kind === "decimal") return dialect.castToNumeric(sqlCol);
 	return sqlCol;
 }
 
@@ -930,30 +933,31 @@ export function buildAggregateQuery(
 	selectors: AggregateSelectors,
 	whereSql: string,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const parts: string[] = [];
 
 	if (selectors._count) {
-		parts.push('COUNT(*)::int AS "__count"');
+		parts.push(`${dialect.castToInt("COUNT(*)")} AS "__count"`);
 	}
 
 	for (const colName of Object.keys(selectors._avg ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
+		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
 		if (sqlCol) parts.push(`AVG(${sqlCol}) AS "_avg_${colName}"`);
 	}
 
 	for (const colName of Object.keys(selectors._sum ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
+		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
 		if (sqlCol) parts.push(`SUM(${sqlCol}) AS "_sum_${colName}"`);
 	}
 
 	for (const colName of Object.keys(selectors._min ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
+		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
 		if (sqlCol) parts.push(`MIN(${sqlCol}) AS "_min_${colName}"`);
 	}
 
 	for (const colName of Object.keys(selectors._max ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, manifestIndex);
+		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
 		if (sqlCol) parts.push(`MAX(${sqlCol}) AS "_max_${colName}"`);
 	}
 
@@ -985,15 +989,16 @@ export function getCachedAggregateQuery(
 	selectors: AggregateSelectors,
 	whereSql: string,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
-	const cacheKey = `${aggregateSelectorCacheKey(selectors)}|${whereSql}`;
+	const cacheKey = `${dialect.name}|${aggregateSelectorCacheKey(selectors)}|${whereSql}`;
 	if (!tableIndex) {
-		return buildAggregateQuery(table, selectors, whereSql, manifestIndex);
+		return buildAggregateQuery(table, selectors, whereSql, manifestIndex, dialect);
 	}
 	return getOrSetSqlCache(
 		tableIndex.aggregateSqlBySelector,
 		cacheKey,
-		() => buildAggregateQuery(table, selectors, whereSql, manifestIndex),
+		() => buildAggregateQuery(table, selectors, whereSql, manifestIndex, dialect),
 	);
 }
 
@@ -1026,12 +1031,12 @@ export function buildUpsertQuery(
 			? updateKeys.map((k) => {
 					const col = colByTs(table, k, manifestIndex);
 					const sqlCol = quoteIdentifier(col?.sqlName ?? k);
-					return `${sqlCol} = EXCLUDED.${sqlCol}`;
+					return `${sqlCol} = excluded.${sqlCol}`;
 				})
 			: exprSets.length === 0
 				? conflictSqlColumns.map((c) => {
 						const sqlCol = quoteIdentifier(c);
-						return `${sqlCol} = EXCLUDED.${sqlCol}`;
+						return `${sqlCol} = excluded.${sqlCol}`;
 					})
 				: [];
 
@@ -1329,6 +1334,7 @@ export function dataToSqlValues(
 	data: Record<string, unknown>,
 	options?: { excludePrimary?: boolean },
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): { keys: string[]; values: unknown[] } {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const keys: string[] = [];
@@ -1340,7 +1346,7 @@ export function dataToSqlValues(
 		if (options?.excludePrimary && col.primary) continue;
 		if (value === undefined) continue;
 		keys.push(key);
-		values.push(serializeColumnValue(col, value));
+		values.push(serializeColumnValue(col, value, dialect));
 	}
 
 	return reorderKeyValues(keys, values);

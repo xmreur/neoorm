@@ -45,6 +45,7 @@ export async function aggregateRecords(
 		_max?: Record<string, true>;
 	},
 ): Promise<Record<string, unknown>> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -60,7 +61,7 @@ export async function aggregateRecords(
 		manifest,
 		table,
 		args.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -70,6 +71,7 @@ export async function aggregateRecords(
 		selectors,
 		whereSql,
 		runtime.tableIndex,
+		dialect,
 	);
 	const row = await runQueryOne(
 		executor,

@@ -2,6 +2,15 @@ import { createHash } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { CompiledQuery } from "../dialect/types.js";
 import type { TransactionOptions } from "./types.js";
+import {
+	assertNoSavepointOptions,
+	buildBeginSql,
+	buildSavepointName,
+} from "./transaction.js";
+import {
+	sqliteClient,
+	type SqliteDatabaseLike,
+} from "./driver.js";
 
 export type ExecuteResult<T = Record<string, unknown>> = {
 	rows: T[];
@@ -31,32 +40,6 @@ export type Executor = {
 export type ExecutorOptions = {
 	preparedStatements?: boolean;
 };
-
-const isolationLevelSql: Record<
-	NonNullable<TransactionOptions["isolationLevel"]>,
-	string
-> = {
-	ReadUncommitted: "READ UNCOMMITTED",
-	ReadCommitted: "READ COMMITTED",
-	RepeatableRead: "REPEATABLE READ",
-	Serializable: "SERIALIZABLE",
-};
-
-export function buildBeginSql(options?: TransactionOptions): string {
-	const parts = ["BEGIN"];
-
-	if (options?.readOnly) {
-		parts.push("READ ONLY");
-	}
-
-	if (options?.isolationLevel) {
-		parts.push(
-			`ISOLATION LEVEL ${isolationLevelSql[options.isolationLevel]}`,
-		);
-	}
-
-	return parts.join(" ");
-}
 
 function rowsFromResult(result: QueryResult): Record<string, unknown>[] {
 	return result.rows as Record<string, unknown>[];
@@ -103,21 +86,6 @@ type TransactionState = {
 	client: PoolClient;
 	savepointCounter: number;
 };
-
-export function buildSavepointName(id: number): string {
-	return `neoorm_sp_${id}`;
-}
-
-function assertNoSavepointOptions(options?: TransactionOptions): void {
-	if (
-		options?.readOnly !== undefined ||
-		options?.isolationLevel !== undefined
-	) {
-		throw new Error(
-			"Transaction options (readOnly, isolationLevel) cannot be used with nested transactions",
-		);
-	}
-}
 
 function createQueryMethods(
 	client: Queryable,
@@ -233,4 +201,51 @@ export function compileQuery(
 	}
 
 	return { text, params };
+}
+
+function createExecutorFromDriver(
+	driver: ReturnType<typeof sqliteClient>,
+	inTransaction: boolean,
+): Executor {
+	return {
+		inTransaction,
+		async query<T = Record<string, unknown>>(
+			text: string,
+			params: unknown[] = [],
+		): Promise<T[]> {
+			const result = await driver.query<T>(text, params);
+			return result.rows;
+		},
+		async queryOne<T = Record<string, unknown>>(
+			text: string,
+			params: unknown[] = [],
+		): Promise<T | null> {
+			const result = await driver.query<T>(text, params);
+			return result.rows[0] ?? null;
+		},
+		async execute<T = Record<string, unknown>>(
+			text: string,
+			params: unknown[] = [],
+		): Promise<ExecuteResult<T>> {
+			const result = await driver.query<T>(text, params);
+			return { rows: result.rows, rowCount: result.rowCount };
+		},
+		async transaction<T>(
+			fn: (tx: Executor) => Promise<T>,
+			options?: TransactionOptions,
+		): Promise<T> {
+			return driver.transaction(
+				() => fn(createExecutorFromDriver(driver, true)),
+				options,
+			);
+		},
+	};
+}
+
+export function createSqliteExecutor(
+	db: SqliteDatabaseLike,
+	_options?: ExecutorOptions,
+): Executor {
+	const driver = sqliteClient(db);
+	return createExecutorFromDriver(driver, false);
 }

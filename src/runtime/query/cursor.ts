@@ -1,5 +1,5 @@
-import { quoteIdentifier } from "../../dialect/postgres.js";
-import type { ManifestColumn, ManifestTable } from "../../dialect/types.js";
+import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import type { Dialect, ManifestColumn, ManifestTable } from "../../dialect/types.js";
 import { serializeColumnValue } from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
@@ -90,6 +90,7 @@ export function compileCursorWhere(
 	orderSpec: OrderKeySpec[],
 	cursor: Record<string, unknown>,
 	startParamIndex = 1,
+	dialect: Dialect = postgresDialect,
 ): { sql: string; params: unknown[] } {
 	for (const key of orderSpec) {
 		if (!(key.tsName in cursor)) {
@@ -113,7 +114,7 @@ export function compileCursorWhere(
 		.map((_, index) => `$${startParamIndex + index}`)
 		.join(", ");
 	const params = orderSpec.map((key) =>
-		serializeColumnValue(key.column, cursor[key.tsName]),
+		serializeColumnValue(key.column, cursor[key.tsName], dialect),
 	);
 
 	return {

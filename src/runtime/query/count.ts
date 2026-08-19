@@ -14,6 +14,7 @@ export async function countRecords(
 		where?: Record<string, unknown>;
 	},
 ): Promise<number> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -24,11 +25,11 @@ export async function countRecords(
 		manifest,
 		table,
 		args?.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
-	const query = buildCountQuery(table, whereSql);
+	const query = buildCountQuery(table, whereSql, dialect);
 	const row = await runQueryOne<{ count: number }>(
 		executor,
 		runtime,

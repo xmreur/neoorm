@@ -6,6 +6,7 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import { buildInsertQuery, dataToSqlValues } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import type { WithInput } from "./find.js";
@@ -155,6 +156,7 @@ async function insertM2MLinks(
 	parentId: string,
 	otherIds: string[],
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return;
@@ -205,6 +207,7 @@ async function insertM2MLinks(
 			data,
 			undefined,
 			runtime.tableIndex,
+			dialect,
 		);
 		const sql = buildInsertQuery(throughTable, keys, runtime.tableIndex);
 		await runQuery(

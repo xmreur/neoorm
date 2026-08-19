@@ -152,6 +152,7 @@ async function countRelationLinks(
 	parentIds: string[],
 	whereFilter?: Record<string, unknown>,
 ): Promise<Map<string, number>> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const m2m = findM2M(manifest, parentTable.accessor, relationName);
 	if (m2m) {
@@ -183,7 +184,7 @@ async function countRelationLinks(
 			manifest,
 			targetTable,
 			whereFilter,
-			postgresDialect,
+			dialect,
 			1,
 			runtime.tableIndex,
 		);
@@ -197,7 +198,7 @@ async function countRelationLinks(
 		}
 	}
 
-	const sql = `SELECT ${fkCol} AS parent_id, COUNT(*)::int AS count FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
+	const sql = `SELECT ${fkCol} AS parent_id, ${dialect.castToInt("COUNT(*)")} AS count FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
 	const rows = await runQuery<{ parent_id: string; count: number }>(
 		executor,
 		runtime,
@@ -217,6 +218,7 @@ async function countM2MLinks(
 	parentIds: string[],
 	whereFilter?: Record<string, unknown>,
 ): Promise<Map<string, number>> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const isLeft = m2m.leftAccessor === parentTable.accessor;
 	const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
@@ -237,7 +239,7 @@ async function countM2MLinks(
 			manifest,
 			targetTable,
 			whereFilter,
-			postgresDialect,
+			dialect,
 			1,
 			runtime.tableIndex,
 		);
@@ -252,7 +254,7 @@ async function countM2MLinks(
 		}
 	}
 
-	const sql = `SELECT j.${quoteIdentifier(parentFkCol)} AS parent_id, COUNT(*)::int AS count FROM ${tableRef(throughTable)} j${joinSql} WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${quoteIdentifier(parentFkCol)}`;
+	const sql = `SELECT j.${quoteIdentifier(parentFkCol)} AS parent_id, ${dialect.castToInt("COUNT(*)")} AS count FROM ${tableRef(throughTable)} j${joinSql} WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${quoteIdentifier(parentFkCol)}`;
 	const rows = await runQuery<{ parent_id: string; count: number }>(
 		executor,
 		runtime,
@@ -515,7 +517,8 @@ async function loadM2MRelation(
 	const grouped = new Map<string, Record<string, unknown>[]>();
 	for (const row of rows) {
 		const parentId = String(row["_parent_id"]);
-		const mapped = mapRowToTs(targetTableIndex, targetTable, row);
+		const { ["_parent_id"]: _parentKey, ...targetRow } = row;
+		const mapped = mapRowToTs(targetTableIndex, targetTable, targetRow);
 		let bucket = grouped.get(parentId);
 		if (!bucket) {
 			bucket = [];
@@ -541,7 +544,14 @@ export async function hydrateAndLoadRelations(
 	if (rawRows.length === 0) return [];
 
 	const resolvedPlan =
-		plan ?? planRelationLoad(runtime.manifest, table, withSpec, runtime.tableIndex);
+		plan ??
+		planRelationLoad(
+			runtime.manifest,
+			table,
+			withSpec,
+			runtime.dialect ?? postgresDialect,
+			runtime.tableIndex,
+		);
 
 	let resultRows: Record<string, unknown>[];
 	if (withSpec) {
@@ -579,12 +589,14 @@ async function executeFindManyWithRelations(
 	params: unknown[],
 	planOptions?: RelationPlanOptions,
 ): Promise<Record<string, unknown>[]> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 
 	const plan = getCachedRelationPlan(
 		manifest,
 		table,
 		args.with,
+		dialect,
 		runtime.tableIndex,
 		planOptions,
 	);
@@ -600,7 +612,7 @@ async function executeFindManyWithRelations(
 			manifest,
 			table,
 			args.where,
-			postgresDialect,
+			dialect,
 			1,
 			runtime.tableIndex,
 			true,
@@ -613,6 +625,7 @@ async function executeFindManyWithRelations(
 		manifest,
 		table,
 		plan,
+		dialect,
 		runtime.tableIndex,
 	);
 
@@ -643,6 +656,11 @@ async function executeFindManyWithRelations(
 	const groupBySql = buildCountAggregateGroupBy(plan);
 
 	const distinctOn = normalizeSelectColumns(args.distinct);
+	if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
+		throw new Error(
+			"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
+		);
+	}
 	const withSignature = withShapeSignature(args.with);
 	const planMode =
 		planOptions?.useHasManyAggregate === false ? "corr" : "agg";
@@ -724,6 +742,7 @@ export async function findMany(
 		with?: Record<string, WithInput>;
 	},
 ): Promise<Record<string, unknown>[]> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -753,11 +772,17 @@ export async function findMany(
 	const distinctOn = normalizeSelectColumns(args?.distinct);
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
 
+	if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
+		throw new Error(
+			"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
+		);
+	}
+
 	const compiledWhere = getCachedWhereClause(
 		manifest,
 		table,
 		args?.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -824,6 +849,7 @@ export async function findFirst(
 	tableAccessor: string,
 	args?: Parameters<typeof findMany>[3],
 ): Promise<Record<string, unknown> | null> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const hasWith = Boolean(
 		args?.with && Object.keys(args.with).length > 0,
 	);
@@ -841,7 +867,7 @@ export async function findFirst(
 			manifest,
 			table,
 			args?.where,
-			postgresDialect,
+			dialect,
 			1,
 			runtime.tableIndex,
 		);
@@ -894,7 +920,7 @@ export async function findFirst(
 		manifest,
 		table,
 		args?.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -935,6 +961,7 @@ export async function findById(
 	id: string | Record<string, unknown>,
 	args?: { with?: Record<string, WithInput> },
 ): Promise<Record<string, unknown> | null> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -948,7 +975,7 @@ export async function findById(
 				manifest,
 				table,
 				where,
-				postgresDialect,
+				dialect,
 				1,
 				runtime.tableIndex,
 			);
@@ -994,6 +1021,7 @@ export async function findById(
 		manifest,
 		table,
 		args.with,
+		dialect,
 		runtime.tableIndex,
 	);
 	if (cached) {
@@ -1014,7 +1042,7 @@ export async function findById(
 		manifest,
 		table,
 		where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
