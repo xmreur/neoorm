@@ -10,6 +10,7 @@ import type {
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
+import { rebaseParamRefs } from "../../sql/template.js";
 import { findM2M } from "./manifest-lookup.js";
 import {
 	primaryKeySqlName,
@@ -1208,9 +1209,7 @@ export function buildUpdateQuery(
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
-		const adjustedWhere = whereSql.replace(/\$(\d+)/g, (_, n: string) => {
-			return `$${Number(n) + whereOffset}`;
-		});
+		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
 	}
 	if (returning === "none") return sql;
@@ -1277,9 +1276,7 @@ export function buildUpdateManyQuery(
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
-		const adjustedWhere = whereSql.replace(/\$(\d+)/g, (_, n: string) => {
-			return `$${Number(n) + whereOffset}`;
-		});
+		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
 	}
 	return sql;

@@ -24,6 +24,7 @@ import {
 	normalizeSelectColumns,
 	rowsToTsIndexed,
 } from "./compile.js";
+import { rebaseParamRefs } from "../../sql/template.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import {
 	findM2M,
@@ -188,10 +189,7 @@ async function countRelationLinks(
 			runtime.tableIndex,
 		);
 		if (compiled.sql) {
-			const adjusted = compiled.sql.replace(
-				/\$(\d+)/g,
-				(_, n: string) => `$${Number(n) + parentIds.length}`,
-			);
+			const adjusted = rebaseParamRefs(compiled.sql, parentIds.length);
 			extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
 			extraParams = compiled.params;
 		}
@@ -243,10 +241,7 @@ async function countM2MLinks(
 		);
 		joinSql = ` JOIN ${tableRef(targetTable)} t ON t.${quoteIdentifier(targetRelationPkSql(targetTable))} = j.${quoteIdentifier(targetFkCol)}`;
 		if (compiled.sql) {
-			const adjusted = compiled.sql.replace(
-				/\$(\d+)/g,
-				(_, n: string) => `$${Number(n) + parentIds.length}`,
-			);
+			const adjusted = rebaseParamRefs(compiled.sql, parentIds.length);
 			extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
 			extraParams = compiled.params;
 		}
