@@ -4,9 +4,11 @@ import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import {
 	buildManifestIndex,
+	CappedMap,
 	columnByTsName,
 	columnBySqlName,
 	effectiveRelationByName,
+	getOrSetSqlCache,
 	relationByName,
 } from "../src/runtime/query/table-index.js";
 
@@ -92,5 +94,36 @@ describe("table index lookups", () => {
 		const postsIndex = blogIndex.get("posts")!;
 		expect(postsIndex.needsRowRename).toBe(true);
 		expect(postsIndex.renameColumns.length).toBeGreaterThan(0);
+	});
+
+	it("CappedMap evicts the oldest entry past its limit", () => {
+		const map = new CappedMap<string, number>(3);
+		map.set("a", 1).set("b", 2).set("c", 3);
+		map.set("d", 4);
+		expect(map.size).toBe(3);
+		expect(map.has("a")).toBe(false);
+		expect(map.get("b")).toBe(2);
+		expect(map.get("d")).toBe(4);
+
+		// updating an existing key must not evict
+		map.set("b", 22);
+		expect(map.size).toBe(3);
+		expect(map.has("c")).toBe(true);
+		expect(map.get("b")).toBe(22);
+	});
+
+	it("keeps compiled-query caches bounded under many distinct queries", () => {
+		const tableIndex = buildManifestIndex(manifest).get("users")!;
+		for (let i = 0; i < 1500; i++) {
+			getOrSetSqlCache(
+				tableIndex.findManySqlBySignature,
+				`key-${i}`,
+				() => `SELECT ${i}`,
+			);
+		}
+		expect(tableIndex.findManySqlBySignature.size).toBeLessThanOrEqual(1000);
+		// recent entries survive, the oldest are evicted
+		expect(tableIndex.findManySqlBySignature.get("key-1499")).toBe("SELECT 1499");
+		expect(tableIndex.findManySqlBySignature.has("key-0")).toBe(false);
 	});
 });
