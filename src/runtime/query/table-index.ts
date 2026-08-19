@@ -24,17 +24,38 @@ export type TableIndex = {
 	updatedAtSetExprs: string[];
 	needsRowRename: boolean;
 	selectUsesColumnAliases: boolean;
-	insertSqlByKeys: Map<string, string>;
-	updateManySqlByKeys: Map<string, string>;
-	aggregateSqlBySelector: Map<string, string>;
-	findManySqlBySignature: Map<string, string>;
-	findByIdWithSqlBySignature: Map<string, string>;
-	relationPlanBySignature: Map<string, RelationLoadPlan>;
-	whereClauseByFingerprint: Map<string, { sql: string; params: unknown[]; impossible?: boolean }>;
-	whereClauseByShape: Map<string, { sql: string; impossible?: boolean }>;
-	orderBySqlByShape: Map<string, string>;
-	deleteManySqlByWhereShape: Map<string, string>;
+	insertSqlByKeys: CappedMap<string, string>;
+	updateManySqlByKeys: CappedMap<string, string>;
+	aggregateSqlBySelector: CappedMap<string, string>;
+	findManySqlBySignature: CappedMap<string, string>;
+	findByIdWithSqlBySignature: CappedMap<string, string>;
+	relationPlanBySignature: CappedMap<string, RelationLoadPlan>;
+	whereClauseByFingerprint: CappedMap<string, { sql: string; params: unknown[]; impossible?: boolean }>;
+	whereClauseByShape: CappedMap<string, { sql: string; impossible?: boolean }>;
+	orderBySqlByShape: CappedMap<string, string>;
+	deleteManySqlByWhereShape: CappedMap<string, string>;
 };
+
+const CACHE_MAX_SIZE = 1000;
+
+/**
+ * Map with a bounded number of entries. When full, the oldest inserted
+ * entry is evicted on the next set, so long-running processes cannot grow
+ * compiled-query caches without limit.
+ */
+export class CappedMap<K, V> extends Map<K, V> {
+	constructor(private readonly maxSize = CACHE_MAX_SIZE) {
+		super();
+	}
+
+	override set(key: K, value: V): this {
+		if (!this.has(key) && this.size >= this.maxSize) {
+			const oldest = this.keys().next().value;
+			if (oldest !== undefined) this.delete(oldest);
+		}
+		return super.set(key, value);
+	}
+}
 
 export function sortedKeysCacheKey(keys: readonly string[]): string {
 	return [...keys].sort().join("\0");
@@ -138,16 +159,16 @@ export function buildTableIndex(
 		updatedAtSetExprs,
 		needsRowRename,
 		selectUsesColumnAliases: true,
-		insertSqlByKeys: new Map(),
-		updateManySqlByKeys: new Map(),
-		aggregateSqlBySelector: new Map(),
-		findManySqlBySignature: new Map(),
-		findByIdWithSqlBySignature: new Map(),
-		relationPlanBySignature: new Map(),
-		whereClauseByFingerprint: new Map(),
-		whereClauseByShape: new Map(),
-		orderBySqlByShape: new Map(),
-		deleteManySqlByWhereShape: new Map(),
+		insertSqlByKeys: new CappedMap(),
+		updateManySqlByKeys: new CappedMap(),
+		aggregateSqlBySelector: new CappedMap(),
+		findManySqlBySignature: new CappedMap(),
+		findByIdWithSqlBySignature: new CappedMap(),
+		relationPlanBySignature: new CappedMap(),
+		whereClauseByFingerprint: new CappedMap(),
+		whereClauseByShape: new CappedMap(),
+		orderBySqlByShape: new CappedMap(),
+		deleteManySqlByWhereShape: new CappedMap(),
 	};
 }
 

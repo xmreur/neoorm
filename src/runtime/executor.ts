@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { CompiledQuery } from "../dialect/types.js";
 import type { TransactionOptions } from "./types.js";
+import { CappedMap } from "./query/table-index.js";
 
 export type ExecuteResult<T = Record<string, unknown>> = {
 	rows: T[];
@@ -73,7 +74,7 @@ function executeFromResult<T = Record<string, unknown>>(
 
 type Queryable = Pick<Pool, "query">;
 
-const statementNameCache = new Map<string, string>();
+const statementNameCache = new CappedMap<string, string>(500);
 
 function statementName(text: string): string {
 	const cached = statementNameCache.get(text);
