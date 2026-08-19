@@ -71,8 +71,9 @@ describe("json where operators", () => {
 		);
 
 		expect(sql).toContain("#>>");
-		expect(sql).toContain("{category}");
-		expect(params[0]).toBe("engineering");
+		// the path is bound as an array-literal parameter, never interpolated
+		expect(params[0]).toBe("{category}");
+		expect(params[1]).toBe("engineering");
 	});
 
 	it("compiles path jsonContains (#> @>)", () => {
@@ -89,6 +90,7 @@ describe("json where operators", () => {
 
 		expect(sql).toContain("#>");
 		expect(sql).toContain("@>");
-		expect(params[0]).toBe(JSON.stringify({ ok: true }));
+		expect(params[0]).toBe("{nested}");
+		expect(params[1]).toBe(JSON.stringify({ ok: true }));
 	});
 });
