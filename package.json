@@ -12,6 +12,11 @@
 	},
 	"homepage": "https://github.com/xmreur/neoorm#readme",
 	"packageManager": "pnpm@11.10.0",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild"
+		]
+	},
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
