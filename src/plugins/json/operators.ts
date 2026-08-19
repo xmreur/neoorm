@@ -58,16 +58,19 @@ export const jsonWhereOperators: Record<string, PluginWhereOperator> = {
 				equals?: unknown;
 				jsonContains?: unknown;
 			};
+			// The path is bound as a parameter (Postgres array-literal text) so
+			// attacker-controlled segments can never break out of the SQL.
 			const pathLit = pgPath(spec.segments);
+			const pathParam = `$${startParamIndex}`;
 			if (spec.jsonContains !== undefined) {
 				return {
-					sql: `${cast} #> '${pathLit}' @> $${startParamIndex}::jsonb`,
-					params: [jsonParam(spec.jsonContains)],
+					sql: `${cast} #> ${pathParam} @> $${startParamIndex + 1}::jsonb`,
+					params: [pathLit, jsonParam(spec.jsonContains)],
 				};
 			}
 			return {
-				sql: `${cast} #>> '${pathLit}' = $${startParamIndex}`,
-				params: [spec.equals],
+				sql: `${cast} #>> ${pathParam} = $${startParamIndex + 1}`,
+				params: [pathLit, spec.equals],
 			};
 		},
 	},
