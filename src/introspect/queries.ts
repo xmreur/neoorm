@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { DatabaseClient } from "../runtime/driver.js";
 
 export type TableRow = {
 	table_name: string;
@@ -33,10 +33,10 @@ export type UniqueConstraintRow = {
 };
 
 export async function queryTables(
-	pool: Pool,
+	client: DatabaseClient,
 	schema = "public",
 ): Promise<TableRow[]> {
-	const result = await pool.query<TableRow>(
+	const result = await client.query<TableRow>(
 		`
     SELECT table_name
     FROM information_schema.tables
@@ -51,11 +51,11 @@ export async function queryTables(
 }
 
 export async function queryColumns(
-	pool: Pool,
+	client: DatabaseClient,
 	tableName: string,
 	schema = "public",
 ): Promise<ColumnRow[]> {
-	const result = await pool.query<ColumnRow>(
+	const result = await client.query<ColumnRow>(
 		`
     SELECT column_name, data_type, udt_name, is_nullable, column_default
     FROM information_schema.columns
@@ -68,11 +68,11 @@ export async function queryColumns(
 }
 
 export async function queryForeignKeys(
-	pool: Pool,
+	client: DatabaseClient,
 	tableName: string,
 	schema = "public",
 ): Promise<FkRow[]> {
-	const result = await pool.query<FkRow>(
+	const result = await client.query<FkRow>(
 		`
     SELECT
       kcu.column_name,
@@ -100,11 +100,11 @@ export async function queryForeignKeys(
 }
 
 export async function queryIndexes(
-	pool: Pool,
+	client: DatabaseClient,
 	tableName: string,
 	schema = "public",
 ): Promise<IndexRow[]> {
-	const result = await pool.query<IndexRow>(
+	const result = await client.query<IndexRow>(
 		`
     SELECT
       i.relname AS index_name,
@@ -127,11 +127,11 @@ export async function queryIndexes(
 }
 
 export async function queryUniqueConstraints(
-	pool: Pool,
+	client: DatabaseClient,
 	tableName: string,
 	schema = "public",
 ): Promise<UniqueConstraintRow[]> {
-	const result = await pool.query<UniqueConstraintRow>(
+	const result = await client.query<UniqueConstraintRow>(
 		`
     SELECT
       kcu.column_name,
@@ -150,11 +150,11 @@ export async function queryUniqueConstraints(
 }
 
 export async function queryPrimaryKeyColumns(
-	pool: Pool,
+	client: DatabaseClient,
 	tableName: string,
 	schema = "public",
 ): Promise<string[]> {
-	const result = await pool.query<{ column_name: string }>(
+	const result = await client.query<{ column_name: string }>(
 		`
     SELECT kcu.column_name
     FROM information_schema.table_constraints tc
@@ -171,8 +171,8 @@ export async function queryPrimaryKeyColumns(
 	return result.rows.map((row) => row.column_name);
 }
 
-export async function queryInstalledExtensions(pool: Pool): Promise<string[]> {
-	const result = await pool.query<{ extname: string }>(`
+export async function queryInstalledExtensions(client: DatabaseClient): Promise<string[]> {
+	const result = await client.query<{ extname: string }>(`
     SELECT extname
     FROM pg_extension
     WHERE extname NOT IN ('plpgsql')
@@ -187,10 +187,10 @@ export type EnumTypeRow = {
 };
 
 export async function queryEnumTypes(
-	pool: Pool,
+	client: DatabaseClient,
 	schema = "public",
 ): Promise<Record<string, string[]>> {
-	const result = await pool.query<EnumTypeRow>(
+	const result = await client.query<EnumTypeRow>(
 		`
     SELECT t.typname, e.enumlabel
     FROM pg_type t

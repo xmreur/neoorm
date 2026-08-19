@@ -25,9 +25,16 @@ function jsonCastKind(kind: string): "json" | "jsonb" {
 	return kind === "json" ? "json" : "jsonb";
 }
 
-function formatJsonDefault(col: ManifestColumn, value: unknown): string {
+function formatJsonDefault(
+	col: ManifestColumn,
+	value: unknown,
+	dialect?: import("../dialect/types.js").Dialect,
+): string {
 	const cast = jsonCastKind(col.kind);
 	const json = JSON.stringify(value).replace(/'/g, "''");
+	if (dialect?.name === "sqlite") {
+		return `'${json}'`;
+	}
 	return `'${json}'::${cast}`;
 }
 
@@ -136,6 +143,16 @@ const boolType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "boolean");
 	},
+	serializeValue(_col, value, dialect) {
+		if (value === null || value === undefined) return value;
+		if (dialect?.name === "sqlite") return value ? 1 : 0;
+		return value;
+	},
+	deserializeValue(_col, dbValue) {
+		if (dbValue === null || dbValue === undefined) return dbValue;
+		if (typeof dbValue === "boolean") return dbValue;
+		return Number(dbValue) !== 0;
+	},
 	introspect(pgDataType) {
 		return pgDataType === "boolean";
 	},
@@ -208,6 +225,18 @@ const timestampType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	serializeValue(_col, value, dialect) {
+		if (value === null || value === undefined) return value;
+		if (value instanceof Date) return value;
+		return dialect?.name === "sqlite"
+			? new Date(value as string)
+			: value;
+	},
+	deserializeValue(_col, dbValue) {
+		if (dbValue === null || dbValue === undefined) return dbValue;
+		if (dbValue instanceof Date) return dbValue;
+		return new Date(dbValue as string);
+	},
 	introspect(pgDataType) {
 		return (
 			pgDataType.includes("timestamp") ||
@@ -215,8 +244,8 @@ const timestampType: ColumnTypePlugin = {
 			pgDataType === "time without time zone"
 		);
 	},
-	updatedAtExpression() {
-		return "NOW()";
+	updatedAtExpression(_col, dialect) {
+		return dialect?.name === "sqlite" ? "CURRENT_TIMESTAMP" : "NOW()";
 	},
 };
 
@@ -444,6 +473,16 @@ const textArrayType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return col.nullable ? "string[] | null" : "string[]";
 	},
+	serializeValue(_col, value, dialect) {
+		if (value === null || value === undefined) return value;
+		if (dialect?.name === "sqlite") return JSON.stringify(value);
+		return value;
+	},
+	deserializeValue(_col, dbValue) {
+		if (dbValue === null || dbValue === undefined) return dbValue;
+		if (Array.isArray(dbValue)) return dbValue;
+		return parseJsonValue(dbValue);
+	},
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_text";
 	},
@@ -468,6 +507,16 @@ const intArrayType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return col.nullable ? "number[] | null" : "number[]";
+	},
+	serializeValue(_col, value, dialect) {
+		if (value === null || value === undefined) return value;
+		if (dialect?.name === "sqlite") return JSON.stringify(value);
+		return value;
+	},
+	deserializeValue(_col, dbValue) {
+		if (dbValue === null || dbValue === undefined) return dbValue;
+		if (Array.isArray(dbValue)) return dbValue;
+		return parseJsonValue(dbValue);
 	},
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_int4";

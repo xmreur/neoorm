@@ -7,9 +7,10 @@ import {
 	FIND_OR_CREATE_FLAG,
 	mapRowToTs,
 } from "./compile.js";
+import { runCreate } from "./create.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { getTableIndex } from "./table-index.js";
-import { loadRelations, type WithInput } from "./find.js";
+import { findMany, loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import { assertUniqueWhere } from "./unique.js";
 
@@ -28,6 +29,7 @@ export async function findOrCreateRecord(
 		with?: Record<string, WithInput>;
 	},
 ): Promise<FindOrCreateResult> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -43,18 +45,29 @@ export async function findOrCreateRecord(
 	const createData = { ...args.create, ...args.where };
 	fillMissingPrimaryKeys(table, createData, tableIndex);
 
+	if (dialect.name === "sqlite") {
+		return findOrCreateSqlite(
+			executor,
+			runtime,
+			tableAccessor,
+			args,
+			createData,
+		);
+	}
+
 	const { keys: insertKeys, values: insertValues } = dataToSqlValues(
 		table,
 		createData,
 		undefined,
 		runtime.tableIndex,
+		dialect,
 	);
 
 	const { sql: whereSql, params: whereParams } = compileWhere(
 		manifest,
 		table,
 		args.where,
-		postgresDialect,
+		dialect,
 		insertValues.length + 1,
 		runtime.tableIndex,
 	);
@@ -97,6 +110,67 @@ export async function findOrCreateRecord(
 	}
 
 	return { record, created };
+}
+
+async function findOrCreateSqlite(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	args: {
+		where: Record<string, unknown>;
+		create: Record<string, unknown>;
+		with?: Record<string, WithInput>;
+	},
+	createData: Record<string, unknown>,
+): Promise<FindOrCreateResult> {
+	const { manifest } = runtime;
+	const table = manifest.tables[tableAccessor];
+	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const loadWith = async (
+		record: Record<string, unknown>,
+	): Promise<Record<string, unknown>> => {
+		if (!args.with) return record;
+		const [withLoaded] = await loadRelations(
+			executor,
+			runtime,
+			table,
+			[record],
+			args.with,
+		);
+		return withLoaded ?? record;
+	};
+
+	const existing = await findMany(executor, runtime, tableAccessor, {
+		where: args.where,
+		limit: 1,
+	});
+	if (existing.length > 0) {
+		const existingRow = existing[0];
+		if (existingRow) {
+			return { record: await loadWith(existingRow), created: false };
+		}
+	}
+
+	try {
+		const row = await runCreate(executor, runtime, tableAccessor, {
+			data: createData,
+			returnCreated: true,
+		});
+		return { record: await loadWith(row), created: true };
+	} catch {
+		const retry = await findMany(executor, runtime, tableAccessor, {
+			where: args.where,
+			limit: 1,
+		});
+		if (retry.length > 0) {
+			const retryRow = retry[0];
+			if (retryRow) {
+				return { record: await loadWith(retryRow), created: false };
+			}
+		}
+		throw new Error("findOrCreate insert failed and record was not found");
+	}
 }
 
 export function findOrCreatePk(

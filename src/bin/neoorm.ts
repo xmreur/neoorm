@@ -9,8 +9,11 @@ import {
 	generateFromSchema,
 } from "../codegen/generate.js";
 import { loadConfig } from "../config.js";
+import { postgresDialect } from "../dialect/postgres.js";
+import { sqliteDialect } from "../dialect/sqlite.js";
+import type { Dialect } from "../dialect/types.js";
 import { formatInitNextSteps, runInit } from "../init/scaffold.js";
-import { introspectPostgres } from "../introspect/pull.js";
+import { introspectPostgres, introspectSqlite } from "../introspect/pull.js";
 import {
 	dbPush,
 	dbPushWarnings,
@@ -20,6 +23,36 @@ import {
 	migrateReset,
 	migrateStatus,
 } from "../migrate/runner.js";
+import type { DatabaseClient } from "../runtime/driver.js";
+import { pgClient, sqliteClient } from "../runtime/driver.js";
+import { openSqliteDatabase } from "../runtime/sqlite-open.js";
+
+type ConnectedDb = {
+	client: DatabaseClient;
+	dialect: Dialect;
+	close: () => Promise<void>;
+};
+
+function connectDb(
+	config: Awaited<ReturnType<typeof loadConfig>>,
+): ConnectedDb {
+	if (config.datasource.provider === "sqlite") {
+		const db = openSqliteDatabase(config.datasource.url);
+		const client = sqliteClient(db);
+		return {
+			client,
+			dialect: sqliteDialect,
+			close: () => client.close(),
+		};
+	}
+	const pool = new Pool({ connectionString: config.datasource.url });
+	const client = pgClient(pool);
+	return {
+		client,
+		dialect: postgresDialect,
+		close: () => pool.end(),
+	};
+}
 
 const program = new Command();
 
@@ -147,14 +180,17 @@ program
 			const config = await loadConfig(cwd);
 			const outDir = resolve(cwd, config.out);
 			const migrationsDir = join(outDir, "migrations");
-			const dbSchema = config.datasource.schema;
-
-			const pool = new Pool({ connectionString: config.datasource.url });
+			const dbSchema =
+				config.datasource.provider === "postgresql"
+					? config.datasource.schema
+					: undefined;
+			const { client, dialect, close } = connectDb(config);
 
 			try {
 				if (subcommand === "status") {
 					const status = await migrateStatus(
-						pool,
+						client,
+						dialect,
 						migrationsDir,
 						dbSchema,
 					);
@@ -169,7 +205,8 @@ program
 
 				if (subcommand === "reset") {
 					const { reapplied } = await migrateReset(
-						pool,
+						client,
+						dialect,
 						migrationsDir,
 						{
 							force: options.force ?? false,
@@ -203,7 +240,7 @@ program
 						console.error("--steps must be a positive integer");
 						process.exit(1);
 					}
-					const reverted = await migrateDown(pool, migrationsDir, {
+					const reverted = await migrateDown(client, dialect, migrationsDir, {
 						steps,
 						outDir,
 						...(dbSchema ? { schema: dbSchema } : {}),
@@ -223,7 +260,8 @@ program
 
 				if (subcommand === "deploy" || subcommand === "dev") {
 					const applied = await migrateDeploy(
-						pool,
+						client,
+						dialect,
 						migrationsDir,
 						dbSchema,
 					);
@@ -259,7 +297,8 @@ program
 						}
 						if (migrationName) {
 							const newlyApplied = await migrateDeploy(
-								pool,
+								client,
+								dialect,
 								join(outDir, "migrations"),
 								dbSchema,
 							);
@@ -278,7 +317,7 @@ program
 				);
 				process.exit(1);
 			} finally {
-				await pool.end();
+				await close();
 			}
 		},
 	);
@@ -299,8 +338,11 @@ program
 		) => {
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
-			const pool = new Pool({ connectionString: config.datasource.url });
-			const dbSchema = config.datasource.schema;
+			const dbSchema =
+				config.datasource.provider === "postgresql"
+					? config.datasource.schema
+					: undefined;
+			const { client, dialect, close } = connectDb(config);
 
 			try {
 				if (subcommand === "push") {
@@ -314,7 +356,7 @@ program
 						process.exit(1);
 					}
 					const { appliedStatements, destructiveBlocked } =
-						await dbPush(pool, manifest, {
+						await dbPush(client, dialect, manifest, {
 							...(options.acceptDataLoss
 								? { acceptDataLoss: true }
 								: {}),
@@ -334,10 +376,13 @@ program
 						);
 					}
 				} else if (subcommand === "pull") {
-					const content = await introspectPostgres(
-						pool,
-						dbSchema ? { schema: dbSchema } : {},
-					);
+					const content =
+						config.datasource.provider === "sqlite"
+							? await introspectSqlite(client)
+							: await introspectPostgres(
+									client,
+									dbSchema ? { schema: dbSchema } : {},
+								);
 					const outputPath = resolve(
 						cwd,
 						options.output ?? "schema.pulled.ts",
@@ -349,7 +394,7 @@ program
 					process.exit(1);
 				}
 			} finally {
-				await pool.end();
+				await close();
 			}
 		},
 	);

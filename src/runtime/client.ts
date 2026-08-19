@@ -1,12 +1,15 @@
 import { Pool } from "pg";
-import {
-	applySchemaToManifest,
-	resolvePgSchemaName,
-} from "../dialect/postgres.js";
-import type { Manifest } from "../dialect/types.js";
+import { sqliteDialect } from "../dialect/sqlite.js";
+import { applySchemaToManifest, postgresDialect, resolvePgSchemaName } from "../dialect/postgres.js";
+import type { Dialect, Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
-import { compileQuery, createExecutor, type Executor } from "./executor.js";
+import {
+	compileQuery,
+	createExecutor,
+	createSqliteExecutor,
+	type Executor,
+} from "./executor.js";
 import { aggregateRecords } from "./query/aggregate.js";
 import { countRecords, findUnique } from "./query/count.js";
 import {
@@ -24,6 +27,12 @@ import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
 import { findOrCreateRecord } from "./query/find-or-create.js";
 import { upsertRecord } from "./query/upsert.js";
 import type {
+	DatabaseClient,
+	SqliteDatabaseLike,
+} from "./driver.js";
+import { pgClient, sqliteClient } from "./driver.js";
+import { openSqliteDatabase } from "./sqlite-open.js";
+import type {
 	DefaultRowPayloadMap,
 	DefaultWithMap,
 	TransactionClient,
@@ -34,6 +43,9 @@ import type {
 
 export type NeoOrmClientOptions = {
 	connectionString?: string;
+	provider?: "postgres" | "sqlite";
+	db?: SqliteDatabaseLike;
+	databasePath?: string;
 	migrationsDir?: string;
 	schema?: string;
 	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). Default: false. */
@@ -235,8 +247,8 @@ function buildClient<
 					throw new Error("Cannot connect inside a transaction");
 				}
 			: async () => {
-					if (!runtime.pool) return;
-					await runtime.pool.query("SELECT 1");
+					if (!runtime.driver) return;
+					await runtime.driver.query("SELECT 1");
 				},
 
 		$disconnect: transactional
@@ -317,6 +329,20 @@ export function createNeoOrmClient<
 			? { connectionString: connectionStringOrOptions }
 			: (connectionStringOrOptions ?? {});
 
+	if (
+		options.provider === "sqlite" ||
+		options.db !== undefined ||
+		options.databasePath !== undefined
+	) {
+		const db =
+			options.db ?? openSqliteDatabase(options.databasePath ?? ":memory:");
+		return createNeoOrmClientFromSqlite(manifest, db, {
+			...(options.migrationsDir !== undefined
+				? { migrationsDir: options.migrationsDir }
+				: {}),
+		});
+	}
+
 	const url = options.connectionString ?? process.env["DATABASE_URL"];
 	if (!url) {
 		throw new Error("DATABASE_URL is required");
@@ -336,9 +362,10 @@ export function createNeoOrmClient<
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
-		tableIndex: buildManifestIndex(appliedManifest),
+		tableIndex: buildManifestIndex(appliedManifest, postgresDialect),
 		schema,
-		pool,
+		driver: pgClient(pool),
+		dialect: postgresDialect,
 		...(options.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
 			: {}),
@@ -382,9 +409,10 @@ export function createNeoOrmClientFromPool<
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
-		tableIndex: buildManifestIndex(appliedManifest),
+		tableIndex: buildManifestIndex(appliedManifest, postgresDialect),
 		schema,
-		pool,
+		driver: pgClient(pool),
+		dialect: postgresDialect,
 		...(options?.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
 			: {}),
@@ -395,6 +423,45 @@ export function createNeoOrmClientFromPool<
 		runtime,
 		async () => {
 			await pool.end();
+		},
+	);
+}
+
+export function createNeoOrmClientFromSqlite<
+	TTables extends Record<string, TableDef>,
+	TIncludes extends Record<
+		keyof TTables & string,
+		unknown
+	> = DefaultWithMap<TTables>,
+	TRowPayloads extends Record<
+		keyof TTables & string,
+		Record<string, unknown>
+	> = DefaultRowPayloadMap<TTables>,
+>(
+	manifest: Manifest,
+	db: SqliteDatabaseLike,
+	options?: Pick<NeoOrmClientOptions, "migrationsDir">,
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	ensurePlugins(manifest);
+
+	const driver = sqliteClient(db);
+	const appliedManifest = applySchemaToManifest(manifest, undefined);
+	const runtime: QueryRuntime = {
+		manifest: appliedManifest,
+		tableIndex: buildManifestIndex(appliedManifest, sqliteDialect),
+		driver,
+		dialect: sqliteDialect,
+		...(options?.migrationsDir !== undefined
+			? { migrationsDir: options.migrationsDir }
+			: {}),
+	};
+
+	const executor = createSqliteExecutor(db);
+	return buildClient<TTables, TIncludes, TRowPayloads>(
+		executor,
+		runtime,
+		async () => {
+			await driver.close();
 		},
 	);
 }

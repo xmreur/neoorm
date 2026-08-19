@@ -1,6 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Pool } from "pg";
 import {
 	diffManifest,
 	formatDestructiveWarnings,
@@ -10,19 +9,23 @@ import { writeSnapshot } from "../codegen/generate.js";
 import {
 	applySchemaToManifest,
 	DEFAULT_PG_SCHEMA,
-	postgresDialect,
 	quoteQualifiedIdentifier,
 	resolvePgSchemaName,
 } from "../dialect/postgres.js";
-import type { Manifest } from "../dialect/types.js";
+import type { Dialect, Manifest } from "../dialect/types.js";
 import { introspectToManifest } from "../introspect/to-manifest.js";
+import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
+import type { DatabaseClient } from "../runtime/driver.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
 
-function migrationsTableRef(schema?: string): string {
+function migrationsTableRef(dialect: Dialect, schema?: string): string {
+	if (dialect.name === "sqlite") {
+		return dialect.quoteIdentifier(MIGRATIONS_TABLE);
+	}
 	const schemaName = resolvePgSchemaName(schema);
 	return schemaName === DEFAULT_PG_SCHEMA
-		? postgresDialect.quoteIdentifier(MIGRATIONS_TABLE)
+		? dialect.quoteIdentifier(MIGRATIONS_TABLE)
 		: quoteQualifiedIdentifier(schemaName, MIGRATIONS_TABLE);
 }
 
@@ -38,39 +41,40 @@ export type MigrationStatus = {
 };
 
 export async function ensureMigrationsTable(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	schema?: string,
 ): Promise<void> {
-	const schemaName = resolvePgSchemaName(schema);
-	await pool.query(postgresDialect.emitCreateSchema(schemaName));
-	await pool.query(`
-    CREATE TABLE IF NOT EXISTS ${migrationsTableRef(schemaName)} (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+	const schemaSql = dialect.emitCreateSchema(schema);
+	if (schemaSql) {
+		await client.query(schemaSql);
+	}
+	await client.query(
+		dialect.emitCreateMigrationsTable(migrationsTableRef(dialect, schema)),
+	);
 }
 
 export async function listAppliedMigrations(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	schema?: string,
 ): Promise<MigrationRecord[]> {
-	await ensureMigrationsTable(pool, schema);
-	const result = await pool.query<{ name: string; applied_at: Date }>(
-		`SELECT name, applied_at FROM ${migrationsTableRef(schema)} ORDER BY id`,
+	await ensureMigrationsTable(client, dialect, schema);
+	const result = await client.query<{ name: string; applied_at: string }>(
+		`SELECT name, applied_at FROM ${migrationsTableRef(dialect, schema)} ORDER BY id`,
 	);
 	return result.rows.map((row) => ({
 		name: row.name,
-		appliedAt: row.applied_at,
+		appliedAt: new Date(row.applied_at),
 	}));
 }
 
 export async function getAppliedMigrations(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	schema?: string,
 ): Promise<Set<string>> {
-	const applied = await listAppliedMigrations(pool, schema);
+	const applied = await listAppliedMigrations(client, dialect, schema);
 	return new Set(applied.map((record) => record.name));
 }
 
@@ -117,12 +121,13 @@ export function computeMigrationStatus(
 }
 
 export async function migrateStatus(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	migrationsDir: string,
 	schema?: string,
 ): Promise<MigrationStatus> {
 	const [applied, diskMigrations] = await Promise.all([
-		listAppliedMigrations(pool, schema),
+		listAppliedMigrations(client, dialect, schema),
 		listMigrationsOnDisk(migrationsDir),
 	]);
 	return computeMigrationStatus(diskMigrations, applied);
@@ -174,40 +179,67 @@ export function formatMigrateStatus(
 }
 
 export async function resetDatabaseSchema(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	schema?: string,
 ): Promise<void> {
+	if (dialect.name === "sqlite") {
+		const result = await client.query<{ name: string }>(
+			`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+		);
+		for (const row of result.rows) {
+			await client.query(
+				`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.name)}`,
+			);
+		}
+		return;
+	}
+
 	const schemaName = resolvePgSchemaName(schema);
-	const schemaSql = postgresDialect.quoteIdentifier(schemaName);
+	const schemaSql = dialect.quoteIdentifier(schemaName);
 	const grantSql =
 		schemaName === DEFAULT_PG_SCHEMA
 			? `\n    GRANT ALL ON SCHEMA ${schemaSql} TO PUBLIC;`
 			: "";
-	await pool.query(`
+	await client.query(`
     DROP SCHEMA ${schemaSql} CASCADE;
     CREATE SCHEMA ${schemaSql};${grantSql}
   `);
 }
 
 export async function migrateReset(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	migrationsDir: string,
 	options: { force: boolean; skipApply?: boolean; schema?: string },
 ): Promise<{ reapplied: string[] }> {
-	const schemaName = resolvePgSchemaName(options.schema);
-	if (!options.force) {
-		throw new Error(
-			`migrate reset requires --force. This drops the "${schemaName}" schema and all data.`,
-		);
+	if (dialect.name === "sqlite") {
+		if (!options.force) {
+			throw new Error(
+				"migrate reset requires --force. This drops all tables and data.",
+			);
+		}
+	} else {
+		const schemaName = resolvePgSchemaName(options.schema);
+		if (!options.force) {
+			throw new Error(
+				`migrate reset requires --force. This drops the "${schemaName}" schema and all data.`,
+			);
+		}
 	}
 
-	await resetDatabaseSchema(pool, schemaName);
+	await resetDatabaseSchema(client, dialect, options.schema);
 
 	if (options.skipApply) {
 		return { reapplied: [] };
 	}
 
-	const reapplied = await migrateDeploy(pool, migrationsDir, schemaName);
+	const reapplied = await migrateDeploy(
+		client,
+		dialect,
+		migrationsDir,
+		options.schema,
+	);
 	return { reapplied };
 }
 
@@ -219,28 +251,24 @@ export async function listPendingMigrations(
 	return diskMigrations.filter((name) => !applied.has(name));
 }
 
-export async function applySql(pool: Pool, sql: string[]): Promise<void> {
+export async function applySql(
+	client: DatabaseClient,
+	sql: string[],
+): Promise<void> {
 	if (sql.length === 0) {
 		return;
 	}
 
-	const client = await pool.connect();
-	try {
-		await client.query("BEGIN");
+	await client.transaction(async (tx) => {
 		for (const statement of sql) {
-			await client.query(statement);
+			await tx.query(statement);
 		}
-		await client.query("COMMIT");
-	} catch (err) {
-		await client.query("ROLLBACK");
-		throw err;
-	} finally {
-		client.release();
-	}
+	});
 }
 
 export async function applyMigration(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	migrationsDir: string,
 	name: string,
 	schema?: string,
@@ -248,34 +276,30 @@ export async function applyMigration(
 	const sqlPath = join(migrationsDir, name, "migration.sql");
 	const sql = await readFile(sqlPath, "utf-8");
 
-	const client = await pool.connect();
-	try {
-		await client.query("BEGIN");
-		await client.query(postgresDialect.emitCreateSchema(schema));
-		await client.query(sql);
-		await client.query(
-			`INSERT INTO ${migrationsTableRef(schema)} (name) VALUES ($1)`,
+	await client.transaction(async (tx) => {
+		const schemaSql = dialect.emitCreateSchema(schema);
+		if (schemaSql) {
+			await tx.query(schemaSql);
+		}
+		await tx.query(sql);
+		await tx.query(
+			`INSERT INTO ${migrationsTableRef(dialect, schema)} (name) VALUES ($1)`,
 			[name],
 		);
-		await client.query("COMMIT");
-	} catch (err) {
-		await client.query("ROLLBACK");
-		throw err;
-	} finally {
-		client.release();
-	}
+	});
 }
 
 export async function migrateDeploy(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	migrationsDir: string,
 	schema?: string,
 ): Promise<string[]> {
-	const applied = await getAppliedMigrations(pool, schema);
+	const applied = await getAppliedMigrations(client, dialect, schema);
 	const pending = await listPendingMigrations(migrationsDir, applied);
 
 	for (const name of pending) {
-		await applyMigration(pool, migrationsDir, name, schema);
+		await applyMigration(client, dialect, migrationsDir, name, schema);
 	}
 
 	return pending;
@@ -311,34 +335,28 @@ async function readSnapshotBefore(
 }
 
 export async function revertMigration(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	migrationsDir: string,
 	name: string,
 	schema?: string,
 ): Promise<void> {
 	const sql = await readDownSql(migrationsDir, name);
 
-	const client = await pool.connect();
-	try {
-		await client.query("BEGIN");
+	await client.transaction(async (tx) => {
 		if (sql.trim().length > 0) {
-			await client.query(sql);
+			await tx.query(sql);
 		}
-		await client.query(
-			`DELETE FROM ${migrationsTableRef(schema)} WHERE name = $1`,
+		await tx.query(
+			`DELETE FROM ${migrationsTableRef(dialect, schema)} WHERE name = $1`,
 			[name],
 		);
-		await client.query("COMMIT");
-	} catch (err) {
-		await client.query("ROLLBACK");
-		throw err;
-	} finally {
-		client.release();
-	}
+	});
 }
 
 export async function migrateDown(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	migrationsDir: string,
 	options?: { steps?: number; outDir?: string; schema?: string },
 ): Promise<string[]> {
@@ -347,7 +365,7 @@ export async function migrateDown(
 		throw new Error("steps must be at least 1");
 	}
 
-	const applied = await listAppliedMigrations(pool, options?.schema);
+	const applied = await listAppliedMigrations(client, dialect, options?.schema);
 	if (applied.length === 0) {
 		throw new Error("No applied migrations to roll back");
 	}
@@ -368,7 +386,7 @@ export async function migrateDown(
 
 	const reverted: string[] = [];
 	for (const name of toRevert) {
-		await revertMigration(pool, migrationsDir, name, options?.schema);
+		await revertMigration(client, dialect, migrationsDir, name, options?.schema);
 		reverted.push(name);
 	}
 
@@ -399,25 +417,36 @@ export type DbPushOptions = {
 type DestructiveChange = import("../dialect/types.js").DestructiveChange;
 
 export async function dbPush(
-	pool: Pool,
+	client: DatabaseClient,
+	dialect: Dialect,
 	target: Manifest,
 	options: DbPushOptions = {},
 ): Promise<DbPushResult> {
-	const schemaName = resolvePgSchemaName(options.schema);
-	const live = applySchemaToManifest(
-		await introspectToManifest(pool, { schema: schemaName }),
-		schemaName,
-	);
-	const qualifiedTarget = applySchemaToManifest(target, schemaName);
-	const manifestDiff = diffManifest(live, qualifiedTarget);
+	let live: Manifest;
+	let qualifiedTarget: Manifest;
+
+	if (dialect.name === "sqlite") {
+		live = await introspectSqliteToManifest(client);
+		qualifiedTarget = target;
+	} else {
+		const schemaName = resolvePgSchemaName(options.schema);
+		live = applySchemaToManifest(
+			await introspectToManifest(client, { schema: schemaName }),
+			schemaName,
+		);
+		qualifiedTarget = applySchemaToManifest(target, schemaName);
+	}
+
+	const manifestDiff = diffManifest(live, qualifiedTarget, dialect);
 	const { sql, blocked } = resolveMigrationSql(
 		manifestDiff,
 		live,
 		qualifiedTarget,
 		options.acceptDataLoss ?? false,
+		dialect,
 	);
 
-	await applySql(pool, sql);
+	await applySql(client, sql);
 
 	return {
 		appliedStatements: sql.length,

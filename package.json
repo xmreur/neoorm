@@ -12,6 +12,11 @@
 	},
 	"homepage": "https://github.com/xmreur/neoorm#readme",
 	"packageManager": "pnpm@11.10.0",
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild"
+		]
+	},
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -38,6 +43,22 @@
 		"./plugins/postgis": {
 			"types": "./dist/plugins/postgis/index.d.ts",
 			"default": "./dist/plugins/postgis/index.js"
+		}
+	},
+	"typesVersions": {
+		"*": {
+			"schema": [
+				"dist/schema/index.d.ts"
+			],
+			"sql": [
+				"dist/sql/index.d.ts"
+			],
+			"plugins": [
+				"dist/plugins/index.d.ts"
+			],
+			"plugins/postgis": [
+				"dist/plugins/postgis/index.d.ts"
+			]
 		}
 	},
 	"files": [

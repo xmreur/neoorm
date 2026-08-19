@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { pgClient } from "../src/runtime/driver.js";
 import { describe, expect, it, vi } from "vitest";
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
 import { manifestTable } from "./helpers/manifest.js";
@@ -213,7 +214,7 @@ describe("introspectToManifest", () => {
 	it("maps tables, columns, defaults, FKs, indexes, and enums from introspection rows", async () => {
 		const pool = createMockPool();
 
-		const manifest = await introspectToManifest(pool, { schema: "tenant_a" });
+		const manifest = await introspectToManifest(pgClient(pool), { schema: "tenant_a" });
 		const accounts = manifest.tables["accounts"];
 		const auditLogs = manifest.tables["auditLogs"];
 
@@ -293,7 +294,7 @@ describe("introspectToManifest", () => {
 	it("passes the configured schema to schema-scoped introspection queries", async () => {
 		const pool = createMockPool();
 
-		await introspectToManifest(pool, { schema: "tenant_a" });
+		await introspectToManifest(pgClient(pool), { schema: "tenant_a" });
 
 		const scopedCalls = pool.queries.filter((call) => call.params.length > 0);
 		expect(scopedCalls.length).toBeGreaterThan(0);

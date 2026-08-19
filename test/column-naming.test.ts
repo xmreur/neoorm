@@ -8,6 +8,7 @@ import {
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { introspectPostgres } from "../src/introspect/pull.js";
+import { pgClient } from "../src/runtime/driver.js";
 import { compileOrderBy, compileWhere } from "../src/runtime/query/compile.js";
 import { manifestTable } from "./helpers/manifest.js";
 
@@ -214,7 +215,7 @@ describe("column naming strategies", () => {
 			},
 		} as unknown as Pool;
 
-		const pulled = await introspectPostgres(pool);
+		const pulled = await introspectPostgres(pgClient(pool));
 
 		expect(pulled).toContain('{ columnNaming: "camelCase" }');
 		expect(pulled).toContain("emailAddress: text().notNull(),");

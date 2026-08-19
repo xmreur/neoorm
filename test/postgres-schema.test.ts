@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { pgClient } from "../src/runtime/driver.js";
 import { describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -110,8 +111,8 @@ describe("postgres schema namespaces", () => {
 	it("passes the selected schema to introspection queries", async () => {
 		const pool = mockPool();
 
-		await queryTables(pool, "tenant_a");
-		await queryColumns(pool, "users", "tenant_a");
+		await queryTables(pgClient(pool), "tenant_a");
+		await queryColumns(pgClient(pool), "users", "tenant_a");
 
 		expect(pool.queries[0]?.params).toEqual(["tenant_a"]);
 		expect(pool.queries[1]?.params).toEqual(["tenant_a", "users"]);
@@ -120,8 +121,8 @@ describe("postgres schema namespaces", () => {
 	it("qualifies migration metadata and resets the selected schema", async () => {
 		const pool = mockPool();
 
-		await ensureMigrationsTable(pool, "tenant_a");
-		await resetDatabaseSchema(pool, "tenant_a");
+		await ensureMigrationsTable(pgClient(pool), postgresDialect, "tenant_a");
+		await resetDatabaseSchema(pgClient(pool), postgresDialect, "tenant_a");
 
 		expect(pool.queries[0]?.sql).toContain(
 			'CREATE SCHEMA IF NOT EXISTS "tenant_a"',

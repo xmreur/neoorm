@@ -35,6 +35,7 @@ export async function paginateRecords(
 	tableAccessor: string,
 	args: PaginateArgs,
 ): Promise<PaginateRuntimeResult> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -48,7 +49,7 @@ export async function paginateRecords(
 		manifest,
 		table,
 		args?.where,
-		postgresDialect,
+		dialect,
 		1,
 		runtime.tableIndex,
 	);
@@ -61,6 +62,7 @@ export async function paginateRecords(
 			orderSpec,
 			args.after,
 			userParams.length + 1,
+			dialect,
 		);
 		const merged = mergeWhereWithCursor(
 			userWhereSql,
@@ -72,9 +74,21 @@ export async function paginateRecords(
 	}
 
 	const orderSql = compileOrderByFromSpec(orderSpec);
-	const plan = planRelationLoad(manifest, table, args.with, runtime.tableIndex);
+	const plan = planRelationLoad(
+		manifest,
+		table,
+		args.with,
+		dialect,
+		runtime.tableIndex,
+	);
 	const extraSelectCols = args.with
-		? buildPlanExtraSelectCols(manifest, table, plan, runtime.tableIndex)
+		? buildPlanExtraSelectCols(
+				manifest,
+				table,
+				plan,
+				dialect,
+				runtime.tableIndex,
+			)
 		: [];
 	const query = buildPaginateQuery(
 		table,

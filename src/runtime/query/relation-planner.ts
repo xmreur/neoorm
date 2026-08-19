@@ -4,6 +4,7 @@ import {
 	tableRef,
 } from "../../dialect/postgres.js";
 import type {
+	Dialect,
 	Manifest,
 	ManifestRelation,
 	ManifestTable,
@@ -95,10 +96,11 @@ export type RelationPlanOptions = {
 
 function relationPlanCacheKey(
 	withSpec: Record<string, WithInput>,
+	dialect: Dialect,
 	options?: RelationPlanOptions,
 ): string {
 	const useHasManyAggregate = options?.useHasManyAggregate !== false;
-	return `${withShapeSignature(withSpec)}|${useHasManyAggregate ? "agg" : "corr"}`;
+	return `${dialect.name}|${withShapeSignature(withSpec)}|${useHasManyAggregate ? "agg" : "corr"}`;
 }
 
 export function inlineRelationColumnAlias(relationName: string): string {
@@ -252,6 +254,7 @@ function tryBuildCountAggregatePlan(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	countSpec: Record<string, RelationCountSpec>,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): CountAggregatePlan | undefined {
 	for (const spec of Object.values(countSpec)) {
@@ -292,7 +295,7 @@ function tryBuildCountAggregatePlan(
 			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
 		);
 		selectCols.push(
-			`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol})::int AS ${quoteIdentifier(inlineCountColumnAlias(relationName))}`,
+			`${dialect.castToInt(`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol})`)} AS ${quoteIdentifier(inlineCountColumnAlias(relationName))}`,
 		);
 		inlineCounts.push({ relationName, spec });
 	}
@@ -335,6 +338,7 @@ function tryBuildHasManyAggregatePlan(
 		selectCols: string[];
 		joinedRelations: Set<string>;
 	},
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): HasManyAggregatePlan | undefined {
 	if (chains.length === 0) return undefined;
@@ -373,10 +377,11 @@ function tryBuildHasManyAggregatePlan(
 		const rowExpr = buildHasManyRowExpression(
 			chain,
 			targetAlias,
+			dialect,
 			manifestIndex,
 		);
 		selectCols.push(
-			`COALESCE(json_agg(${rowExpr}) FILTER (WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL), '[]') AS ${quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
+			`COALESCE(${dialect.jsonAggExpr(rowExpr)} FILTER (WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL), '[]') AS ${quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
 		);
 	}
 
@@ -449,6 +454,7 @@ function buildJoinClauses(
 function buildToOneScalarSubquery(
 	node: InlineChainNode,
 	parentRowAlias: string,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string {
 	const { relation, targetTable } = node;
@@ -462,19 +468,22 @@ function buildToOneScalarSubquery(
 		node.nestedSpec,
 		manifestIndex,
 	);
-	const selectList = cols
-		.map(
-			(col) =>
-				`${quoteIdentifier(targetAlias)}.${quoteIdentifier(col.sqlName)}`,
-		)
-		.join(", ");
+	const refs = cols.map(
+		(col) =>
+			`${quoteIdentifier(targetAlias)}.${quoteIdentifier(col.sqlName)}`,
+	);
+	const selectList = refs.join(", ");
+	const outerRefs = cols.map(
+		(col) => `sub.${quoteIdentifier(col.sqlName)}`,
+	);
 
-	return `(SELECT row_to_json(sub) FROM (SELECT ${selectList} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} = ${quoteIdentifier(parentRowAlias)}.${parentFkCol} LIMIT 1) sub)`;
+	return `(SELECT ${dialect.rowToJsonObject(cols, outerRefs, "sub")} FROM (SELECT ${selectList} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} = ${quoteIdentifier(parentRowAlias)}.${parentFkCol} LIMIT 1) sub)`;
 }
 
 function buildHasManyRowExpression(
 	node: InlineChainNode,
 	rowAlias: string,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string {
 	if (node.child) {
@@ -491,26 +500,32 @@ function buildHasManyRowExpression(
 			node.child,
 			rowAlias,
 			node.targetTable,
+			dialect,
 			manifestIndex,
 		);
 		entries.push(`'${node.child.relationName}', ${nested}`);
-		return `json_build_object(${entries.join(", ")})`;
+		return dialect.jsonBuildObjectExpr(entries);
 	}
 
-	return `row_to_json(${quoteIdentifier(rowAlias)}.*)`;
+	const cols = columnsForInlineSelect(node.targetTable, undefined, manifestIndex);
+	const refs = cols.map(
+		(col) => `${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
+	);
+	return dialect.rowToJsonObject(cols, refs, `${quoteIdentifier(rowAlias)}.*`);
 }
 
 function buildHasManySubqueryFromRef(
 	node: InlineChainNode,
 	parentTable: ManifestTable,
 	parentCorrelationRef: string,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string {
 	const childAlias = `_r_${node.relationName}`;
 	const fkCol = quoteIdentifier(node.relation.fkSqlColumn);
-	const rowExpr = buildHasManyRowExpression(node, childAlias, manifestIndex);
+	const rowExpr = buildHasManyRowExpression(node, childAlias, dialect, manifestIndex);
 
-	let sql = `(SELECT json_agg(agg_row) FROM (SELECT ${rowExpr} AS agg_row FROM ${tableRef(node.targetTable)} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
+	let sql = `(SELECT ${dialect.jsonAggExpr("agg_row")} FROM (SELECT ${rowExpr} AS agg_row FROM ${tableRef(node.targetTable)} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
 
 	if (node.nestedSpec?.orderBy) {
 		sql += ` ${compileOrderBy(
@@ -531,6 +546,7 @@ function buildChildAggregationExpr(
 	node: InlineChainNode,
 	parentRowAlias: string,
 	parentTable: ManifestTable,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string {
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
@@ -538,7 +554,7 @@ function buildChildAggregationExpr(
 		node.relation.cardinality === "one" &&
 		tableOwnsFkColumn(parentTable, node.relation, parentTableIndex)
 	) {
-		return buildToOneScalarSubquery(node, parentRowAlias, manifestIndex);
+		return buildToOneScalarSubquery(node, parentRowAlias, dialect, manifestIndex);
 	}
 
 	if (
@@ -550,6 +566,7 @@ function buildChildAggregationExpr(
 			node,
 			parentTable,
 			parentRef,
+			dialect,
 			manifestIndex,
 		);
 	}
@@ -562,6 +579,7 @@ function buildChildAggregationExpr(
 export function buildInlineJsonAggSelectCol(
 	parentTable: ManifestTable,
 	chain: InlineChainNode,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string {
 	const parentRef = parentPkRef(parentTable);
@@ -569,6 +587,7 @@ export function buildInlineJsonAggSelectCol(
 		chain,
 		parentTable,
 		parentRef,
+		dialect,
 		manifestIndex,
 	);
 	const alias = quoteIdentifier(inlineRelationColumnAlias(chain.relationName));
@@ -580,6 +599,7 @@ export function buildInlineCountSelectCol(
 	parentTable: ManifestTable,
 	relationName: string,
 	spec: RelationCountSpec,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string {
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
@@ -604,7 +624,7 @@ export function buildInlineCountSelectCol(
 			manifest,
 			targetTable,
 			whereFilter,
-			postgresDialect,
+			dialect,
 			1,
 			manifestIndex,
 		);
@@ -614,7 +634,7 @@ export function buildInlineCountSelectCol(
 		}
 	}
 
-	const subquery = `(SELECT COUNT(*)::int FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}${extraWhere})`;
+	const subquery = `(SELECT ${dialect.castToInt("COUNT(*)")} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}${extraWhere})`;
 	const alias = quoteIdentifier(inlineCountColumnAlias(relationName));
 	return `${subquery} AS ${alias}`;
 }
@@ -623,6 +643,7 @@ export function planRelationLoad(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	withSpec: Record<string, WithInput> | undefined,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 	options?: RelationPlanOptions,
 ): RelationLoadPlan {
@@ -704,6 +725,7 @@ export function planRelationLoad(
 			parentTable,
 			aggregateChains,
 			{ joins, selectCols, joinedRelations },
+			dialect,
 			manifestIndex,
 		);
 	} else {
@@ -721,6 +743,7 @@ export function planRelationLoad(
 				manifest,
 				parentTable,
 				countSpec,
+				dialect,
 				manifestIndex,
 			);
 			if (aggregatePlan) {
@@ -920,6 +943,7 @@ export function buildPlanExtraSelectCols(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	plan: RelationLoadPlan,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): string[] {
 	if (plan.countAggregate) {
@@ -936,6 +960,7 @@ export function buildPlanExtraSelectCols(
 			buildInlineJsonAggSelectCol(
 				parentTable,
 				inline.chain,
+				dialect,
 				manifestIndex,
 			),
 		);
@@ -947,6 +972,7 @@ export function buildPlanExtraSelectCols(
 				parentTable,
 				countPlan.relationName,
 				countPlan.spec,
+				dialect,
 				manifestIndex,
 			),
 		);
@@ -1060,15 +1086,16 @@ export function getCachedRelationPlan(
 	manifest: Manifest,
 	table: ManifestTable,
 	withSpec: Record<string, WithInput>,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 	options?: RelationPlanOptions,
 ): RelationLoadPlan {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const signature = relationPlanCacheKey(withSpec, options);
+	const signature = relationPlanCacheKey(withSpec, dialect, options);
 	const cached = tableIndex?.relationPlanBySignature.get(signature);
 	if (cached) return cached;
 
-	const plan = planRelationLoad(manifest, table, withSpec, manifestIndex, options);
+	const plan = planRelationLoad(manifest, table, withSpec, dialect, manifestIndex, options);
 	tableIndex?.relationPlanBySignature.set(signature, plan);
 	return plan;
 }
@@ -1077,16 +1104,22 @@ export function getCachedFindByIdWithQuery(
 	manifest: Manifest,
 	table: ManifestTable,
 	withSpec: Record<string, WithInput>,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): { sql: string; plan: RelationLoadPlan } | null {
-	const plan = getCachedRelationPlan(manifest, table, withSpec, manifestIndex, {
-		useHasManyAggregate: false,
-	});
+	const plan = getCachedRelationPlan(
+		manifest,
+		table,
+		withSpec,
+		dialect,
+		manifestIndex,
+		{ useHasManyAggregate: false },
+	);
 	if (!planIsFullyInline(plan)) return null;
 	if (plan.countAggregate) return null;
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const signature = `${withShapeSignature(withSpec)}|corr`;
+	const signature = `${dialect.name}|${withShapeSignature(withSpec)}|corr`;
 	const { sqlName } = requireScalarPrimaryKey(table);
 	const pkCol = quoteIdentifier(sqlName);
 
@@ -1105,6 +1138,7 @@ export function getCachedFindByIdWithQuery(
 			manifest,
 			table,
 			plan,
+			dialect,
 			manifestIndex,
 		);
 		let sql = `SELECT ${selectCols}`;

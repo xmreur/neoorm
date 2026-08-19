@@ -1,5 +1,6 @@
-import type { Pool } from "pg";
+import type { DatabaseClient } from "../runtime/driver.js";
 import { resolvePgSchemaName } from "../dialect/postgres.js";
+import type { ManifestColumn, ManifestTable } from "../dialect/types.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
 import type { ColumnNaming } from "../schema/table.js";
 import {
@@ -9,13 +10,14 @@ import {
 	toCamelCase,
 } from "../utils/case.js";
 import { queryColumns, queryForeignKeys, queryTables } from "./queries.js";
+import { introspectSqliteToManifest } from "./sqlite/to-manifest.js";
 
 export async function introspectPostgres(
-	pool: Pool,
+	client: DatabaseClient,
 	options: { schema?: string } = {},
 ): Promise<string> {
 	const schema = resolvePgSchemaName(options.schema);
-	const tables = await queryTables(pool, schema);
+	const tables = await queryTables(client, schema);
 
 	const pluginImports = new Set<string>();
 	const pluginColumnImports = new Set<string>();
@@ -24,8 +26,8 @@ export async function introspectPostgres(
 	const tableBlocks: string[] = [];
 
 	for (const { table_name } of tables) {
-		const cols = await queryColumns(pool, table_name, schema);
-		const fks = await queryForeignKeys(pool, table_name, schema);
+		const cols = await queryColumns(client, table_name, schema);
+		const fks = await queryForeignKeys(client, table_name, schema);
 
 		const fkMap = new Map(fks.map((r) => [r.column_name, r]));
 		const columnNaming = inferColumnNaming(
@@ -172,6 +174,130 @@ export async function introspectPostgres(
 	lines.push(`});`, ``);
 
 	return lines.join("\n");
+}
+
+function sqliteColumnBuilder(col: ManifestColumn): string {
+	switch (col.kind) {
+		case "id":
+			return "id";
+		case "serial":
+			return "serial";
+		case "int":
+			return "int";
+		case "bool":
+			return "bool";
+		case "timestamp":
+			return "timestamp";
+		case "decimal":
+			return "decimal";
+		case "jsonb":
+			return "jsonb";
+		case "bytea":
+			return "bytea";
+		case "text":
+		case "citext":
+		case "enum":
+		case "uuid":
+		default:
+			return "text";
+	}
+}
+
+function sqliteColumnDef(col: ManifestColumn, table: ManifestTable): string {
+	if (col.kind === "fk" && col.fkTarget) {
+		const relName = col.tsName.replace(/Id$/, "");
+		let def = `fk("${col.fkTarget}", {\n      as: "${relName}",\n      inverse: "${table.accessor}",\n      nullable: ${col.nullable},`;
+		if (col.onDelete) {
+			def += `\n      onDelete: "${col.onDelete}",`;
+		}
+		def += `\n    })`;
+		return `${col.tsName}: ${def},`;
+	}
+
+	let def = `${col.tsName}: ${sqliteColumnBuilder(col)}()`;
+	if (col.kind !== "id" && col.primary && table.primaryKey.length === 1) {
+		def += ".primary()";
+	}
+	if (col.defaultNow) {
+		def += ".defaultNow()";
+	}
+	if (col.unique) {
+		def += ".unique()";
+	}
+	if (!col.nullable && !col.primary) {
+		def += ".notNull()";
+	}
+	return `${def},`;
+}
+
+export async function introspectSqlite(client: DatabaseClient): Promise<string> {
+	const manifest = await introspectSqliteToManifest(client);
+
+	const tableBlocks: string[] = [];
+	for (const table of Object.values(manifest.tables)) {
+		const tsNameBySql = new Map(
+			table.columns.map((col) => [col.sqlName, col.tsName]),
+		);
+		const lines: string[] = [
+			`  ${table.accessor}: table("${table.sqlName}", {`,
+		];
+		for (const col of table.columns) {
+			lines.push(`    ${sqliteColumnDef(col, table)}`);
+		}
+
+		const extras: string[] = [];
+		for (const index of table.indexes) {
+			const builder = index.unique ? "unique" : "index";
+			extras.push(
+				`    ${index.name}: ${builder}().on(${index.columns
+					.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+					.join(", ")}),`,
+			);
+		}
+		if (table.primaryKey.length > 1) {
+			extras.push(
+				`    pk: primaryKey(${table.primaryKey
+					.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+					.join(", ")}),`,
+			);
+		}
+
+		if (extras.length > 0) {
+			lines.push(
+				`  }, (t) => ({
+${extras.join("\n")}
+  })),`,
+			);
+		} else {
+			lines.push(`  }),`);
+		}
+		tableBlocks.push(lines.join("\n"));
+	}
+
+	return [
+		`import {`,
+		`  defineSchema,`,
+		`  table,`,
+		`  id,`,
+		`  text,`,
+		`  bool,`,
+		`  int,`,
+		`  timestamp,`,
+		`  decimal,`,
+		`  jsonb,`,
+		`  bytea,`,
+		`  serial,`,
+		`  fk,`,
+		`  index,`,
+		`  unique,`,
+		`  primaryKey,`,
+		`} from "neoorm/schema";`,
+		``,
+		`export const schema = defineSchema({`,
+		...tableBlocks,
+		`});`,
+		``,
+	].join("\n");
 }
 
 function inferColumnNaming(columnNames: string[]): ColumnNaming {

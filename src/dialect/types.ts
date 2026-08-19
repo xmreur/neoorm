@@ -173,6 +173,7 @@ export type CreateTableOptions = {
 export type Dialect = {
 	readonly name: string;
 	quoteIdentifier(name: string): string;
+	tableRef(table: ManifestTable): string;
 	columnType(col: ManifestColumn, manifest?: Manifest): string;
 	resolveIndexSqlName(tableSqlName: string, index: ManifestIndex): string;
 	emitCreateExtensions(extensions: readonly string[]): string[];
@@ -194,4 +195,14 @@ export type Dialect = {
 	emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string;
 	whereOperators: OperatorMap;
 	defaultNowExpression(): string;
+	emitCreateMigrationsTable(tableRef: string): string;
+	castToInt(expr: string): string;
+	castToNumeric(expr: string): string;
+	rowToJsonObject(
+		columns: readonly ManifestColumn[],
+		refs: string[],
+		aliasExpr: string,
+	): string;
+	jsonBuildObjectExpr(entries: string[]): string;
+	jsonAggExpr(expr: string): string;
 };

@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { DatabaseClient } from "../runtime/driver.js";
 import { pgStorageSqlType, resolvePgSchemaName } from "../dialect/postgres.js";
 import type {
 	Manifest,
@@ -197,18 +197,18 @@ function filterConstraintBackedIndexes(
 }
 
 async function introspectTable(
-	pool: Pool,
+	client: DatabaseClient,
 	tableName: string,
 	enumTypes: Record<string, string[]>,
 	schema: string,
 ): Promise<ManifestTable> {
 	const [columns, fks, indexRows, uniqueRows, primaryKey] = await Promise.all(
 		[
-			queryColumns(pool, tableName, schema),
-			queryForeignKeys(pool, tableName, schema),
-			queryIndexes(pool, tableName, schema),
-			queryUniqueConstraints(pool, tableName, schema),
-			queryPrimaryKeyColumns(pool, tableName, schema),
+			queryColumns(client, tableName, schema),
+			queryForeignKeys(client, tableName, schema),
+			queryIndexes(client, tableName, schema),
+			queryUniqueConstraints(client, tableName, schema),
+			queryPrimaryKeyColumns(client, tableName, schema),
 		],
 	);
 
@@ -312,18 +312,18 @@ async function introspectTable(
 }
 
 export async function introspectToManifest(
-	pool: Pool,
+	client: DatabaseClient,
 	options: { schema?: string } = {},
 ): Promise<Manifest> {
 	const schema = resolvePgSchemaName(options.schema);
-	const tables = await queryTables(pool, schema);
-	const extensions = await queryInstalledExtensions(pool);
-	const enumTypes = await queryEnumTypes(pool, schema);
+	const tables = await queryTables(client, schema);
+	const extensions = await queryInstalledExtensions(client);
+	const enumTypes = await queryEnumTypes(client, schema);
 	const manifestTables: Record<string, ManifestTable> = {};
 
 	for (const { table_name } of tables) {
 		const table = await introspectTable(
-			pool,
+			client,
 			table_name,
 			enumTypes,
 			schema,
