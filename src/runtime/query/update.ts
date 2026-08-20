@@ -150,17 +150,17 @@ async function runUpdate(
 				whereSql,
 				exprSets,
 				runtime.tableIndex,
-				"pk",
+				"none",
 			);
-			const row = await runQueryOne(
+			const { rowCount } = await runExecute(
 				executor,
 				runtime,
 				{ operation: "update", tableAccessor },
 				query,
 				[...values, ...whereParams],
 			);
-			if (!row) return null;
-			result = mapRowToTs(tableIndex, table, row);
+			if (rowCount === 0) return null;
+			result = {};
 		} else {
 			const returning: UpdateReturning = args.returnUpdated ? "full" : "pk";
 			const query = buildUpdateQuery(
