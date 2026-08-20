@@ -1,7 +1,7 @@
 {
 	"name": "neoorm",
 	"version": "0.3.1",
-	"description": "TypeScript-first PostgreSQL ORM with schema DSL, codegen, and typed relations",
+	"description": "TypeScript-first PostgreSQL and SQLite ORM with schema DSL, codegen, and typed relations",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -70,6 +70,7 @@
 		"orm",
 		"postgresql",
 		"postgres",
+		"sqlite",
 		"typescript",
 		"schema",
 		"codegen",

@@ -210,6 +210,8 @@ await db.users.findMany({
 });
 ```
 
+Not supported on SQLite (`DISTINCT ON` is PostgreSQL-only) — it throws `distinct is not supported on SQLite`. Use `groupBy` or a raw `db.sql` query instead.
+
 ## Eager loading with `with`
 
 Relations are eagerly loaded in `findMany`, `findFirst`, and `findById` via the `with` option.

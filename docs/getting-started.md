@@ -80,6 +80,38 @@ npx neoorm generate
 
 This writes `client.ts`, `manifest.ts`, `models.ts`, `includes.ts`, and migration SQL when the schema changed.
 
+## SQLite
+
+SQLite works with the same schema and commands — no database server or driver install needed. Set the provider to `sqlite` and point `url` at a file or `:memory:`:
+
+```ts
+// neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "sqlite",
+    url: "./dev.db", // or ":memory:"
+  },
+});
+```
+
+At runtime, pass the database path (or your own `db` handle) to the client:
+
+```ts
+import { createNeoOrmClient } from "neoorm";
+import { manifest } from "./neoorm/manifest.js";
+
+const db = createNeoOrmClient(manifest, {
+  provider: "sqlite",
+  databasePath: "./dev.db",
+});
+```
+
+Requires Node.js 22.5+ or Bun (or pass your own `db` instance). See [SQLite](sqlite.md) for drivers, type mapping, and limitations.
+
 ## Tenant-specific schemas
 
 For tenant-per-schema isolation at runtime, create a client with the tenant schema:

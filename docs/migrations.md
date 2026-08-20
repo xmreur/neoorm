@@ -10,7 +10,7 @@
 | `neoorm migrate deploy` | Apply pending migrations |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
-| `neoorm migrate reset --force` | Drop public schema and re-apply migrations (local dev) |
+| `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite) and re-apply migrations (local dev) |
 | `neoorm db push` | Push the current snapshot schema to the database |
 | `neoorm db pull` | Introspect the database into a schema file |
 
@@ -45,7 +45,7 @@ Shows applied migrations (with timestamps), pending folders on disk, and warning
 neoorm migrate reset --force
 ```
 
-Drops the `public` schema and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop the schema without re-applying.
+Drops the `public` schema (PostgreSQL) or all tables (SQLite) and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop without re-applying.
 
 ## Rollback
 

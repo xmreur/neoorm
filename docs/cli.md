@@ -61,7 +61,7 @@ Requires `down.sql` and `snapshot.before.json` in each migration folder (written
 
 ## `neoorm migrate reset`
 
-Drop the `public` schema and re-apply all migrations.
+Drop the `public` schema (PostgreSQL) or all tables (SQLite) and re-apply all migrations.
 
 ```
 neoorm migrate reset --force [--skip-apply]

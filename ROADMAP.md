@@ -36,8 +36,8 @@ Everyday features that unlock real-world patterns.
 
 ## v0.5.x — More databases
 
-- [ ] **Dialect refactor** — extract `RETURNING`, row-value constructors, `ILIKE` from query layer into dialect methods
-- [ ] **SQLite dialect** — local dev / testing, no external DB required
+- [x] **Dialect refactor** — extract `RETURNING`, row-value constructors, `ILIKE` from query layer into dialect methods
+- [x] **SQLite dialect** — local dev / testing, no external DB required
 - [ ] **MySQL / MariaDB dialect**
 - [ ] **Connection pool config** — expose min/max/idle timeout in client options
 - [ ] **Batch insert auto-chunking** — split large `createMany` arrays into optimal batches

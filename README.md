@@ -3,7 +3,7 @@
   <strong>NeoOrm</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
   Schema → codegen → typed client — you own the SQL, we handle the boilerplate.
 
-  PostgreSQL dialect ships today &mdash; MySQL, SQLite, and others are on the roadmap.
+  PostgreSQL and SQLite dialects ship today &mdash; MySQL and others are on the roadmap.
 </p>
 
 <p>
@@ -14,10 +14,11 @@
 </p>
 
 ```
-npm install neoorm pg
+npm install neoorm pg        # PostgreSQL
+npm install neoorm           # SQLite (no extra driver needed)
 ```
 
-Requires **Node.js 20+** (PostgreSQL driver ships now; more databases coming).
+Requires **Node.js 20+** (Node.js 22.5+ for SQLite on Node — or Bun, or pass your own `db` instance; see [SQLite](docs/sqlite.md)).
 
 ---
 
@@ -30,7 +31,7 @@ Most ORMs force you to learn their query language, fight their type system, or s
 - **Schema as code** — one source of truth for types and the database
 - **Generated client** — zero-cost abstractions, full autocomplete
 - **Relations done right** — nested reads, writes, and filters without N+1 footguns
-- **PostgreSQL powered** — arrays, JSONB, PostGIS, enums, full-text, extensions — no abstraction layer that gets in the way. MySQL, SQLite, and more are coming.
+- **PostgreSQL powered** — arrays, JSONB, PostGIS, enums, full-text, extensions — no abstraction layer that gets in the way. SQLite ships too for local dev and single-file deployments; MySQL and more are coming.
 - **Migrations built-in** — diff your schema, get SQL, deploy. Rollback supported.
 
 ---
@@ -84,8 +85,12 @@ const posts = await db.posts.findMany({
     <td><strong>🔌 Plugin system</strong><br/>Column type plugins for PostGIS (geometry, geography, spatial operators), citext, and custom extensions.</td>
   </tr>
   <tr>
-    <td><strong>🐘 PostgreSQL powered</strong><br/>JSONB, arrays (`TEXT[]`, `INTEGER[]`), `NUMERIC`, `BYTEA`, native enums, UUID v4/v7, serial identity, `CITEXT`, extensions. More databases on the roadmap.</td>
+    <td><strong>🐘 PostgreSQL powered</strong><br/>JSONB, arrays (`TEXT[]`, `INTEGER[]`), `NUMERIC`, `BYTEA`, native enums, UUID v4/v7, serial identity, `CITEXT`, extensions.</td>
     <td><strong>🎯 TypeScript end-to-end</strong><br/>Strict types from schema to query results. Discriminated payload types for `with` includes. Compile-time union checking on enums.</td>
+  </tr>
+  <tr>
+    <td><strong>🪶 SQLite dialect</strong><br/>Zero-config local dev and testing — no database server, no driver install. Works on Node 22.5+ and Bun, or with your own `db` handle. See [SQLite](docs/sqlite.md).</td>
+    <td></td>
   </tr>
 </table>
 
@@ -103,6 +108,7 @@ const posts = await db.posts.findMany({
 | [Migrations](docs/migrations.md) | Deploy, dev, status, rollback, reset |
 | [CLI reference](docs/cli.md) | All commands and flags |
 | [Configuration](docs/configuration.md) | Config file options reference |
+| [SQLite](docs/sqlite.md) | SQLite dialect, drivers, type mapping, limitations |
 | [Plugins](docs/plugins.md) | PostGIS, citext, custom plugins |
 
 See the [blog example](examples/blog/schema.ts) for a complete schema, and [queries.example.ts](examples/blog/queries.example.ts) for typed queries and mutations.
@@ -128,7 +134,7 @@ NeoOrm was built because existing TypeScript ORMs either sacrificed type safety 
 - **Schema is the source of truth** — not decorators, not reflection, not a proprietary DSL. Your schema file is plain TypeScript.
 - **Generated code is a compile-time artifact** — no runtime dependency on the schema. Swap the schema, regenerate, everything still compiles.
 - **SQL is not hidden** — the client compiles to parameterized SQL that you can inspect. No magic, no surprises.
-- **PostgreSQL first** — we ship with a Postgres dialect and lean into its features. MySQL, SQLite, and other dialects are on the roadmap and will slot into the same architecture.
+- **PostgreSQL and SQLite first** — we ship Postgres and SQLite dialects and lean into each one's strengths. MySQL and other dialects are on the roadmap and will slot into the same architecture.
 
 ---
 
