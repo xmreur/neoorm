@@ -15,18 +15,6 @@ const SUPPORTED_ENUM_MODES = ["check", "union", "native"] as const;
 type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 type SupportedEnumMode = (typeof SUPPORTED_ENUM_MODES)[number];
 
-let tsxRegisterPromise: Promise<void> | undefined;
-
-async function ensureTsxRegistered(): Promise<void> {
-	if (!tsxRegisterPromise) {
-		tsxRegisterPromise = import("tsx/esm/api").then(({ register }) => {
-			register();
-		});
-	}
-
-	await tsxRegisterPromise;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -103,13 +91,17 @@ export function defineConfig(config: NeoOrmConfig): NeoOrmConfig {
 
 export async function loadConfig(cwd: string): Promise<NeoOrmConfig> {
 	const { join } = await import("node:path");
-	const { pathToFileURL } = await import("node:url");
-
-	await ensureTsxRegistered();
+	const { importTsModule } = await import("./utils/load-ts.js");
 
 	const configPath = join(cwd, "neoorm.config.ts");
-	const mod = await import(pathToFileURL(configPath).href);
-	const config = mod.default ?? mod.config;
+	const mod = await importTsModule(configPath);
+	const candidate = mod.default ?? mod.config;
+	// tsx wraps a CommonJS default export as mod.default = { default: <config> },
+	// so unwrap it when present.
+	const config =
+		isRecord(candidate) && isRecord(candidate.default)
+			? candidate.default
+			: candidate;
 
 	return validateConfig(config);
 }

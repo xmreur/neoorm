@@ -72,6 +72,38 @@ describe("config validation", () => {
 		});
 	});
 
+	it("loads a defineConfig default export in a CommonJS project", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "neoorm-config-cjs-"));
+		try {
+			await writeFile(join(dir, "package.json"), "{}\n");
+			await writeFile(
+				join(dir, "neoorm.config.ts"),
+				`import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "sqlite",
+    url: "./db.sqlite",
+    enum: "check",
+  },
+});
+`,
+			);
+			const config = await loadConfig(dir);
+			expect(config.schema).toBe("./schema.ts");
+			expect(config.out).toBe("./neoorm");
+			expect(config.datasource).toEqual({
+				provider: "sqlite",
+				url: "./db.sqlite",
+				enum: "check",
+			});
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("throws the required shape error for missing required fields", async () => {
 		await withConfigFile(
 			`

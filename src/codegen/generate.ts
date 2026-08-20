@@ -76,17 +76,14 @@ export async function loadSchemaModule(schemaPath: string): Promise<{
 	manyToMany: ManyToManyDef[];
 	plugins: NeoOrmPlugin[];
 }> {
-	const { pathToFileURL } = await import("node:url");
-	const { register } = await import("tsx/esm/api");
+	const { importTsModule } = await import("../utils/load-ts.js");
 	const { clearManyToManyRegistry } = await import(
 		"../schema/many-to-many.js"
 	);
 
-	register();
 	clearManyToManyRegistry();
 
-	const url = pathToFileURL(schemaPath).href;
-	const mod = await import(url);
+	const mod = await importTsModule(schemaPath);
 
 	const schema = mod.schema ?? mod.default?.schema ?? mod.default;
 	if (!schema || !schema._tables) {
