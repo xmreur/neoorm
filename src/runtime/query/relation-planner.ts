@@ -18,6 +18,7 @@ import {
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	orderByShapeKey,
+	type OrderByInput,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
@@ -42,7 +43,7 @@ export type RelationCountSpec = true | { where?: Record<string, unknown> };
 
 export type InlineRelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
-	orderBy?: Record<string, string>;
+	orderBy?: OrderByInput;
 	limit?: number;
 	with?: Record<string, WithInput>;
 };

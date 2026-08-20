@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { introspectPostgres } from "../src/introspect/pull.js";
+import { pgClient } from "../src/runtime/driver.js";
 import { sanitizeTsIdentifier, escapeTsString } from "../src/utils/case.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -33,7 +34,7 @@ describe.skipIf(!databaseUrl)("db pull code injection (integration)", () => {
 	});
 
 	it("never embeds raw database identifiers in the generated schema", async () => {
-		const source = await introspectPostgres(pool);
+		const source = await introspectPostgres(pgClient(pool));
 
 		// the raw breaking sequence must not appear unescaped anywhere
 		expect(source).not.toContain('x"); 1//');

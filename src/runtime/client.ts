@@ -21,6 +21,7 @@ import { deleteById, deleteManyRecords, deleteRecord } from "./query/delete.js";
 import { buildManifestIndex } from "./query/table-index.js";
 import { runQuery, type QueryRuntime } from "./query/execute.js";
 import type { WithInput } from "./query/find.js";
+import type { OrderByInput } from "./query/compile.js";
 import { findById, findFirst, findMany } from "./query/find.js";
 import { paginateRecords } from "./query/paginate.js";
 import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
@@ -59,7 +60,7 @@ export type NeoOrmClientOptions = {
 export type TableRepository = {
 	findMany(args?: {
 		where?: Record<string, unknown>;
-		orderBy?: Record<string, string>;
+		orderBy?: OrderByInput;
 		limit?: number;
 		offset?: number;
 		distinct?: readonly string[] | Record<string, boolean | undefined>;
@@ -67,7 +68,7 @@ export type TableRepository = {
 	}): Promise<Record<string, unknown>[]>;
 	findFirst(args?: {
 		where?: Record<string, unknown>;
-		orderBy?: Record<string, string>;
+		orderBy?: OrderByInput;
 		with?: Record<string, WithInput>;
 	}): Promise<Record<string, unknown> | null>;
 	findUnique(args: {

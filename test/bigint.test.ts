@@ -5,6 +5,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
+import { pgClient } from "../src/runtime/driver.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -65,7 +66,7 @@ describe.skipIf(!databaseUrl)("bigint introspection (integration)", () => {
 	});
 
 	it("introspects bigint as its own kind without losing the default", async () => {
-		const manifest = await introspectToManifest(pool);
+		const manifest = await introspectToManifest(pgClient(pool));
 		const table = manifest.tables.bgUsers!;
 		const count = table.columns.find((c) => c.sqlName === "count")!;
 		expect(count.kind).toBe("bigint");

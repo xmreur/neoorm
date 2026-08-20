@@ -682,15 +682,20 @@ export function getCachedWhereClause(
 	return compiled;
 }
 
+export type OrderByInput = Record<string, string | Record<string, string>>;
+
 export function orderByShapeKey(
-	orderBy: Record<string, string> | undefined,
+	orderBy: OrderByInput | undefined,
 	tableAlias?: string,
 ): string {
 	if (!orderBy || Object.keys(orderBy).length === 0) return "";
 	const entries = Object.entries(orderBy)
 		.filter(([key]) => key !== "_count")
-		.sort(([a], [b]) => a.localeCompare(b))
-		.map(([key, direction]) => `${key}:${direction.toUpperCase()}`);
+		.map(([key, direction]) =>
+			typeof direction === "string" ? `${key}:${direction.toUpperCase()}` : "",
+		)
+		.filter(Boolean)
+		.sort((a, b) => a.localeCompare(b));
 	if (entries.length === 0) return "";
 	const base = entries.join("|");
 	return tableAlias ? `${base}|@${tableAlias}` : base;
@@ -698,7 +703,7 @@ export function orderByShapeKey(
 
 export function getCachedOrderByClause(
 	table: ManifestTable,
-	orderBy: Record<string, string> | undefined,
+	orderBy: OrderByInput | undefined,
 	tableAlias?: string,
 	manifestIndex?: ManifestIndex,
 ): string {
@@ -759,7 +764,7 @@ function buildSetExpression(
 
 export function compileOrderBy(
 	table: ManifestTable,
-	orderBy: Record<string, string> | undefined,
+	orderBy: OrderByInput | undefined,
 	tableAlias?: string,
 	manifestIndex?: ManifestIndex,
 ): string {

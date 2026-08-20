@@ -479,7 +479,7 @@ describe("eager loading batching", () => {
 
 		await findMany(executor, runtime, "users", {
 			with: { _count: { posts: true } },
-			orderBy: { _count: { posts: "desc" } } as Record<string, string>,
+			orderBy: { _count: { posts: "desc" } },
 		});
 
 		expect(executor.queries[0]?.sql).toContain("ORDER BY COUNT(");

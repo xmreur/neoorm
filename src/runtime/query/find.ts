@@ -23,6 +23,7 @@ import {
 	mapRowsToTs,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
+	type OrderByInput,
 	rowsToTsIndexed,
 } from "./compile.js";
 import { rebaseParamRefs } from "../../sql/template.js";
@@ -53,20 +54,33 @@ import {
 	withShapeSignature,
 } from "./relation-planner.js";
 
+type RelationSpec = {
+	select?: readonly string[] | Record<string, boolean | undefined>;
+	orderBy?: OrderByInput;
+	limit?: number;
+	with?: Record<string, WithInput>;
+};
+
 export type WithInput =
 	| boolean
-	| {
-			select?: readonly string[] | Record<string, boolean | undefined>;
-			orderBy?: Record<string, string>;
-			limit?: number;
-			with?: Record<string, WithInput>;
-	  };
+	| RelationSpec
+	| { [relation: string]: true | { where?: Record<string, unknown> } };
+
+function isRelationSpec(withSpec: WithInput | undefined): withSpec is RelationSpec {
+	if (typeof withSpec !== "object" || withSpec === null) return false;
+	return (
+		"select" in withSpec ||
+		"orderBy" in withSpec ||
+		"limit" in withSpec ||
+		"with" in withSpec
+	);
+}
 
 type RelationCountSpec = true | { where?: Record<string, unknown> };
 
 function validateDistinctOrderBy(
 	distinct: readonly string[] | undefined,
-	orderBy: Record<string, string> | undefined,
+	orderBy: OrderByInput | undefined,
 ): void {
 	if (!distinct || distinct.length === 0) return;
 	const orderKeys = orderBy ? Object.keys(orderBy) : [];
@@ -266,7 +280,7 @@ function columnsForSelect(
 	table: ManifestTable,
 	withSpec: WithInput | undefined,
 ): string {
-	const nestedSpec = typeof withSpec === "object" ? withSpec : undefined;
+	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
 	return buildSelectColumns(table, selectKeys ? [...selectKeys] : undefined);
 }
@@ -328,7 +342,7 @@ async function loadOneRelation(
 	const parentIds = parentRows
 		.map((r) => rowPkKey(r, parentTable))
 		.filter(Boolean);
-	const nestedSpec = typeof withSpec === "object" ? withSpec : undefined;
+	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 
 	if (
 		relation.cardinality === "one" &&
@@ -567,7 +581,7 @@ export async function hydrateAndLoadRelations(
 
 type FindManyArgs = {
 	where?: Record<string, unknown>;
-	orderBy?: Record<string, string>;
+	orderBy?: OrderByInput;
 	limit?: number;
 	offset?: number;
 	distinct?: readonly string[] | Record<string, boolean | undefined>;
@@ -731,7 +745,7 @@ export async function findMany(
 	tableAccessor: string,
 	args?: {
 		where?: Record<string, unknown>;
-		orderBy?: Record<string, string>;
+		orderBy?: OrderByInput;
 		limit?: number;
 		offset?: number;
 		distinct?: readonly string[] | Record<string, boolean | undefined>;
