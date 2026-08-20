@@ -1,6 +1,6 @@
 {
 	"name": "neoorm",
-"version": "0.4.0",
+	"version": "0.4.0",
 	"description": "TypeScript-first PostgreSQL and SQLite ORM with schema DSL, codegen, and typed relations",
 	"license": "MIT",
 	"repository": {
@@ -12,11 +12,6 @@
 	},
 	"homepage": "https://github.com/xmreur/neoorm#readme",
 	"packageManager": "pnpm@11.10.0",
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"esbuild"
-		]
-	},
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
