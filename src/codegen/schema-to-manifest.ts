@@ -30,6 +30,8 @@ import { resolveSqlColumnName } from "../utils/case.js";
 
 export type SchemaToManifestOptions = {
 	enumMode?: "check" | "union" | "native";
+	provider?: "postgresql" | "sqlite";
+	url?: string;
 };
 
 function buildEnumCheckExpression(
@@ -284,6 +286,8 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	options: SchemaToManifestOptions = {},
 ): Manifest {
 	const enumMode = options.enumMode ?? "check";
+	const provider = options.provider;
+	const datasourceUrl = options.url;
 	const defaultColumnNaming = schema._columnNaming ?? "snakeCase";
 	const tables = schema._tables;
 	const sqlNameToAccessor: Record<string, string> = {};
@@ -445,6 +449,8 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 
 	return {
 		version: 1,
+		...(provider ? { provider } : {}),
+		...(datasourceUrl ? { url: datasourceUrl } : {}),
 		tables: manifestTables,
 		manyToMany,
 		enumMode,

@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applySchemaToManifest } from "../dialect/postgres.js";
-import type { Manifest } from "../dialect/types.js";
+import { postgresDialect } from "../dialect/postgres.js";
+import { sqliteDialect } from "../dialect/sqlite.js";
+import type { Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
 import type { ColumnDef, ColumnNaming } from "../schema/table.js";
@@ -21,6 +23,12 @@ import {
 	type GenerateSummary,
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
+
+function dialectForProvider(
+	provider: "postgresql" | "sqlite" | undefined,
+): Dialect {
+	return provider === "sqlite" ? sqliteDialect : postgresDialect;
+}
 
 async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
 	const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
@@ -240,6 +248,7 @@ export async function writeMigration(
 		name?: string;
 		prev?: Manifest | null;
 		next?: Manifest;
+		dialect?: Dialect;
 	},
 ): Promise<string | null> {
 	if (sql.length === 0) return null;
@@ -264,7 +273,7 @@ export async function writeMigration(
 
 	if (options?.next) {
 		const prev = options.prev ?? null;
-		const downSql = buildDownSql(prev, options.next);
+		const downSql = buildDownSql(prev, options.next, options.dialect);
 		await writeFile(
 			join(migrationDir, "down.sql"),
 			downSql.join("\n\n"),
@@ -287,6 +296,7 @@ export async function writeGeneratedFiles(
 	migrationSql: string[],
 	schemaPath: string,
 	prev: Manifest | null,
+	dialect?: Dialect,
 ): Promise<{ migrationName: string | null }> {
 	await mkdir(outDir, { recursive: true });
 	await writeFile(
@@ -310,6 +320,7 @@ export async function writeGeneratedFiles(
 	const migrationName = await writeMigration(outDir, migrationSql, {
 		prev,
 		next: manifest,
+		...(dialect ? { dialect } : {}),
 	});
 
 	return { migrationName };
@@ -327,7 +338,9 @@ export type GenerateResult = {
 export type GenerateOptions = {
 	acceptDataLoss?: boolean;
 	enumMode?: "check" | "union" | "native";
+	provider?: "postgresql" | "sqlite";
 	schema?: string;
+	url?: string;
 };
 
 export async function generateFromSchema(
@@ -342,6 +355,8 @@ export async function generateFromSchema(
 	const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
 	const schemaManifest = schemaToManifest(schema, manyToMany, plugins, {
 		...(options.enumMode ? { enumMode: options.enumMode } : {}),
+		...(options.provider ? { provider: options.provider } : {}),
+		...(options.url ? { url: options.url } : {}),
 	});
 	const manifest = applySchemaToManifest(schemaManifest, options.schema);
 	const warnings = collectRedundantMapWarnings(schema);
@@ -354,12 +369,14 @@ export async function generateFromSchema(
 	const prev = await readSnapshot(outDir);
 	const schemaChanged =
 		!prev || hashManifest(prev) !== hashManifest(manifest);
-	const manifestDiff = diffManifest(prev, manifest);
+	const dialect = dialectForProvider(options.provider);
+	const manifestDiff = diffManifest(prev, manifest, dialect);
 	const { sql, blocked } = resolveMigrationSql(
 		manifestDiff,
 		prev,
 		manifest,
 		options.acceptDataLoss ?? false,
+		dialect,
 	);
 
 	const allWarnings = [...warnings];
@@ -373,6 +390,7 @@ export async function generateFromSchema(
 		migrationSql,
 		schemaPath,
 		prev,
+		dialect,
 	);
 
 	const summary = summarizeGenerateOutcome({

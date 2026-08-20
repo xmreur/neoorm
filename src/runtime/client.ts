@@ -332,11 +332,18 @@ export function createNeoOrmClient<
 
 	if (
 		options.provider === "sqlite" ||
+		manifest.provider === "sqlite" ||
 		options.db !== undefined ||
 		options.databasePath !== undefined
 	) {
 		const db =
-			options.db ?? openSqliteDatabase(options.databasePath ?? ":memory:");
+			options.db ??
+			openSqliteDatabase(
+				options.databasePath ??
+					process.env["DATABASE_URL"] ??
+					manifest.url ??
+					":memory:",
+			);
 		return createNeoOrmClientFromSqlite(manifest, db, {
 			...(options.migrationsDir !== undefined
 				? { migrationsDir: options.migrationsDir }
@@ -344,7 +351,10 @@ export function createNeoOrmClient<
 		});
 	}
 
-	const url = options.connectionString ?? process.env["DATABASE_URL"];
+	const url =
+		options.connectionString ??
+		process.env["DATABASE_URL"] ??
+		manifest.url;
 	if (!url) {
 		throw new Error("DATABASE_URL is required");
 	}

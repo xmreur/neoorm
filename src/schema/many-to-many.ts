@@ -11,7 +11,16 @@ export type ManyToManyDef = {
 	inverse: string;
 };
 
-const manyToManyRegistry: ManyToManyDef[] = [];
+// The registry lives on globalThis so every module instance (src vs dist,
+// tsx tsImport vs Node import) shares the same array — a schema module loaded
+// through tsImport evaluates its DSL imports in an isolated module graph, so a
+// module-local array would never be visible to the codegen process reading it.
+const REGISTRY_KEY = Symbol.for("neoorm.manyToManyRegistry");
+
+function registry(): ManyToManyDef[] {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return ((globalThis as any)[REGISTRY_KEY] ??= []);
+}
 
 export function manyToMany<
 	TLeft extends TableDef,
@@ -28,7 +37,7 @@ export function manyToMany<
 		inverse: string;
 	},
 ): void {
-	manyToManyRegistry.push({
+	registry().push({
 		kind: "manyToMany",
 		leftKey: left._tableName,
 		rightKey: right._tableName,
@@ -41,9 +50,9 @@ export function manyToMany<
 }
 
 export function getManyToManyRegistry(): readonly ManyToManyDef[] {
-	return manyToManyRegistry;
+	return registry();
 }
 
 export function clearManyToManyRegistry(): void {
-	manyToManyRegistry.length = 0;
+	registry().length = 0;
 }

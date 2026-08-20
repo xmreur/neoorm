@@ -10,6 +10,58 @@ describe("codegen", () => {
 		"../examples/blog/neoorm-test-out",
 	);
 
+	it("records the datasource provider and url in the manifest", async () => {
+		await rm(outDir, { recursive: true, force: true });
+
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		const { manifest } = await generateFromSchema(schemaPath, outDir, {
+			provider: "sqlite",
+			url: "./dev.db",
+		});
+
+		expect(manifest.provider).toBe("sqlite");
+		expect(manifest.url).toBe("./dev.db");
+
+		const manifestContent = await readFile(
+			join(outDir, "manifest.ts"),
+			"utf-8",
+		);
+		expect(manifestContent).toContain('"provider": "sqlite"');
+		expect(manifestContent).toContain('"url": "./dev.db"');
+
+		await rm(outDir, { recursive: true, force: true });
+	});
+
+	it("generates sqlite SQL when the provider is sqlite", async () => {
+		await rm(outDir, { recursive: true, force: true });
+
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		await generateFromSchema(schemaPath, outDir, {
+			provider: "sqlite",
+			url: "./dev.db",
+		});
+
+		const migrationsDir = join(outDir, "migrations");
+		const migrationDirs = await readdir(migrationsDir);
+		expect(migrationDirs.length).toBeGreaterThan(0);
+
+		const migrationDir = join(migrationsDir, atIndex(migrationDirs, 0));
+		const migrationSql = await readFile(
+			join(migrationDir, "migration.sql"),
+			"utf-8",
+		);
+		expect(migrationSql).toContain("CURRENT_TIMESTAMP");
+		expect(migrationSql).not.toContain("NOW()");
+
+		await rm(outDir, { recursive: true, force: true });
+	});
+
 	it("generates manifest and client from schema file", async () => {
 		await rm(outDir, { recursive: true, force: true });
 

@@ -137,6 +137,10 @@ program
 				...(config.datasource.enum
 					? { enumMode: config.datasource.enum }
 					: {}),
+				...(config.datasource.provider
+					? { provider: config.datasource.provider }
+					: {}),
+				...(config.datasource.url ? { url: config.datasource.url } : {}),
 				...(dbSchema ? { schema: dbSchema } : {}),
 			},
 		);
@@ -285,6 +289,12 @@ program
 									: {}),
 								...(config.datasource.enum
 									? { enumMode: config.datasource.enum }
+									: {}),
+								...(config.datasource.provider
+									? { provider: config.datasource.provider }
+									: {}),
+								...(config.datasource.url
+									? { url: config.datasource.url }
 									: {}),
 								...(dbSchema ? { schema: dbSchema } : {}),
 							});

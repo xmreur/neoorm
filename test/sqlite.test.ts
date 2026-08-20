@@ -17,7 +17,7 @@ import { sqliteDialect } from "../src/dialect/sqlite.js";
 import type { Manifest } from "../src/dialect/types.js";
 import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest.js";
 import { dbPush } from "../src/migrate/runner.js";
-import { createNeoOrmClientFromSqlite } from "../src/runtime/client.js";
+import { createNeoOrmClientFromSqlite, createNeoOrmClient } from "../src/runtime/client.js";
 import type { InferSelectRow } from "../src/schema/types.js";
 import { sqliteClient, type SqliteDatabaseLike } from "../src/runtime/driver.js";
 
@@ -330,5 +330,22 @@ describe("sqlite runtime", () => {
 			}),
 		).rejects.toThrow(/distinct is not supported on SQLite/);
 		db.close();
+	});
+
+	it("uses sqlite when the manifest declares provider sqlite", async () => {
+		const client = createNeoOrmClient({
+			version: 1,
+			provider: "sqlite",
+			url: ":memory:",
+			tables: {},
+			manyToMany: [],
+		});
+		await client.execute({
+			text: "CREATE TABLE t (id TEXT PRIMARY KEY)",
+			params: [],
+		});
+		await client.sql`INSERT INTO t (id) VALUES (${"a"})`;
+		const rows = await client.sql`SELECT id FROM t`;
+		expect(rows).toEqual([{ id: "a" }]);
 	});
 });

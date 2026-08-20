@@ -80,6 +80,8 @@ export type ManifestTable = {
 
 export type Manifest = {
 	version: 1;
+	provider?: "postgresql" | "sqlite";
+	url?: string;
 	tables: Record<string, ManifestTable>;
 	manyToMany: ManifestManyToMany[];
 	extensions?: string[];

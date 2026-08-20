@@ -1,15 +1,42 @@
 import { builtinPlugin, citextPlugin } from "./builtin.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
-const pluginRegistry: NeoOrmPlugin[] = [];
-const columnTypeMap = new Map<string, ColumnTypePlugin>();
+// Plugin state lives on globalThis so every module instance (src vs dist, tsx
+// tsImport vs Node import) shares it — a schema module loaded through tsImport
+// evaluates its DSL imports in an isolated module graph, so module-local state
+// would never be visible to the codegen process reading it.
+const REGISTRY_KEY = Symbol.for("neoorm.pluginRegistry");
+const COLUMN_TYPES_KEY = Symbol.for("neoorm.columnTypeMap");
+const BUILTINS_KEY = Symbol.for("neoorm.builtinsRegistered");
 
-let builtinsRegistered = false;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type GlobalState = Record<PropertyKey, any>;
+
+function globalState(): GlobalState {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return globalThis as any;
+}
+
+function registry(): NeoOrmPlugin[] {
+	return (globalState()[REGISTRY_KEY] ??= []);
+}
+
+function columnTypeMap(): Map<string, ColumnTypePlugin> {
+	return (globalState()[COLUMN_TYPES_KEY] ??= new Map());
+}
+
+function builtinsRegistered(): boolean {
+	return globalState()[BUILTINS_KEY] === true;
+}
+
+function setBuiltinsRegistered(value: boolean): void {
+	globalState()[BUILTINS_KEY] = value;
+}
 
 function indexColumnTypes(plugin: NeoOrmPlugin, allowOverwrite = false): void {
 	for (const columnType of plugin.columnTypes) {
-		if (columnTypeMap.has(columnType.kind) && !allowOverwrite) {
-			const existing = columnTypeMap.get(columnType.kind);
+		if (columnTypeMap().has(columnType.kind) && !allowOverwrite) {
+			const existing = columnTypeMap().get(columnType.kind);
 			if (existing !== columnType) {
 				throw new Error(
 					`Duplicate column type kind registered: ${columnType.kind}`,
@@ -17,38 +44,38 @@ function indexColumnTypes(plugin: NeoOrmPlugin, allowOverwrite = false): void {
 			}
 			continue;
 		}
-		columnTypeMap.set(columnType.kind, columnType);
+		columnTypeMap().set(columnType.kind, columnType);
 	}
 }
 
 function ensureBuiltins(): void {
-	if (builtinsRegistered) return;
-	builtinsRegistered = true;
-	pluginRegistry.push(builtinPlugin);
+	if (builtinsRegistered()) return;
+	setBuiltinsRegistered(true);
+	registry().push(builtinPlugin);
 	indexColumnTypes(builtinPlugin, true);
-	pluginRegistry.push(citextPlugin);
+	registry().push(citextPlugin);
 	indexColumnTypes(citextPlugin, true);
 }
 
 export function registerPlugin(plugin: NeoOrmPlugin): void {
 	ensureBuiltins();
-	if (!pluginRegistry.some((p) => p.name === plugin.name)) {
-		pluginRegistry.push(plugin);
+	if (!registry().some((p) => p.name === plugin.name)) {
+		registry().push(plugin);
 	}
 	indexColumnTypes(plugin, true);
 }
 
 export function getPluginRegistry(): readonly NeoOrmPlugin[] {
 	ensureBuiltins();
-	return pluginRegistry;
+	return registry();
 }
 
 export function getColumnType(kind: string): ColumnTypePlugin | undefined {
 	ensureBuiltins();
 	if (kind === "fk") {
-		return columnTypeMap.get("text");
+		return columnTypeMap().get("text");
 	}
-	return columnTypeMap.get(kind);
+	return columnTypeMap().get(kind);
 }
 
 export function getColumnTypeOrThrow(kind: string): ColumnTypePlugin {
@@ -62,9 +89,9 @@ export function getColumnTypeOrThrow(kind: string): ColumnTypePlugin {
 }
 
 export function clearPluginRegistry(): void {
-	pluginRegistry.length = 0;
-	columnTypeMap.clear();
-	builtinsRegistered = false;
+	registry().length = 0;
+	columnTypeMap().clear();
+	setBuiltinsRegistered(false);
 }
 
 export function collectExtensions(plugins: readonly NeoOrmPlugin[]): string[] {
@@ -83,7 +110,7 @@ export function collectExtensionsForKinds(kinds: readonly string[]): string[] {
 
 	for (const kind of kinds) {
 		if (kind === "fk") continue;
-		for (const plugin of pluginRegistry) {
+		for (const plugin of registry()) {
 			if (
 				!plugin.columnTypes.some(
 					(columnType) => columnType.kind === kind,
@@ -105,7 +132,7 @@ export function findIntrospectColumnType(
 	udtName: string,
 ): ColumnTypePlugin | undefined {
 	ensureBuiltins();
-	for (const columnType of columnTypeMap.values()) {
+	for (const columnType of columnTypeMap().values()) {
 		if (columnType.introspect?.(pgDataType, udtName)) {
 			return columnType;
 		}
