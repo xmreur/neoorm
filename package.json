@@ -11,7 +11,7 @@
 		"url": "https://github.com/xmreur/neoorm/issues"
 	},
 	"homepage": "https://github.com/xmreur/neoorm#readme",
-	"packageManager": "pnpm@11.10.0",
+	"packageManager": "bun@1.3.14",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -79,7 +79,7 @@
 		"typecheck": "tsc -p tsconfig.json --noEmit",
 		"dev": "tsc -w -p tsconfig.build.json",
 		"test": "vitest run",
-		"prepublishOnly": "pnpm build && pnpm test"
+		"prepublishOnly": "bun run build && bun run test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.2",

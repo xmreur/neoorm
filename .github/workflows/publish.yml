@@ -15,28 +15,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 11.10.0
+          bun-version: 1.3.14
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - run: bun install --frozen-lockfile
 
       - name: Verify tag matches package.json version
         run: |
           TAG="${GITHUB_REF#refs/tags/v}"
-          VERSION=$(node -e "import pkg from './package.json' with { type: 'json' }; console.log(pkg.version)")
+          VERSION=$(bun -e "console.log(JSON.parse(await Bun.file('./package.json').text()).version)")
           if [ "$TAG" != "$VERSION" ]; then
             echo "Tag v${TAG} does not match package.json version ${VERSION}"
             exit 1
           fi
 
-      - run: pnpm build
-      - run: pnpm test
+      - run: bun run build
+      - run: bun run test
 
       # Trusted Publisher requires npm >= 11.5.1 and must NOT use NODE_AUTH_TOKEN
       - name: Upgrade npm for OIDC trusted publishing
