@@ -24,10 +24,23 @@ export default defineConfig({
 |-----|------|---------|-------------|
 | `schema` | `string` | required | Path to the schema file |
 | `out` | `string` | required | Output directory for generated files |
-| `datasource.provider` | `"postgresql"` | required | Database provider |
-| `datasource.url` | `string` | required | Database connection string |
-| `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries |
+| `datasource.provider` | `"postgresql" \| "sqlite"` | required | Database provider |
+| `datasource.url` | `string` | required | Connection string (PostgreSQL) or database file path / `:memory:` (SQLite) |
+| `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite: not applicable) |
 | `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
+
+### SQLite
+
+Set `provider: "sqlite"` and `url` to a file path or `":memory:"`:
+
+```ts
+datasource: {
+  provider: "sqlite",
+  url: "./dev.db",
+},
+```
+
+`datasource.schema` and `datasource.enum: "native"` are PostgreSQL-only and ignored on SQLite. See [SQLite](sqlite.md).
 
 ### Enum modes
 
@@ -35,4 +48,4 @@ export default defineConfig({
 |------|-----|----------------|
 | `check` (default) | `TEXT` + `CHECK (...)` | yes |
 | `union` | `TEXT` | no (TypeScript union only) |
-| `native` | Postgres `CREATE TYPE ... AS ENUM` | yes |
+| `native` | Postgres `CREATE TYPE ... AS ENUM` | yes (PostgreSQL only) |

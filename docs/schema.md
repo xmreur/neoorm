@@ -77,7 +77,9 @@ Control how enums are stored via `datasource.enum` in `neoorm.config.ts`:
 |------|-----|----------------|
 | `check` (default) | `TEXT` + `CHECK (...)` | yes |
 | `union` | `TEXT` | no (TypeScript union only) |
-| `native` | Postgres `CREATE TYPE ... AS ENUM` | yes |
+| `native` | Postgres `CREATE TYPE ... AS ENUM` | yes (PostgreSQL only) |
+
+On SQLite, `native` is not available — enums always use the `check` or `union` TEXT storage mode.
 
 Optional custom SQL type name for native mode: `enumType(["draft", "published"], { name: "post_status" })`.
 
@@ -115,6 +117,23 @@ items: table("items", {
 ```
 
 Omit `id` on insert — the database assigns it and `RETURNING` populates the result.
+
+On SQLite this compiles to `INTEGER PRIMARY KEY AUTOINCREMENT`.
+
+## SQLite type mapping
+
+The same schema DSL generates SQLite storage types:
+
+| Schema builder | SQLite storage |
+|----------------|----------------|
+| `text`, `id`, `uuid`, `json`, `jsonb`, `decimal`, `textArray`, `intArray`, `citext`, `enumType` | `TEXT` |
+| `int`, `serial` | `INTEGER` |
+| `serial().primary()` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
+| `bool` | `BOOLEAN` (0/1) |
+| `timestamp` | `TIMESTAMPTZ` (ISO-8601 text) |
+| `bytea` | `BLOB` |
+
+`defaultNow()` compiles to `CURRENT_TIMESTAMP`. See [SQLite](sqlite.md) for drivers and limitations.
 
 ## Custom SQL column names (`.map()`)
 

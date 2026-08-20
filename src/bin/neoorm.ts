@@ -215,7 +215,9 @@ program
 						},
 					);
 					console.log(
-						`✓ Database schema reset (${dbSchema ?? "public"} schema dropped and recreated)`,
+						config.datasource.provider === "sqlite"
+							? "✓ Database reset (all tables dropped and recreated)"
+							: `✓ Database schema reset (${dbSchema ?? "public"} schema dropped and recreated)`,
 					);
 					if (options.skipApply) {
 						console.log(

@@ -33,7 +33,7 @@ await db.$transaction(fn, {
 
 ## Nested transactions
 
-Uses PostgreSQL savepoints on the same connection. A nested failure rolls back only that block; the outer transaction can continue.
+Uses database savepoints on the same connection. A nested failure rolls back only that block; the outer transaction can continue.
 
 ```ts
 await db.$transaction(async (tx) => {
@@ -50,3 +50,5 @@ await db.$transaction(async (tx) => {
 ```
 
 Nested `create` calls inside a transaction do not start a separate transaction. `readOnly` and `isolationLevel` apply only to the outermost `BEGIN`.
+
+On SQLite, nested transactions use `SAVEPOINT`/`RELEASE`/`ROLLBACK TO SAVEPOINT`; `readOnly` and `isolationLevel` are rejected on nested transactions (mapped to `BEGIN`/`BEGIN IMMEDIATE`/`BEGIN DEFERRED` on the outer transaction).
