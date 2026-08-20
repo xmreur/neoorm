@@ -78,7 +78,7 @@ describe("config validation", () => {
 			await writeFile(join(dir, "package.json"), "{}\n");
 			await writeFile(
 				join(dir, "neoorm.config.ts"),
-				`import { defineConfig } from "neoorm";
+				`const defineConfig = <T,>(config: T): T => config;
 
 export default defineConfig({
   schema: "./schema.ts",
