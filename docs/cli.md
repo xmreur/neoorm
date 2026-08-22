@@ -8,17 +8,14 @@ Scaffold a new NeoOrm project.
 neoorm init [options]
 ```
 
-Creates `neoorm.config.ts`, `schema.ts`, `.env.example`, generates the client, and writes the first migration.
+Creates `neoorm.config.ts`, `schema.ts`, and `.env.example` only — no codegen or migrations. Run `neoorm migrate dev` afterwards to generate the client and first migration.
 
 Options:
 - `--provider <provider>` — `postgresql` (default) or `sqlite`. If omitted and running interactively, prompts to choose.
 - `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite)
 - `--schema <path>` — schema file path (default: `./schema.ts`)
 - `--out <dir>` — generated output directory (default: `./neoorm`)
-- `--skip-generate` — scaffold only, do not run initial `generate` (no migration/client generated)
 - `--force` — overwrite existing scaffold files
-
-When run without `--provider` in a TTY, `neoorm init` prompts for the provider and sets up `neoorm.config.ts` and `.env.example` automatically — no postgres migration is generated unless you chose postgres.
 
 ## `neoorm generate`
 

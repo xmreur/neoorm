@@ -141,6 +141,112 @@ function sqliteRows(result: Record<string, unknown>[]): DriverResult {
 	return { rows: result, rowCount: result.length };
 }
 
+function splitStatements(sql: string): string[] {
+	const statements: string[] = [];
+	let current = "";
+	let inSingle = false;
+	let inDouble = false;
+	let inLineComment = false;
+	let inBlockComment = false;
+
+	for (let i = 0; i < sql.length; i++) {
+		const ch = sql[i];
+		const next = sql[i + 1];
+
+		if (inLineComment) {
+			current += ch;
+			if (ch === "\n") inLineComment = false;
+			continue;
+		}
+		if (inBlockComment) {
+			current += ch;
+			if (ch === "*" && next === "/") {
+				current += next;
+				i++;
+				inBlockComment = false;
+			}
+			continue;
+		}
+		if (inSingle) {
+			current += ch;
+			if (ch === "'") {
+				if (next === "'") {
+					current += next;
+					i++;
+				} else {
+					inSingle = false;
+				}
+			}
+			continue;
+		}
+		if (inDouble) {
+			current += ch;
+			if (ch === '"') {
+				if (next === '"') {
+					current += next;
+					i++;
+				} else {
+					inDouble = false;
+				}
+			}
+			continue;
+		}
+		if (ch === "-" && next === "-") {
+			inLineComment = true;
+			current += ch;
+			continue;
+		}
+		if (ch === "/" && next === "*") {
+			inBlockComment = true;
+			current += ch;
+			continue;
+		}
+		if (ch === "'") {
+			inSingle = true;
+			current += ch;
+			continue;
+		}
+		if (ch === '"') {
+			inDouble = true;
+			current += ch;
+			continue;
+		}
+		if (ch === ";") {
+			if (current.trim().length > 0) {
+				statements.push(current.trim());
+			}
+			current = "";
+			continue;
+		}
+		current += ch;
+	}
+
+	if (current.trim().length > 0) {
+		statements.push(current.trim());
+	}
+
+	return statements.length > 0 ? statements : [sql];
+}
+
+async function executeWriteStatements(
+	db: SqliteDatabaseLike,
+	sql: string,
+): Promise<DriverResult> {
+	const statements = splitStatements(sql);
+	let changes = 0;
+
+	for (const statement of statements) {
+		try {
+			const result = db.prepare(statement).run();
+			changes += Number(result.changes);
+		} catch {
+			db.exec(statement);
+		}
+	}
+
+	return { rows: [], rowCount: changes };
+}
+
 export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 	db.exec("PRAGMA foreign_keys = ON");
 	const state = { txDepth: 0, savepointCounter: 0 };
@@ -177,16 +283,10 @@ export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 				return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
 			}
 
-			try {
-				const result = db.prepare(sql).run();
-				return {
-					rows: [],
-					rowCount: Number(result.changes),
-				} as DriverResult<T>;
-			} catch {
-				db.exec(sql);
-				return { rows: [], rowCount: 0 } as DriverResult<T>;
-			}
+			return (await executeWriteStatements(
+				db,
+				sql,
+			)) as DriverResult<T>;
 		},
 
 		async transaction<T>(

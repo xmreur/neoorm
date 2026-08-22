@@ -1,7 +1,5 @@
 import { access, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { generateFromSchema } from "../codegen/generate.js";
-import type { GenerateSummary } from "../codegen/generate-summary.js";
 import {
 	envExampleTemplate,
 	neoormConfigTemplate,
@@ -15,17 +13,13 @@ export type InitOptions = {
 	force?: boolean;
 	provider?: "postgresql" | "sqlite";
 	databaseUrl?: string;
-	skipGenerate?: boolean;
 };
 
 export type InitResult = {
 	written: string[];
 	skipped: string[];
-	migrationName: string | null;
 	outDir: string;
 	schemaPath: string;
-	summary: GenerateSummary;
-	warnings: string[];
 };
 
 const CONFIG_FILE = "neoorm.config.ts";
@@ -74,7 +68,6 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 	}
 
 	const provider = options.provider ?? "postgresql";
-	const databaseUrl = options.databaseUrl;
 
 	const written: string[] = [];
 	const skipped: string[] = [];
@@ -87,7 +80,12 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		{
 			path: configPath,
 			label: CONFIG_FILE,
-			content: neoormConfigTemplate(schemaRel, outRel, provider, databaseUrl),
+			content: neoormConfigTemplate(
+				schemaRel,
+				outRel,
+				provider,
+				options.databaseUrl,
+			),
 		},
 		{
 			path: schemaPath,
@@ -97,7 +95,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		{
 			path: envExamplePath,
 			label: ENV_EXAMPLE_FILE,
-			content: envExampleTemplate(provider, databaseUrl),
+			content: envExampleTemplate(provider, options.databaseUrl),
 		},
 	];
 
@@ -110,46 +108,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		written.push(file.label);
 	}
 
-	if (options.skipGenerate) {
-		const emptySummary = {
-			status: "unchanged" as const,
-			schemaChanged: false,
-			migrationName: null,
-			sqlStatementCount: 0,
-			reasons: ["Skipped initial generate (--skip-generate)"],
-			blocked: [],
-		};
-		return {
-			written,
-			skipped,
-			migrationName: null,
-			outDir,
-			schemaPath,
-			summary: emptySummary,
-			warnings: [],
-		};
-	}
-
-	const effectiveUrl =
-		databaseUrl ?? (provider === "sqlite" ? "./dev.db" : undefined);
-	const { migrationName, summary, warnings } = await generateFromSchema(
-		schemaPath,
-		outDir,
-		{
-			...(provider ? { provider } : {}),
-			...(effectiveUrl ? { url: effectiveUrl } : {}),
-		},
-	);
-
-	return {
-		written,
-		skipped,
-		migrationName,
-		outDir,
-		schemaPath,
-		summary,
-		warnings,
-	};
+	return { written, skipped, outDir, schemaPath };
 }
 
 export function formatInitNextSteps(
@@ -162,9 +121,8 @@ export function formatInitNextSteps(
 	return [
 		"Next steps:",
 		"  1. cp .env.example .env  # set DATABASE_URL",
-		"  2. neoorm migrate deploy",
-		"  3. neoorm migrate down   # roll back last migration in dev",
-		`  4. import { db } from "./${clientImport}"`,
+		"  2. neoorm migrate dev    # generate client + first migration and apply it",
+		`  3. import { db } from "./${clientImport}"`,
 		`     # schema: ${schemaImport}`,
 	];
 }

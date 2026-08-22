@@ -9,7 +9,6 @@ import {
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInit } from "../src/init/scaffold.js";
-import { atIndex } from "./helpers/manifest.js";
 
 const INIT_TMP_ROOT = join(process.cwd(), "test", ".tmp");
 
@@ -34,7 +33,7 @@ describe("neoorm init", () => {
 		await rm(tmpDir, { recursive: true, force: true });
 	});
 
-	it("writes scaffold files and generates client with initial migration", async () => {
+	it("writes scaffold files without generating migrations or codegen output", async () => {
 		const result = await runInit({ cwd: tmpDir });
 
 		expect(result.written).toEqual([
@@ -43,49 +42,11 @@ describe("neoorm init", () => {
 			".env.example",
 		]);
 		expect(result.skipped).toEqual([]);
-		expect(result.migrationName).not.toBeNull();
 
 		expect(await pathExists(join(tmpDir, "neoorm.config.ts"))).toBe(true);
 		expect(await pathExists(join(tmpDir, "schema.ts"))).toBe(true);
 		expect(await pathExists(join(tmpDir, ".env.example"))).toBe(true);
-		expect(await pathExists(join(tmpDir, "neoorm", "client.ts"))).toBe(
-			true,
-		);
-		expect(await pathExists(join(tmpDir, "neoorm", "manifest.ts"))).toBe(
-			true,
-		);
-		expect(await pathExists(join(tmpDir, "neoorm", "snapshot.json"))).toBe(
-			true,
-		);
-
-		const migrationsRoot = join(tmpDir, "neoorm", "migrations");
-		const migrationDirs = await readdir(migrationsRoot);
-		expect(migrationDirs.length).toBeGreaterThan(0);
-
-		const firstMigrationDir = atIndex(migrationDirs, 0);
-
-		const migrationSql = await readFile(
-			join(migrationsRoot, firstMigrationDir, "migration.sql"),
-			"utf-8",
-		);
-		expect(migrationSql).toContain('CREATE TABLE "users"');
-		expect(migrationSql).toContain('CREATE TABLE "posts"');
-
-		const downSql = await readFile(
-			join(migrationsRoot, firstMigrationDir, "down.sql"),
-			"utf-8",
-		);
-		expect(downSql).toContain("DROP TABLE");
-
-		const snapshotBefore = await readFile(
-			join(migrationsRoot, firstMigrationDir, "snapshot.before.json"),
-			"utf-8",
-		);
-		expect(JSON.parse(snapshotBefore)).toEqual({
-			version: 1,
-			tables: {},
-			manyToMany: [],
-		});
+		expect(await pathExists(join(tmpDir, "neoorm"))).toBe(false);
 
 		const config = await readFile(
 			join(tmpDir, "neoorm.config.ts"),
@@ -93,6 +54,7 @@ describe("neoorm init", () => {
 		);
 		expect(config).toContain('schema: "./schema.ts"');
 		expect(config).toContain('out: "./neoorm"');
+		expect(config).toContain('provider: "postgresql"');
 
 		const envExample = await readFile(
 			join(tmpDir, ".env.example"),
@@ -101,13 +63,30 @@ describe("neoorm init", () => {
 		expect(envExample).toContain("DATABASE_URL=");
 	});
 
+	it("scaffolds sqlite provider config and env when requested", async () => {
+		await runInit({ cwd: tmpDir, provider: "sqlite" });
+
+		const config = await readFile(
+			join(tmpDir, "neoorm.config.ts"),
+			"utf-8",
+		);
+		expect(config).toContain('provider: "sqlite"');
+		expect(config).toContain('"./dev.db"');
+
+		const envExample = await readFile(
+			join(tmpDir, ".env.example"),
+			"utf-8",
+		);
+		expect(envExample).toContain("DATABASE_URL=./dev.db");
+	});
+
 	it("fails when scaffold files already exist without --force", async () => {
 		await runInit({ cwd: tmpDir });
 
 		await expect(runInit({ cwd: tmpDir })).rejects.toThrow(/already exist/);
 	});
 
-	it("overwrites scaffold files with --force", async () => {
+	it("overwrites scaffold files with --force and still generates nothing", async () => {
 		await runInit({ cwd: tmpDir });
 
 		const result = await runInit({ cwd: tmpDir, force: true });
@@ -117,12 +96,6 @@ describe("neoorm init", () => {
 			"schema.ts",
 			".env.example",
 		]);
-		expect(await pathExists(join(tmpDir, "neoorm", "client.ts"))).toBe(
-			true,
-		);
-
-		const migrationsRoot = join(tmpDir, "neoorm", "migrations");
-		const migrationDirs = await readdir(migrationsRoot);
-		expect(migrationDirs.length).toBeGreaterThan(0);
+		expect(await pathExists(join(tmpDir, "neoorm"))).toBe(false);
 	});
 });

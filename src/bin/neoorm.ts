@@ -97,14 +97,13 @@ async function promptForProvider(): Promise<"postgresql" | "sqlite"> {
 program
 	.command("init")
 	.description(
-		"Scaffold neoorm.config.ts, schema.ts, .env.example, and run initial generate",
+		"Scaffold neoorm.config.ts, schema.ts, and .env.example (no codegen — run `neoorm migrate dev` after)",
 	)
 	.option("--force", "Overwrite existing scaffold files")
 	.option("--schema <path>", "Schema file path", "./schema.ts")
 	.option("--out <dir>", "Generated output directory", "./neoorm")
 	.option("--provider <provider>", "Database provider (postgresql|sqlite)")
 	.option("--database-url <url>", "Database URL / file path")
-	.option("--skip-generate", "Skip initial migration generation")
 	.action(
 		async (options: {
 			force?: boolean;
@@ -112,7 +111,6 @@ program
 			out: string;
 			provider?: string;
 			databaseUrl?: string;
-			skipGenerate?: boolean;
 		}) => {
 			const cwd = process.cwd();
 
@@ -140,7 +138,6 @@ program
 					...(options.databaseUrl
 						? { databaseUrl: options.databaseUrl }
 						: {}),
-					...(options.skipGenerate ? { skipGenerate: true } : {}),
 				});
 
 				if (result.written.length > 0) {
@@ -154,20 +151,6 @@ program
 					for (const file of result.skipped) {
 						console.log(`  - ${file}`);
 					}
-				}
-
-				if (options.skipGenerate) {
-					console.log("○ Skipped initial generate (--skip-generate)");
-				} else {
-					for (const line of formatGenerateSummary(
-						result.summary,
-						result.outDir,
-					)) {
-						console.log(line);
-					}
-				}
-				for (const warning of result.warnings) {
-					console.warn(`Warning: ${warning}`);
 				}
 
 				for (const line of formatInitNextSteps(
