@@ -13,6 +13,9 @@ export type InitOptions = {
 	schemaPath?: string;
 	outDir?: string;
 	force?: boolean;
+	provider?: "postgresql" | "sqlite";
+	databaseUrl?: string;
+	skipGenerate?: boolean;
 };
 
 export type InitResult = {
@@ -70,6 +73,9 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		);
 	}
 
+	const provider = options.provider ?? "postgresql";
+	const databaseUrl = options.databaseUrl;
+
 	const written: string[] = [];
 	const skipped: string[] = [];
 
@@ -81,7 +87,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		{
 			path: configPath,
 			label: CONFIG_FILE,
-			content: neoormConfigTemplate(schemaRel, outRel),
+			content: neoormConfigTemplate(schemaRel, outRel, provider, databaseUrl),
 		},
 		{
 			path: schemaPath,
@@ -91,7 +97,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		{
 			path: envExamplePath,
 			label: ENV_EXAMPLE_FILE,
-			content: envExampleTemplate(),
+			content: envExampleTemplate(provider, databaseUrl),
 		},
 	];
 
@@ -104,9 +110,35 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 		written.push(file.label);
 	}
 
+	if (options.skipGenerate) {
+		const emptySummary = {
+			status: "unchanged" as const,
+			schemaChanged: false,
+			migrationName: null,
+			sqlStatementCount: 0,
+			reasons: ["Skipped initial generate (--skip-generate)"],
+			blocked: [],
+		};
+		return {
+			written,
+			skipped,
+			migrationName: null,
+			outDir,
+			schemaPath,
+			summary: emptySummary,
+			warnings: [],
+		};
+	}
+
+	const effectiveUrl =
+		databaseUrl ?? (provider === "sqlite" ? "./dev.db" : undefined);
 	const { migrationName, summary, warnings } = await generateFromSchema(
 		schemaPath,
 		outDir,
+		{
+			...(provider ? { provider } : {}),
+			...(effectiveUrl ? { url: effectiveUrl } : {}),
+		},
 	);
 
 	return {

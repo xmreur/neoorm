@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createInterface } from "node:readline/promises";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
@@ -58,6 +59,41 @@ const program = new Command();
 
 program.name("neoorm").description("NeoOrm CLI").version(packageJson.version);
 
+function normalizeProvider(
+	input: string,
+): "postgresql" | "sqlite" | null {
+	const v = input.trim().toLowerCase();
+	if (v === "postgresql" || v === "postgres" || v === "pg") return "postgresql";
+	if (v === "sqlite") return "sqlite";
+	return null;
+}
+
+async function promptForProvider(): Promise<"postgresql" | "sqlite"> {
+	const rl = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+	try {
+		const answer = await rl.question(
+			"Database provider? (1) PostgreSQL  (2) SQLite [1]: ",
+		);
+		const trimmed = answer.trim().toLowerCase();
+		if (trimmed === "2" || trimmed === "sqlite") return "sqlite";
+		if (
+			trimmed === "" ||
+			trimmed === "1" ||
+			trimmed === "postgresql" ||
+			trimmed === "postgres" ||
+			trimmed === "pg"
+		)
+			return "postgresql";
+		console.log(`Unknown choice "${answer}", defaulting to PostgreSQL`);
+		return "postgresql";
+	} finally {
+		rl.close();
+	}
+}
+
 program
 	.command("init")
 	.description(
@@ -66,16 +102,45 @@ program
 	.option("--force", "Overwrite existing scaffold files")
 	.option("--schema <path>", "Schema file path", "./schema.ts")
 	.option("--out <dir>", "Generated output directory", "./neoorm")
+	.option("--provider <provider>", "Database provider (postgresql|sqlite)")
+	.option("--database-url <url>", "Database URL / file path")
+	.option("--skip-generate", "Skip initial migration generation")
 	.action(
-		async (options: { force?: boolean; schema: string; out: string }) => {
+		async (options: {
+			force?: boolean;
+			schema: string;
+			out: string;
+			provider?: string;
+			databaseUrl?: string;
+			skipGenerate?: boolean;
+		}) => {
 			const cwd = process.cwd();
 
 			try {
+				let provider: "postgresql" | "sqlite" | undefined;
+				if (options.provider) {
+					const normalized = normalizeProvider(options.provider);
+					if (!normalized) {
+						console.error(
+							`--provider must be one of: postgresql, sqlite (got "${options.provider}")`,
+						);
+						process.exit(1);
+					}
+					provider = normalized;
+				} else if (process.stdin.isTTY && process.stdout.isTTY) {
+					provider = await promptForProvider();
+				}
+
 				const result = await runInit({
 					cwd,
 					schemaPath: options.schema,
 					outDir: options.out,
 					...(options.force ? { force: true } : {}),
+					...(provider ? { provider } : {}),
+					...(options.databaseUrl
+						? { databaseUrl: options.databaseUrl }
+						: {}),
+					...(options.skipGenerate ? { skipGenerate: true } : {}),
 				});
 
 				if (result.written.length > 0) {
@@ -91,11 +156,15 @@ program
 					}
 				}
 
-				for (const line of formatGenerateSummary(
-					result.summary,
-					result.outDir,
-				)) {
-					console.log(line);
+				if (options.skipGenerate) {
+					console.log("○ Skipped initial generate (--skip-generate)");
+				} else {
+					for (const line of formatGenerateSummary(
+						result.summary,
+						result.outDir,
+					)) {
+						console.log(line);
+					}
 				}
 				for (const warning of result.warnings) {
 					console.warn(`Warning: ${warning}`);
