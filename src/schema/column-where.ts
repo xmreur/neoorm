@@ -5,8 +5,8 @@ import type { ColumnDef } from "./table.js";
 export type InferColumnValue<T> =
 	T extends ColumnBuilder<infer V, infer M>
 		? M extends { nullable: false }
-			? V
-			: V | null
+			? NonNullable<V>
+			: V
 		: T extends FkBuilder
 			? T["_meta"] extends { nullable: false }
 				? string

@@ -316,6 +316,14 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				? primaryKey
 				: columns.filter((c) => c.primary).map((c) => c.sqlName);
 
+		if (pk.length === 0) {
+			throw new Error(
+				`Table "${tableDef._tableName}" has no primary key. ` +
+					"Add a primary key column (e.g. `id: uuid().primary()`) " +
+					"or define a composite key with `primaryKey(t.colA, t.colB)` in the table's extras callback.",
+			);
+		}
+
 		manifestTables[accessor] = {
 			accessor,
 			sqlName: tableDef._tableName,

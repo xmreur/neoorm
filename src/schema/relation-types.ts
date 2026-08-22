@@ -104,6 +104,9 @@ export type CursorInput<
 /** Expands mapped types so IDEs surface keys for autocomplete */
 type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
+/** Contributes no properties (avoids leaking a `[x: string]: never` index signature) */
+type EmptyObject = Record<never, never>;
+
 /** Merge a union of relation maps into one object (avoids unknown from UnionToIntersection). */
 type MergeRelationUnion<U> = {
 	[K in U extends unknown ? keyof U : never]?: U extends {
@@ -461,7 +464,7 @@ type InferNestedWithResult<
 	? ApplySelect<TModel, S> &
 			(NW extends Record<string, unknown>
 				? InferWithRelations<TSchema, TTargetAccessor, NW>
-				: Record<string, never>)
+				: EmptyObject)
 	: TModel;
 
 export type InferRelationIncludeResult<
@@ -474,10 +477,13 @@ export type InferRelationIncludeResult<
 		RelationTarget<TSchema, TAccessor, TRelation> & keyof TSchema & string
 	>,
 > = TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string
-	? RelationAccessors<
-			TSchema,
-			TAccessor
-		>[TRelation] extends infer TTarget extends keyof TSchema & string
+	? [
+			NonNullable<RelationAccessors<TSchema, TAccessor>[TRelation]>,
+		] extends [never]
+		? never
+		: NonNullable<
+				RelationAccessors<TSchema, TAccessor>[TRelation]
+			> extends infer TTarget extends keyof TSchema & string
 		? TInclude extends {
 				select?: unknown;
 				with?: unknown;
@@ -521,8 +527,13 @@ type InferWithRelations<
 				TSchema,
 				RelationTarget<TSchema, TAccessor, R> & keyof TSchema & string
 		  >
-		? RelationAccessors<TSchema, TAccessor>[R] extends infer TTarget extends
-				keyof TSchema & string
+		? [
+				NonNullable<RelationAccessors<TSchema, TAccessor>[R]>,
+			] extends [never]
+			? never
+			: NonNullable<
+					RelationAccessors<TSchema, TAccessor>[R]
+				> extends infer TTarget extends keyof TSchema & string
 			? InferRelationIncludeResult<
 					TSchema,
 					TAccessor,
@@ -545,8 +556,8 @@ type InferCountResult<
 > = W extends { _count: infer C }
 	? C extends Record<string, unknown>
 		? { _count: { [K in keyof C & string]: number } }
-		: Record<string, never>
-	: Record<string, never>;
+		: EmptyObject
+	: EmptyObject;
 
 export type InferWithResult<
 	TSchema extends Record<string, TableDef>,

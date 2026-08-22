@@ -266,3 +266,19 @@ describe("manifest-driven primary keys", () => {
 		expect(updateSql?.sql).toContain('WHERE "member_id" IN');
 	});
 });
+
+describe("primary key validation", () => {
+	it("rejects schemas where a table has no primary key", () => {
+		const invalid = defineSchema({
+			members: table("members", {
+				role: text().notNull(),
+			}),
+		});
+
+		expect(() => schemaToManifest(invalid)).toThrow(/no primary key/);
+	});
+
+	it("accepts composite primary keys via primaryKey()", () => {
+		expect(() => schemaToManifest(compositePkSchema)).not.toThrow();
+	});
+});
