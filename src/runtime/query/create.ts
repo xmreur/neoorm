@@ -109,6 +109,7 @@ export async function runCreate(
 	);
 
 	const needsFullReturning = args.returnCreated || args.with;
+	const hasPrimaryKey = table.primaryKey.length > 0;
 	const needsPkReturning =
 		relationWrites.length > 0 ||
 		hasPostRelationWrites(table, manifest, tableAccessor, relationWrites);
@@ -117,6 +118,9 @@ export async function runCreate(
 	let returning: InsertReturning;
 	if (needsFullReturning) {
 		returning = "full";
+	} else if (!hasPrimaryKey) {
+		// "pk" is impossible without a primary key; a plain insert suffices.
+		returning = "none";
 	} else if (!pkKnown || needsPkReturning) {
 		returning = "pk";
 	} else {
@@ -167,7 +171,15 @@ export async function runCreate(
 		result = mapRowToTs(tableIndex, table, row);
 	}
 
-	const recordId = rowScalarPkValue({ ...scalarData, ...result }, table);
+	if (!hasPrimaryKey && relationWrites.length > 0) {
+		throw new Error(
+			`Cannot perform nested relation writes on table "${table.accessor}" because it has no primary key.`,
+		);
+	}
+
+	const recordId = hasPrimaryKey
+		? rowScalarPkValue({ ...scalarData, ...result }, table)
+		: "";
 
 	await executeRelationWrites(
 		executor,

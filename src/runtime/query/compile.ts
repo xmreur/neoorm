@@ -1125,6 +1125,21 @@ LIMIT 1`;
 
 export type InsertReturning = "full" | "pk" | "none";
 
+/**
+ * "pk" returning is impossible for tables without a primary key: the column
+ * list would be empty, producing a dangling `RETURNING` clause that databases
+ * reject. Fall back to returning the full row instead.
+ */
+export function resolveReturning<T extends InsertReturning>(
+	table: ManifestTable,
+	returning: T,
+): T {
+	if (returning === "pk" && table.primaryKey.length === 0) {
+		return "full" as T;
+	}
+	return returning;
+}
+
 export function buildInsertQuery(
 	table: ManifestTable,
 	dataKeys: string[],
@@ -1151,8 +1166,9 @@ export function buildInsertQuery(
 	let sql = `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders})`;
 	if (returning === "none") return sql;
 
+	const effectiveReturning = resolveReturning(table, returning);
 	const returningCols =
-		returning === "full"
+		effectiveReturning === "full"
 			? buildSelectColumns(table, undefined, manifestIndex)
 			: buildReturningPkColumns(table, manifestIndex);
 	return `${sql} RETURNING ${returningCols}`;
@@ -1256,8 +1272,9 @@ export function buildUpdateQuery(
 	}
 	if (returning === "none") return sql;
 
+	const effectiveReturning = resolveReturning(table, returning);
 	const returningCols =
-		returning === "full"
+		effectiveReturning === "full"
 			? buildSelectColumns(table, undefined, manifestIndex)
 			: buildReturningPkColumns(table, manifestIndex);
 	return `${sql} RETURNING ${returningCols}`;
@@ -1282,8 +1299,9 @@ export function buildDeleteQuery(
 	returning: "full" | "pk",
 	manifestIndex?: ManifestIndex,
 ): string {
+	const effectiveReturning = resolveReturning(table, returning);
 	const selectCols =
-		returning === "full"
+		effectiveReturning === "full"
 			? buildSelectColumns(table, undefined, manifestIndex)
 			: buildReturningPkColumns(table, manifestIndex);
 	let sql = `DELETE FROM ${tableRef(table)}`;

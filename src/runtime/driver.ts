@@ -251,6 +251,37 @@ export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 	db.exec("PRAGMA foreign_keys = ON");
 	const state = { txDepth: 0, savepointCounter: 0 };
 
+	// A single SQLite connection is shared by every query on this client.
+	// Interleaved async transactions would otherwise merge into one physical
+	// transaction: a concurrent caller's `ROLLBACK TO SAVEPOINT` can undo
+	// another transaction's in-flight writes (they execute after the
+	// savepoint), silently corrupting the first transaction. Serializing
+	// top-level transactions through a FIFO gate gives each exclusive access;
+	// nested transactions use savepoints and bypass the queue.
+	let txGate: Promise<unknown> = Promise.resolve();
+
+	const runTopLevelTransaction = async <T>(
+		fn: (client: DatabaseClient) => Promise<T>,
+		options?: TransactionOptions,
+	): Promise<T> => {
+		db.exec(buildSqliteBeginSql(options));
+		try {
+			state.txDepth++;
+			const result = await fn(client);
+			db.exec("COMMIT");
+			return result;
+		} catch (err) {
+			try {
+				db.exec("ROLLBACK");
+			} catch {
+				// e.g. the failed COMMIT already rolled back; never mask err.
+			}
+			throw err;
+		} finally {
+			state.txDepth--;
+		}
+	};
+
 	const client: DatabaseClient = {
 		async query<T = Record<string, unknown>>(
 			text: string,
@@ -319,18 +350,15 @@ export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 				}
 			}
 
-			db.exec(buildSqliteBeginSql(options));
-			try {
-				state.txDepth++;
-				const result = await fn(client);
-				db.exec("COMMIT");
-				return result;
-			} catch (err) {
-				db.exec("ROLLBACK");
-				throw err;
-			} finally {
-				state.txDepth--;
-			}
+			const gated = txGate.then(
+				() => runTopLevelTransaction(fn, options),
+				() => runTopLevelTransaction(fn, options),
+			);
+			txGate = gated.then(
+				() => undefined,
+				() => undefined,
+			);
+			return gated;
 		},
 
 		async close(): Promise<void> {
