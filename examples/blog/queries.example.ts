@@ -7,6 +7,10 @@ import { db } from "./neoorm/client.js";
 export async function exampleQueries() {
 	const users = await db.users.findMany();
 
+	const _emailTaken = await db.users.exists({
+		where: { email: "a@b.com" },
+	});
+
 	const _userEmails = await db.users.findMany({
 		select: { id: true, email: true },
 		with: { posts: { select: { title: true } } },

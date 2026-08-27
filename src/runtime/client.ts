@@ -1,9 +1,15 @@
 import { Pool } from "pg";
+import {
+	applySchemaToManifest,
+	postgresDialect,
+	resolvePgSchemaName,
+} from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
-import { applySchemaToManifest, postgresDialect, resolvePgSchemaName } from "../dialect/postgres.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
+import type { DatabaseClient, SqliteDatabaseLike } from "./driver.js";
+import { pgClient, sqliteClient } from "./driver.js";
 import {
 	compileQuery,
 	createExecutor,
@@ -11,27 +17,22 @@ import {
 	type Executor,
 } from "./executor.js";
 import { aggregateRecords } from "./query/aggregate.js";
-import { countRecords, findUnique } from "./query/count.js";
+import type { OrderByInput } from "./query/compile.js";
+import { countRecords, existsRecords, findUnique } from "./query/count.js";
 import {
 	createManyAndReturnRecords,
 	createManyRecords,
 	createRecord,
 } from "./query/create.js";
 import { deleteById, deleteManyRecords, deleteRecord } from "./query/delete.js";
-import { buildManifestIndex } from "./query/table-index.js";
-import { runQuery, type QueryRuntime } from "./query/execute.js";
+import { type QueryRuntime, runQuery } from "./query/execute.js";
 import type { WithInput } from "./query/find.js";
-import type { OrderByInput } from "./query/compile.js";
 import { findById, findFirst, findMany } from "./query/find.js";
-import { paginateRecords } from "./query/paginate.js";
-import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
 import { findOrCreateRecord } from "./query/find-or-create.js";
+import { paginateRecords } from "./query/paginate.js";
+import { buildManifestIndex } from "./query/table-index.js";
+import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
 import { upsertRecord } from "./query/upsert.js";
-import type {
-	DatabaseClient,
-	SqliteDatabaseLike,
-} from "./driver.js";
-import { pgClient, sqliteClient } from "./driver.js";
 import { openSqliteDatabase } from "./sqlite-open.js";
 import type {
 	DefaultRowPayloadMap,
@@ -134,6 +135,7 @@ export type TableRepository = {
 	}): Promise<Record<string, unknown> | null>;
 	deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
 	count(args?: { where?: Record<string, unknown> }): Promise<number>;
+	exists(args?: { where?: Record<string, unknown> }): Promise<boolean>;
 	aggregate(args: {
 		where?: Record<string, unknown>;
 		_count?: true;
@@ -142,7 +144,9 @@ export type TableRepository = {
 		_min?: Record<string, true>;
 		_max?: Record<string, true>;
 	}): Promise<Record<string, unknown>>;
-	deleteById(id: string | Record<string, unknown>): Promise<Record<string, unknown> | null>;
+	deleteById(
+		id: string | Record<string, unknown>,
+	): Promise<Record<string, unknown> | null>;
 	paginate(args: {
 		where?: Record<string, unknown>;
 		orderBy: Record<string, string>;
@@ -203,6 +207,7 @@ function createTableRepository(
 		deleteMany: (args) =>
 			deleteManyRecords(executor, runtime, accessor, args),
 		count: (args) => countRecords(executor, runtime, accessor, args),
+		exists: (args) => existsRecords(executor, runtime, accessor, args),
 		aggregate: (args) =>
 			aggregateRecords(executor, runtime, accessor, args),
 		deleteById: (id) => deleteById(executor, runtime, accessor, id),
@@ -362,9 +367,7 @@ export function createNeoOrmClient<
 	}
 
 	const url =
-		options.connectionString ??
-		process.env["DATABASE_URL"] ??
-		manifest.url;
+		options.connectionString ?? process.env["DATABASE_URL"] ?? manifest.url;
 	if (!url) {
 		throw new Error("DATABASE_URL is required");
 	}

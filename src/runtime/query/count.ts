@@ -1,6 +1,11 @@
 import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
-import { buildCountQuery, compileWhere } from "./compile.js";
+import {
+	buildCountQuery,
+	buildExistsQuery,
+	compileWhere,
+	isImpossibleWhere,
+} from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findFirst, type WithInput } from "./find.js";
 import { getTableIndex } from "./table-index.js";
@@ -19,8 +24,6 @@ export async function countRecords(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-
 	const { sql: whereSql, params } = compileWhere(
 		manifest,
 		table,
@@ -38,6 +41,42 @@ export async function countRecords(
 		params,
 	);
 	return row?.count ?? 0;
+}
+
+export async function existsRecords(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	args?: {
+		where?: Record<string, unknown>;
+	},
+): Promise<boolean> {
+	const dialect = runtime.dialect ?? postgresDialect;
+	const { manifest } = runtime;
+	const table = manifest.tables[tableAccessor];
+	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const compiled = compileWhere(
+		manifest,
+		table,
+		args?.where,
+		dialect,
+		1,
+		runtime.tableIndex,
+	);
+	if (compiled.impossible || isImpossibleWhere(compiled.sql)) {
+		return false;
+	}
+
+	const query = buildExistsQuery(table, compiled.sql);
+	const row = await runQueryOne(
+		executor,
+		runtime,
+		{ operation: "select", tableAccessor },
+		query,
+		compiled.params,
+	);
+	return row != null;
 }
 
 export async function findUnique(

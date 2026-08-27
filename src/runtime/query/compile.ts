@@ -980,6 +980,16 @@ export function buildCountQuery(
 	return sql;
 }
 
+export function buildExistsQuery(
+	table: ManifestTable,
+	whereSql: string,
+): string {
+	let sql = `SELECT 1 FROM ${tableRef(table)}`;
+	if (whereSql) sql += ` ${whereSql}`;
+	sql += " LIMIT 1";
+	return sql;
+}
+
 export type AggregateSelectors = {
 	_count?: true;
 	_avg?: Record<string, true>;

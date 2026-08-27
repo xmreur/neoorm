@@ -214,6 +214,11 @@ export type CountArgs<
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
 
+export type ExistsArgs<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = CountArgs<TSchema, TAccessor>;
+
 type AggregateFieldSelect<TColumns extends Record<string, ColumnDef>> = Expand<{
 	[K in keyof TColumns & string]?: true;
 }>;
