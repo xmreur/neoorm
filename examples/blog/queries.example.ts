@@ -57,7 +57,9 @@ export async function exampleQueries() {
 				},
 			},
 			comments: {
-				orderBy: { createdAt: "asc" },
+				where: { body: { contains: "sql" } },
+				orderBy: { createdAt: "desc" },
+				take: 5,
 				with: {
 					author: {
 						select: { id: true, name: true },

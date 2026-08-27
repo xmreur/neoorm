@@ -19,6 +19,7 @@ import {
 	normalizeSelectColumns,
 	type OrderByInput,
 	orderByShapeKey,
+	whereShapeKey,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
@@ -36,11 +37,44 @@ export type RelationCountSpec = true | { where?: Record<string, unknown> };
 
 export type InlineRelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
+	where?: Record<string, unknown>;
 	orderBy?: OrderByInput;
 	take?: number;
 	skip?: number;
 	with?: Record<string, WithInput>;
 };
+
+type ExtraSqlBuild = {
+	nextParamIndex: number;
+	params: unknown[];
+};
+
+function appendNestedWhereSql(
+	sql: string,
+	build: ExtraSqlBuild,
+	manifest: Manifest,
+	table: ManifestTable,
+	where: Record<string, unknown> | undefined,
+	dialect: Dialect,
+	manifestIndex?: ManifestIndex,
+	tableAlias?: string,
+): string {
+	if (!where || Object.keys(where).length === 0) return sql;
+	const compiled = compileWhere(
+		manifest,
+		table,
+		where,
+		dialect,
+		build.nextParamIndex,
+		manifestIndex,
+		false,
+		tableAlias,
+	);
+	if (!compiled.sql) return sql;
+	build.params.push(...compiled.params);
+	build.nextParamIndex += compiled.params.length;
+	return `${sql} AND ${compiled.sql.replace(/^WHERE\s+/i, "")}`;
+}
 
 export type InlineChainNode = {
 	relationName: string;
@@ -317,6 +351,7 @@ function canHasManyAggregate(
 	if (spec?.orderBy) return false;
 	if (spec?.take !== undefined) return false;
 	if (spec?.skip !== undefined) return false;
+	if (spec?.where !== undefined) return false;
 
 	return true;
 }
@@ -466,6 +501,8 @@ function buildToOneScalarSubquery(
 	parentRowAlias: string,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	manifest?: Manifest,
+	extra?: ExtraSqlBuild,
 ): string {
 	const { relation, targetTable } = node;
 	const targetAlias = `${parentRowAlias}_rel`;
@@ -485,7 +522,21 @@ function buildToOneScalarSubquery(
 	const selectList = refs.join(", ");
 	const outerRefs = cols.map((col) => `sub.${quoteIdentifier(col.sqlName)}`);
 
-	return `(SELECT ${dialect.rowToJsonObject(cols, outerRefs, "sub")} FROM (SELECT ${selectList} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} = ${quoteIdentifier(parentRowAlias)}.${parentFkCol} LIMIT 1) sub)`;
+	let innerWhere = `${quoteIdentifier(targetAlias)}.${targetPkCol} = ${quoteIdentifier(parentRowAlias)}.${parentFkCol}`;
+	if (extra && manifest && node.nestedSpec?.where) {
+		innerWhere = appendNestedWhereSql(
+			innerWhere,
+			extra,
+			manifest,
+			targetTable,
+			node.nestedSpec.where,
+			dialect,
+			manifestIndex,
+			targetAlias,
+		);
+	}
+
+	return `(SELECT ${dialect.rowToJsonObject(cols, outerRefs, "sub")} FROM (SELECT ${selectList} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${innerWhere} LIMIT 1) sub)`;
 }
 
 function buildHasManyRowExpression(
@@ -493,6 +544,8 @@ function buildHasManyRowExpression(
 	rowAlias: string,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	manifest?: Manifest,
+	extra?: ExtraSqlBuild,
 ): string {
 	if (node.child) {
 		const cols = columnsForInlineSelect(
@@ -510,6 +563,8 @@ function buildHasManyRowExpression(
 			node.targetTable,
 			dialect,
 			manifestIndex,
+			manifest,
+			extra,
 		);
 		entries.push(`'${node.child.relationName}', ${nested}`);
 		return dialect.jsonBuildObjectExpr(entries);
@@ -536,6 +591,8 @@ function buildHasManySubqueryFromRef(
 	parentCorrelationRef: string,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	manifest?: Manifest,
+	extra?: ExtraSqlBuild,
 ): string {
 	const childAlias = `_r_${node.relationName}`;
 	const fkCol = quoteIdentifier(node.relation.fkSqlColumn);
@@ -544,9 +601,24 @@ function buildHasManySubqueryFromRef(
 		childAlias,
 		dialect,
 		manifestIndex,
+		manifest,
+		extra,
 	);
 
 	let sql = `(SELECT ${dialect.jsonAggExpr("agg_row")} FROM (SELECT ${rowExpr} AS agg_row FROM ${tableRef(node.targetTable)} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
+
+	if (extra && manifest && node.nestedSpec?.where) {
+		sql = appendNestedWhereSql(
+			sql,
+			extra,
+			manifest,
+			node.targetTable,
+			node.nestedSpec.where,
+			dialect,
+			manifestIndex,
+			childAlias,
+		);
+	}
 
 	if (node.nestedSpec?.orderBy) {
 		sql += ` ${compileOrderBy(
@@ -572,6 +644,8 @@ function buildChildAggregationExpr(
 	parentTable: ManifestTable,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	manifest?: Manifest,
+	extra?: ExtraSqlBuild,
 ): string {
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	if (
@@ -583,6 +657,8 @@ function buildChildAggregationExpr(
 			parentRowAlias,
 			dialect,
 			manifestIndex,
+			manifest,
+			extra,
 		);
 	}
 
@@ -597,6 +673,8 @@ function buildChildAggregationExpr(
 			parentRef,
 			dialect,
 			manifestIndex,
+			manifest,
+			extra,
 		);
 	}
 
@@ -610,6 +688,8 @@ export function buildInlineJsonAggSelectCol(
 	chain: InlineChainNode,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	manifest?: Manifest,
+	extra?: ExtraSqlBuild,
 ): string {
 	const parentRef = parentPkRef(parentTable);
 	const subquery = buildHasManySubqueryFromRef(
@@ -618,6 +698,8 @@ export function buildInlineJsonAggSelectCol(
 		parentRef,
 		dialect,
 		manifestIndex,
+		manifest,
+		extra,
 	);
 	const alias = quoteIdentifier(
 		inlineRelationColumnAlias(chain.relationName),
@@ -632,6 +714,7 @@ export function buildInlineCountSelectCol(
 	spec: RelationCountSpec,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	extra?: ExtraSqlBuild,
 ): string {
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	const relation = findRelation(parentTable, relationName, parentTableIndex);
@@ -649,8 +732,19 @@ export function buildInlineCountSelectCol(
 	const fkCol = quoteIdentifier(relation.fkSqlColumn);
 	const whereFilter = typeof spec === "object" ? spec.where : undefined;
 
-	let extraWhere = "";
-	if (whereFilter) {
+	let extraWhere = `WHERE ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}`;
+	if (extra && whereFilter) {
+		extraWhere = appendNestedWhereSql(
+			extraWhere,
+			extra,
+			manifest,
+			targetTable,
+			whereFilter,
+			dialect,
+			manifestIndex,
+			targetAlias,
+		);
+	} else if (whereFilter && !extra) {
 		const compiled = compileWhere(
 			manifest,
 			targetTable,
@@ -658,14 +752,15 @@ export function buildInlineCountSelectCol(
 			dialect,
 			1,
 			manifestIndex,
+			false,
+			targetAlias,
 		);
 		if (compiled.sql) {
-			const adjusted = compiled.sql.replace(/^WHERE\s+/i, "");
-			extraWhere = ` AND ${adjusted}`;
+			extraWhere += ` AND ${compiled.sql.replace(/^WHERE\s+/i, "")}`;
 		}
 	}
 
-	const subquery = `(SELECT ${dialect.castToInt("COUNT(*)")} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}${extraWhere})`;
+	const subquery = `(SELECT ${dialect.castToInt("COUNT(*)")} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} ${extraWhere})`;
 	const alias = quoteIdentifier(inlineCountColumnAlias(relationName));
 	return `${subquery} AS ${alias}`;
 }
@@ -723,7 +818,8 @@ export function planRelationLoad(
 			relation?.cardinality === "one" &&
 			tableOwnsFkColumn(parentTable, relation, parentTableIndex) &&
 			!findM2M(manifest, parentTable.accessor, relationName) &&
-			!toInlineSpec(withInput)?.with
+			!toInlineSpec(withInput)?.with &&
+			toInlineSpec(withInput)?.where === undefined
 		) {
 			joinCandidates[relationName] = withInput;
 			continue;
@@ -977,13 +1073,22 @@ export function buildPlanExtraSelectCols(
 	plan: RelationLoadPlan,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
-): string[] {
+	startParamIndex = 1,
+): { cols: string[]; params: unknown[] } {
+	const extra: ExtraSqlBuild = {
+		nextParamIndex: startParamIndex,
+		params: [],
+	};
+
 	if (plan.countAggregate) {
-		return [...plan.countAggregate.selectCols];
+		return { cols: [...plan.countAggregate.selectCols], params: [] };
 	}
 
 	if (plan.hasManyAggregate) {
-		return [...plan.joinSelectCols, ...plan.hasManyAggregate.selectCols];
+		return {
+			cols: [...plan.joinSelectCols, ...plan.hasManyAggregate.selectCols],
+			params: [],
+		};
 	}
 
 	const cols = [...plan.joinSelectCols];
@@ -994,6 +1099,8 @@ export function buildPlanExtraSelectCols(
 				inline.chain,
 				dialect,
 				manifestIndex,
+				manifest,
+				extra,
 			),
 		);
 	}
@@ -1006,10 +1113,11 @@ export function buildPlanExtraSelectCols(
 				countPlan.spec,
 				dialect,
 				manifestIndex,
+				extra,
 			),
 		);
 	}
-	return cols;
+	return { cols, params: extra.params };
 }
 
 export function buildAggregateGroupBy(plan: RelationLoadPlan): string {
@@ -1103,11 +1211,32 @@ export function withShapeSignature(
 			continue;
 		}
 		if (typeof input === "object" && input !== null) {
+			if (name === "_count") {
+				const countBits = Object.entries(
+					input as Record<string, unknown>,
+				)
+					.sort(([a], [b]) => a.localeCompare(b))
+					.map(([rel, spec]) => {
+						if (
+							spec &&
+							typeof spec === "object" &&
+							"where" in spec &&
+							spec.where &&
+							typeof spec.where === "object"
+						) {
+							return `${rel}:w${whereShapeKey(spec.where as Record<string, unknown>)}`;
+						}
+						return rel;
+					});
+				parts.push(`_count:${countBits.join(",")}`);
+				continue;
+			}
 			const spec = input as InlineRelationSpec;
 			const bits = [name];
 			if (spec.take !== undefined) bits.push(`t${spec.take}`);
 			if (spec.skip !== undefined) bits.push(`k${spec.skip}`);
 			if (spec.orderBy) bits.push(`o${orderByShapeKey(spec.orderBy)}`);
+			if (spec.where) bits.push(`f${whereShapeKey(spec.where)}`);
 			const selectKeys = normalizeSelectColumns(spec.select);
 			if (selectKeys && selectKeys.length > 0) {
 				bits.push(`s${[...selectKeys].sort().join(",")}`);
@@ -1194,9 +1323,10 @@ export function getCachedFindByIdWithQuery(
 			plan,
 			dialect,
 			manifestIndex,
+			2,
 		);
 		let sql = `SELECT ${selectCols}`;
-		if (extraCols.length > 0) sql += `, ${extraCols.join(", ")}`;
+		if (extraCols.cols.length > 0) sql += `, ${extraCols.cols.join(", ")}`;
 		sql += ` FROM ${tableRef(table)}`;
 		if (joinClauses) sql += ` ${joinClauses.join(" ")}`;
 		sql += ` WHERE ${tableRef(table)}.${pkCol} = $1`;

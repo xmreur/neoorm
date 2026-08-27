@@ -97,21 +97,22 @@ export async function paginateRecords(
 		dialect,
 		runtime.tableIndex,
 	);
-	const extraSelectCols = args.with
+	const extraSelect = args.with
 		? buildPlanExtraSelectCols(
 				manifest,
 				table,
 				plan,
 				dialect,
 				runtime.tableIndex,
+				params.length + 1,
 			)
-		: [];
+		: { cols: [] as string[], params: [] as unknown[] };
 	const query = buildPaginateQuery(
 		table,
 		whereSql,
 		orderSql,
 		args.take,
-		extraSelectCols.length > 0 ? extraSelectCols : undefined,
+		extraSelect.cols.length > 0 ? extraSelect.cols : undefined,
 		plan.joins.length > 0 ? plan.joins : undefined,
 		runtime.tableIndex,
 	);
@@ -121,7 +122,7 @@ export async function paginateRecords(
 		runtime,
 		{ operation: "select", tableAccessor },
 		query,
-		params,
+		[...params, ...extraSelect.params],
 	);
 	const extra = rows.length > args.take;
 	const sliced = extra ? rows.slice(0, args.take) : rows;

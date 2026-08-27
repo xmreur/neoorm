@@ -471,14 +471,18 @@ export function compileWhere(
 	startParamIndex = 1,
 	manifestIndex?: ManifestIndex,
 	qualifyColumns = false,
+	tableAlias?: string,
 ): WhereClause {
 	if (!where || Object.keys(where).length === 0) {
 		return { sql: "", params: [] };
 	}
 
-	const columnRef = qualifyColumns
-		? qualifiedColumnRefForTable(table)
-		: defaultColumnRef;
+	const columnRef = tableAlias
+		? (col: ManifestColumn) =>
+				`${quoteIdentifier(tableAlias)}.${quoteIdentifier(col.sqlName)}`
+		: qualifyColumns
+			? qualifiedColumnRefForTable(table)
+			: defaultColumnRef;
 
 	const result = compileWhereNode(
 		manifest,
@@ -497,7 +501,7 @@ export function compileWhere(
 	};
 }
 
-function whereShapeKey(where: Record<string, unknown>): string {
+export function whereShapeKey(where: Record<string, unknown>): string {
 	const parts: string[] = [];
 	for (const [key, value] of Object.entries(where)) {
 		if (key === "AND" && Array.isArray(value)) {

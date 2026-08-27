@@ -157,15 +157,15 @@ describe("eager loading batching", () => {
 						id: "post_1",
 						title: "Post A",
 						author_id: "user_1",
-						"__author__id": "user_1",
-						"__author__name": "Alice",
+						__author__id: "user_1",
+						__author__name: "Alice",
 					},
 					{
 						id: "post_2",
 						title: "Post B",
 						author_id: "user_2",
-						"__author__id": "user_2",
-						"__author__name": "Bob",
+						__author__id: "user_2",
+						__author__name: "Bob",
 					},
 				];
 			},
@@ -204,8 +204,8 @@ describe("eager loading batching", () => {
 						id: "post_1",
 						title: "Post A",
 						author_id: "user_1",
-						"__author__id": "user_1",
-						"__author__name": "Alice",
+						__author__id: "user_1",
+						__author__name: "Alice",
 						__neoorm_comments: [
 							{
 								id: "comment_1",
@@ -219,8 +219,8 @@ describe("eager loading batching", () => {
 						id: "post_2",
 						title: "Post B",
 						author_id: "user_2",
-						"__author__id": "user_2",
-						"__author__name": "Bob",
+						__author__id: "user_2",
+						__author__name: "Bob",
 						__neoorm_comments: [],
 					},
 				];
@@ -252,8 +252,8 @@ describe("eager loading batching", () => {
 						id: "post_1",
 						title: "Post A",
 						author_id: null,
-						"__author__id": null,
-						"__author__name": null,
+						__author__id: null,
+						__author__name: null,
 					},
 				];
 			},
@@ -281,9 +281,7 @@ describe("eager loading batching", () => {
 					];
 				}
 				if (sql.includes("users") && sql.includes("IN")) {
-					return [
-						{ id: "user_1", name: "Alice" },
-					];
+					return [{ id: "user_1", name: "Alice" }];
 				}
 				return [];
 			},
@@ -381,7 +379,11 @@ describe("eager loading batching", () => {
 						id: "user_1",
 						name: "Alice",
 						__neoorm_posts: [
-							{ id: "post_1", title: "Post A", author_id: "user_1" },
+							{
+								id: "post_1",
+								title: "Post A",
+								author_id: "user_1",
+							},
 						],
 					},
 				];
@@ -484,5 +486,136 @@ describe("eager loading batching", () => {
 
 		expect(executor.queries[0]?.sql).toContain("ORDER BY COUNT(");
 		expect(executor.queries[0]?.sql).toContain("DESC");
+	});
+
+	it("passes _count where params through the main query", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("COUNT(*)");
+				expect(sql).toContain("_cnt_comments");
+				expect(sql).toContain('"body"');
+				expect(sql).not.toContain("GROUP BY");
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: "user_1",
+						__neoorm_count_comments: 1,
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { _count: { comments: { where: { body: "First" } } } },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.params).toEqual(["First"]);
+		expect(rows[0]?._count).toEqual({ comments: 1 });
+	});
+
+	it("filters inlined has-many includes with where + take", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("json_agg");
+				expect(sql).toContain('"_r_comments"');
+				expect(sql).toContain('"body"');
+				expect(sql).toContain("LIMIT 5");
+				expect(sql).toContain("ORDER BY");
+				expect(sql).not.toContain("GROUP BY");
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: "user_1",
+						__neoorm_comments: [
+							{
+								id: "comment_1",
+								post_id: "post_1",
+								author_id: "user_1",
+								body: "First",
+							},
+						],
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			where: { title: "Post A" },
+			with: {
+				comments: {
+					where: { body: "First" },
+					orderBy: { body: "desc" },
+					take: 5,
+				},
+			},
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.params).toEqual(["Post A", "First"]);
+		expect(rows[0]?.comments).toEqual([
+			{
+				id: "comment_1",
+				postId: "post_1",
+				authorId: "user_1",
+				body: "First",
+			},
+		]);
+	});
+
+	it("batches to-one includes with where and returns null on miss", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				if (sql.includes('"posts"') && !sql.includes('"users"')) {
+					expect(sql).not.toContain("LEFT JOIN");
+					return [
+						{
+							id: "post_1",
+							title: "Post A",
+							author_id: "user_1",
+						},
+					];
+				}
+				if (sql.includes('"users"')) {
+					expect(sql).toContain('"name"');
+					return [];
+				}
+				return [];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { author: { where: { name: "Nobody" } } },
+		});
+
+		expect(executor.queries).toHaveLength(2);
+		expect(executor.queries[1]?.params).toEqual(["user_1", "Nobody"]);
+		expect(rows[0]?.author).toBeNull();
+	});
+
+	it("treats empty in:[] nested where as no matching children", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("1=0");
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: "user_1",
+						__neoorm_comments: null,
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "posts", {
+			with: { comments: { where: { id: { in: [] } } } },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.params).toEqual([]);
+		expect(rows[0]?.comments).toEqual([]);
 	});
 });

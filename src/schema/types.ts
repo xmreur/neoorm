@@ -88,6 +88,7 @@ export type WithInput =
 	| boolean
 	| {
 			select?: readonly string[];
+			where?: Record<string, unknown>;
 			orderBy?: Record<string, OrderDirection>;
 			take?: number;
 			skip?: number;
