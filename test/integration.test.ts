@@ -6,11 +6,11 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
-import { defined } from "./helpers/manifest.js";
 import {
 	getManyToManyRegistry,
 	manyToMany,
 } from "../src/schema/many-to-many.js";
+import { defined } from "./helpers/manifest.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
 
@@ -620,7 +620,9 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		expect(page1.items).toHaveLength(2);
 		expect(page1.hasMore).toBe(true);
+		expect(page1.hasPrevious).toBe(false);
 		expect(page1.nextCursor).not.toBeNull();
+		expect(page1.prevCursor).toBeNull();
 
 		const page1Cursor = defined(page1.nextCursor, "page1.nextCursor");
 		const page2 = await db.posts.paginate({
@@ -631,9 +633,18 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		expect(page2.items).toHaveLength(2);
+		expect(page2.hasPrevious).toBe(true);
 		const page1Ids = page1.items.map((post) => post["id"]);
 		const page2Ids = page2.items.map((post) => post["id"]);
 		expect(page1Ids.some((id) => page2Ids.includes(id))).toBe(false);
+
+		const pageBack = await db.posts.paginate({
+			where: { title: { startsWith: prefix } },
+			orderBy: { createdAt: "desc" },
+			take: 2,
+			before: defined(page2.prevCursor, "page2.prevCursor"),
+		});
+		expect(pageBack.items.map((post) => post["id"])).toEqual(page1Ids);
 
 		const page2Cursor = defined(page2.nextCursor, "page2.nextCursor");
 		const page3 = await db.posts.paginate({

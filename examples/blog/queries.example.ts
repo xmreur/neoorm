@@ -78,6 +78,13 @@ export async function exampleQueries() {
 	});
 	feedCursor = feedPage.nextCursor;
 
+	const _newerPage = await db.posts.paginate({
+		where: { published: true },
+		orderBy: { createdAt: "desc" },
+		take: 20,
+		...(feedPage.prevCursor ? { before: feedPage.prevCursor } : {}),
+	});
+
 	// Filter by enum status and decimal price (stored as string)
 	const premiumPosts = await db.posts.findMany({
 		where: {

@@ -1,5 +1,9 @@
 import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
-import type { Dialect, ManifestColumn, ManifestTable } from "../../dialect/types.js";
+import type {
+	Dialect,
+	ManifestColumn,
+	ManifestTable,
+} from "../../dialect/types.js";
 import { serializeColumnValue } from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
@@ -53,8 +57,11 @@ export function resolveOrderSpec(
 		);
 	}
 
-	const { tsName: pkTsName, sqlName: pkSqlName } =
-		requireScalarPrimaryKey(table, "cursorPaginate", tableIndex);
+	const { tsName: pkTsName, sqlName: pkSqlName } = requireScalarPrimaryKey(
+		table,
+		"cursorPaginate",
+		tableIndex,
+	);
 	if (!specs.some((spec) => spec.tsName === pkTsName)) {
 		const pkCol = columnByTsName(tableIndex, table, pkTsName);
 		if (!pkCol) {
@@ -86,11 +93,32 @@ export function compileOrderByFromSpec(orderSpec: OrderKeySpec[]): string {
 	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
 }
 
+export function flipOrderSpec(orderSpec: OrderKeySpec[]): OrderKeySpec[] {
+	return orderSpec.map((key) => ({
+		...key,
+		direction: key.direction === "desc" ? "asc" : "desc",
+	}));
+}
+
+function invertTupleOperator(operator: "<" | ">"): "<" | ">" {
+	switch (operator) {
+		case "<":
+			return ">";
+		case ">":
+			return "<";
+		default: {
+			const _exhaustive: never = operator;
+			return _exhaustive;
+		}
+	}
+}
+
 export function compileCursorWhere(
 	orderSpec: OrderKeySpec[],
 	cursor: Record<string, unknown>,
 	startParamIndex = 1,
 	dialect: Dialect = postgresDialect,
+	bound: "after" | "before" = "after",
 ): { sql: string; params: unknown[] } {
 	for (const key of orderSpec) {
 		if (!(key.tsName in cursor)) {
@@ -106,7 +134,9 @@ export function compileCursorWhere(
 		throw new Error("orderSpec must not be empty");
 	}
 	const direction = firstSpec.direction;
-	const operator = direction === "desc" ? "<" : ">";
+	const afterOperator = direction === "desc" ? "<" : ">";
+	const operator =
+		bound === "before" ? invertTupleOperator(afterOperator) : afterOperator;
 	const colRefs = orderSpec
 		.map((key) => quoteIdentifier(key.sqlName))
 		.join(", ");

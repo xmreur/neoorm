@@ -1,5 +1,18 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
+import type { Manifest } from "../src/dialect/types.js";
+import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest.js";
+import { dbPush } from "../src/migrate/runner.js";
+import {
+	createNeoOrmClient,
+	createNeoOrmClientFromSqlite,
+} from "../src/runtime/client.js";
+import {
+	type SqliteDatabaseLike,
+	sqliteClient,
+} from "../src/runtime/driver.js";
 import {
 	defineSchema,
 	fk,
@@ -12,14 +25,7 @@ import {
 	text,
 } from "../src/schema/index.js";
 import { getManyToManyRegistry } from "../src/schema/many-to-many.js";
-import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { sqliteDialect } from "../src/dialect/sqlite.js";
-import type { Manifest } from "../src/dialect/types.js";
-import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest.js";
-import { dbPush } from "../src/migrate/runner.js";
-import { createNeoOrmClientFromSqlite, createNeoOrmClient } from "../src/runtime/client.js";
 import type { InferSelectRow } from "../src/schema/types.js";
-import { sqliteClient, type SqliteDatabaseLike } from "../src/runtime/driver.js";
 
 const schema = defineSchema({
 	users: table("users", {
@@ -201,42 +207,59 @@ describe("sqlite runtime", () => {
 			data: { tags: { connect: [{ id: tag["id"] }] } },
 		});
 
-		const withPosts = (await orm.users.findById({ id: author["id"] }, {
-			with: { posts: true },
-		})) as Record<string, any> | null;
-		expect(withPosts?.["posts"]?.map((p: { title: string }) => p.title)).toEqual([
-			"one",
-			"two",
-		]);
+		const withPosts = (await orm.users.findById(
+			{ id: author["id"] },
+			{
+				with: { posts: true },
+			},
+		)) as Record<string, any> | null;
+		expect(
+			withPosts?.["posts"]?.map((p: { title: string }) => p.title),
+		).toEqual(["one", "two"]);
 
-		const withAuthor = await orm.posts.findById({ id: p1["id"] }, {
-			with: { author: true },
-		});
+		const withAuthor = await orm.posts.findById(
+			{ id: p1["id"] },
+			{
+				with: { author: true },
+			},
+		);
 		expect(withAuthor?.["author"]?.["name"]).toBe("author");
 
-		const nested = (await orm.users.findById({ id: author["id"] }, {
-			with: { posts: { with: { author: true } } },
-		})) as Record<string, any> | null;
+		const nested = (await orm.users.findById(
+			{ id: author["id"] },
+			{
+				with: { posts: { with: { author: true } } },
+			},
+		)) as Record<string, any> | null;
 		expect(
-			(nested?.["posts"]?.[0] as { author: { name: string } })?.author?.name,
+			(nested?.["posts"]?.[0] as { author: { name: string } })?.author
+				?.name,
 		).toBe("author");
 
-		const withTags = (await orm.posts.findById({ id: p1["id"] }, {
-			with: { tags: true },
-		})) as Record<string, any> | null;
-		expect(withTags?.["tags"]?.map((t: { slug: string }) => t.slug)).toEqual([
-			"ts",
-		]);
+		const withTags = (await orm.posts.findById(
+			{ id: p1["id"] },
+			{
+				with: { tags: true },
+			},
+		)) as Record<string, any> | null;
 		expect(
-			(withTags?.["tags"]?.[0] as Record<string, unknown>)?.["_parent_id"],
+			withTags?.["tags"]?.map((t: { slug: string }) => t.slug),
+		).toEqual(["ts"]);
+		expect(
+			(withTags?.["tags"]?.[0] as Record<string, unknown>)?.[
+				"_parent_id"
+			],
 		).toBeUndefined();
 
-		const inverse = (await orm.tags.findById({ id: tag["id"] }, {
-			with: { posts: true },
-		})) as Record<string, any> | null;
-		expect(inverse?.["posts"]?.map((p: { title: string }) => p.title)).toEqual([
-			"one",
-		]);
+		const inverse = (await orm.tags.findById(
+			{ id: tag["id"] },
+			{
+				with: { posts: true },
+			},
+		)) as Record<string, any> | null;
+		expect(
+			inverse?.["posts"]?.map((p: { title: string }) => p.title),
+		).toEqual(["one"]);
 		db.close();
 	});
 
@@ -248,18 +271,33 @@ describe("sqlite runtime", () => {
 
 		expect(await orm.users.count()).toBe(2);
 
-		const agg = await orm.users.aggregate({ _count: true, _avg: { age: true } });
+		const agg = await orm.users.aggregate({
+			_count: true,
+			_avg: { age: true },
+		});
 		expect(agg["_count"]).toBe(2);
 		expect(agg["_avg"]?.["age"]).toBe(15);
 
-		const page1 = await orm.users.paginate({ orderBy: { id: "asc" }, take: 1 });
+		const page1 = await orm.users.paginate({
+			orderBy: { id: "asc" },
+			take: 1,
+		});
 		expect(page1.items.map((u: { id: number }) => u["id"])).toEqual([1]);
+		expect(page1.hasPrevious).toBe(false);
+		expect(page1.prevCursor).toBeNull();
 		const page2 = await orm.users.paginate({
 			orderBy: { id: "asc" },
 			take: 1,
 			...(page1.nextCursor ? { after: page1.nextCursor } : {}),
 		});
 		expect(page2.items.map((u: { id: number }) => u["id"])).toEqual([2]);
+		expect(page2.hasPrevious).toBe(true);
+		const pageBack = await orm.users.paginate({
+			orderBy: { id: "asc" },
+			take: 1,
+			...(page2.prevCursor ? { before: page2.prevCursor } : {}),
+		});
+		expect(pageBack.items.map((u: { id: number }) => u["id"])).toEqual([1]);
 		db.close();
 	});
 
@@ -307,7 +345,9 @@ describe("sqlite runtime", () => {
 		let threw = false;
 		try {
 			await orm.$transaction(async (t) => {
-				await t.users.create({ data: { email: "r@x", name: "rollback" } });
+				await t.users.create({
+					data: { email: "r@x", name: "rollback" },
+				});
 				throw new Error("boom");
 			});
 		} catch {
