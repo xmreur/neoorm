@@ -13,7 +13,11 @@ const item = await db.items.findById({ tenantId: "t1", itemCode: "c1" });
 const user = await db.users.findFirst({ where: { email: "a@b.com" } });
 
 // All matching
-const users = await db.users.findMany({ where: { published: true } });
+const users = await db.users.findMany({
+  where: { published: true },
+  take: 20,
+  skip: 40,
+});
 
 // Unique constraint lookup
 const user = await db.users.findUnique({ where: { slug: "hello" } });
@@ -270,7 +274,7 @@ const users = await db.users.findMany({
 
 ## Cursor pagination
 
-For feeds, infinite scroll, and large tables, use `paginate` instead of `limit`/`offset`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker.
+For feeds, infinite scroll, and large tables, use `paginate` instead of `take`/`skip`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker.
 
 ```ts
 let cursor: { createdAt: string; id: string } | null = null;

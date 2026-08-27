@@ -40,7 +40,8 @@ function emitRelationIncludeType(
   | {
       select?: ${selectType(columns)};
       orderBy?: ${orderByType(columns)};
-      limit?: number;
+      take?: number;
+      skip?: number;
       with?: ${nestedWith};
     };`;
 }

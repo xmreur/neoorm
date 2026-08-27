@@ -9,9 +9,9 @@ import {
 } from "./compile.js";
 import { runCreate } from "./create.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
-import { getTableIndex } from "./table-index.js";
 import { findMany, loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
+import { getTableIndex } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 
 export type FindOrCreateResult = {
@@ -143,7 +143,7 @@ async function findOrCreateSqlite(
 
 	const existing = await findMany(executor, runtime, tableAccessor, {
 		where: args.where,
-		limit: 1,
+		take: 1,
 	});
 	if (existing.length > 0) {
 		const existingRow = existing[0];
@@ -161,7 +161,7 @@ async function findOrCreateSqlite(
 	} catch {
 		const retry = await findMany(executor, runtime, tableAccessor, {
 			where: args.where,
-			limit: 1,
+			take: 1,
 		});
 		if (retry.length > 0) {
 			const retryRow = retry[0];

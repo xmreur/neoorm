@@ -2,9 +2,8 @@ import { defineSchema, id, table, text } from "neoorm/schema";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { postgresDialect } from "../src/dialect/postgres.js";
-import { buildFindManyQuery } from "../src/runtime/query/compile.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
+import { buildFindManyQuery } from "../src/runtime/query/compile.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -16,8 +15,8 @@ const schema = defineSchema({
 });
 const manifest = schemaToManifest(schema);
 
-describe("limit/offset interpolation", () => {
-	it("rejects non-integer and negative limit/offset at compile time", () => {
+describe("take/skip interpolation", () => {
+	it("rejects non-integer and negative take/skip at compile time", () => {
 		const table = manifest.tables.users!;
 		const benign = buildFindManyQuery(
 			table,
@@ -45,7 +44,7 @@ describe("limit/offset interpolation", () => {
 				undefined,
 				undefined,
 			),
-		).toThrow(/limit must be a non-negative integer/);
+		).toThrow(/take must be a non-negative integer/);
 
 		expect(() =>
 			buildFindManyQuery(
@@ -59,7 +58,7 @@ describe("limit/offset interpolation", () => {
 				undefined,
 				undefined,
 			),
-		).toThrow(/offset must be a non-negative integer/);
+		).toThrow(/skip must be a non-negative integer/);
 
 		expect(() =>
 			buildFindManyQuery(
@@ -73,11 +72,11 @@ describe("limit/offset interpolation", () => {
 				undefined,
 				undefined,
 			),
-		).toThrow(/limit must be a non-negative integer/);
+		).toThrow(/take must be a non-negative integer/);
 	});
 });
 
-describe.skipIf(!databaseUrl)("limit/offset injection (integration)", () => {
+describe.skipIf(!databaseUrl)("take/skip injection (integration)", () => {
 	let pool: Pool;
 
 	beforeAll(async () => {
@@ -101,19 +100,19 @@ describe.skipIf(!databaseUrl)("limit/offset injection (integration)", () => {
 		await pool.end();
 	});
 
-	it("blocks arbitrary statement execution via a string limit", async () => {
+	it("blocks arbitrary statement execution via a string take", async () => {
 		const db = createNeoOrmClientFromPool<typeof schema._tables>(
 			manifest,
 			pool,
 		);
 
-		const valid = await db.users.findMany({ limit: 2 });
+		const valid = await db.users.findMany({ take: 2 });
 		expect(valid.map((r) => r["id"])).toHaveLength(2);
 
 		await expect(
 			db.users.findMany({
-				limit: "1; SELECT pg_sleep(1); --" as unknown as number,
+				take: "1; SELECT pg_sleep(1); --" as unknown as number,
 			}),
-		).rejects.toThrow(/limit must be a non-negative integer/);
+		).rejects.toThrow(/take must be a non-negative integer/);
 	});
 });
