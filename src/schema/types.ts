@@ -6,6 +6,7 @@ import type {
 	CursorInput,
 	InferInsertRow,
 	InferSelectRow,
+	OmitInput,
 	OrderByInput,
 	OrderDirection,
 	RelationCreateMap,
@@ -40,15 +41,18 @@ export type {
 	WhereOperators,
 } from "./column-where.js";
 export type {
+	ApplyOmit,
 	ApplySelect,
 	ConnectInput,
 	ConnectOrCreateItem,
 	CursorInput,
+	InferFindResult,
 	InferInsertRow,
 	InferSelectRow,
 	InferWithResult,
 	LogicalWhereInput,
 	ManyRelationFilter,
+	OmitInput,
 	OrderByInput,
 	OrderDirection,
 	RelationAccessors,
@@ -102,6 +106,8 @@ export type FindManyArgs<
 	limit?: number;
 	offset?: number;
 	distinct?: SelectInput<TSchema[TAccessor]["_columns"]>;
+	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
+	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 
@@ -114,6 +120,8 @@ export type FindByIdArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
+	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
+	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 
@@ -194,6 +202,8 @@ export type FindUniqueArgs<
 	TAccessor extends keyof TSchema & string,
 > = {
 	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
+	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 

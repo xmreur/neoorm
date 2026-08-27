@@ -366,6 +366,10 @@ export type SelectInput<TColumns extends Record<string, ColumnDef>> =
 	| readonly ColumnNames<TColumns>[]
 	| Expand<{ [K in ColumnNames<TColumns>]?: true }>;
 
+/** Column omit — same shape as SelectInput (`true` means drop the field) */
+export type OmitInput<TColumns extends Record<string, ColumnDef>> =
+	SelectInput<TColumns>;
+
 /** Options for a single relation include (select, orderBy, limit, nested with) */
 export type WithRelationOptions<
 	TSchema extends Record<string, TableDef>,
@@ -447,6 +451,11 @@ export type ApplySelect<Row extends Record<string, unknown>, S> = Pick<
 	SelectKeys<S> & keyof Row
 >;
 
+export type ApplyOmit<Row extends Record<string, unknown>, O> = Omit<
+	Row,
+	SelectKeys<O> & keyof Row
+>;
+
 type RelationTargetModel<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
@@ -477,31 +486,31 @@ export type InferRelationIncludeResult<
 		RelationTarget<TSchema, TAccessor, TRelation> & keyof TSchema & string
 	>,
 > = TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string
-	? [
-			NonNullable<RelationAccessors<TSchema, TAccessor>[TRelation]>,
-		] extends [never]
+	? [NonNullable<RelationAccessors<TSchema, TAccessor>[TRelation]>] extends [
+			never,
+		]
 		? never
 		: NonNullable<
-				RelationAccessors<TSchema, TAccessor>[TRelation]
-			> extends infer TTarget extends keyof TSchema & string
-		? TInclude extends {
-				select?: unknown;
-				with?: unknown;
-				orderBy?: unknown;
-				limit?: unknown;
-			}
-			? InferNestedWithResult<
-					TSchema,
-					TTarget,
-					TInclude,
-					RelationTargetModel<TSchema, TTarget>
-				>
-			: TInclude extends true
-				? RelationTargetModel<TSchema, TTarget>
-				: TInclude extends false | undefined
-					? never
-					: RelationTargetModel<TSchema, TTarget>
-		: never
+					RelationAccessors<TSchema, TAccessor>[TRelation]
+				> extends infer TTarget extends keyof TSchema & string
+			? TInclude extends {
+					select?: unknown;
+					with?: unknown;
+					orderBy?: unknown;
+					limit?: unknown;
+				}
+				? InferNestedWithResult<
+						TSchema,
+						TTarget,
+						TInclude,
+						RelationTargetModel<TSchema, TTarget>
+					>
+				: TInclude extends true
+					? RelationTargetModel<TSchema, TTarget>
+					: TInclude extends false | undefined
+						? never
+						: RelationTargetModel<TSchema, TTarget>
+			: never
 	: never;
 
 type IsManyRelation<
@@ -519,19 +528,11 @@ type InferWithRelations<
 	TAccessor extends keyof TSchema & string,
 	W,
 > = {
-	[R in keyof W &
-		keyof RelationAccessors<TSchema, TAccessor> &
-		string]: W[R] extends
-		| boolean
-		| WithRelationOptions<
-				TSchema,
-				RelationTarget<TSchema, TAccessor, R> & keyof TSchema & string
-		  >
-		? [
-				NonNullable<RelationAccessors<TSchema, TAccessor>[R]>,
-			] extends [never]
-			? never
-			: NonNullable<
+	[R in keyof W & keyof RelationAccessors<TSchema, TAccessor> & string]: [
+		NonNullable<RelationAccessors<TSchema, TAccessor>[R]>,
+	] extends [never]
+		? never
+		: NonNullable<
 					RelationAccessors<TSchema, TAccessor>[R]
 				> extends infer TTarget extends keyof TSchema & string
 			? InferRelationIncludeResult<
@@ -541,12 +542,13 @@ type InferWithRelations<
 					W[R],
 					RelationTargetModel<TSchema, TTarget>
 				> extends infer Row
-				? IsManyRelation<TSchema, TAccessor, R> extends true
-					? Row[]
-					: Row | null
+				? [Row] extends [never]
+					? never
+					: IsManyRelation<TSchema, TAccessor, R> extends true
+						? Row[]
+						: Row | null
 				: never
-			: never
-		: never;
+			: never;
 };
 
 type InferCountResult<
@@ -573,6 +575,24 @@ export type InferWithResult<
 				InferWithRelations<TSchema, TAccessor, W> &
 				InferCountResult<TSchema, TAccessor, W>
 		>;
+
+/** Parent `select`/`omit` plus `with` relations. `never` if both select and omit are set. */
+export type InferFindResult<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	W,
+	S = undefined,
+	O = undefined,
+	TBase extends Record<string, unknown> = InferSelectRow<
+		TSchema[TAccessor]["_columns"]
+	>,
+> = [S] extends [undefined]
+	? [O] extends [undefined]
+		? InferWithResult<TSchema, TAccessor, W, TBase>
+		: InferWithResult<TSchema, TAccessor, W, ApplyOmit<TBase, O>>
+	: [O] extends [undefined]
+		? InferWithResult<TSchema, TAccessor, W, ApplySelect<TBase, S>>
+		: never;
 
 export type ManyRelationFilter<
 	TSchema extends Record<string, TableDef>,

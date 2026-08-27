@@ -7,6 +7,15 @@ import { db } from "./neoorm/client.js";
 export async function exampleQueries() {
 	const users = await db.users.findMany();
 
+	const _userEmails = await db.users.findMany({
+		select: { id: true, email: true },
+		with: { posts: { select: { title: true } } },
+	});
+
+	const _publicUser = await db.users.findById("user_1", {
+		omit: { createdAt: true, updatedAt: true },
+	});
+
 	const user = await db.users.findById("user_1", {
 		with: {
 			profile: true,

@@ -245,7 +245,21 @@ const posts = await db.posts.findMany({
 
 ### Selective return types
 
-Relation `select` narrows the TypeScript return type at compile time:
+Root `select` and `omit` project the parent row. Relation shapes still come from `with` (including nested `select`). `select` and `omit` cannot be used together.
+
+```ts
+const users = await db.users.findMany({
+  select: { id: true, email: true },
+  with: { posts: { select: { title: true } } },
+});
+// { id, email, posts: Array<{ title }> }
+
+const publicUsers = await db.users.findMany({
+  omit: { createdAt: true, updatedAt: true },
+});
+```
+
+Nested relation `select` also narrows the TypeScript return type:
 
 ```ts
 const users = await db.users.findMany({

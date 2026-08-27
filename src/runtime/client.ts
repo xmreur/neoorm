@@ -64,20 +64,30 @@ export type TableRepository = {
 		limit?: number;
 		offset?: number;
 		distinct?: readonly string[] | Record<string, boolean | undefined>;
+		select?: readonly string[] | Record<string, boolean | undefined>;
+		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
 	}): Promise<Record<string, unknown>[]>;
 	findFirst(args?: {
 		where?: Record<string, unknown>;
 		orderBy?: OrderByInput;
+		select?: readonly string[] | Record<string, boolean | undefined>;
+		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
 	}): Promise<Record<string, unknown> | null>;
 	findUnique(args: {
 		where: Record<string, unknown>;
+		select?: readonly string[] | Record<string, boolean | undefined>;
+		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
 	}): Promise<Record<string, unknown> | null>;
 	findById(
 		id: string | Record<string, unknown>,
-		args?: { with?: Record<string, WithInput> },
+		args?: {
+			select?: readonly string[] | Record<string, boolean | undefined>;
+			omit?: readonly string[] | Record<string, boolean | undefined>;
+			with?: Record<string, WithInput>;
+		},
 	): Promise<Record<string, unknown> | null>;
 	create(args: {
 		data: Record<string, unknown>;

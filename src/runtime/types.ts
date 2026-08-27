@@ -13,11 +13,14 @@ import type {
 	FindOrCreateResult,
 	FindUniqueArgs,
 	InferAggregateResult,
+	InferFindResult,
 	InferWithResult,
+	OmitInput,
 	OrderByInput,
 	PaginateArgs,
 	PaginateResult,
 	ScalarPkName,
+	SelectInput,
 	UpdateArgs,
 	UpdateInput,
 	UpdateManyArgs,
@@ -40,26 +43,38 @@ export type FindManyArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = Omit<FindManyArgs<TSchema, TAccessor>, "with"> & {
+	TSelect = undefined,
+	TOmit = undefined,
+> = Omit<FindManyArgs<TSchema, TAccessor>, "with" | "select" | "omit"> & {
 	with?: TWith;
+	select?: TSelect;
+	omit?: TOmit;
 };
 
 export type FindFirstArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = FindManyArgsWith<TSchema, TAccessor, TWith>;
+	TSelect = undefined,
+	TOmit = undefined,
+> = FindManyArgsWith<TSchema, TAccessor, TWith, TSelect, TOmit>;
 
-export type FindByIdArgsWith<TWith> = {
+export type FindByIdArgsWith<TWith, TSelect = undefined, TOmit = undefined> = {
 	with?: TWith;
+	select?: TSelect;
+	omit?: TOmit;
 };
 
 export type FindUniqueArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = Omit<FindUniqueArgs<TSchema, TAccessor>, "with"> & {
+	TSelect = undefined,
+	TOmit = undefined,
+> = Omit<FindUniqueArgs<TSchema, TAccessor>, "with" | "select" | "omit"> & {
 	with?: TWith;
+	select?: TSelect;
+	omit?: TOmit;
 };
 
 export type CountArgsWith<
@@ -162,19 +177,74 @@ export type TypedTableRepository<
 		unknown
 	> = DefaultRowPayloadMap<TSchema>[TAccessor],
 > = {
-	findMany<W extends TWith | undefined = undefined>(
-		args?: FindManyArgsWith<TSchema, TAccessor, W>,
-	): Promise<Array<InferWithResult<TSchema, TAccessor, W, TRowPayload>>>;
-	findFirst<W extends TWith | undefined = undefined>(
-		args?: FindFirstArgsWith<TSchema, TAccessor, W>,
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
-	findUnique<W extends TWith | undefined = undefined>(
-		args: FindUniqueArgsWith<TSchema, TAccessor, W>,
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
-	findById<W extends TWith | undefined = undefined>(
+	findMany<
+		W extends TWith | undefined = undefined,
+		const S extends
+			| SelectInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+	>(
+		args?: FindManyArgsWith<TSchema, TAccessor, W, S, O>,
+	): Promise<
+		Array<InferFindResult<TSchema, TAccessor, W, S, O, TRowPayload>>
+	>;
+	findFirst<
+		W extends TWith | undefined = undefined,
+		const S extends
+			| SelectInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+	>(
+		args?: FindFirstArgsWith<TSchema, TAccessor, W, S, O>,
+	): Promise<InferFindResult<
+		TSchema,
+		TAccessor,
+		W,
+		S,
+		O,
+		TRowPayload
+	> | null>;
+	findUnique<
+		W extends TWith | undefined = undefined,
+		const S extends
+			| SelectInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+	>(
+		args: FindUniqueArgsWith<TSchema, TAccessor, W, S, O>,
+	): Promise<InferFindResult<
+		TSchema,
+		TAccessor,
+		W,
+		S,
+		O,
+		TRowPayload
+	> | null>;
+	findById<
+		W extends TWith | undefined = undefined,
+		const S extends
+			| SelectInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+	>(
 		id: string | Record<string, unknown>,
-		args?: FindByIdArgsWith<W>,
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
+		args?: FindByIdArgsWith<W, S, O>,
+	): Promise<InferFindResult<
+		TSchema,
+		TAccessor,
+		W,
+		S,
+		O,
+		TRowPayload
+	> | null>;
 	create<W extends TWith | undefined = undefined>(
 		args: CreateArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload>>;
@@ -188,9 +258,7 @@ export type TypedTableRepository<
 	findOrCreate<W extends TWith | undefined = undefined>(
 		args: FindOrCreateArgsWith<TSchema, TAccessor, W>,
 	): Promise<
-		FindOrCreateResult<
-			InferWithResult<TSchema, TAccessor, W, TRowPayload>
-		>
+		FindOrCreateResult<InferWithResult<TSchema, TAccessor, W, TRowPayload>>
 	>;
 	update<W extends TWith | undefined = undefined>(
 		args: UpdateArgsWith<TSchema, TAccessor, W>,
@@ -215,7 +283,9 @@ export type TypedTableRepository<
 	aggregate<TArgs extends AggregateArgs<TSchema, TAccessor>>(
 		args: TArgs,
 	): Promise<InferAggregateResult<TArgs>>;
-	deleteById(id: string | Record<string, unknown>): Promise<TRowPayload | null>;
+	deleteById(
+		id: string | Record<string, unknown>,
+	): Promise<TRowPayload | null>;
 	paginate<
 		TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 		W extends TWith | undefined = undefined,
