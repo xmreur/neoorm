@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { compileWhere } from "../src/runtime/query/compile.js";
 import { manifestTable } from "./helpers/manifest.js";
 
@@ -117,7 +118,8 @@ describe("where compilation", () => {
 		expect(sql).toContain("EXISTS");
 		expect(sql).toContain('"users"');
 		expect(sql).toContain('"id" = "posts"."author_id"');
-		expect(sql).toContain("ILIKE");
+		expect(sql).toContain("LIKE");
+		expect(sql).not.toContain("ILIKE");
 		expect(params).toEqual(["%@%"]);
 	});
 
@@ -173,5 +175,83 @@ describe("where compilation", () => {
 		expect(sql).toContain("$1");
 		expect(sql).toContain("$2");
 		expect(params).toEqual([true, "%@%"]);
+	});
+
+	it("compiles contains with mode insensitive as ILIKE", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "orm", mode: "insensitive" } },
+			postgresDialect,
+		);
+		expect(sql).toContain("ILIKE");
+		expect(params).toEqual(["%orm%"]);
+	});
+
+	it("compiles search as POSIX regex", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { search: "^Neo" } },
+			postgresDialect,
+		);
+		expect(sql).toContain(" ~ $");
+		expect(sql).not.toContain("~*");
+		expect(params).toEqual(["^Neo"]);
+	});
+
+	it("compiles search with mode insensitive as ~*", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { search: "^neo", mode: "insensitive" } },
+			postgresDialect,
+		);
+		expect(sql).toContain(" ~* $");
+		expect(params).toEqual(["^neo"]);
+	});
+
+	it("throws on an invalid query mode", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { contains: "ORM", mode: "bogus" as "default" } },
+				postgresDialect,
+			),
+		).toThrow("unsupported query mode: bogus");
+	});
+
+	it("compiles sqlite contains as LIKE and insensitive as LOWER", () => {
+		const like = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "ORM" } },
+			sqliteDialect,
+		);
+		expect(like.sql).toContain("LIKE");
+		expect(like.sql).not.toContain("LOWER");
+		expect(like.params).toEqual(["%ORM%"]);
+
+		const insensitive = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "orm", mode: "insensitive" } },
+			sqliteDialect,
+		);
+		expect(insensitive.sql).toContain("LOWER(");
+		expect(insensitive.sql).toContain("LIKE LOWER(");
+		expect(insensitive.params).toEqual(["%orm%"]);
+	});
+
+	it("throws when compiling search on sqlite", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { search: "^Neo" } },
+				sqliteDialect,
+			),
+		).toThrow("search is not supported on sqlite");
 	});
 });

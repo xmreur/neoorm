@@ -99,6 +99,7 @@ export type WhereOperator =
 	| "contains"
 	| "startsWith"
 	| "endsWith"
+	| "search"
 	| "gt"
 	| "gte"
 	| "lt"
@@ -196,6 +197,8 @@ export type Dialect = {
 	): string[];
 	emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string;
 	whereOperators: OperatorMap;
+	ilike(sqlColumn: string, paramIndex: number): string;
+	regex(sqlColumn: string, paramIndex: number, insensitive: boolean): string;
 	defaultNowExpression(): string;
 	emitCreateMigrationsTable(tableRef: string): string;
 	castToInt(expr: string): string;

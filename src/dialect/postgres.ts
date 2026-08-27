@@ -1,9 +1,6 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
 import { parseFkTarget } from "./fk.js";
-import {
-	quoteIdentifier as q,
-	tableRef,
-} from "./shared.js";
+import { quoteIdentifier as q, tableRef } from "./shared.js";
 import type {
 	ColumnAlter,
 	CreateTableOptions,
@@ -70,9 +67,10 @@ export function applySchemaToManifest(
 
 const whereOperators: OperatorMap = {
 	equals: (col, i) => `${col} = $${i}`,
-	contains: (col, i) => `${col} ILIKE $${i}`,
-	startsWith: (col, i) => `${col} ILIKE $${i}`,
-	endsWith: (col, i) => `${col} ILIKE $${i}`,
+	contains: (col, i) => `${col} LIKE $${i}`,
+	startsWith: (col, i) => `${col} LIKE $${i}`,
+	endsWith: (col, i) => `${col} LIKE $${i}`,
+	search: (col, i) => `${col} ~ $${i}`,
 	gt: (col, i) => `${col} > $${i}`,
 	gte: (col, i) => `${col} >= $${i}`,
 	lt: (col, i) => `${col} < $${i}`,
@@ -565,6 +563,9 @@ export const postgresDialect: Dialect = {
 	emitAlterColumn,
 	emitAddForeignKey,
 	whereOperators,
+	ilike: (col, i) => `${col} ILIKE $${i}`,
+	regex: (col, i, insensitive) =>
+		insensitive ? `${col} ~* $${i}` : `${col} ~ $${i}`,
 	defaultNowExpression,
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
