@@ -73,7 +73,7 @@ const posts = await db.posts.findMany({
     <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL.</td>
   </tr>
   <tr>
-    <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`. Where operators for strings, numbers, dates, JSONB, arrays, and nulls. `AND/OR/NOT` combinators.</td>
+    <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`, `groupBy`. Where operators for strings, numbers, dates, JSONB, arrays, and nulls. `AND/OR/NOT` combinators.</td>
     <td><strong>📄 Cursor pagination</strong><br/>Keyset-based `paginate` for feeds and infinite scroll. Type-safe cursors, `hasMore` probe, and `encodeCursor`/`decodeCursor` for HTTP APIs.</td>
   </tr>
   <tr>
@@ -102,7 +102,7 @@ const posts = await db.posts.findMany({
 |-------|-|
 | [Getting started](docs/getting-started.md) | Setup, manual config, env vars, tenant schemas |
 | [Schema DSL](docs/schema.md) | Tables, columns, types, enums, indexes, many-to-many, naming strategy |
-| [Queries](docs/queries.md) | CRUD, where clauses, pagination, aggregates, distinct |
+| [Queries](docs/queries.md) | CRUD, where clauses, pagination, aggregates, groupBy, distinct |
 | [Relation writes](docs/relations.md) | Nested connect/create/disconnect/set/delete |
 | [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |
 | [Migrations](docs/migrations.md) | Deploy, dev, status, rollback, reset |

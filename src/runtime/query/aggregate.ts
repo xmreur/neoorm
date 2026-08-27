@@ -2,12 +2,12 @@ import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
-	getCachedAggregateQuery,
 	compileWhere,
+	getCachedAggregateQuery,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 
-function parseAggregateRow(
+export function parseAggregateRow(
 	row: Record<string, unknown>,
 	selectors: AggregateSelectors,
 ): Record<string, unknown> {

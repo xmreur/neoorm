@@ -13,8 +13,10 @@ import type {
 	FindOrCreateArgs,
 	FindOrCreateResult,
 	FindUniqueArgs,
+	GroupByArgs,
 	InferAggregateResult,
 	InferFindResult,
+	InferGroupByResult,
 	InferWithResult,
 	OmitInput,
 	OrderByInput,
@@ -298,6 +300,9 @@ export type TypedTableRepository<
 	aggregate<TArgs extends AggregateArgs<TSchema, TAccessor>>(
 		args: TArgs,
 	): Promise<InferAggregateResult<TArgs>>;
+	groupBy<const TArgs extends GroupByArgs<TSchema, TAccessor>>(
+		args: TArgs,
+	): Promise<InferGroupByResult<TArgs, TRowPayload>[]>;
 	deleteById(
 		id: string | Record<string, unknown>,
 	): Promise<TRowPayload | null>;

@@ -70,6 +70,12 @@ export async function exampleQueries() {
 		},
 	});
 
+	const _postsByStatus = await db.posts.groupBy({
+		by: ["status"],
+		_count: true,
+		orderBy: { _count: "desc" },
+	});
+
 	// Keyset pagination for feeds (stable on concurrent inserts)
 	let feedCursor: { createdAt: string; id: string } | null = null;
 	const feedPage = await db.posts.paginate({

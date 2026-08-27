@@ -2,8 +2,9 @@ import { describe, expectTypeOf, it } from "vitest";
 import type { schema } from "../examples/blog/schema.js";
 import type {
 	InferFindResult,
+	InferGroupByResult,
 	InferWithResult,
-} from "../src/schema/relation-types.js";
+} from "../src/schema/types.js";
 
 type UserRow = {
 	id: string;
@@ -184,5 +185,39 @@ describe("root select / omit return types", () => {
 			UserRow
 		>;
 		expectTypeOf<Result>().toBeNever();
+	});
+});
+
+describe("groupBy return types", () => {
+	it("includes grouped scalars and selected aggregates", () => {
+		type FromArray = InferGroupByResult<
+			{
+				by: readonly ["authorId"];
+				_count: true;
+				_avg: { views: true };
+			},
+			PostRow
+		>;
+		type FromObject = InferGroupByResult<
+			{
+				by: { authorId: true };
+				_count: true;
+				_avg: { views: true };
+			},
+			PostRow
+		>;
+
+		expectTypeOf<FromArray>().toMatchTypeOf<{
+			authorId: string;
+			_count: number;
+			_avg: { views: number | null };
+		}>();
+		expectTypeOf<FromObject>().toMatchTypeOf<{
+			authorId: string;
+			_count: number;
+			_avg: { views: number | null };
+		}>();
+		expectTypeOf<FromArray["authorId"]>().toEqualTypeOf<string>();
+		expectTypeOf<FromObject["_count"]>().toEqualTypeOf<number>();
 	});
 });

@@ -278,6 +278,24 @@ describe("sqlite runtime", () => {
 		expect(agg["_count"]).toBe(2);
 		expect(agg["_avg"]?.["age"]).toBe(15);
 
+		const grouped = await orm.users.groupBy({
+			by: ["active"],
+			_count: true,
+			having: { _count: { gte: 2 } },
+			orderBy: { _count: "desc" },
+		});
+		expect(grouped).toEqual([{ active: 1, _count: 2 }]);
+
+		await orm.users.create({
+			data: { email: "c@x", name: "c", age: 30, active: 0 },
+		});
+		const groupedAfter = await orm.users.groupBy({
+			by: ["active"],
+			_count: true,
+			having: { _count: { gte: 2 } },
+		});
+		expect(groupedAfter).toEqual([{ active: 1, _count: 2 }]);
+
 		const page1 = await orm.users.paginate({
 			orderBy: { id: "asc" },
 			take: 1,

@@ -793,4 +793,70 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(stats["_count"]).toBeGreaterThanOrEqual(1);
 		expect(stats["_avg"]).toEqual({ views: 10 });
 	});
+
+	it("groupBy returns grouped counts and having drops small groups", async () => {
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<
+			typeof schema._tables,
+			NeoOrmIncludes,
+			NeoOrmRowPayloads
+		>(manifest, pool);
+
+		const authorA = await db.users.create({
+			data: {
+				email: `groupby-a-${Date.now()}@example.com`,
+				name: "Author A",
+			},
+		});
+		const authorB = await db.users.create({
+			data: {
+				email: `groupby-b-${Date.now()}@example.com`,
+				name: "Author B",
+			},
+		});
+
+		await db.posts.create({
+			data: {
+				title: `groupby-a1-${Date.now()}`,
+				body: "body",
+				published: true,
+				views: 10,
+				author: { connect: { id: authorA["id"] as string } },
+			},
+		});
+		await db.posts.create({
+			data: {
+				title: `groupby-a2-${Date.now()}`,
+				body: "body",
+				published: true,
+				views: 20,
+				author: { connect: { id: authorA["id"] as string } },
+			},
+		});
+		await db.posts.create({
+			data: {
+				title: `groupby-b1-${Date.now()}`,
+				body: "body",
+				published: true,
+				views: 5,
+				author: { connect: { id: authorB["id"] as string } },
+			},
+		});
+
+		const grouped = await db.posts.groupBy({
+			by: ["authorId"],
+			where: {
+				authorId: {
+					in: [authorA["id"] as string, authorB["id"] as string],
+				},
+			},
+			_count: true,
+			having: { _count: { gte: 2 } },
+			orderBy: { _count: "desc" },
+		});
+
+		expect(grouped).toHaveLength(1);
+		expect(grouped[0]?.authorId).toBe(authorA["id"]);
+		expect(grouped[0]?._count).toBe(2);
+	});
 });
