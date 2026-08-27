@@ -135,11 +135,15 @@ export type TableRepository = {
 		returnDeleted?: boolean;
 	}): Promise<Record<string, unknown> | null>;
 	deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
-	count(args?: { where?: Record<string, unknown> }): Promise<number>;
+	count(args?: {
+		where?: Record<string, unknown>;
+		distinct?: string;
+		select?: Record<string, boolean | undefined>;
+	}): Promise<number | Record<string, number>>;
 	exists(args?: { where?: Record<string, unknown> }): Promise<boolean>;
 	aggregate(args: {
 		where?: Record<string, unknown>;
-		_count?: true;
+		_count?: true | Record<string, true>;
 		_avg?: Record<string, true>;
 		_sum?: Record<string, true>;
 		_min?: Record<string, true>;
@@ -152,7 +156,7 @@ export type TableRepository = {
 		orderBy?: Record<string, string | Record<string, string>>;
 		take?: number;
 		skip?: number;
-		_count?: true;
+		_count?: true | Record<string, true>;
 		_avg?: Record<string, true>;
 		_sum?: Record<string, true>;
 		_min?: Record<string, true>;

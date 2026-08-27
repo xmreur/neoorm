@@ -11,6 +11,7 @@ import {
 	mapRowToTs,
 	normalizeSelectColumns,
 	type OrderByInput,
+	toCountSelector,
 } from "./compile.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
 import { columnByTsName, getTableIndex } from "./table-index.js";
@@ -32,7 +33,7 @@ export async function groupByRecords(
 		orderBy?: OrderByInput;
 		take?: number;
 		skip?: number;
-		_count?: true;
+		_count?: true | Record<string, true>;
 		_avg?: Record<string, true>;
 		_sum?: Record<string, true>;
 		_min?: Record<string, true>;
@@ -57,7 +58,9 @@ export async function groupByRecords(
 	}
 
 	const selectors: AggregateSelectors = {};
-	if (args._count) selectors._count = true;
+	if (args._count !== undefined) {
+		selectors._count = toCountSelector(args._count);
+	}
 	if (args._avg) selectors._avg = args._avg;
 	if (args._sum) selectors._sum = args._sum;
 	if (args._min) selectors._min = args._min;

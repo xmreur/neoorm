@@ -11,6 +11,11 @@ export async function exampleQueries() {
 		where: { email: "a@b.com" },
 	});
 
+	const _distinctEmails = await db.users.count({ distinct: "email" });
+	const _userCounts = await db.users.count({
+		select: { _all: true, email: true },
+	});
+
 	const _userEmails = await db.users.findMany({
 		select: { id: true, email: true },
 		with: { posts: { select: { title: true } } },

@@ -2,6 +2,7 @@ import type { ColumnBuilder } from "./column.js";
 import type { InferColumnValue } from "./column-where.js";
 import type {
 	ApplySelect,
+	ColumnNames,
 	ConnectInput,
 	ConnectOrCreateItem,
 	CursorInput,
@@ -210,21 +211,37 @@ export type FindUniqueArgs<
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 
+type AggregateFieldSelect<TColumns extends Record<string, ColumnDef>> = Expand<{
+	[K in keyof TColumns & string]?: true;
+}>;
+
+export type CountSelect<TColumns extends Record<string, ColumnDef>> = Expand<
+	{ _all?: true } & AggregateFieldSelect<TColumns>
+>;
+
 export type CountArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	distinct?: ColumnNames<TSchema[TAccessor]["_columns"]>;
+	select?: CountSelect<TSchema[TAccessor]["_columns"]>;
 };
+
+export type InferCountResult<TArgs> = TArgs extends { select: infer S }
+	? S extends Record<string, unknown>
+		? Expand<{
+				[K in keyof S as S[K] extends true ? K : never]: number;
+			}>
+		: number
+	: number;
 
 export type ExistsArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
-> = CountArgs<TSchema, TAccessor>;
-
-type AggregateFieldSelect<TColumns extends Record<string, ColumnDef>> = Expand<{
-	[K in keyof TColumns & string]?: true;
-}>;
+> = {
+	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+};
 
 type InferAggregateBucket<TSelect> =
 	TSelect extends Record<string, true>
@@ -236,7 +253,7 @@ export type AggregateArgs<
 	TAccessor extends keyof TSchema & string,
 > = {
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
-	_count?: true;
+	_count?: true | CountSelect<TSchema[TAccessor]["_columns"]>;
 	_avg?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
 	_sum?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
 	_min?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
@@ -246,19 +263,27 @@ export type AggregateArgs<
 export type InferAggregateResult<TArgs> = Expand<
 	(TArgs extends { _count: true }
 		? { _count: number }
-		: Record<string, never>) &
+		: TArgs extends {
+					_count: infer C extends Record<string, true | undefined>;
+				}
+			? {
+					_count: {
+						[K in keyof C as C[K] extends true ? K : never]: number;
+					};
+				}
+			: {}) &
 		(TArgs extends { _avg: infer S extends Record<string, true> }
 			? { _avg: InferAggregateBucket<S> }
-			: Record<string, never>) &
+			: {}) &
 		(TArgs extends { _sum: infer S extends Record<string, true> }
 			? { _sum: InferAggregateBucket<S> }
-			: Record<string, never>) &
+			: {}) &
 		(TArgs extends { _min: infer S extends Record<string, true> }
 			? { _min: InferAggregateBucket<S> }
-			: Record<string, never>) &
+			: {}) &
 		(TArgs extends { _max: infer S extends Record<string, true> }
 			? { _max: InferAggregateBucket<S> }
-			: Record<string, never>)
+			: {})
 >;
 
 export type NumericHaving = Expand<{
@@ -277,7 +302,14 @@ type AggregateHavingFields<TColumns extends Record<string, ColumnDef>> =
 	}>;
 
 export type GroupByHaving<TColumns extends Record<string, ColumnDef>> = Expand<{
-	_count?: number | NumericHaving;
+	_count?:
+		| number
+		| NumericHaving
+		| Expand<
+				{
+					_all?: number | NumericHaving;
+				} & AggregateHavingFields<TColumns>
+		  >;
 	_avg?: AggregateHavingFields<TColumns>;
 	_sum?: AggregateHavingFields<TColumns>;
 	_min?: AggregateHavingFields<TColumns>;
@@ -286,7 +318,13 @@ export type GroupByHaving<TColumns extends Record<string, ColumnDef>> = Expand<{
 
 export type GroupByOrderBy<TColumns extends Record<string, ColumnDef>> =
 	OrderByInput<TColumns> & {
-		_count?: OrderDirection;
+		_count?:
+			| OrderDirection
+			| Expand<
+					{ _all?: OrderDirection } & {
+						[K in keyof TColumns & string]?: OrderDirection;
+					}
+			  >;
 		_avg?: { [K in keyof TColumns & string]?: OrderDirection };
 		_sum?: { [K in keyof TColumns & string]?: OrderDirection };
 		_min?: { [K in keyof TColumns & string]?: OrderDirection };
@@ -303,7 +341,7 @@ export type GroupByArgs<
 	orderBy?: GroupByOrderBy<TSchema[TAccessor]["_columns"]>;
 	take?: number;
 	skip?: number;
-	_count?: true;
+	_count?: true | CountSelect<TSchema[TAccessor]["_columns"]>;
 	_avg?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
 	_sum?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
 	_min?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;

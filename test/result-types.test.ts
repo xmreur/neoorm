@@ -1,6 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest";
 import type { schema } from "../examples/blog/schema.js";
 import type {
+	InferAggregateResult,
+	InferCountResult,
 	InferFindResult,
 	InferGroupByResult,
 	InferWithResult,
@@ -219,5 +221,56 @@ describe("groupBy return types", () => {
 		}>();
 		expectTypeOf<FromArray["authorId"]>().toEqualTypeOf<string>();
 		expectTypeOf<FromObject["_count"]>().toEqualTypeOf<number>();
+	});
+
+	it("uses a field _count object when _count is a select map", () => {
+		type Result = InferGroupByResult<
+			{
+				by: readonly ["status"];
+				_count: { _all: true; authorId: true };
+			},
+			PostRow
+		>;
+		expectTypeOf<Result>().toMatchTypeOf<{
+			status: string;
+			_count: { _all: number; authorId: number };
+		}>();
+		expectTypeOf<Result["_count"]>().toEqualTypeOf<{
+			_all: number;
+			authorId: number;
+		}>();
+	});
+});
+
+describe("count and aggregate return types", () => {
+	it("returns a number unless count select is set", () => {
+		expectTypeOf<InferCountResult<object>>().toEqualTypeOf<number>();
+		expectTypeOf<
+			InferCountResult<{ where: { email: string } }>
+		>().toEqualTypeOf<number>();
+		expectTypeOf<
+			InferCountResult<{ distinct: "email" }>
+		>().toEqualTypeOf<number>();
+		expectTypeOf<
+			InferCountResult<{ select: { _all: true; email: true } }>
+		>().toEqualTypeOf<{ _all: number; email: number }>();
+	});
+
+	it("keeps _count: true as a number and a field map as an object", () => {
+		expectTypeOf<InferAggregateResult<{ _count: true }>>().toEqualTypeOf<{
+			_count: number;
+		}>();
+		expectTypeOf<
+			InferAggregateResult<{ _count: { email: true } }>
+		>().toEqualTypeOf<{ _count: { email: number } }>();
+		expectTypeOf<
+			InferAggregateResult<{
+				_count: { _all: true; authorId: true };
+				_avg: { views: true };
+			}>
+		>().toMatchTypeOf<{
+			_count: { _all: number; authorId: number };
+			_avg: { views: number | null };
+		}>();
 	});
 });

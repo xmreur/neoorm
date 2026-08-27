@@ -15,6 +15,7 @@ import type {
 	FindUniqueArgs,
 	GroupByArgs,
 	InferAggregateResult,
+	InferCountResult,
 	InferFindResult,
 	InferGroupByResult,
 	InferWithResult,
@@ -295,7 +296,12 @@ export type TypedTableRepository<
 		args: DeleteArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	deleteMany(args?: DeleteManyArgs<TSchema, TAccessor>): Promise<number>;
-	count(args?: CountArgsWith<TSchema, TAccessor>): Promise<number>;
+	count<
+		const TArgs extends CountArgs<TSchema, TAccessor> = CountArgs<
+			TSchema,
+			TAccessor
+		>,
+	>(args?: TArgs): Promise<InferCountResult<TArgs>>;
 	exists(args?: ExistsArgsWith<TSchema, TAccessor>): Promise<boolean>;
 	aggregate<TArgs extends AggregateArgs<TSchema, TAccessor>>(
 		args: TArgs,

@@ -978,8 +978,29 @@ export function buildCountQuery(
 	table: ManifestTable,
 	whereSql: string,
 	dialect: Dialect = postgresDialect,
+	distinct?: string,
+	select?: Record<string, true>,
+	manifestIndex?: ManifestIndex,
 ): string {
-	let sql = `SELECT ${dialect.castToInt("COUNT(*)")} AS count FROM ${tableRef(table)}`;
+	if (select !== undefined) {
+		if (distinct) {
+			throw new Error("count cannot combine distinct and select");
+		}
+		const parts = countSelectParts(table, select, dialect, manifestIndex);
+		if (parts.length === 0) {
+			throw new Error("count select requires at least one field");
+		}
+		let sql = `SELECT ${parts.join(", ")} FROM ${tableRef(table)}`;
+		if (whereSql) sql += ` ${whereSql}`;
+		return sql;
+	}
+
+	let expr = "COUNT(*)";
+	if (distinct) {
+		const sqlCol = requireCountSqlCol(table, distinct, manifestIndex);
+		expr = `COUNT(DISTINCT ${sqlCol})`;
+	}
+	let sql = `SELECT ${dialect.castToInt(expr)} AS count FROM ${tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	return sql;
 }
@@ -994,13 +1015,95 @@ export function buildExistsQuery(
 	return sql;
 }
 
+export type CountSelector = true | Record<string, true>;
+
 export type AggregateSelectors = {
-	_count?: true;
+	_count?: CountSelector;
 	_avg?: Record<string, true>;
 	_sum?: Record<string, true>;
 	_min?: Record<string, true>;
 	_max?: Record<string, true>;
 };
+
+function countSqlCol(
+	table: ManifestTable,
+	tsName: string,
+	manifestIndex?: ManifestIndex,
+): string | undefined {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const col = columnByTsName(tableIndex, table, tsName);
+	if (!col) return undefined;
+	return quoteIdentifier(col.sqlName);
+}
+
+export function requireCountSqlCol(
+	table: ManifestTable,
+	tsName: string,
+	manifestIndex?: ManifestIndex,
+): string {
+	const sqlCol = countSqlCol(table, tsName, manifestIndex);
+	if (!sqlCol) {
+		throw new Error(`Unknown count column: ${tsName}`);
+	}
+	return sqlCol;
+}
+
+export function normalizeCountMap(
+	select: Record<string, unknown>,
+): Record<string, true> {
+	const map: Record<string, true> = {};
+	for (const [key, value] of Object.entries(select)) {
+		if (value === true) map[key] = true;
+	}
+	return map;
+}
+
+export function toCountSelector(
+	value: true | Record<string, unknown>,
+): CountSelector {
+	if (value === true) return true;
+	const map = normalizeCountMap(value);
+	if (Object.keys(map).length === 0) {
+		throw new Error("_count requires at least one field");
+	}
+	return map;
+}
+
+export function hasStarCount(selectors: AggregateSelectors): boolean {
+	return (
+		selectors._count === true ||
+		(typeof selectors._count === "object" && selectors._count._all === true)
+	);
+}
+
+export function hasCountField(
+	selectors: AggregateSelectors,
+	field: string,
+): boolean {
+	return (
+		typeof selectors._count === "object" && selectors._count[field] === true
+	);
+}
+
+export function countSelectParts(
+	table: ManifestTable,
+	select: Record<string, true>,
+	dialect: Dialect = postgresDialect,
+	manifestIndex?: ManifestIndex,
+): string[] {
+	const parts: string[] = [];
+	if (select._all) {
+		parts.push(`${dialect.castToInt("COUNT(*)")} AS "_all"`);
+	}
+	for (const key of Object.keys(select).sort()) {
+		if (key === "_all") continue;
+		const sqlCol = requireCountSqlCol(table, key, manifestIndex);
+		parts.push(
+			`${dialect.castToInt(`COUNT(${sqlCol})`)} AS ${quoteIdentifier(key)}`,
+		);
+	}
+	return parts;
+}
 
 function aggregateSqlCol(
 	table: ManifestTable,
@@ -1057,8 +1160,19 @@ export function aggregateSelectParts(
 ): string[] {
 	const parts: string[] = [];
 
-	if (selectors._count) {
+	if (selectors._count === true) {
 		parts.push(`${dialect.castToInt("COUNT(*)")} AS "__count"`);
+	} else if (selectors._count) {
+		for (const key of Object.keys(selectors._count).sort()) {
+			if (key === "_all") {
+				parts.push(`${dialect.castToInt("COUNT(*)")} AS "__count_all"`);
+				continue;
+			}
+			const sqlCol = requireCountSqlCol(table, key, manifestIndex);
+			parts.push(
+				`${dialect.castToInt(`COUNT(${sqlCol})`)} AS "__count_${key}"`,
+			);
+		}
 	}
 
 	for (const key of FIELD_AGG_KEYS) {
@@ -1106,7 +1220,11 @@ export function aggregateSelectorCacheKey(
 	selectors: AggregateSelectors,
 ): string {
 	const parts: string[] = [];
-	if (selectors._count) parts.push("_count");
+	if (selectors._count === true) {
+		parts.push("_count");
+	} else if (selectors._count) {
+		parts.push(`_count:${Object.keys(selectors._count).sort().join(",")}`);
+	}
 	for (const key of ["_avg", "_sum", "_min", "_max"] as const) {
 		const fieldMap = selectors[key];
 		if (!fieldMap) continue;
@@ -1160,10 +1278,55 @@ function isHavingOperator(op: string): op is HavingOperator {
 	);
 }
 
-function requireSelectedCount(selectors: AggregateSelectors): void {
-	if (!selectors._count) {
-		throw new Error("having._count requires _count: true");
+function requireStarCount(
+	selectors: AggregateSelectors,
+	context: string,
+): void {
+	if (!hasStarCount(selectors)) {
+		throw new Error(
+			`${context} requires _count: true or _count: { _all: true }`,
+		);
 	}
+}
+
+function requireCountMapField(
+	selectors: AggregateSelectors,
+	field: string,
+	context: string,
+): void {
+	if (field === "_all") {
+		requireStarCount(selectors, context);
+		return;
+	}
+	if (!hasCountField(selectors, field)) {
+		throw new Error(`${context} requires _count: { ${field}: true }`);
+	}
+}
+
+function isStarHavingSpec(spec: number | Record<string, unknown>): boolean {
+	if (typeof spec === "number") return true;
+	const keys = Object.keys(spec);
+	return keys.every((key) => isHavingOperator(key));
+}
+
+function isMixedCountHaving(spec: Record<string, unknown>): boolean {
+	const keys = Object.keys(spec);
+	const hasOps = keys.some((key) => isHavingOperator(key));
+	const hasFields = keys.some((key) => !isHavingOperator(key));
+	return hasOps && hasFields;
+}
+
+function countStarExpr(): string {
+	return "COUNT(*)";
+}
+
+function countFieldExpr(
+	table: ManifestTable,
+	field: string,
+	manifestIndex?: ManifestIndex,
+): string {
+	if (field === "_all") return countStarExpr();
+	return `COUNT(${requireCountSqlCol(table, field, manifestIndex)})`;
 }
 
 function requireSelectedFieldAgg(
@@ -1308,8 +1471,50 @@ export function compileHaving(
 	};
 
 	if (having._count !== undefined) {
-		requireSelectedCount(selectors);
-		pushCompare("COUNT(*)", having._count);
+		const spec = having._count;
+		if (typeof spec === "number") {
+			requireStarCount(selectors, "having._count");
+			pushCompare(countStarExpr(), spec);
+		} else if (typeof spec === "object" && spec !== null) {
+			if (isMixedCountHaving(spec)) {
+				throw new Error(
+					"having._count cannot mix comparison operators with field keys",
+				);
+			}
+			if (isStarHavingSpec(spec)) {
+				requireStarCount(selectors, "having._count");
+				pushCompare(countStarExpr(), spec);
+			} else {
+				for (const [field, fieldSpec] of Object.entries(spec)) {
+					if (typeof fieldSpec === "number") {
+						requireCountMapField(
+							selectors,
+							field,
+							`having._count.${field}`,
+						);
+						pushCompare(
+							countFieldExpr(table, field, manifestIndex),
+							fieldSpec,
+						);
+						continue;
+					}
+					if (typeof fieldSpec !== "object" || fieldSpec === null) {
+						throw new Error(
+							`invalid having._count.${field} predicate`,
+						);
+					}
+					requireCountMapField(
+						selectors,
+						field,
+						`having._count.${field}`,
+					);
+					pushCompare(
+						countFieldExpr(table, field, manifestIndex),
+						fieldSpec as Record<string, unknown>,
+					);
+				}
+			}
+		}
 	}
 
 	for (const key of FIELD_AGG_KEYS) {
@@ -1358,14 +1563,29 @@ export function compileGroupByOrderBy(
 
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
 		if (tsKey === "_count") {
-			if (typeof direction !== "string") {
-				throw new Error('orderBy._count must be "asc" or "desc"');
+			if (typeof direction === "string") {
+				requireStarCount(selectors, "orderBy._count");
+				const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+				parts.push(`${countStarExpr()} ${dir}`);
+				continue;
 			}
-			if (!selectors._count) {
-				throw new Error("orderBy._count requires _count: true");
+			if (typeof direction !== "object" || direction === null) {
+				throw new Error(
+					'orderBy._count must be "asc" or "desc" or a field map',
+				);
 			}
-			const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
-			parts.push(`COUNT(*) ${dir}`);
+			for (const [field, colDir] of Object.entries(direction)) {
+				if (typeof colDir !== "string") continue;
+				requireCountMapField(
+					selectors,
+					field,
+					`orderBy._count.${field}`,
+				);
+				const dir = colDir.toUpperCase() === "DESC" ? "DESC" : "ASC";
+				parts.push(
+					`${countFieldExpr(table, field, manifestIndex)} ${dir}`,
+				);
+			}
 			continue;
 		}
 

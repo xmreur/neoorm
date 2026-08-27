@@ -347,11 +347,13 @@ Optional per-relation filter: `_count: { posts: { where: { published: true } } }
 ```ts
 const stats = await db.posts.aggregate({
   where: { published: true },
-  _count: true,
+  _count: { _all: true, authorId: true },
   _avg: { views: true },
 });
-// { _count: number, _avg: { views: number | null } }
+// { _count: { _all: number, authorId: number }, _avg: { views: number | null } }
 ```
+
+`_count: true` is still `COUNT(*)` and returns `_count: number`. A field map uses `COUNT(col)` (nulls are skipped) — not `DISTINCT`.
 
 Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db.sql` or `sqlBuilder`.
 
@@ -361,14 +363,16 @@ Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db
 const byAuthor = await db.posts.groupBy({
   by: ["authorId"],
   where: { published: true },
-  _count: true,
+  _count: { _all: true, authorId: true },
   _avg: { views: true },
-  having: { _count: { gte: 5 }, _avg: { views: { gt: 10 } } },
-  orderBy: { _count: "desc" },
+  having: { _count: { _all: { gte: 5 }, authorId: { gt: 0 } } },
+  orderBy: { _count: { _all: "desc" } },
   take: 10,
 });
-// { authorId: string, _count: number, _avg: { views: number | null } }[]
+// { authorId: string, _count: { _all: number, authorId: number }, _avg: { views: number | null } }[]
 ```
+
+Star `_count: true` still works with `having: { _count: { gte: 5 } }` and `orderBy: { _count: "desc" }`.
 
 `where` filters rows before grouping. `having` filters groups (aggregates only). `by` alone lists distinct groups — useful on SQLite where `distinct` is not available.
 
@@ -376,7 +380,15 @@ const byAuthor = await db.posts.groupBy({
 
 ```ts
 const total = await db.users.count({ where: { active: true } });
+const uniqueEmails = await db.users.count({ distinct: "email" });
+const fieldCounts = await db.users.count({
+  select: { _all: true, email: true },
+});
+// { _all: number, email: number }
+
 const taken = await db.users.exists({ where: { email: "a@b.com" } });
 ```
+
+`count()` returns a number unless `select` is set. `distinct` is `COUNT(DISTINCT col)` on one column and cannot be combined with `select`. Field `select` / `_count` maps are non-null `COUNT(col)`, not distinct.
 
 `exists()` runs `SELECT 1 … LIMIT 1` and returns a boolean. Use `count()` when you need the actual number of matches.
