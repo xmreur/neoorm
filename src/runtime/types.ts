@@ -7,6 +7,7 @@ import type {
 	CreateManyArgs,
 	DeleteArgs,
 	DeleteManyArgs,
+	ExistsArgs,
 	FindFirstArgs,
 	FindManyArgs,
 	FindOrCreateArgs,
@@ -81,6 +82,11 @@ export type CountArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = CountArgs<TSchema, TAccessor>;
+
+export type ExistsArgsWith<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = ExistsArgs<TSchema, TAccessor>;
 
 export type UpsertArgsWith<
 	TSchema extends Record<string, TableDef>,
@@ -280,6 +286,7 @@ export type TypedTableRepository<
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	deleteMany(args?: DeleteManyArgs<TSchema, TAccessor>): Promise<number>;
 	count(args?: CountArgsWith<TSchema, TAccessor>): Promise<number>;
+	exists(args?: ExistsArgsWith<TSchema, TAccessor>): Promise<boolean>;
 	aggregate<TArgs extends AggregateArgs<TSchema, TAccessor>>(
 		args: TArgs,
 	): Promise<InferAggregateResult<TArgs>>;

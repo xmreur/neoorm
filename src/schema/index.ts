@@ -74,6 +74,7 @@ export type {
 	CursorInput,
 	DeleteArgs,
 	DeleteManyArgs,
+	ExistsArgs,
 	FindByIdArgs,
 	FindFirstArgs,
 	FindManyArgs,

@@ -4,6 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	buildCountQuery,
+	buildExistsQuery,
 	buildUpsertQuery,
 	compileWhere,
 } from "../src/runtime/query/compile.js";
@@ -54,6 +55,24 @@ describe("findUnique / count / upsert SQL", () => {
 		expect(query).toContain("SELECT COUNT(*)::int AS count");
 		expect(query).toContain('FROM "users"');
 		expect(query).toContain('WHERE "email" = $1');
+	});
+
+	it("builds exists query", () => {
+		const { sql: whereSql } = compileWhere(
+			manifest,
+			users,
+			{ email: "a@b.c" },
+			postgresDialect,
+		);
+		const query = buildExistsQuery(users, whereSql);
+		expect(query).toBe('SELECT 1 FROM "users" WHERE "email" = $1 LIMIT 1');
+		expect(query).not.toContain("COUNT");
+	});
+
+	it("builds exists query without where", () => {
+		const query = buildExistsQuery(users, "");
+		expect(query).toBe('SELECT 1 FROM "users" LIMIT 1');
+		expect(query).not.toContain("COUNT");
 	});
 
 	it("builds upsert query on unique email", () => {

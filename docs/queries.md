@@ -330,4 +330,7 @@ For grouped dashboards, use `db.sql` or the `sqlBuilder` helper.
 
 ```ts
 const total = await db.users.count({ where: { active: true } });
+const taken = await db.users.exists({ where: { email: "a@b.com" } });
 ```
+
+`exists()` runs `SELECT 1 … LIMIT 1` and returns a boolean. Use `count()` when you need the actual number of matches.
