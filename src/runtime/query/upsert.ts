@@ -1,9 +1,16 @@
+import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
-import { buildUpsertQuery, dataToSqlValues, mapRowToTs } from "./compile.js";
+import {
+	buildUpsertQuery,
+	dataToSqlValues,
+	dataToUpdateAssignments,
+	mapRowToTs,
+	upsertAtomicValues,
+} from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
-import { columnByTsName, getTableIndex } from "./table-index.js";
+import { getTableIndex } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 import {
 	stripUpdatedAtFromData,
@@ -21,6 +28,7 @@ export async function upsertRecord(
 		with?: Record<string, WithInput>;
 	},
 ): Promise<Record<string, unknown>> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -41,16 +49,22 @@ export async function upsertRecord(
 		createData,
 		undefined,
 		runtime.tableIndex,
+		dialect,
 	);
 
 	const updateData = { ...args.update };
 	stripUpdatedAtFromData(table, updateData, tableIndex);
-	const updateKeys = Object.keys(updateData).filter((key) => {
-		const col = columnByTsName(tableIndex, table, key);
-		return (
-			col !== undefined && !col.primary && updateData[key] !== undefined
-		);
-	});
+	const {
+		keys: updateKeys,
+		ops: updateOps,
+		values: updateValues,
+	} = dataToUpdateAssignments(
+		table,
+		updateData,
+		{ excludePrimary: true },
+		runtime.tableIndex,
+		dialect,
+	);
 	const exprSets = updatedAtSetExpressions(table, tableIndex);
 
 	const upsertSql = buildUpsertQuery(
@@ -60,13 +74,15 @@ export async function upsertRecord(
 		constraint.sqlColumns,
 		exprSets,
 		runtime.tableIndex,
+		dialect,
+		updateOps,
 	);
 	const row = await runQueryOne(
 		executor,
 		runtime,
 		{ operation: "upsert", tableAccessor },
 		upsertSql,
-		insertValues,
+		[...insertValues, ...upsertAtomicValues(updateOps, updateValues)],
 	);
 
 	const result = mapRowToTs(

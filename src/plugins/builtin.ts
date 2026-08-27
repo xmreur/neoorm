@@ -161,13 +161,15 @@ const boolType: ColumnTypePlugin = {
 const intType: ColumnTypePlugin = {
 	kind: "int",
 	createBuilder() {
-		return createColumnBuilder<number | null, ColumnMeta>({
-			kind: "int",
-			nullable: true,
-			unique: false,
-			primary: false,
-			defaultNow: false,
-		});
+		return createColumnBuilder<number | null, ColumnMeta & { kind: "int" }>(
+			{
+				kind: "int",
+				nullable: true,
+				unique: false,
+				primary: false,
+				defaultNow: false,
+			},
+		);
 	},
 	columnType() {
 		return "INTEGER";
@@ -183,7 +185,10 @@ const intType: ColumnTypePlugin = {
 const bigintType: ColumnTypePlugin = {
 	kind: "bigint",
 	createBuilder() {
-		return createColumnBuilder<bigint | null, ColumnMeta>({
+		return createColumnBuilder<
+			bigint | null,
+			ColumnMeta & { kind: "bigint" }
+		>({
 			kind: "bigint",
 			nullable: true,
 			unique: false,
@@ -597,12 +602,21 @@ export function bool(): ColumnBuilder<boolean | null> {
 	return boolType.createBuilder() as ColumnBuilder<boolean | null>;
 }
 
-export function int(): ColumnBuilder<number | null> {
-	return intType.createBuilder() as ColumnBuilder<number | null>;
+export function int(): ColumnBuilder<number | null, ColumnMeta & { kind: "int" }> {
+	return intType.createBuilder() as ColumnBuilder<
+		number | null,
+		ColumnMeta & { kind: "int" }
+	>;
 }
 
-export function bigint(): ColumnBuilder<bigint | null> {
-	return bigintType.createBuilder() as ColumnBuilder<bigint | null>;
+export function bigint(): ColumnBuilder<
+	bigint | null,
+	ColumnMeta & { kind: "bigint" }
+> {
+	return bigintType.createBuilder() as ColumnBuilder<
+		bigint | null,
+		ColumnMeta & { kind: "bigint" }
+	>;
 }
 
 export function timestamp(): ColumnBuilder<Date | null> {

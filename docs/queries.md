@@ -62,6 +62,20 @@ const count = await db.users.updateMany({
 });
 ```
 
+Numeric columns (`int`, `serial`, `decimal`, `bigint`) also accept `{ increment }`, `{ decrement }`, `{ multiply }`, and `{ set }`. These compile to `col = col ±/* $n` so concurrent updates do not clobber each other. `{ set: value }` is the same assignment as a plain value. `NULL + 1` stays SQL NULL.
+
+```ts
+await db.posts.update({
+  where: { id: postId },
+  data: { views: { increment: 1 } },
+});
+
+await db.posts.updateMany({
+  where: { published: true },
+  data: { views: { multiply: 2 } },
+});
+```
+
 ## Delete
 
 ```ts

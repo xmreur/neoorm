@@ -150,6 +150,11 @@ export async function exampleQueries() {
 		},
 	});
 
+	const _bumpedViews = await db.posts.update({
+		where: { id: newPost.id },
+		data: { views: { increment: 1 } },
+	});
+
 	const rows = await db.sql`
     SELECT
       u.id,

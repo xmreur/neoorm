@@ -7,7 +7,7 @@ import type { Executor } from "../executor.js";
 import {
 	buildUpdateQuery,
 	compileWhere,
-	dataToSqlValues,
+	dataToUpdateAssignments,
 	getCachedUpdateManyQuery,
 	getCachedWhereClause,
 	isImpossibleWhere,
@@ -15,7 +15,12 @@ import {
 	type UpdateReturning,
 } from "./compile.js";
 import { runCreate } from "./create.js";
-import { type QueryRuntime, runExecute, runQuery, runQueryOne } from "./execute.js";
+import {
+	type QueryRuntime,
+	runExecute,
+	runQuery,
+	runQueryOne,
+} from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import {
 	primaryKeySqlName,
@@ -30,11 +35,11 @@ import {
 	type ParsedRelationWrite,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
+import { getTableIndex, relationByName } from "./table-index.js";
 import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
 } from "./updated-at.js";
-import { getTableIndex, relationByName } from "./table-index.js";
 
 function dataHasRelationKeys(
 	tableIndex: ReturnType<typeof getTableIndex>,
@@ -104,13 +109,14 @@ async function runUpdate(
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	stripUpdatedAtFromData(table, scalarData, tableIndex);
-	const { keys, values } = dataToSqlValues(
+	const { keys, ops, values } = dataToUpdateAssignments(
 		table,
 		scalarData,
 		{
 			excludePrimary: true,
 		},
 		runtime.tableIndex,
+		dialect,
 	);
 	const exprSets = updatedAtSetExpressions(table, tableIndex);
 	const needsRelationWrites = hasPostRelationWrites(
@@ -151,6 +157,8 @@ async function runUpdate(
 				exprSets,
 				runtime.tableIndex,
 				"none",
+				dialect,
+				ops,
 			);
 			const { rowCount } = await runExecute(
 				executor,
@@ -162,7 +170,9 @@ async function runUpdate(
 			if (rowCount === 0) return null;
 			result = {};
 		} else {
-			const returning: UpdateReturning = args.returnUpdated ? "full" : "pk";
+			const returning: UpdateReturning = args.returnUpdated
+				? "full"
+				: "pk";
 			const query = buildUpdateQuery(
 				table,
 				keys,
@@ -170,6 +180,8 @@ async function runUpdate(
 				exprSets,
 				runtime.tableIndex,
 				returning,
+				dialect,
+				ops,
 			);
 			const row = await runQueryOne(
 				executor,
@@ -293,13 +305,14 @@ async function runUpdateMany(
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	stripUpdatedAtFromData(table, scalarData, tableIndex);
-	const { keys, values } = dataToSqlValues(
+	const { keys, ops, values } = dataToUpdateAssignments(
 		table,
 		scalarData,
 		{
 			excludePrimary: true,
 		},
 		runtime.tableIndex,
+		dialect,
 	);
 	const exprSets = updatedAtSetExpressions(table, tableIndex);
 	const needsPostRelationWrites = hasPostRelationWrites(
@@ -345,6 +358,8 @@ async function runUpdateMany(
 			whereSql,
 			exprSets,
 			runtime.tableIndex,
+			dialect,
+			ops,
 		);
 		if (needsPostRelationWrites) {
 			const rows = await runQuery(
@@ -416,11 +431,12 @@ async function runUpdateManyScalar(
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	stripUpdatedAtFromData(table, args.data, tableIndex);
-	const { keys, values } = dataToSqlValues(
+	const { keys, ops, values } = dataToUpdateAssignments(
 		table,
 		args.data,
 		{ excludePrimary: true },
 		runtime.tableIndex,
+		dialect,
 	);
 	const exprSets = updatedAtSetExpressions(table, tableIndex);
 
@@ -451,6 +467,8 @@ async function runUpdateManyScalar(
 		whereSql,
 		exprSets,
 		runtime.tableIndex,
+		dialect,
+		ops,
 	);
 	const { rowCount } = await runExecute(
 		executor,

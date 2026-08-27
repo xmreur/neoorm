@@ -789,12 +789,149 @@ function buildValuePlaceholder(
 	return `$${paramIndex}`;
 }
 
+function isBinaryValue(value: unknown): boolean {
+	if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) return true;
+	return value instanceof Uint8Array;
+}
+
+export type AtomicUpdateOp = "set" | "increment" | "decrement" | "multiply";
+
+const ATOMIC_UPDATE_OPS = new Set<string>([
+	"increment",
+	"decrement",
+	"multiply",
+	"set",
+]);
+
+const NUMERIC_UPDATE_KINDS = new Set(["int", "serial", "decimal", "bigint"]);
+
+function isNumericUpdateKind(kind: string): boolean {
+	return NUMERIC_UPDATE_KINDS.has(kind);
+}
+
+function needsNumericCast(col: ManifestColumn, dialect: Dialect): boolean {
+	return (
+		col.kind === "decimal" ||
+		(dialect.name === "sqlite" && col.kind === "bigint")
+	);
+}
+
+function isAtomicOp(op: string): op is AtomicUpdateOp {
+	return ATOMIC_UPDATE_OPS.has(op);
+}
+
+function arithmeticSql(
+	op: Exclude<AtomicUpdateOp, "set">,
+	left: string,
+	right: string,
+): string {
+	switch (op) {
+		case "increment":
+			return `${left} + ${right}`;
+		case "decrement":
+			return `${left} - ${right}`;
+		case "multiply":
+			return `${left} * ${right}`;
+		default: {
+			const _never: never = op;
+			throw new Error(`unsupported atomic update: ${_never}`);
+		}
+	}
+}
+
+export function parseAtomicUpdate(
+	col: ManifestColumn,
+	value: unknown,
+): { op: AtomicUpdateOp; value: unknown } {
+	if (!isOperatorObject(value) || isBinaryValue(value)) {
+		return { op: "set", value };
+	}
+
+	const keys = Object.keys(value);
+	const opKeys = keys.filter(isAtomicOp);
+
+	if (opKeys.length === 0) {
+		if (isNumericUpdateKind(col.kind)) {
+			throw new Error(
+				`update on ${col.tsName} requires increment, decrement, multiply, or set`,
+			);
+		}
+		return { op: "set", value };
+	}
+
+	if (opKeys.length !== keys.length) {
+		throw new Error(
+			`update on ${col.tsName} cannot mix operators with other keys`,
+		);
+	}
+
+	if (opKeys.length !== 1) {
+		throw new Error(
+			`update on ${col.tsName} allows only one of increment, decrement, multiply, set`,
+		);
+	}
+
+	const op = opKeys[0];
+	if (op === undefined) {
+		throw new Error(`update on ${col.tsName} requires an operator`);
+	}
+	if (value[op] === undefined) {
+		throw new Error(`update ${op} on ${col.tsName} requires a value`);
+	}
+	if (op !== "set" && !isNumericUpdateKind(col.kind)) {
+		throw new Error(
+			`${op} is not supported on ${col.kind} column ${col.tsName}`,
+		);
+	}
+	return { op, value: value[op] };
+}
+
+function orderUpdateAssignments(
+	dataKeys: readonly string[],
+	ops?: readonly AtomicUpdateOp[],
+): { keys: string[]; ops: AtomicUpdateOp[] } {
+	const pairs = dataKeys.map((key, i) => ({
+		key,
+		op: ops?.[i] ?? ("set" as const),
+	}));
+	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	return {
+		keys: pairs.map((pair) => pair.key),
+		ops: pairs.map((pair) => pair.op),
+	};
+}
+
 function buildSetExpression(
 	col: ManifestColumn | undefined,
 	paramIndex: number,
+	op: AtomicUpdateOp = "set",
+	dialect: Dialect = postgresDialect,
 ): string {
 	const sqlCol = quoteIdentifier(col?.sqlName ?? "");
-	return `${sqlCol} = ${buildValuePlaceholder(col, paramIndex)}`;
+	const placeholder = buildValuePlaceholder(col, paramIndex);
+
+	switch (op) {
+		case "set":
+			return `${sqlCol} = ${placeholder}`;
+		case "increment":
+		case "decrement":
+		case "multiply": {
+			if (!col) {
+				throw new Error("atomic update requires a column");
+			}
+			const left = needsNumericCast(col, dialect)
+				? dialect.castToNumeric(sqlCol)
+				: sqlCol;
+			const right = needsNumericCast(col, dialect)
+				? dialect.castToNumeric(placeholder)
+				: placeholder;
+			return `${sqlCol} = ${arithmeticSql(op, left, right)}`;
+		}
+		default: {
+			const _never: never = op;
+			throw new Error(`unsupported atomic update: ${_never}`);
+		}
+	}
 }
 
 export function compileOrderBy(
@@ -1745,6 +1882,8 @@ export function buildUpsertQuery(
 	conflictSqlColumns: readonly string[],
 	exprSets: string[] = [],
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+	updateOps?: readonly AtomicUpdateOp[],
 ): string {
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
@@ -1762,12 +1901,24 @@ export function buildUpsertQuery(
 		.map((c) => quoteIdentifier(c))
 		.join(", ");
 
+	let nextParam = insertKeys.length + 1;
 	const updateSets =
 		updateKeys.length > 0
-			? updateKeys.map((k) => {
+			? updateKeys.map((k, i) => {
 					const col = colByTs(table, k, manifestIndex);
 					const sqlCol = quoteIdentifier(col?.sqlName ?? k);
-					return `${sqlCol} = excluded.${sqlCol}`;
+					const op = updateOps?.[i] ?? "set";
+					if (op === "set") {
+						return `${sqlCol} = excluded.${sqlCol}`;
+					}
+					const expr = buildSetExpression(
+						col,
+						nextParam,
+						op,
+						dialect,
+					);
+					nextParam++;
+					return expr;
 				})
 			: exprSets.length === 0
 				? conflictSqlColumns.map((c) => {
@@ -1954,14 +2105,17 @@ export function buildUpdateQuery(
 	exprSets: string[] = [],
 	manifestIndex?: ManifestIndex,
 	returning: UpdateReturning = "full",
+	dialect: Dialect = postgresDialect,
+	ops?: readonly AtomicUpdateOp[],
 ): string {
-	const orderedKeys = [...dataKeys].sort();
-	const paramSets = orderedKeys.map((k, i) => {
+	const ordered = orderUpdateAssignments(dataKeys, ops);
+	const paramSets = ordered.keys.map((k, i) => {
 		const col = colByTs(table, k, manifestIndex);
-		return buildSetExpression(col, i + 1);
+		const op = ordered.ops[i] ?? "set";
+		return buildSetExpression(col, i + 1, op, dialect);
 	});
 	const sets = [...paramSets, ...exprSets];
-	const whereOffset = orderedKeys.length;
+	const whereOffset = ordered.keys.length;
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
@@ -2023,14 +2177,17 @@ export function buildUpdateManyQuery(
 	whereSql: string,
 	exprSets: string[] = [],
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+	ops?: readonly AtomicUpdateOp[],
 ): string {
-	const orderedKeys = [...dataKeys].sort();
-	const paramSets = orderedKeys.map((k, i) => {
+	const ordered = orderUpdateAssignments(dataKeys, ops);
+	const paramSets = ordered.keys.map((k, i) => {
 		const col = colByTs(table, k, manifestIndex);
-		return buildSetExpression(col, i + 1);
+		const op = ordered.ops[i] ?? "set";
+		return buildSetExpression(col, i + 1, op, dialect);
 	});
 	const sets = [...paramSets, ...exprSets];
-	const whereOffset = orderedKeys.length;
+	const whereOffset = ordered.keys.length;
 
 	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
@@ -2047,25 +2204,34 @@ export function getCachedUpdateManyQuery(
 	whereSql: string,
 	exprSets: string[],
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+	ops?: readonly AtomicUpdateOp[],
 ): string {
-	const orderedKeys = [...dataKeys].sort();
-	const cacheKey = `${sortedKeysCacheKey(orderedKeys)}|${exprSets.length}|${whereSql}`;
+	const ordered = orderUpdateAssignments(dataKeys, ops);
+	const opKey = ordered.keys
+		.map((key, i) => `${key}:${ordered.ops[i] ?? "set"}`)
+		.join(",");
+	const cacheKey = `${dialect.name}|${opKey}|${exprSets.length}|${whereSql}`;
 	if (!tableIndex) {
 		return buildUpdateManyQuery(
 			table,
-			orderedKeys,
+			ordered.keys,
 			whereSql,
 			exprSets,
 			manifestIndex,
+			dialect,
+			ordered.ops,
 		);
 	}
 	return getOrSetSqlCache(tableIndex.updateManySqlByKeys, cacheKey, () =>
 		buildUpdateManyQuery(
 			table,
-			orderedKeys,
+			ordered.keys,
 			whereSql,
 			exprSets,
 			manifestIndex,
+			dialect,
+			ordered.ops,
 		),
 	);
 }
@@ -2104,6 +2270,59 @@ export function dataToSqlValues(
 	}
 
 	return reorderKeyValues(keys, values);
+}
+
+export function dataToUpdateAssignments(
+	table: ManifestTable,
+	data: Record<string, unknown>,
+	options?: { excludePrimary?: boolean },
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+): {
+	keys: string[];
+	ops: AtomicUpdateOp[];
+	values: unknown[];
+} {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const keys: string[] = [];
+	const ops: AtomicUpdateOp[] = [];
+	const values: unknown[] = [];
+
+	for (const [key, raw] of Object.entries(data)) {
+		const col = columnByTsName(tableIndex, table, key);
+		if (!col) continue;
+		if (options?.excludePrimary && col.primary) continue;
+		if (raw === undefined) continue;
+		const parsed = parseAtomicUpdate(col, raw);
+		keys.push(key);
+		ops.push(parsed.op);
+		values.push(serializeColumnValue(col, parsed.value, dialect));
+	}
+
+	if (keys.length <= 1) return { keys, ops, values };
+
+	const pairs = keys.map((key, index) => ({
+		key,
+		op: ops[index] ?? ("set" as const),
+		value: values[index],
+	}));
+	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	return {
+		keys: pairs.map((pair) => pair.key),
+		ops: pairs.map((pair) => pair.op),
+		values: pairs.map((pair) => pair.value),
+	};
+}
+
+export function upsertAtomicValues(
+	ops: readonly AtomicUpdateOp[],
+	values: readonly unknown[],
+): unknown[] {
+	const extra: unknown[] = [];
+	for (let i = 0; i < ops.length; i++) {
+		if (ops[i] !== "set") extra.push(values[i]);
+	}
+	return extra;
 }
 
 export function rowToTs(

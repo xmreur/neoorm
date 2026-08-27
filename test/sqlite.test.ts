@@ -155,6 +155,32 @@ describe("sqlite runtime", () => {
 		db.close();
 	});
 
+	it("increments numeric fields atomically", async () => {
+		const { db } = await setup();
+		const orm = makeOrm(manifest, db);
+		const alice = await orm.users.create({
+			data: { email: "a@b.c", name: "alice", age: 30 },
+		});
+		await orm.users.update({
+			where: { id: alice["id"] },
+			data: { age: { increment: 1 } },
+		});
+		await orm.users.update({
+			where: { id: alice["id"] },
+			data: { age: { increment: 1 } },
+		});
+		const found = await orm.users.findById({ id: alice["id"] });
+		expect(found?.["age"]).toBe(32);
+
+		await orm.users.updateMany({
+			where: { email: "a@b.c" },
+			data: { age: { decrement: 2 } },
+		});
+		const afterMany = await orm.users.findById({ id: alice["id"] });
+		expect(afterMany?.["age"]).toBe(30);
+		db.close();
+	});
+
 	it("supports scalar where operators", async () => {
 		const { db } = await setup();
 		const orm = makeOrm(manifest, db);

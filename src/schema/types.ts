@@ -153,6 +153,31 @@ export type CreateManyAndReturnArgs<
 	TAccessor extends keyof TSchema & string,
 > = CreateManyArgs<TSchema, TAccessor>;
 
+type ColumnKindOf<TCol extends ColumnDef> =
+	TCol extends ColumnBuilder<unknown, infer M> ? M["kind"] : never;
+
+type NumericColumnKinds = "int" | "serial" | "decimal" | "bigint";
+
+export type NumericUpdateOps<TAmount, TValue = TAmount> = Expand<{
+	increment?: TAmount;
+	decrement?: TAmount;
+	multiply?: TAmount;
+	set?: TValue;
+}>;
+
+export type ScalarSetOp<TValue> = Expand<{
+	set?: TValue;
+}>;
+
+type UpdateScalarInput<TCol extends ColumnDef> =
+	| InferColumnValue<TCol>
+	| (ColumnKindOf<TCol> extends NumericColumnKinds
+			? NumericUpdateOps<
+					NonNullable<InferColumnValue<TCol>>,
+					InferColumnValue<TCol>
+				>
+			: ScalarSetOp<InferColumnValue<TCol>>);
+
 export type UpdateInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -163,7 +188,7 @@ export type UpdateInput<
 			? never
 			: IsUpdatedAt<TColumns[K]> extends true
 				? never
-				: K]?: InferColumnValue<TColumns[K]>;
+				: K]?: UpdateScalarInput<TColumns[K]>;
 	} & RelationUpdateMap<TSchema, TAccessor>
 >;
 
