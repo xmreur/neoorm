@@ -17,20 +17,13 @@ import {
 	mapRowToTs,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
-	orderByShapeKey,
 	type OrderByInput,
+	orderByShapeKey,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
-import {
-	findM2M,
-	findRelation,
-	tableOwnsFkColumn,
-} from "./manifest-lookup.js";
-import {
-	requireScalarPrimaryKey,
-	targetRelationPkSql,
-} from "./primary-key.js";
+import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
+import { requireScalarPrimaryKey, targetRelationPkSql } from "./primary-key.js";
 import {
 	columnByTsName,
 	columnsByTsNames,
@@ -246,8 +239,7 @@ function canInlineCount(
 
 function isSimpleCountSpec(spec: RelationCountSpec): boolean {
 	return (
-		spec === true ||
-		(typeof spec === "object" && spec.where === undefined)
+		spec === true || (typeof spec === "object" && spec.where === undefined)
 	);
 }
 
@@ -277,7 +269,11 @@ function tryBuildCountAggregatePlan(
 			return undefined;
 		}
 
-		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		const relation = findRelation(
+			parentTable,
+			relationName,
+			parentTableIndex,
+		);
 		if (!relation) return undefined;
 
 		const targetTable = manifest.tables[relation.targetAccessor];
@@ -353,13 +349,19 @@ function tryBuildHasManyAggregatePlan(
 	const groupByCols = parentTable.columns.map(
 		(col) => `${parentRef}.${quoteIdentifier(col.sqlName)}`,
 	);
-	groupByCols.push(...groupByExpressionsFromJoinSelectCols(toOneJoins.selectCols));
+	groupByCols.push(
+		...groupByExpressionsFromJoinSelectCols(toOneJoins.selectCols),
+	);
 
 	const joins = [...toOneJoins.joins];
 	const selectCols: string[] = [];
 
 	for (const { relationName, chain } of chains) {
-		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		const relation = findRelation(
+			parentTable,
+			relationName,
+			parentTableIndex,
+		);
 		if (!relation) return undefined;
 
 		const targetTable = manifest.tables[relation.targetAccessor];
@@ -401,11 +403,16 @@ function buildJoinClauses(
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 
 	for (const [relationName, spec] of Object.entries(withSpec)) {
-		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		const relation = findRelation(
+			parentTable,
+			relationName,
+			parentTableIndex,
+		);
 		if (!relation) continue;
 
 		if (relation.cardinality !== "one") continue;
-		if (!tableOwnsFkColumn(parentTable, relation, parentTableIndex)) continue;
+		if (!tableOwnsFkColumn(parentTable, relation, parentTableIndex))
+			continue;
 
 		if (findM2M(manifest, parentTable.accessor, relationName)) continue;
 
@@ -474,9 +481,7 @@ function buildToOneScalarSubquery(
 			`${quoteIdentifier(targetAlias)}.${quoteIdentifier(col.sqlName)}`,
 	);
 	const selectList = refs.join(", ");
-	const outerRefs = cols.map(
-		(col) => `sub.${quoteIdentifier(col.sqlName)}`,
-	);
+	const outerRefs = cols.map((col) => `sub.${quoteIdentifier(col.sqlName)}`);
 
 	return `(SELECT ${dialect.rowToJsonObject(cols, outerRefs, "sub")} FROM (SELECT ${selectList} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} = ${quoteIdentifier(parentRowAlias)}.${parentFkCol} LIMIT 1) sub)`;
 }
@@ -508,11 +513,19 @@ function buildHasManyRowExpression(
 		return dialect.jsonBuildObjectExpr(entries);
 	}
 
-	const cols = columnsForInlineSelect(node.targetTable, undefined, manifestIndex);
+	const cols = columnsForInlineSelect(
+		node.targetTable,
+		undefined,
+		manifestIndex,
+	);
 	const refs = cols.map(
 		(col) => `${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
 	);
-	return dialect.rowToJsonObject(cols, refs, `${quoteIdentifier(rowAlias)}.*`);
+	return dialect.rowToJsonObject(
+		cols,
+		refs,
+		`${quoteIdentifier(rowAlias)}.*`,
+	);
 }
 
 function buildHasManySubqueryFromRef(
@@ -524,7 +537,12 @@ function buildHasManySubqueryFromRef(
 ): string {
 	const childAlias = `_r_${node.relationName}`;
 	const fkCol = quoteIdentifier(node.relation.fkSqlColumn);
-	const rowExpr = buildHasManyRowExpression(node, childAlias, dialect, manifestIndex);
+	const rowExpr = buildHasManyRowExpression(
+		node,
+		childAlias,
+		dialect,
+		manifestIndex,
+	);
 
 	let sql = `(SELECT ${dialect.jsonAggExpr("agg_row")} FROM (SELECT ${rowExpr} AS agg_row FROM ${tableRef(node.targetTable)} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
 
@@ -555,7 +573,12 @@ function buildChildAggregationExpr(
 		node.relation.cardinality === "one" &&
 		tableOwnsFkColumn(parentTable, node.relation, parentTableIndex)
 	) {
-		return buildToOneScalarSubquery(node, parentRowAlias, dialect, manifestIndex);
+		return buildToOneScalarSubquery(
+			node,
+			parentRowAlias,
+			dialect,
+			manifestIndex,
+		);
 	}
 
 	if (
@@ -591,7 +614,9 @@ export function buildInlineJsonAggSelectCol(
 		dialect,
 		manifestIndex,
 	);
-	const alias = quoteIdentifier(inlineRelationColumnAlias(chain.relationName));
+	const alias = quoteIdentifier(
+		inlineRelationColumnAlias(chain.relationName),
+	);
 	return `${subquery} AS ${alias}`;
 }
 
@@ -684,7 +709,11 @@ export function planRelationLoad(
 			continue;
 		}
 
-		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		const relation = findRelation(
+			parentTable,
+			relationName,
+			parentTableIndex,
+		);
 		if (
 			relation?.cardinality === "one" &&
 			tableOwnsFkColumn(parentTable, relation, parentTableIndex) &&
@@ -895,10 +924,7 @@ export function hydrateRowsWithPlan(
 	plan: RelationLoadPlan,
 ): Record<string, unknown>[] {
 	const { manifest } = runtime;
-	const tableIndex = getTableIndex(
-		runtime.tableIndex,
-		parentTable.accessor,
-	);
+	const tableIndex = getTableIndex(runtime.tableIndex, parentTable.accessor);
 
 	return rawRows.map((rawRow) => {
 		const joined =
@@ -1006,7 +1032,11 @@ export function compileCountOrderBy(
 	if (!orderBy || !plan.countAggregate) return "";
 
 	const countOrder = orderBy._count;
-	if (!countOrder || typeof countOrder !== "object" || Array.isArray(countOrder)) {
+	if (
+		!countOrder ||
+		typeof countOrder !== "object" ||
+		Array.isArray(countOrder)
+	) {
 		return "";
 	}
 
@@ -1022,7 +1052,11 @@ export function compileCountOrderBy(
 		);
 		if (!countPlan) continue;
 
-		const relation = findRelation(parentTable, relationName, parentTableIndex);
+		const relation = findRelation(
+			parentTable,
+			relationName,
+			parentTableIndex,
+		);
 		if (!relation) continue;
 
 		const targetTable = manifest.tables[relation.targetAccessor];
@@ -1068,6 +1102,10 @@ export function withShapeSignature(
 			const bits = [name];
 			if (spec.limit !== undefined) bits.push(`l${spec.limit}`);
 			if (spec.orderBy) bits.push(`o${orderByShapeKey(spec.orderBy)}`);
+			const selectKeys = normalizeSelectColumns(spec.select);
+			if (selectKeys && selectKeys.length > 0) {
+				bits.push(`s${[...selectKeys].sort().join(",")}`);
+			}
 			if (spec.with) {
 				bits.push(
 					`w${withShapeSignature(spec.with as Record<string, WithInput>)}`,
@@ -1096,7 +1134,14 @@ export function getCachedRelationPlan(
 	const cached = tableIndex?.relationPlanBySignature.get(signature);
 	if (cached) return cached;
 
-	const plan = planRelationLoad(manifest, table, withSpec, dialect, manifestIndex, options);
+	const plan = planRelationLoad(
+		manifest,
+		table,
+		withSpec,
+		dialect,
+		manifestIndex,
+		options,
+	);
 	tableIndex?.relationPlanBySignature.set(signature, plan);
 	return plan;
 }
@@ -1107,6 +1152,7 @@ export function getCachedFindByIdWithQuery(
 	withSpec: Record<string, WithInput>,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
+	parentSelect?: readonly string[],
 ): { sql: string; plan: RelationLoadPlan } | null {
 	const plan = getCachedRelationPlan(
 		manifest,
@@ -1120,7 +1166,8 @@ export function getCachedFindByIdWithQuery(
 	if (plan.countAggregate) return null;
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const signature = `${dialect.name}|${withShapeSignature(withSpec)}|corr`;
+	const selectKey = parentSelect ? [...parentSelect].sort().join(",") : "";
+	const signature = `${dialect.name}|${withShapeSignature(withSpec)}|corr|${selectKey}`;
 	const { sqlName } = requireScalarPrimaryKey(table);
 	const pkCol = quoteIdentifier(sqlName);
 
@@ -1133,8 +1180,8 @@ export function getCachedFindByIdWithQuery(
 					: undefined;
 		const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 		const selectCols = hasJoins
-			? buildQualifiedSelectColumns(table, undefined, manifestIndex)
-			: buildSelectColumns(table, undefined, manifestIndex);
+			? buildQualifiedSelectColumns(table, parentSelect, manifestIndex)
+			: buildSelectColumns(table, parentSelect, manifestIndex);
 		const extraCols = buildPlanExtraSelectCols(
 			manifest,
 			table,

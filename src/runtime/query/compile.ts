@@ -1,5 +1,9 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
-import { postgresDialect, quoteIdentifier, tableRef } from "../../dialect/postgres.js";
+import {
+	postgresDialect,
+	quoteIdentifier,
+	tableRef,
+} from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	Manifest,
@@ -23,9 +27,9 @@ import {
 	columnsByTsNames,
 	getOrSetSqlCache,
 	getTableIndex,
+	type ManifestIndex,
 	reorderKeyValues,
 	sortedKeysCacheKey,
-	type ManifestIndex,
 	type TableIndex,
 } from "./table-index.js";
 
@@ -501,7 +505,9 @@ function whereShapeKey(where: Record<string, unknown>): string {
 				`AND:${value
 					.filter(
 						(item): item is Record<string, unknown> =>
-							!!item && typeof item === "object" && !Array.isArray(item),
+							!!item &&
+							typeof item === "object" &&
+							!Array.isArray(item),
 					)
 					.map((item) => whereShapeKey(item))
 					.join(",")}`,
@@ -513,7 +519,9 @@ function whereShapeKey(where: Record<string, unknown>): string {
 				`OR:${value
 					.filter(
 						(item): item is Record<string, unknown> =>
-							!!item && typeof item === "object" && !Array.isArray(item),
+							!!item &&
+							typeof item === "object" &&
+							!Array.isArray(item),
 					)
 					.map((item) => whereShapeKey(item))
 					.join(",")}`,
@@ -521,12 +529,18 @@ function whereShapeKey(where: Record<string, unknown>): string {
 			continue;
 		}
 		if (key === "NOT" && isOperatorObject(value)) {
-			parts.push(`NOT:${whereShapeKey(value as Record<string, unknown>)}`);
+			parts.push(
+				`NOT:${whereShapeKey(value as Record<string, unknown>)}`,
+			);
 			continue;
 		}
 		if (isOperatorObject(value) && !(value instanceof Date)) {
 			const ops = Object.keys(value).sort();
-			if (ops.some((op) => op === "some" || op === "every" || op === "none")) {
+			if (
+				ops.some(
+					(op) => op === "some" || op === "every" || op === "none",
+				)
+			) {
 				const mode = ops.find(
 					(op) => op === "some" || op === "every" || op === "none",
 				);
@@ -566,14 +580,21 @@ function collectWhereParams(
 		const relations =
 			tableIndex?.effectiveRelationsByName ??
 			new Map(
-				effectiveRelations(manifest, table).map((rel) => [rel.name, rel]),
+				effectiveRelations(manifest, table).map((rel) => [
+					rel.name,
+					rel,
+				]),
 			);
 
 		for (const [key, value] of Object.entries(node)) {
 			if (key === "AND" || key === "OR") {
 				if (Array.isArray(value)) {
 					for (const item of value) {
-						if (item && typeof item === "object" && !Array.isArray(item)) {
+						if (
+							item &&
+							typeof item === "object" &&
+							!Array.isArray(item)
+						) {
 							walk(item as Record<string, unknown>, columnRef);
 						}
 					}
@@ -648,7 +669,13 @@ export function getCachedWhereClause(
 	if (shellCached) {
 		return {
 			sql: shellCached.sql,
-			params: collectWhereParams(manifest, table, where, dialect, manifestIndex),
+			params: collectWhereParams(
+				manifest,
+				table,
+				where,
+				dialect,
+				manifestIndex,
+			),
 			...(shellCached.impossible ? { impossible: true } : {}),
 		};
 	}
@@ -692,7 +719,9 @@ export function orderByShapeKey(
 	const entries = Object.entries(orderBy)
 		.filter(([key]) => key !== "_count")
 		.map(([key, direction]) =>
-			typeof direction === "string" ? `${key}:${direction.toUpperCase()}` : "",
+			typeof direction === "string"
+				? `${key}:${direction.toUpperCase()}`
+				: "",
 		)
 		.filter(Boolean)
 		.sort((a, b) => a.localeCompare(b));
@@ -727,8 +756,10 @@ export function getCachedDeleteManyQuery(
 ): string {
 	const cacheKey = whereSql || "";
 	if (!tableIndex) return buildDeleteManyQuery(table, whereSql);
-	return getOrSetSqlCache(tableIndex.deleteManySqlByWhereShape, cacheKey, () =>
-		buildDeleteManyQuery(table, whereSql),
+	return getOrSetSqlCache(
+		tableIndex.deleteManySqlByWhereShape,
+		cacheKey,
+		() => buildDeleteManyQuery(table, whereSql),
 	);
 }
 
@@ -839,10 +870,14 @@ export function buildQualifiedSelectColumns(
 	return cols.map((c) => `${ref}.${selectExpression(c)}`).join(", ");
 }
 
-export function buildFindByIdQuery(table: ManifestTable): string {
+export function buildFindByIdQuery(
+	table: ManifestTable,
+	select?: readonly string[],
+	manifestIndex?: ManifestIndex,
+): string {
 	const { sqlName } = requireScalarPrimaryKey(table);
 	const sqlCol = quoteIdentifier(sqlName);
-	const selectCols = buildSelectColumns(table);
+	const selectCols = buildSelectColumns(table, select, manifestIndex);
 	return `SELECT ${selectCols} FROM ${tableRef(table)} WHERE ${sqlCol} = $1`;
 }
 
@@ -870,12 +905,13 @@ export function buildFindManyQuery(
 	joinClauses?: string[],
 	manifestIndex?: ManifestIndex,
 	groupBySql?: string,
+	select?: readonly string[],
 ): string {
 	const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const selectCols = hasJoins
-		? buildQualifiedSelectColumns(table, undefined, manifestIndex)
-		: buildSelectColumns(table, undefined, manifestIndex);
+		? buildQualifiedSelectColumns(table, select, manifestIndex)
+		: buildSelectColumns(table, select, manifestIndex);
 	let sql = "SELECT ";
 	if (distinctOn && distinctOn.length > 0) {
 		const distinctCols = columnsByTsNames(tableIndex, table, distinctOn)
@@ -1031,12 +1067,16 @@ export function getCachedAggregateQuery(
 ): string {
 	const cacheKey = `${dialect.name}|${aggregateSelectorCacheKey(selectors)}|${whereSql}`;
 	if (!tableIndex) {
-		return buildAggregateQuery(table, selectors, whereSql, manifestIndex, dialect);
+		return buildAggregateQuery(
+			table,
+			selectors,
+			whereSql,
+			manifestIndex,
+			dialect,
+		);
 	}
-	return getOrSetSqlCache(
-		tableIndex.aggregateSqlBySelector,
-		cacheKey,
-		() => buildAggregateQuery(table, selectors, whereSql, manifestIndex, dialect),
+	return getOrSetSqlCache(tableIndex.aggregateSqlBySelector, cacheKey, () =>
+		buildAggregateQuery(table, selectors, whereSql, manifestIndex, dialect),
 	);
 }
 
@@ -1163,7 +1203,7 @@ export function buildInsertQuery(
 		})
 		.join(", ");
 
-	let sql = `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders})`;
+	const sql = `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders})`;
 	if (returning === "none") return sql;
 
 	const effectiveReturning = resolveReturning(table, returning);
@@ -1378,7 +1418,11 @@ export function getCachedFindManyQuery(
 	build: () => string,
 ): string {
 	if (!tableIndex) return build();
-	return getOrSetSqlCache(tableIndex.findManySqlBySignature, signature, build);
+	return getOrSetSqlCache(
+		tableIndex.findManySqlBySignature,
+		signature,
+		build,
+	);
 }
 
 export function dataToSqlValues(
@@ -1469,7 +1513,10 @@ export function rowToTsIndexed(
 			if (col.sqlName in row) {
 				const plugin = getColumnType(col.kind);
 				if (plugin?.deserializeValue) {
-					result[col.tsName] = plugin.deserializeValue(col, row[col.sqlName]);
+					result[col.tsName] = plugin.deserializeValue(
+						col,
+						row[col.sqlName],
+					);
 				}
 			}
 		}
@@ -1486,7 +1533,10 @@ export function rowToTsIndexed(
 		if (col.sqlName in row) {
 			const plugin = getColumnType(col.kind);
 			if (plugin?.deserializeValue) {
-				result[col.tsName] = plugin.deserializeValue(col, row[col.sqlName]);
+				result[col.tsName] = plugin.deserializeValue(
+					col,
+					row[col.sqlName],
+				);
 			}
 		}
 	}

@@ -2,7 +2,7 @@ import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import { buildCountQuery, compileWhere } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
-import { findFirst } from "./find.js";
+import { findFirst, type WithInput } from "./find.js";
 import { getTableIndex } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 
@@ -46,7 +46,9 @@ export async function findUnique(
 	tableAccessor: string,
 	args: {
 		where: Record<string, unknown>;
-		with?: Record<string, import("./find.js").WithInput>;
+		select?: readonly string[] | Record<string, boolean | undefined>;
+		omit?: readonly string[] | Record<string, boolean | undefined>;
+		with?: Record<string, WithInput>;
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
@@ -58,6 +60,8 @@ export async function findUnique(
 
 	return findFirst(executor, runtime, tableAccessor, {
 		where: args.where,
+		...(args.select !== undefined ? { select: args.select } : {}),
+		...(args.omit !== undefined ? { omit: args.omit } : {}),
 		...(args.with !== undefined ? { with: args.with } : {}),
 	});
 }

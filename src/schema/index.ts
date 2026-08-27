@@ -5,8 +5,8 @@ export type {
 } from "../plugins/builtin.js";
 export type { ColumnBuilder, ColumnKind, ColumnMeta } from "./column.js";
 export {
-	bool,
 	bigint,
+	bool,
 	bytea,
 	citext,
 	decimal,
@@ -60,6 +60,7 @@ export type {
 export { index, primaryKey, table, unique } from "./table.js";
 export type {
 	AggregateArgs,
+	ApplyOmit,
 	ApplySelect,
 	ColumnWhereInput,
 	ConnectInput,
@@ -80,11 +81,13 @@ export type {
 	FindOrCreateResult,
 	FindUniqueArgs,
 	InferAggregateResult,
+	InferFindResult,
 	InferInsertRow,
 	InferSelectRow,
 	InferWithResult,
 	LogicalWhereInput,
 	ManyRelationFilter,
+	OmitInput,
 	OrderByInput,
 	OrderDirection,
 	PaginateArgs,
