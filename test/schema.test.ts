@@ -75,8 +75,22 @@ describe("query compilation", () => {
 			{ title: { contains: "ORM" } },
 			postgresDialect,
 		);
-		expect(sql).toContain("ILIKE");
+		expect(sql).toContain("LIKE");
+		expect(sql).not.toContain("ILIKE");
 		expect(params).toEqual(["%ORM%"]);
+	});
+
+	it("compiles contains with mode insensitive as ILIKE", () => {
+		const manifest = blogManifest();
+		const posts = manifestTable(manifest, "posts");
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "orm", mode: "insensitive" } },
+			postgresDialect,
+		);
+		expect(sql).toContain("ILIKE");
+		expect(params).toEqual(["%orm%"]);
 	});
 
 	it("compiles orderBy", () => {

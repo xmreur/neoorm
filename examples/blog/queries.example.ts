@@ -44,6 +44,14 @@ export async function exampleQueries() {
 		},
 	});
 
+	const _insensitiveTitle = await db.posts.findFirst({
+		where: { title: { contains: "orm", mode: "insensitive" } },
+	});
+
+	const _regexTitle = await db.posts.findFirst({
+		where: { title: { search: "ORM" } },
+	});
+
 	const usersWithPublishedPosts = await db.users.findMany({
 		where: {
 			posts: { some: { published: true } },

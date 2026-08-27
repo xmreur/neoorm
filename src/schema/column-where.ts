@@ -28,11 +28,15 @@ type ComparableWhereOperators<T> = {
 	notIn?: readonly T[];
 } & NullableOperators;
 
+export type QueryMode = "default" | "insensitive";
+
 type StringWhereOperators<T extends string> = {
 	equals?: T;
 	contains?: T;
 	startsWith?: T;
 	endsWith?: T;
+	search?: T;
+	mode?: QueryMode;
 	in?: readonly T[];
 	notIn?: readonly T[];
 } & NullableOperators;

@@ -199,6 +199,11 @@ describe("sqlite runtime", () => {
 		});
 		expect(contains).toHaveLength(1);
 
+		const insensitive = await orm.users.findMany({
+			where: { name: { contains: "alp", mode: "insensitive" } },
+		});
+		expect(insensitive).toHaveLength(1);
+
 		const inList = await orm.users.findMany({
 			where: { email: { in: ["a@x", "missing@x"] } },
 		});

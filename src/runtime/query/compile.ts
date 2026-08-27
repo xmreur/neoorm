@@ -76,6 +76,48 @@ const operatorParamTransform: Partial<
 	endsWith: (v) => `%${String(v)}`,
 };
 
+type QueryMode = "default" | "insensitive";
+
+type StringPatternOp = "contains" | "startsWith" | "endsWith" | "search";
+
+function parseQueryMode(value: unknown): QueryMode {
+	if (value === undefined || value === "default") return "default";
+	if (value === "insensitive") return "insensitive";
+	throw new Error(`unsupported query mode: ${String(value)}`);
+}
+
+function isStringPatternOp(op: WhereOperator): op is StringPatternOp {
+	return (
+		op === "contains" ||
+		op === "startsWith" ||
+		op === "endsWith" ||
+		op === "search"
+	);
+}
+
+function stringFilterSql(
+	op: StringPatternOp,
+	sqlCol: string,
+	paramIndex: number,
+	mode: QueryMode,
+	dialect: Dialect,
+): string {
+	switch (op) {
+		case "contains":
+		case "startsWith":
+		case "endsWith":
+			return mode === "insensitive"
+				? dialect.ilike(sqlCol, paramIndex)
+				: dialect.whereOperators[op](sqlCol, paramIndex);
+		case "search":
+			return dialect.regex(sqlCol, paramIndex, mode === "insensitive");
+		default: {
+			const _never: never = op;
+			throw new Error(`unsupported string filter: ${_never}`);
+		}
+	}
+}
+
 function pluginWhereOperators(
 	col: ManifestColumn,
 ): Record<string, PluginWhereOperator> {
@@ -135,6 +177,8 @@ function compileColumnCondition(
 		return { sql: conditions.join(" AND "), params, nextParamIndex };
 	}
 
+	const queryMode = parseQueryMode(rawValue.mode);
+
 	const hasOperator = Object.keys(rawValue).some(
 		(k) => k in dialect.whereOperators || k in spatialOps,
 	);
@@ -147,6 +191,7 @@ function compileColumnCondition(
 	}
 
 	for (const [op, value] of Object.entries(rawValue)) {
+		if (op === "mode") continue;
 		if (op in spatialOps) {
 			const operator = spatialOps[op];
 			if (!operator) continue;
@@ -188,7 +233,15 @@ function compileColumnCondition(
 					? transform(value)
 					: serializeColumnValue(col, value);
 		conditions.push(
-			dialect.whereOperators[operator](sqlCol, nextParamIndex),
+			isStringPatternOp(operator)
+				? stringFilterSql(
+						operator,
+						sqlCol,
+						nextParamIndex,
+						queryMode,
+						dialect,
+					)
+				: dialect.whereOperators[operator](sqlCol, nextParamIndex),
 		);
 		params.push(paramValue);
 		nextParamIndex++;
@@ -558,7 +611,10 @@ export function whereShapeKey(where: Record<string, unknown>): string {
 				const op = ops.includes("in") ? "in" : "notIn";
 				parts.push(`${key}:${op}:${len}`);
 			} else {
-				parts.push(`${key}:${ops.join(",")}`);
+				const modePart =
+					typeof value.mode === "string" ? `:mode:${value.mode}` : "";
+				const opsForKey = ops.filter((op) => op !== "mode");
+				parts.push(`${key}:${opsForKey.join(",")}${modePart}`);
 			}
 			continue;
 		}

@@ -101,6 +101,7 @@ export type {
 	OrderDirection,
 	PaginateArgs,
 	PaginateResult,
+	QueryMode,
 	RelationAccessors,
 	RelationCountInput,
 	RelationWhereMap,

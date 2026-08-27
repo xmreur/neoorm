@@ -143,10 +143,24 @@ await db.posts.findFirst({
 
 | Type | Operators |
 |------|-----------|
-| String | `equals`, `contains`, `startsWith`, `endsWith`, `in`, `notIn` |
+| String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `in`, `notIn`, `mode` |
 | Numeric / Date | `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn` |
 | JSON | `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, `path` |
 | All nullable | `isNull`, `isNotNull` |
+
+`contains`, `startsWith`, and `endsWith` compile to `LIKE`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode.
+
+`search` is POSIX regex (`~`, or `~*` with `mode: "insensitive"`). It is PostgreSQL-only; SQLite throws.
+
+```ts
+await db.posts.findMany({
+  where: { title: { contains: "orm", mode: "insensitive" } },
+});
+
+await db.posts.findMany({
+  where: { title: { search: "^Neo", mode: "insensitive" } },
+});
+```
 
 ### Logical combinators
 

@@ -228,7 +228,9 @@ function emitRebuildSql(table: ManifestTable, diff: TableDiff): string[] {
 	stmts.push(
 		emitCreateTable(
 			{ ...table, sqlName: newTableName },
-			manifest ? { inlineForeignKeys: true, manifest } : { inlineForeignKeys: true },
+			manifest
+				? { inlineForeignKeys: true, manifest }
+				: { inlineForeignKeys: true },
 		),
 	);
 
@@ -247,10 +249,7 @@ function emitRebuildSql(table: ManifestTable, diff: TableDiff): string[] {
 	for (const index of table.indexes) {
 		if (!index.unique) {
 			stmts.push(
-				emitCreateIndex(
-					{ ...table, sqlName: table.sqlName },
-					index,
-				),
+				emitCreateIndex({ ...table, sqlName: table.sqlName }, index),
 			);
 		}
 	}
@@ -321,16 +320,18 @@ function emitAlterColumn(
 
 const whereOperators: OperatorMap = {
 	equals: (col, i) => `${col} = $${i}`,
-	contains: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
-	startsWith: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
-	endsWith: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
+	contains: (col, i) => `${col} LIKE $${i}`,
+	startsWith: (col, i) => `${col} LIKE $${i}`,
+	endsWith: (col, i) => `${col} LIKE $${i}`,
+	search: () => {
+		throw new Error("search is not supported on sqlite");
+	},
 	gt: (col, i) => `${col} > $${i}`,
 	gte: (col, i) => `${col} >= $${i}`,
 	lt: (col, i) => `${col} < $${i}`,
 	lte: (col, i) => `${col} <= $${i}`,
 	in: (col, i) => `${col} IN (SELECT value FROM json_each($${i}))`,
-	notIn: (col, i) =>
-		`NOT (${col} IN (SELECT value FROM json_each($${i})))`,
+	notIn: (col, i) => `NOT (${col} IN (SELECT value FROM json_each($${i})))`,
 	isNull: (col) => `${col} IS NULL`,
 	isNotNull: (col) => `${col} IS NOT NULL`,
 };
@@ -353,6 +354,10 @@ export const sqliteDialect: Dialect = {
 	emitAlterColumn,
 	emitAddForeignKey,
 	whereOperators,
+	ilike: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
+	regex: () => {
+		throw new Error("search is not supported on sqlite");
+	},
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
