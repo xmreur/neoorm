@@ -1016,6 +1016,69 @@ function aggregateSqlCol(
 	return sqlCol;
 }
 
+const FIELD_AGG_KEYS = ["_avg", "_sum", "_min", "_max"] as const;
+
+type FieldAggKey = (typeof FIELD_AGG_KEYS)[number];
+
+function sqlFnForFieldAgg(key: FieldAggKey): "AVG" | "SUM" | "MIN" | "MAX" {
+	switch (key) {
+		case "_avg":
+			return "AVG";
+		case "_sum":
+			return "SUM";
+		case "_min":
+			return "MIN";
+		case "_max":
+			return "MAX";
+		default: {
+			const _never: never = key;
+			throw new Error(`unsupported aggregate: ${_never}`);
+		}
+	}
+}
+
+function fieldAggExpression(
+	key: FieldAggKey,
+	table: ManifestTable,
+	colName: string,
+	dialect: Dialect,
+	manifestIndex?: ManifestIndex,
+): string | undefined {
+	const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
+	if (!sqlCol) return undefined;
+	return `${sqlFnForFieldAgg(key)}(${sqlCol})`;
+}
+
+export function aggregateSelectParts(
+	table: ManifestTable,
+	selectors: AggregateSelectors,
+	dialect: Dialect = postgresDialect,
+	manifestIndex?: ManifestIndex,
+): string[] {
+	const parts: string[] = [];
+
+	if (selectors._count) {
+		parts.push(`${dialect.castToInt("COUNT(*)")} AS "__count"`);
+	}
+
+	for (const key of FIELD_AGG_KEYS) {
+		const fieldMap = selectors[key];
+		if (!fieldMap) continue;
+		for (const colName of Object.keys(fieldMap)) {
+			const expr = fieldAggExpression(
+				key,
+				table,
+				colName,
+				dialect,
+				manifestIndex,
+			);
+			if (expr) parts.push(`${expr} AS "${key}_${colName}"`);
+		}
+	}
+
+	return parts;
+}
+
 export function buildAggregateQuery(
 	table: ManifestTable,
 	selectors: AggregateSelectors,
@@ -1023,31 +1086,12 @@ export function buildAggregateQuery(
 	manifestIndex?: ManifestIndex,
 	dialect: Dialect = postgresDialect,
 ): string {
-	const parts: string[] = [];
-
-	if (selectors._count) {
-		parts.push(`${dialect.castToInt("COUNT(*)")} AS "__count"`);
-	}
-
-	for (const colName of Object.keys(selectors._avg ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
-		if (sqlCol) parts.push(`AVG(${sqlCol}) AS "_avg_${colName}"`);
-	}
-
-	for (const colName of Object.keys(selectors._sum ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
-		if (sqlCol) parts.push(`SUM(${sqlCol}) AS "_sum_${colName}"`);
-	}
-
-	for (const colName of Object.keys(selectors._min ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
-		if (sqlCol) parts.push(`MIN(${sqlCol}) AS "_min_${colName}"`);
-	}
-
-	for (const colName of Object.keys(selectors._max ?? {})) {
-		const sqlCol = aggregateSqlCol(table, colName, dialect, manifestIndex);
-		if (sqlCol) parts.push(`MAX(${sqlCol}) AS "_max_${colName}"`);
-	}
+	const parts = aggregateSelectParts(
+		table,
+		selectors,
+		dialect,
+		manifestIndex,
+	);
 
 	if (parts.length === 0) {
 		throw new Error("aggregate requires at least one selector");
@@ -1091,6 +1135,386 @@ export function getCachedAggregateQuery(
 	}
 	return getOrSetSqlCache(tableIndex.aggregateSqlBySelector, cacheKey, () =>
 		buildAggregateQuery(table, selectors, whereSql, manifestIndex, dialect),
+	);
+}
+
+export type HavingInput = {
+	_count?: number | Record<string, unknown>;
+	_avg?: Record<string, number | Record<string, unknown>>;
+	_sum?: Record<string, number | Record<string, unknown>>;
+	_min?: Record<string, number | Record<string, unknown>>;
+	_max?: Record<string, number | Record<string, unknown>>;
+};
+
+type HavingOperator = "equals" | "gt" | "gte" | "lt" | "lte" | "in" | "notIn";
+
+function isHavingOperator(op: string): op is HavingOperator {
+	return (
+		op === "equals" ||
+		op === "gt" ||
+		op === "gte" ||
+		op === "lt" ||
+		op === "lte" ||
+		op === "in" ||
+		op === "notIn"
+	);
+}
+
+function requireSelectedCount(selectors: AggregateSelectors): void {
+	if (!selectors._count) {
+		throw new Error("having._count requires _count: true");
+	}
+}
+
+function requireSelectedFieldAgg(
+	selectors: AggregateSelectors,
+	key: FieldAggKey,
+	colName: string,
+): void {
+	if (!selectors[key]?.[colName]) {
+		throw new Error(
+			`having.${key}.${colName} requires ${key}: { ${colName}: true }`,
+		);
+	}
+}
+
+function compileHavingCompare(
+	expr: string,
+	spec: number | Record<string, unknown>,
+	dialect: Dialect,
+	paramIndex: number,
+): {
+	sql: string;
+	params: unknown[];
+	nextParamIndex: number;
+	impossible?: boolean;
+} {
+	const conditions: string[] = [];
+	const params: unknown[] = [];
+	let nextParamIndex = paramIndex;
+	let impossible = false;
+
+	const ops: Record<string, unknown> =
+		typeof spec === "number" ? { equals: spec } : spec;
+
+	for (const [op, value] of Object.entries(ops)) {
+		if (!isHavingOperator(op)) {
+			throw new Error(`unsupported having operator: ${op}`);
+		}
+		switch (op) {
+			case "in":
+			case "notIn": {
+				if (Array.isArray(value) && value.length === 0) {
+					if (op === "in") {
+						conditions.push("1=0");
+						impossible = true;
+					} else {
+						conditions.push("1=1");
+					}
+					break;
+				}
+				conditions.push(
+					dialect.whereOperators[op](expr, nextParamIndex),
+				);
+				params.push(value);
+				nextParamIndex++;
+				break;
+			}
+			case "equals":
+			case "gt":
+			case "gte":
+			case "lt":
+			case "lte": {
+				conditions.push(
+					dialect.whereOperators[op](expr, nextParamIndex),
+				);
+				params.push(value);
+				nextParamIndex++;
+				break;
+			}
+			default: {
+				const _never: never = op;
+				throw new Error(`unsupported having operator: ${_never}`);
+			}
+		}
+	}
+
+	return {
+		sql: conditions.join(" AND "),
+		params,
+		nextParamIndex,
+		...(impossible ? { impossible: true } : {}),
+	};
+}
+
+function requireFieldAggExpression(
+	key: FieldAggKey,
+	table: ManifestTable,
+	colName: string,
+	dialect: Dialect,
+	manifestIndex?: ManifestIndex,
+): string {
+	const expr = fieldAggExpression(
+		key,
+		table,
+		colName,
+		dialect,
+		manifestIndex,
+	);
+	if (!expr) {
+		throw new Error(`Unknown aggregate column: ${colName}`);
+	}
+	return expr;
+}
+
+export function compileHaving(
+	table: ManifestTable,
+	selectors: AggregateSelectors,
+	having: HavingInput | undefined,
+	dialect: Dialect,
+	startParamIndex = 1,
+	manifestIndex?: ManifestIndex,
+): { sql: string; params: unknown[]; impossible?: boolean } {
+	if (!having || Object.keys(having).length === 0) {
+		return { sql: "", params: [] };
+	}
+
+	for (const key of Object.keys(having)) {
+		if (
+			key !== "_count" &&
+			key !== "_avg" &&
+			key !== "_sum" &&
+			key !== "_min" &&
+			key !== "_max"
+		) {
+			throw new Error(`unsupported having key: ${key}`);
+		}
+	}
+
+	const conditions: string[] = [];
+	const params: unknown[] = [];
+	let paramIndex = startParamIndex;
+	let impossible = false;
+
+	const pushCompare = (
+		expr: string,
+		spec: number | Record<string, unknown>,
+	): void => {
+		const compiled = compileHavingCompare(expr, spec, dialect, paramIndex);
+		if (compiled.sql) conditions.push(compiled.sql);
+		params.push(...compiled.params);
+		paramIndex = compiled.nextParamIndex;
+		if (compiled.impossible) impossible = true;
+	};
+
+	if (having._count !== undefined) {
+		requireSelectedCount(selectors);
+		pushCompare("COUNT(*)", having._count);
+	}
+
+	for (const key of FIELD_AGG_KEYS) {
+		const fieldMap = having[key];
+		if (!fieldMap) continue;
+		for (const [colName, spec] of Object.entries(fieldMap)) {
+			requireSelectedFieldAgg(selectors, key, colName);
+			if (
+				typeof spec !== "number" &&
+				(typeof spec !== "object" || spec === null)
+			) {
+				throw new Error(`invalid having.${key}.${colName} predicate`);
+			}
+			const expr = requireFieldAggExpression(
+				key,
+				table,
+				colName,
+				dialect,
+				manifestIndex,
+			);
+			pushCompare(expr, spec);
+		}
+	}
+
+	if (conditions.length === 0) return { sql: "", params: [] };
+	return {
+		sql: `HAVING ${conditions.join(" AND ")}`,
+		params,
+		...(impossible ? { impossible: true } : {}),
+	};
+}
+
+export function compileGroupByOrderBy(
+	table: ManifestTable,
+	byKeys: readonly string[],
+	selectors: AggregateSelectors,
+	orderBy: OrderByInput | undefined,
+	dialect: Dialect = postgresDialect,
+	manifestIndex?: ManifestIndex,
+): string {
+	if (!orderBy || Object.keys(orderBy).length === 0) return "";
+
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const bySet = new Set(byKeys);
+	const parts: string[] = [];
+
+	for (const [tsKey, direction] of Object.entries(orderBy)) {
+		if (tsKey === "_count") {
+			if (typeof direction !== "string") {
+				throw new Error('orderBy._count must be "asc" or "desc"');
+			}
+			if (!selectors._count) {
+				throw new Error("orderBy._count requires _count: true");
+			}
+			const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+			parts.push(`COUNT(*) ${dir}`);
+			continue;
+		}
+
+		if (
+			tsKey === "_avg" ||
+			tsKey === "_sum" ||
+			tsKey === "_min" ||
+			tsKey === "_max"
+		) {
+			const key = tsKey;
+			if (typeof direction !== "object" || direction === null) {
+				throw new Error(`orderBy.${key} must be a column map`);
+			}
+			for (const [colName, colDir] of Object.entries(direction)) {
+				if (typeof colDir !== "string") continue;
+				if (!selectors[key]?.[colName]) {
+					throw new Error(
+						`orderBy.${key}.${colName} requires ${key}: { ${colName}: true }`,
+					);
+				}
+				const expr = requireFieldAggExpression(
+					key,
+					table,
+					colName,
+					dialect,
+					manifestIndex,
+				);
+				const dir = colDir.toUpperCase() === "DESC" ? "DESC" : "ASC";
+				parts.push(`${expr} ${dir}`);
+			}
+			continue;
+		}
+
+		if (typeof direction !== "string") continue;
+		if (!bySet.has(tsKey)) {
+			throw new Error(`orderBy column "${tsKey}" is not in groupBy by`);
+		}
+		const col = columnByTsName(tableIndex, table, tsKey);
+		if (!col) {
+			throw new Error(`Unknown groupBy column: ${tsKey}`);
+		}
+		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+		parts.push(`${quoteIdentifier(col.sqlName)} ${dir}`);
+	}
+
+	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
+}
+
+export function resolveGroupByColumns(
+	table: ManifestTable,
+	byKeys: readonly string[],
+	manifestIndex?: ManifestIndex,
+): ManifestColumn[] {
+	if (byKeys.length === 0) {
+		throw new Error("groupBy requires at least one column");
+	}
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const cols: ManifestColumn[] = [];
+	for (const key of byKeys) {
+		const col = columnByTsName(tableIndex, table, key);
+		if (!col) {
+			throw new Error(`Unknown groupBy column: ${key}`);
+		}
+		cols.push(col);
+	}
+	return cols;
+}
+
+export function buildGroupByQuery(
+	table: ManifestTable,
+	byKeys: readonly string[],
+	selectors: AggregateSelectors,
+	whereSql: string,
+	havingSql: string,
+	orderSql: string,
+	take?: number,
+	skip?: number,
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+): string {
+	const byCols = resolveGroupByColumns(table, byKeys, manifestIndex);
+	const selectBy = buildSelectColumns(table, byKeys, manifestIndex);
+	const aggParts = aggregateSelectParts(
+		table,
+		selectors,
+		dialect,
+		manifestIndex,
+	);
+	const selectList =
+		aggParts.length > 0 ? `${selectBy}, ${aggParts.join(", ")}` : selectBy;
+	const groupList = byCols
+		.map((col) => quoteIdentifier(col.sqlName))
+		.join(", ");
+
+	let sql = `SELECT ${selectList} FROM ${tableRef(table)}`;
+	if (whereSql) sql += ` ${whereSql}`;
+	sql += ` GROUP BY ${groupList}`;
+	if (havingSql) sql += ` ${havingSql}`;
+	if (orderSql) sql += ` ${orderSql}`;
+	if (take !== undefined) {
+		sql += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
+	}
+	if (skip !== undefined) {
+		sql += ` OFFSET ${normalizeLimitOffset(skip, "skip")}`;
+	}
+	return sql;
+}
+
+export function getCachedGroupByQuery(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	byKeys: readonly string[],
+	selectors: AggregateSelectors,
+	whereSql: string,
+	havingSql: string,
+	orderSql: string,
+	take?: number,
+	skip?: number,
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+): string {
+	const cacheKey = `${dialect.name}|${byKeys.join(",")}|${aggregateSelectorCacheKey(selectors)}|${whereSql}|${havingSql}|${orderSql}|${take ?? ""}|${skip ?? ""}`;
+	if (!tableIndex) {
+		return buildGroupByQuery(
+			table,
+			byKeys,
+			selectors,
+			whereSql,
+			havingSql,
+			orderSql,
+			take,
+			skip,
+			manifestIndex,
+			dialect,
+		);
+	}
+	return getOrSetSqlCache(tableIndex.groupBySqlBySignature, cacheKey, () =>
+		buildGroupByQuery(
+			table,
+			byKeys,
+			selectors,
+			whereSql,
+			havingSql,
+			orderSql,
+			take,
+			skip,
+			manifestIndex,
+			dialect,
+		),
 	);
 }
 

@@ -28,11 +28,18 @@ export type TableIndex = {
 	insertSqlByKeys: CappedMap<string, string>;
 	updateManySqlByKeys: CappedMap<string, string>;
 	aggregateSqlBySelector: CappedMap<string, string>;
+	groupBySqlBySignature: CappedMap<string, string>;
 	findManySqlBySignature: CappedMap<string, string>;
 	findByIdWithSqlBySignature: CappedMap<string, string>;
 	relationPlanBySignature: CappedMap<string, RelationLoadPlan>;
-	whereClauseByFingerprint: CappedMap<string, { sql: string; params: unknown[]; impossible?: boolean }>;
-	whereClauseByShape: CappedMap<string, { sql: string; impossible?: boolean }>;
+	whereClauseByFingerprint: CappedMap<
+		string,
+		{ sql: string; params: unknown[]; impossible?: boolean }
+	>;
+	whereClauseByShape: CappedMap<
+		string,
+		{ sql: string; impossible?: boolean }
+	>;
 	orderBySqlByShape: CappedMap<string, string>;
 	deleteManySqlByWhereShape: CappedMap<string, string>;
 };
@@ -126,7 +133,9 @@ export function buildTableIndex(
 		const plugin = getColumnType(col.kind);
 		return plugin?.deserializeValue != null;
 	});
-	const updatedAtColumns = table.columns.filter((col) => col.updatedAt === true);
+	const updatedAtColumns = table.columns.filter(
+		(col) => col.updatedAt === true,
+	);
 	const updatedAtSetExprs = updatedAtColumns.map((col) => {
 		const plugin = getColumnType(col.kind);
 		const expr =
@@ -166,6 +175,7 @@ export function buildTableIndex(
 		insertSqlByKeys: new CappedMap(),
 		updateManySqlByKeys: new CappedMap(),
 		aggregateSqlBySelector: new CappedMap(),
+		groupBySqlBySignature: new CappedMap(),
 		findManySqlBySignature: new CappedMap(),
 		findByIdWithSqlBySignature: new CappedMap(),
 		relationPlanBySignature: new CappedMap(),
@@ -182,7 +192,10 @@ export function buildManifestIndex(
 ): ManifestIndex {
 	const index = new Map<string, TableIndex>();
 	for (const [accessor, table] of Object.entries(manifest.tables)) {
-		index.set(accessor, buildTableIndex(manifest, accessor, table, dialect));
+		index.set(
+			accessor,
+			buildTableIndex(manifest, accessor, table, dialect),
+		);
 	}
 	return index;
 }

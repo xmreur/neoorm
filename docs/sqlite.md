@@ -101,4 +101,4 @@ npx neoorm migrate reset --force
 | transaction options (`readOnly`, `isolationLevel`) | full | outer `BEGIN` only; nested transactions use savepoints |
 | JSON operators | `@>`, `?`, path ops | implemented with `json_each` / `json_object` |
 
-Everything else — relations, nested writes, cursor pagination, aggregates, upsert, `findOrCreate`, savepoint-based nested transactions — behaves identically.
+Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, upsert, `findOrCreate`, savepoint-based nested transactions — behaves identically.

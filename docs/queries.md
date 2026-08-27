@@ -214,7 +214,7 @@ await db.users.findMany({
 });
 ```
 
-Not supported on SQLite (`DISTINCT ON` is PostgreSQL-only) — it throws `distinct is not supported on SQLite`. Use `groupBy` or a raw `db.sql` query instead.
+Not supported on SQLite (`DISTINCT ON` is PostgreSQL-only) — it throws `distinct is not supported on SQLite`. Use `groupBy({ by: [...] })` or a raw `db.sql` query instead.
 
 ## Eager loading with `with`
 
@@ -353,7 +353,24 @@ const stats = await db.posts.aggregate({
 // { _count: number, _avg: { views: number | null } }
 ```
 
-For grouped dashboards, use `db.sql` or the `sqlBuilder` helper.
+Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db.sql` or `sqlBuilder`.
+
+### `groupBy()`
+
+```ts
+const byAuthor = await db.posts.groupBy({
+  by: ["authorId"],
+  where: { published: true },
+  _count: true,
+  _avg: { views: true },
+  having: { _count: { gte: 5 }, _avg: { views: { gt: 10 } } },
+  orderBy: { _count: "desc" },
+  take: 10,
+});
+// { authorId: string, _count: number, _avg: { views: number | null } }[]
+```
+
+`where` filters rows before grouping. `having` filters groups (aggregates only). `by` alone lists distinct groups — useful on SQLite where `distinct` is not available.
 
 ## Count
 

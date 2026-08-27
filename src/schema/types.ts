@@ -1,6 +1,7 @@
 import type { ColumnBuilder } from "./column.js";
 import type { InferColumnValue } from "./column-where.js";
 import type {
+	ApplySelect,
 	ConnectInput,
 	ConnectOrCreateItem,
 	CursorInput,
@@ -258,6 +259,63 @@ export type InferAggregateResult<TArgs> = Expand<
 		(TArgs extends { _max: infer S extends Record<string, true> }
 			? { _max: InferAggregateBucket<S> }
 			: Record<string, never>)
+>;
+
+export type NumericHaving = Expand<{
+	equals?: number;
+	gt?: number;
+	gte?: number;
+	lt?: number;
+	lte?: number;
+	in?: readonly number[];
+	notIn?: readonly number[];
+}>;
+
+type AggregateHavingFields<TColumns extends Record<string, ColumnDef>> =
+	Expand<{
+		[K in keyof TColumns & string]?: number | NumericHaving;
+	}>;
+
+export type GroupByHaving<TColumns extends Record<string, ColumnDef>> = Expand<{
+	_count?: number | NumericHaving;
+	_avg?: AggregateHavingFields<TColumns>;
+	_sum?: AggregateHavingFields<TColumns>;
+	_min?: AggregateHavingFields<TColumns>;
+	_max?: AggregateHavingFields<TColumns>;
+}>;
+
+export type GroupByOrderBy<TColumns extends Record<string, ColumnDef>> =
+	OrderByInput<TColumns> & {
+		_count?: OrderDirection;
+		_avg?: { [K in keyof TColumns & string]?: OrderDirection };
+		_sum?: { [K in keyof TColumns & string]?: OrderDirection };
+		_min?: { [K in keyof TColumns & string]?: OrderDirection };
+		_max?: { [K in keyof TColumns & string]?: OrderDirection };
+	};
+
+export type GroupByArgs<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = {
+	by: SelectInput<TSchema[TAccessor]["_columns"]>;
+	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	having?: GroupByHaving<TSchema[TAccessor]["_columns"]>;
+	orderBy?: GroupByOrderBy<TSchema[TAccessor]["_columns"]>;
+	take?: number;
+	skip?: number;
+	_count?: true;
+	_avg?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+	_sum?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+	_min?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+	_max?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
+};
+
+export type InferGroupByResult<
+	TArgs,
+	TRow extends Record<string, unknown>,
+> = Expand<
+	ApplySelect<TRow, TArgs extends { by: infer B } ? B : never> &
+		InferAggregateResult<TArgs>
 >;
 
 export type PaginateArgs<

@@ -29,6 +29,7 @@ import { type QueryRuntime, runQuery } from "./query/execute.js";
 import type { WithInput } from "./query/find.js";
 import { findById, findFirst, findMany } from "./query/find.js";
 import { findOrCreateRecord } from "./query/find-or-create.js";
+import { groupByRecords } from "./query/group-by.js";
 import { paginateRecords } from "./query/paginate.js";
 import { buildManifestIndex } from "./query/table-index.js";
 import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
@@ -144,6 +145,19 @@ export type TableRepository = {
 		_min?: Record<string, true>;
 		_max?: Record<string, true>;
 	}): Promise<Record<string, unknown>>;
+	groupBy(args: {
+		by: readonly string[] | Record<string, boolean | undefined>;
+		where?: Record<string, unknown>;
+		having?: Record<string, unknown>;
+		orderBy?: Record<string, string | Record<string, string>>;
+		take?: number;
+		skip?: number;
+		_count?: true;
+		_avg?: Record<string, true>;
+		_sum?: Record<string, true>;
+		_min?: Record<string, true>;
+		_max?: Record<string, true>;
+	}): Promise<Record<string, unknown>[]>;
 	deleteById(
 		id: string | Record<string, unknown>,
 	): Promise<Record<string, unknown> | null>;
@@ -213,6 +227,7 @@ function createTableRepository(
 		exists: (args) => existsRecords(executor, runtime, accessor, args),
 		aggregate: (args) =>
 			aggregateRecords(executor, runtime, accessor, args),
+		groupBy: (args) => groupByRecords(executor, runtime, accessor, args),
 		deleteById: (id) => deleteById(executor, runtime, accessor, id),
 		paginate: (args) => paginateRecords(executor, runtime, accessor, args),
 	};
