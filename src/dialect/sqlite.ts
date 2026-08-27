@@ -358,6 +358,7 @@ export const sqliteDialect: Dialect = {
 	regex: () => {
 		throw new Error("search is not supported on sqlite");
 	},
+	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,

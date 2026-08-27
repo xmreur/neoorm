@@ -16,13 +16,17 @@ import {
 } from "../src/runtime/query/compile.js";
 import { createRecord } from "../src/runtime/query/create.js";
 import {
+	deleteManyAndReturnRecords,
 	deleteManyRecords,
 	deleteRecord,
 } from "../src/runtime/query/delete.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findById, findFirst, findMany } from "../src/runtime/query/find.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
-import { updateManyRecords } from "../src/runtime/query/update.js";
+import {
+	updateManyAndReturnRecords,
+	updateManyRecords,
+} from "../src/runtime/query/update.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
 const schema = defineSchema({
@@ -135,6 +139,79 @@ describe("write count optimizations", () => {
 		});
 
 		expect(count).toBe(0);
+		expect(executor.queries).toHaveLength(0);
+	});
+
+	it("updateManyAndReturn uses RETURNING and maps rows", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			query: () => [{ id: "p1", title: "updated", authorId: "u1" }],
+		});
+
+		const rows = await updateManyAndReturnRecords(
+			executor,
+			runtime,
+			"posts",
+			{
+				where: { title: { contains: "draft" } },
+				data: { title: "updated" },
+			},
+		);
+
+		expect(rows).toEqual([{ id: "p1", title: "updated", authorId: "u1" }]);
+		expect(executor.queries[0]?.sql).toContain("RETURNING");
+		expect(executor.execute).not.toHaveBeenCalled();
+	});
+
+	it("updateManyAndReturn short-circuits impossible where", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor();
+
+		const rows = await updateManyAndReturnRecords(
+			executor,
+			runtime,
+			"posts",
+			{
+				where: { id: { in: [] } },
+				data: { title: "updated" },
+			},
+		);
+
+		expect(rows).toEqual([]);
+		expect(executor.queries).toHaveLength(0);
+	});
+
+	it("deleteManyAndReturn uses RETURNING and maps rows", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			query: () => [{ id: "u1", name: "Alice" }],
+		});
+
+		const rows = await deleteManyAndReturnRecords(
+			executor,
+			runtime,
+			"users",
+			{ where: { name: { contains: "Ali" } } },
+		);
+
+		expect(rows).toEqual([{ id: "u1", name: "Alice" }]);
+		expect(executor.queries[0]?.sql).toContain("DELETE");
+		expect(executor.queries[0]?.sql).toContain("RETURNING");
+		expect(executor.execute).not.toHaveBeenCalled();
+	});
+
+	it("deleteManyAndReturn short-circuits impossible where", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor();
+
+		const rows = await deleteManyAndReturnRecords(
+			executor,
+			runtime,
+			"users",
+			{ where: { id: { in: [] } } },
+		);
+
+		expect(rows).toEqual([]);
 		expect(executor.queries).toHaveLength(0);
 	});
 });

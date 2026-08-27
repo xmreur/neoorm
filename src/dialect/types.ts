@@ -199,6 +199,7 @@ export type Dialect = {
 	whereOperators: OperatorMap;
 	ilike(sqlColumn: string, paramIndex: number): string;
 	regex(sqlColumn: string, paramIndex: number, insensitive: boolean): string;
+	onConflictDoNothing(): string;
 	defaultNowExpression(): string;
 	emitCreateMigrationsTable(tableRef: string): string;
 	castToInt(expr: string): string;

@@ -1,3 +1,4 @@
+import { postgresDialect } from "../../dialect/postgres.js";
 import type { Manifest, ManifestTable } from "../../dialect/types.js";
 import type { Executor } from "../executor.js";
 import {
@@ -9,7 +10,12 @@ import {
 	mapRowToTs,
 	mapRowsToTs,
 } from "./compile.js";
-import { type QueryRuntime, runExecute, runQuery, runQueryOne } from "./execute.js";
+import {
+	type QueryRuntime,
+	runExecute,
+	runQuery,
+	runQueryOne,
+} from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import {
@@ -43,7 +49,11 @@ function createNeedsTransaction(
 	}
 	for (const write of relationWrites) {
 		const rel = findRelation(table, write.relationName);
-		if (!rel || rel.cardinality !== "one" || !tableOwnsFkColumn(table, rel)) {
+		if (
+			!rel ||
+			rel.cardinality !== "one" ||
+			!tableOwnsFkColumn(table, rel)
+		) {
 			continue;
 		}
 		if (
@@ -249,6 +259,7 @@ export async function createManyRecords(
 	tableAccessor: string,
 	args: {
 		data: Record<string, unknown>[];
+		skipDuplicates?: boolean;
 	},
 ): Promise<number> {
 	const prepared = prepareCreateManyRows(runtime, tableAccessor, args.data);
@@ -260,6 +271,8 @@ export async function createManyRecords(
 		dataKeys,
 		valueRows,
 		runtime.tableIndex,
+		args.skipDuplicates === true,
+		runtime.dialect ?? postgresDialect,
 	);
 	const result = await runQuery(
 		executor,
@@ -277,6 +290,7 @@ export async function createManyAndReturnRecords(
 	tableAccessor: string,
 	args: {
 		data: Record<string, unknown>[];
+		skipDuplicates?: boolean;
 	},
 ): Promise<Record<string, unknown>[]> {
 	const prepared = prepareCreateManyRows(runtime, tableAccessor, args.data);
@@ -288,6 +302,8 @@ export async function createManyAndReturnRecords(
 		dataKeys,
 		valueRows,
 		runtime.tableIndex,
+		args.skipDuplicates === true,
+		runtime.dialect ?? postgresDialect,
 	);
 	const rows = await runQuery(
 		executor,

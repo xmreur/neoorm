@@ -3,13 +3,20 @@ import type { Executor } from "../executor.js";
 import {
 	buildDeleteManyQuery,
 	buildDeleteQuery,
+	buildSelectColumns,
 	compileWhere,
 	getCachedDeleteManyQuery,
 	getCachedWhereClause,
 	isImpossibleWhere,
 	mapRowToTs,
+	mapRowsToTs,
 } from "./compile.js";
-import { type QueryRuntime, runExecute, runQueryOne } from "./execute.js";
+import {
+	type QueryRuntime,
+	runExecute,
+	runQuery,
+	runQueryOne,
+} from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { resolvePkWhere } from "./primary-key.js";
 import { getTableIndex } from "./table-index.js";
@@ -105,7 +112,11 @@ export async function deleteManyRecords(
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
 
-	const { sql: whereSql, params, impossible } = getCachedWhereClause(
+	const {
+		sql: whereSql,
+		params,
+		impossible,
+	} = getCachedWhereClause(
 		manifest,
 		table,
 		args?.where,
@@ -128,6 +139,48 @@ export async function deleteManyRecords(
 		params,
 	);
 	return rowCount;
+}
+
+export async function deleteManyAndReturnRecords(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	args?: {
+		where?: Record<string, unknown>;
+	},
+): Promise<Record<string, unknown>[]> {
+	const dialect = runtime.dialect ?? postgresDialect;
+	const { manifest } = runtime;
+	const table = manifest.tables[tableAccessor];
+	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	const {
+		sql: whereSql,
+		params,
+		impossible,
+	} = getCachedWhereClause(
+		manifest,
+		table,
+		args?.where,
+		dialect,
+		1,
+		runtime.tableIndex,
+	);
+
+	if (impossible || isImpossibleWhere(whereSql)) {
+		return [];
+	}
+
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const query = getCachedDeleteManyQuery(tableIndex, table, whereSql);
+	const rows = await runQuery(
+		executor,
+		runtime,
+		{ operation: "delete", tableAccessor },
+		`${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex)}`,
+		params,
+	);
+	return mapRowsToTs(tableIndex, table, rows);
 }
 
 export async function deleteById(
