@@ -1,7 +1,10 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expectTypeOf, it } from "vitest";
 import type { PostsWith } from "../examples/blog/neoorm/includes.js";
 import type { schema } from "../examples/blog/schema.js";
-import type { WhereInput } from "../src/schema/relation-types.js";
+import type {
+	WhereInput,
+	WithRelationOptions,
+} from "../src/schema/relation-types.js";
 
 type Schema = typeof schema._tables;
 
@@ -35,6 +38,17 @@ describe("with autocomplete types", () => {
 			tags: true;
 		};
 		expectTypeOf<ValidWith>().toExtend<PostsWith>();
+	});
+
+	it("types nested where on comment includes", () => {
+		type ValidInclude = {
+			where: { body: { contains: "sql" } };
+			orderBy: { createdAt: "desc" };
+			take: 5;
+		};
+		expectTypeOf<ValidInclude>().toExtend<
+			WithRelationOptions<Schema, "comments">
+		>();
 	});
 
 	it("types select object and orderBy columns", () => {

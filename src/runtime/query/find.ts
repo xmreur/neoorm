@@ -59,6 +59,7 @@ import { columnBySqlName, getTableIndex } from "./table-index.js";
 
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
+	where?: Record<string, unknown>;
 	orderBy?: OrderByInput;
 	take?: number;
 	skip?: number;
@@ -76,6 +77,7 @@ function isRelationSpec(
 	if (typeof withSpec !== "object" || withSpec === null) return false;
 	return (
 		"select" in withSpec ||
+		"where" in withSpec ||
 		"orderBy" in withSpec ||
 		"take" in withSpec ||
 		"skip" in withSpec ||
@@ -128,6 +130,35 @@ function splitWithSpec(withSpec: Record<string, WithInput>): {
 	};
 	if (countSpec) result.countSpec = countSpec;
 	return result;
+}
+
+function compileBatchedRelationWhere(
+	runtime: QueryRuntime,
+	targetTable: ManifestTable,
+	whereFilter: Record<string, unknown> | undefined,
+	parentIdCount: number,
+	tableAlias?: string,
+): { extraWhere: string; extraParams: unknown[] } {
+	if (!whereFilter || Object.keys(whereFilter).length === 0) {
+		return { extraWhere: "", extraParams: [] };
+	}
+	const dialect = runtime.dialect ?? postgresDialect;
+	const compiled = compileWhere(
+		runtime.manifest,
+		targetTable,
+		whereFilter,
+		dialect,
+		1,
+		runtime.tableIndex,
+		false,
+		tableAlias,
+	);
+	if (!compiled.sql) return { extraWhere: "", extraParams: [] };
+	const adjusted = rebaseParamRefs(compiled.sql, parentIdCount);
+	return {
+		extraWhere: ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`,
+		extraParams: compiled.params,
+	};
 }
 
 async function loadRelationCounts(
@@ -375,12 +406,19 @@ async function loadOneRelation(
 			);
 		}
 
+		const { extraWhere, extraParams } = compileBatchedRelationWhere(
+			runtime,
+			targetTable,
+			nestedSpec?.where,
+			fkValues.length,
+		);
+
 		const rows = await runQuery(
 			executor,
 			runtime,
 			{ operation: "select", tableAccessor: targetTable.accessor },
-			`SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})`,
-			fkValues,
+			`SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})${extraWhere}`,
+			[...fkValues, ...extraParams],
 		);
 
 		const targetTableIndex = getTableIndex(
@@ -401,6 +439,13 @@ async function loadOneRelation(
 		const selectCols = columnsForSelect(targetTable, withSpec);
 
 		let sql = `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})`;
+		const { extraWhere, extraParams } = compileBatchedRelationWhere(
+			runtime,
+			targetTable,
+			nestedSpec?.where,
+			parentIds.length,
+		);
+		sql += extraWhere;
 
 		if (nestedSpec?.orderBy) {
 			sql += ` ${compileOrderBy(
@@ -422,7 +467,7 @@ async function loadOneRelation(
 			runtime,
 			{ operation: "select", tableAccessor: targetTable.accessor },
 			sql,
-			parentIds,
+			[...parentIds, ...extraParams],
 		);
 		const targetTableIndex = getTableIndex(
 			runtime.tableIndex,
@@ -494,7 +539,7 @@ async function loadM2MRelation(
 	parentRows: Record<string, unknown>[],
 	m2m: ManifestManyToMany,
 	relationName: string,
-	_withSpec: WithInput,
+	withSpec: WithInput,
 ): Promise<void> {
 	const { manifest } = runtime;
 	const isLeft = m2m.leftAccessor === parentTable.accessor;
@@ -512,24 +557,47 @@ async function loadM2MRelation(
 	if (parentIds.length === 0) return;
 
 	const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 	const selectCols = targetTable.columns
-		.map((c) => quoteIdentifier(c.sqlName))
+		.map((c) => `t.${quoteIdentifier(c.sqlName)}`)
 		.join(", ");
 	const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable));
+	const { extraWhere, extraParams } = compileBatchedRelationWhere(
+		runtime,
+		targetTable,
+		nestedSpec?.where,
+		parentIds.length,
+		"t",
+	);
 
-	const sql = `
-    SELECT t.*, j.${quoteIdentifier(parentFkCol)} AS _parent_id
+	let sql = `
+    SELECT ${selectCols}, j.${quoteIdentifier(parentFkCol)} AS _parent_id
     FROM ${tableRef(throughTable)} j
     JOIN ${tableRef(targetTable)} t ON t.${targetPkCol} = j.${quoteIdentifier(targetFkCol)}
-    WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})
+    WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere}
   `.trim();
+
+	if (nestedSpec?.orderBy) {
+		sql += ` ${compileOrderBy(
+			targetTable,
+			nestedSpec.orderBy,
+			"t",
+			runtime.tableIndex,
+		)}`;
+	}
+	if (nestedSpec?.take !== undefined) {
+		sql += ` LIMIT ${normalizeLimitOffset(nestedSpec.take, "take")}`;
+	}
+	if (nestedSpec?.skip !== undefined) {
+		sql += ` OFFSET ${normalizeLimitOffset(nestedSpec.skip, "skip")}`;
+	}
 
 	const rows = await runQuery(
 		executor,
 		runtime,
 		{ operation: "select", tableAccessor: targetTable.accessor },
 		sql,
-		parentIds,
+		[...parentIds, ...extraParams],
 	);
 
 	const targetTableIndex = getTableIndex(
@@ -652,13 +720,15 @@ async function executeFindManyWithRelations(
 		params = qualifiedWhere.params;
 	}
 
-	const extraSelectCols = buildPlanExtraSelectCols(
+	const extraSelect = buildPlanExtraSelectCols(
 		manifest,
 		table,
 		plan,
 		dialect,
 		runtime.tableIndex,
+		params.length + 1,
 	);
+	const extraSelectCols = extraSelect.cols;
 
 	const countOrderSql = compileCountOrderBy(
 		manifest,
@@ -718,7 +788,7 @@ async function executeFindManyWithRelations(
 		runtime,
 		{ operation: "select", tableAccessor },
 		query,
-		params,
+		[...params, ...extraSelect.params],
 	);
 
 	const hydrated = await hydrateAndLoadRelations(
@@ -1073,8 +1143,17 @@ export async function findById(
 		projection.sqlColumns,
 	);
 	if (cached) {
+		const extra = buildPlanExtraSelectCols(
+			manifest,
+			table,
+			cached.plan,
+			dialect,
+			runtime.tableIndex,
+			2,
+		);
 		const rows = await runQuery(executor, runtime, ctx, cached.sql, [
 			pkValue,
+			...extra.params,
 		]);
 		if (rows.length === 0) return null;
 		const hydrated = hydrateRowsWithPlan(runtime, table, rows, cached.plan);

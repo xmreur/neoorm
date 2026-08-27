@@ -241,11 +241,24 @@ Typical query counts:
 // Single query — author via LEFT JOIN
 const posts = await db.posts.findMany({ with: { author: true } });
 
+// Last 5 published comments per post
+const posts = await db.posts.findMany({
+  with: {
+    comments: {
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    },
+  },
+});
+
 // Single query — author via JOIN, comments via correlated json_agg
 const posts = await db.posts.findMany({
   with: { author: true, comments: { with: { author: true } } },
 });
 ```
+
+To-one includes with `where` load as a batch query: the relation is the matching row, or `null`.
 
 ### Selective return types
 

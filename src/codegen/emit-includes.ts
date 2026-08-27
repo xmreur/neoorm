@@ -39,6 +39,7 @@ function emitRelationIncludeType(
   | boolean
   | {
       select?: ${selectType(columns)};
+      where?: Record<string, unknown>;
       orderBy?: ${orderByType(columns)};
       take?: number;
       skip?: number;
