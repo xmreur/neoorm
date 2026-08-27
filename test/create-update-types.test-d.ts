@@ -91,6 +91,15 @@ expectPostsUpdate({
 });
 
 expectPostsUpdate({
+	views: { increment: 1 },
+	price: { decrement: "1.00" },
+	title: { set: "Updated" },
+});
+
+// @ts-expect-error -- increment is not allowed on text columns
+expectPostsUpdate({ title: { increment: 1 } });
+
+expectPostsUpdate({
 	tags: {
 		set: [{ id: "tag_1" }],
 		connectOrCreate: [
