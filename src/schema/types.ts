@@ -147,6 +147,7 @@ export type CreateManyArgs<
 	TAccessor extends keyof TSchema & string,
 > = {
 	data: CreateManyInput<TSchema[TAccessor]["_columns"]>[];
+	skipDuplicates?: boolean;
 };
 
 export type CreateManyAndReturnArgs<
@@ -211,6 +212,11 @@ export type UpdateManyArgs<
 	data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
 
+export type UpdateManyAndReturnArgs<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = UpdateManyArgs<TSchema, TAccessor>;
+
 export type DeleteArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -226,6 +232,11 @@ export type DeleteManyArgs<
 > = {
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 };
+
+export type DeleteManyAndReturnArgs<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = DeleteManyArgs<TSchema, TAccessor>;
 
 export type FindUniqueArgs<
 	TSchema extends Record<string, TableDef>,

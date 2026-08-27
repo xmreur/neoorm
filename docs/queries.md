@@ -33,9 +33,17 @@ const count = await db.users.createMany({
   data: [{ email: "a@b.com" }, { email: "b@b.com" }],
 });
 
+// Skip unique / primary-key conflicts (`ON CONFLICT DO NOTHING`).
+// Does not ignore CHECK or foreign-key violations.
+const skipped = await db.users.createMany({
+  data: [{ email: "a@b.com" }, { email: "a@b.com" }],
+  skipDuplicates: true,
+});
+
 // Bulk insert with returned rows (serial IDs, UUIDs, defaults materialized)
 const users = await db.users.createManyAndReturn({
   data: [{ email: "a@b.com" }, { email: "b@b.com" }],
+  skipDuplicates: true,
 });
 ```
 
@@ -57,6 +65,11 @@ const item = await db.items.updateById(
 
 // Multiple records
 const count = await db.users.updateMany({
+  where: { email: { contains: "@old" } },
+  data: { status: "archived" },
+});
+
+const updated = await db.users.updateManyAndReturn({
   where: { email: { contains: "@old" } },
   data: { status: "archived" },
 });
@@ -95,6 +108,10 @@ await db.users.deleteById(userId);
 await db.items.deleteById({ tenantId: "t1", itemCode: "c1" });
 
 const count = await db.users.deleteMany({
+  where: { email: { contains: "@spam" } },
+});
+
+const deletedRows = await db.users.deleteManyAndReturn({
   where: { email: { contains: "@spam" } },
 });
 ```

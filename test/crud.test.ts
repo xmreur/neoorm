@@ -195,6 +195,22 @@ describe("update/delete SQL compilation", () => {
 		]);
 	});
 
+	it("appends ON CONFLICT DO NOTHING for skipDuplicates inserts", () => {
+		const { valueRows } = buildInsertManyValueRows(
+			users,
+			["email", "name"],
+			[["a@example.com", "Alice"]],
+		);
+		const query = buildInsertManyQuery(
+			users,
+			["email", "name"],
+			valueRows,
+			undefined,
+			true,
+		);
+		expect(query).toContain("ON CONFLICT DO NOTHING RETURNING");
+	});
+
 	it("uses DEFAULT for missing columns in multi-row insert", () => {
 		const { valueRows } = buildInsertManyValueRows(
 			users,

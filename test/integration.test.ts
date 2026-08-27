@@ -442,6 +442,63 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(rows[1]?.["email"]).toBe(`return-2-${ts}@example.com`);
 	});
 
+	it("createMany skipDuplicates ignores unique conflicts", async () => {
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<
+			typeof schema._tables,
+			NeoOrmIncludes,
+			NeoOrmRowPayloads
+		>(manifest, pool);
+
+		const email = `skip-dup-${Date.now()}@example.com`;
+		await db.users.create({ data: { email, name: "First" } });
+
+		const count = await db.users.createMany({
+			data: [
+				{ email, name: "Again" },
+				{ email: `skip-new-${Date.now()}@example.com`, name: "Second" },
+			],
+			skipDuplicates: true,
+		});
+		expect(count).toBe(1);
+
+		const returned = await db.users.createManyAndReturn({
+			data: [{ email, name: "Third" }],
+			skipDuplicates: true,
+		});
+		expect(returned).toEqual([]);
+	});
+
+	it("updateManyAndReturn and deleteManyAndReturn return rows", async () => {
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<
+			typeof schema._tables,
+			NeoOrmIncludes,
+			NeoOrmRowPayloads
+		>(manifest, pool);
+
+		const ts = Date.now();
+		const created = await db.users.createManyAndReturn({
+			data: [
+				{ email: `ret-upd-1-${ts}@example.com`, name: "One" },
+				{ email: `ret-upd-2-${ts}@example.com`, name: "Two" },
+			],
+		});
+		expect(created).toHaveLength(2);
+
+		const updated = await db.users.updateManyAndReturn({
+			where: { email: { contains: `ret-upd-1-${ts}` } },
+			data: { name: "Updated" },
+		});
+		expect(updated).toHaveLength(1);
+		expect(updated[0]?.["name"]).toBe("Updated");
+
+		const deleted = await db.users.deleteManyAndReturn({
+			where: { email: { contains: `ret-upd-${ts}` } },
+		});
+		expect(deleted).toHaveLength(2);
+	});
+
 	it("update and delete", async () => {
 		const manifest = schemaToManifest(schema);
 		const db = createNeoOrmClientFromPool<

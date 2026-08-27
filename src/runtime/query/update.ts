@@ -5,6 +5,7 @@ import {
 } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
+	buildSelectColumns,
 	buildUpdateQuery,
 	compileWhere,
 	dataToUpdateAssignments,
@@ -12,6 +13,7 @@ import {
 	getCachedWhereClause,
 	isImpossibleWhere,
 	mapRowToTs,
+	mapRowsToTs,
 	type UpdateReturning,
 } from "./compile.js";
 import { runCreate } from "./create.js";
@@ -272,9 +274,11 @@ async function runUpdateMany(
 		data: Record<string, unknown>;
 		scalarData?: Record<string, unknown>;
 		relationWrites?: ParsedRelationWrite[];
+		returnRows?: boolean;
 	},
-): Promise<number> {
+): Promise<number | Record<string, unknown>[]> {
 	const dialect = runtime.dialect ?? postgresDialect;
+	const returnRows = args.returnRows === true;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -341,14 +345,15 @@ async function runUpdateMany(
 		runtime.tableIndex,
 	);
 	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
-		return 0;
+		return returnRows ? [] : 0;
 	}
 
 	const { sql: whereSql, params: whereParams } = compiledWhere;
 
-	const pkSql = quoteIdentifier(primaryKeySqlName(table));
+	const selectCols = buildSelectColumns(table, undefined, runtime.tableIndex);
 	let affectedCount = 0;
 	let parentIds: string[] = [];
+	let mappedRows: Record<string, unknown>[] = [];
 
 	if (keys.length > 0 || exprSets.length > 0) {
 		const query = getCachedUpdateManyQuery(
@@ -361,18 +366,24 @@ async function runUpdateMany(
 			dialect,
 			ops,
 		);
-		if (needsPostRelationWrites) {
+		if (returnRows || needsPostRelationWrites) {
+			const returning = returnRows
+				? selectCols
+				: quoteIdentifier(primaryKeySqlName(table));
 			const rows = await runQuery(
 				executor,
 				runtime,
 				{ operation: "update", tableAccessor },
-				`${query} RETURNING ${pkSql}`,
+				`${query} RETURNING ${returning}`,
 				[...values, ...whereParams],
 			);
-			parentIds = rows.map((row) =>
-				rowScalarPkValue(mapRowToTs(tableIndex, table, row), table),
-			);
-			affectedCount = parentIds.length;
+			mappedRows = mapRowsToTs(tableIndex, table, rows);
+			if (needsPostRelationWrites) {
+				parentIds = mappedRows.map((row) =>
+					rowScalarPkValue(row, table),
+				);
+			}
+			affectedCount = mappedRows.length;
 		} else {
 			const { rowCount } = await runExecute(
 				executor,
@@ -384,7 +395,10 @@ async function runUpdateMany(
 			affectedCount = rowCount;
 		}
 	} else {
-		let selectSql = `SELECT ${pkSql} FROM ${tableRef(table)}`;
+		const selectList = returnRows
+			? selectCols
+			: quoteIdentifier(primaryKeySqlName(table));
+		let selectSql = `SELECT ${selectList} FROM ${tableRef(table)}`;
 		if (whereSql) selectSql += ` ${whereSql}`;
 		const rows = await runQuery(
 			executor,
@@ -393,10 +407,11 @@ async function runUpdateMany(
 			selectSql,
 			whereParams,
 		);
-		parentIds = rows.map((row) =>
-			rowScalarPkValue(mapRowToTs(tableIndex, table, row), table),
-		);
-		affectedCount = parentIds.length;
+		mappedRows = mapRowsToTs(tableIndex, table, rows);
+		if (needsPostRelationWrites) {
+			parentIds = mappedRows.map((row) => rowScalarPkValue(row, table));
+		}
+		affectedCount = mappedRows.length;
 	}
 
 	if (needsPostRelationWrites) {
@@ -412,7 +427,7 @@ async function runUpdateMany(
 		}
 	}
 
-	return affectedCount;
+	return returnRows ? mappedRows : affectedCount;
 }
 
 async function runUpdateManyScalar(
@@ -422,9 +437,11 @@ async function runUpdateManyScalar(
 	args: {
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
+		returnRows?: boolean;
 	},
-): Promise<number> {
+): Promise<number | Record<string, unknown>[]> {
 	const dialect = runtime.dialect ?? postgresDialect;
+	const returnRows = args.returnRows === true;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -455,7 +472,7 @@ async function runUpdateManyScalar(
 		runtime.tableIndex,
 	);
 	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
-		return 0;
+		return returnRows ? [] : 0;
 	}
 
 	const { sql: whereSql, params: whereParams } = compiledWhere;
@@ -470,6 +487,16 @@ async function runUpdateManyScalar(
 		dialect,
 		ops,
 	);
+	if (returnRows) {
+		const rows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "update", tableAccessor },
+			`${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex)}`,
+			[...values, ...whereParams],
+		);
+		return mapRowsToTs(tableIndex, table, rows);
+	}
 	const { rowCount } = await runExecute(
 		executor,
 		runtime,
@@ -480,15 +507,16 @@ async function runUpdateManyScalar(
 	return rowCount;
 }
 
-export async function updateManyRecords(
+async function updateManyInternal(
 	executor: Executor,
 	runtime: QueryRuntime,
 	tableAccessor: string,
 	args: {
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
+		returnRows?: boolean;
 	},
-): Promise<number> {
+): Promise<number | Record<string, unknown>[]> {
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
@@ -521,6 +549,38 @@ export async function updateManyRecords(
 	return executor.transaction((tx) =>
 		runUpdateMany(tx, runtime, tableAccessor, runArgs),
 	);
+}
+
+export async function updateManyRecords(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	args: {
+		where?: Record<string, unknown>;
+		data: Record<string, unknown>;
+	},
+): Promise<number> {
+	return updateManyInternal(
+		executor,
+		runtime,
+		tableAccessor,
+		args,
+	) as Promise<number>;
+}
+
+export async function updateManyAndReturnRecords(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	args: {
+		where?: Record<string, unknown>;
+		data: Record<string, unknown>;
+	},
+): Promise<Record<string, unknown>[]> {
+	return updateManyInternal(executor, runtime, tableAccessor, {
+		...args,
+		returnRows: true,
+	}) as Promise<Record<string, unknown>[]>;
 }
 
 export async function updateById(

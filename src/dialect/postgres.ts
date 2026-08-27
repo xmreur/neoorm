@@ -566,6 +566,7 @@ export const postgresDialect: Dialect = {
 	ilike: (col, i) => `${col} ILIKE $${i}`,
 	regex: (col, i, insensitive) =>
 		insensitive ? `${col} ~* $${i}` : `${col} ~ $${i}`,
+	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
 	defaultNowExpression,
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,

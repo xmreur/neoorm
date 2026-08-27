@@ -6,6 +6,7 @@ import type {
 	CreateManyAndReturnArgs,
 	CreateManyArgs,
 	DeleteArgs,
+	DeleteManyAndReturnArgs,
 	DeleteManyArgs,
 	ExistsArgs,
 	FindFirstArgs,
@@ -27,6 +28,7 @@ import type {
 	SelectInput,
 	UpdateArgs,
 	UpdateInput,
+	UpdateManyAndReturnArgs,
 	UpdateManyArgs,
 	UpsertArgs,
 	WithInputMap,
@@ -281,6 +283,9 @@ export type TypedTableRepository<
 		args: UpdateArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	updateMany(args: UpdateManyArgs<TSchema, TAccessor>): Promise<number>;
+	updateManyAndReturn(
+		args: UpdateManyAndReturnArgs<TSchema, TAccessor>,
+	): Promise<TRowPayload[]>;
 	updateById<W extends TWith | undefined = undefined>(
 		id: string | Record<string, unknown>,
 		args: {
@@ -296,6 +301,9 @@ export type TypedTableRepository<
 		args: DeleteArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
 	deleteMany(args?: DeleteManyArgs<TSchema, TAccessor>): Promise<number>;
+	deleteManyAndReturn(
+		args?: DeleteManyAndReturnArgs<TSchema, TAccessor>,
+	): Promise<TRowPayload[]>;
 	count<
 		const TArgs extends CountArgs<TSchema, TAccessor> = CountArgs<
 			TSchema,

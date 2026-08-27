@@ -26,7 +26,10 @@ function createMockExecutor(
 			},
 		) as Executor["query"],
 		queryOne: vi.fn(async () => null) as Executor["queryOne"],
-		execute: vi.fn(async () => ({ rows: [], rowCount: 0 })) as Executor["execute"],
+		execute: vi.fn(async () => ({
+			rows: [],
+			rowCount: 0,
+		})) as Executor["execute"],
 		transaction: vi.fn(async (fn) => fn(createMockExecutor(rows))),
 	};
 }
@@ -119,5 +122,47 @@ describe("createManyAndReturn", () => {
 
 		expect(count).toBe(0);
 		expect(executor.query).not.toHaveBeenCalled();
+	});
+
+	it("emits ON CONFLICT DO NOTHING when skipDuplicates is true", async () => {
+		const executor = createMockExecutor([
+			{
+				id: "user_1",
+				email: "a@example.com",
+				name: "A",
+				created_at: new Date(),
+				updated_at: new Date(),
+			},
+		]);
+
+		const count = await createManyRecords(executor, runtime, "users", {
+			data: [
+				{ email: "a@example.com", name: "A" },
+				{ email: "a@example.com", name: "A" },
+			],
+			skipDuplicates: true,
+		});
+
+		expect(count).toBe(1);
+		expect(executor.queries[0]?.sql).toContain("ON CONFLICT DO NOTHING");
+		expect(executor.queries[0]?.sql).toContain("RETURNING");
+	});
+
+	it("does not emit ON CONFLICT when skipDuplicates is omitted", async () => {
+		const executor = createMockExecutor([
+			{
+				id: "user_1",
+				email: "a@example.com",
+				name: "A",
+				created_at: new Date(),
+				updated_at: new Date(),
+			},
+		]);
+
+		await createManyAndReturnRecords(executor, runtime, "users", {
+			data: [{ email: "a@example.com", name: "A" }],
+		});
+
+		expect(executor.queries[0]?.sql).not.toContain("ON CONFLICT");
 	});
 });

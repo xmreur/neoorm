@@ -275,11 +275,25 @@ export async function exampleMutations() {
 		],
 	});
 
+	const _skippedDuplicates = await db.tags.createMany({
+		data: [{ slug: "batch-a", name: "Batch A" }],
+		skipDuplicates: true,
+	});
+
+	const _updatedManyReturned = await db.posts.updateManyAndReturn({
+		where: { published: false },
+		data: { published: true },
+	});
+
 	const deleted = await db.posts.delete({
 		where: { title: "Draft post" },
 	});
 
 	const deletedCount = await db.comments.deleteMany({
+		where: { postId: "post_1" },
+	});
+
+	const _deletedManyReturned = await db.comments.deleteManyAndReturn({
 		where: { postId: "post_1" },
 	});
 

@@ -155,6 +155,63 @@ describe("sqlite runtime", () => {
 		db.close();
 	});
 
+	it("skips unique conflicts with createMany skipDuplicates", async () => {
+		const { db } = await setup();
+		const orm = makeOrm(manifest, db);
+
+		await orm.users.create({
+			data: { email: "dup@x", name: "first" },
+		});
+
+		const skipped = await orm.users.createMany({
+			data: [{ email: "dup@x", name: "second" }],
+			skipDuplicates: true,
+		});
+		expect(skipped).toBe(0);
+
+		const mixed = await orm.users.createManyAndReturn({
+			data: [
+				{ email: "dup@x", name: "again" },
+				{ email: "new@x", name: "fresh" },
+			],
+			skipDuplicates: true,
+		});
+		expect(mixed).toHaveLength(1);
+		expect(mixed[0]?.["email"]).toBe("new@x");
+
+		const all = await orm.users.findMany();
+		expect(all).toHaveLength(2);
+		db.close();
+	});
+
+	it("returns updated and deleted rows from many-and-return", async () => {
+		const { db } = await setup();
+		const orm = makeOrm(manifest, db);
+		await orm.users.create({
+			data: { email: "a@x", name: "Alpha", age: 30 },
+		});
+		await orm.users.create({
+			data: { email: "b@x", name: "Beta", age: 10 },
+		});
+
+		const updated = await orm.users.updateManyAndReturn({
+			where: { age: { gte: 30 } },
+			data: { name: "Updated" },
+		});
+		expect(updated).toHaveLength(1);
+		expect(updated[0]?.["name"]).toBe("Updated");
+
+		const deleted = await orm.users.deleteManyAndReturn({
+			where: { name: "Beta" },
+		});
+		expect(deleted).toHaveLength(1);
+		expect(deleted[0]?.["email"]).toBe("b@x");
+
+		const remaining = await orm.users.findMany();
+		expect(remaining).toHaveLength(1);
+		db.close();
+	});
+
 	it("increments numeric fields atomically", async () => {
 		const { db } = await setup();
 		const orm = makeOrm(manifest, db);

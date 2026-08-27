@@ -24,7 +24,12 @@ import {
 	createManyRecords,
 	createRecord,
 } from "./query/create.js";
-import { deleteById, deleteManyRecords, deleteRecord } from "./query/delete.js";
+import {
+	deleteById,
+	deleteManyAndReturnRecords,
+	deleteManyRecords,
+	deleteRecord,
+} from "./query/delete.js";
 import { type QueryRuntime, runQuery } from "./query/execute.js";
 import type { WithInput } from "./query/find.js";
 import { findById, findFirst, findMany } from "./query/find.js";
@@ -32,7 +37,12 @@ import { findOrCreateRecord } from "./query/find-or-create.js";
 import { groupByRecords } from "./query/group-by.js";
 import { paginateRecords } from "./query/paginate.js";
 import { buildManifestIndex } from "./query/table-index.js";
-import { updateById, updateManyRecords, updateRecord } from "./query/update.js";
+import {
+	updateById,
+	updateManyAndReturnRecords,
+	updateManyRecords,
+	updateRecord,
+} from "./query/update.js";
 import { upsertRecord } from "./query/upsert.js";
 import { openSqliteDatabase } from "./sqlite-open.js";
 import type {
@@ -96,9 +106,13 @@ export type TableRepository = {
 		with?: Record<string, WithInput>;
 		returnCreated?: boolean;
 	}): Promise<Record<string, unknown>>;
-	createMany(args: { data: Record<string, unknown>[] }): Promise<number>;
+	createMany(args: {
+		data: Record<string, unknown>[];
+		skipDuplicates?: boolean;
+	}): Promise<number>;
 	createManyAndReturn(args: {
 		data: Record<string, unknown>[];
+		skipDuplicates?: boolean;
 	}): Promise<Record<string, unknown>[]>;
 	upsert(args: {
 		where: Record<string, unknown>;
@@ -121,6 +135,10 @@ export type TableRepository = {
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
 	}): Promise<number>;
+	updateManyAndReturn(args: {
+		where?: Record<string, unknown>;
+		data: Record<string, unknown>;
+	}): Promise<Record<string, unknown>[]>;
 	updateById(
 		id: string | Record<string, unknown>,
 		args: {
@@ -135,6 +153,9 @@ export type TableRepository = {
 		returnDeleted?: boolean;
 	}): Promise<Record<string, unknown> | null>;
 	deleteMany(args?: { where?: Record<string, unknown> }): Promise<number>;
+	deleteManyAndReturn(args?: {
+		where?: Record<string, unknown>;
+	}): Promise<Record<string, unknown>[]>;
 	count(args?: {
 		where?: Record<string, unknown>;
 		distinct?: string;
@@ -222,11 +243,15 @@ function createTableRepository(
 		update: (args) => updateRecord(executor, runtime, accessor, args),
 		updateMany: (args) =>
 			updateManyRecords(executor, runtime, accessor, args),
+		updateManyAndReturn: (args) =>
+			updateManyAndReturnRecords(executor, runtime, accessor, args),
 		updateById: (id, args) =>
 			updateById(executor, runtime, accessor, id, args),
 		delete: (args) => deleteRecord(executor, runtime, accessor, args),
 		deleteMany: (args) =>
 			deleteManyRecords(executor, runtime, accessor, args),
+		deleteManyAndReturn: (args) =>
+			deleteManyAndReturnRecords(executor, runtime, accessor, args),
 		count: (args) => countRecords(executor, runtime, accessor, args),
 		exists: (args) => existsRecords(executor, runtime, accessor, args),
 		aggregate: (args) =>
