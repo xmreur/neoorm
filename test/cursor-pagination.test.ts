@@ -2,9 +2,11 @@ import { getManyToManyRegistry } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	compileCursorWhere,
 	cursorFromRow,
+	flipOrderSpec,
 	mergeWhereWithCursor,
 	resolveOrderSpec,
 } from "../src/runtime/query/cursor.js";
@@ -62,6 +64,52 @@ describe("cursor pagination", () => {
 		});
 
 		expect(sql).toBe('("created_at", "id") > ($1, $2)');
+	});
+
+	it("compiles tuple comparison for desc before cursor", () => {
+		const manifest = blogManifest();
+		const posts = manifestTable(manifest, "posts");
+		const orderSpec = resolveOrderSpec(posts, { createdAt: "desc" });
+		const { sql } = compileCursorWhere(
+			orderSpec,
+			{
+				createdAt: "2026-07-01T12:00:00.000Z",
+				id: "post_abc123",
+			},
+			1,
+			postgresDialect,
+			"before",
+		);
+
+		expect(sql).toBe('("created_at", "id") > ($1, $2)');
+	});
+
+	it("compiles tuple comparison for asc before cursor", () => {
+		const manifest = blogManifest();
+		const posts = manifestTable(manifest, "posts");
+		const orderSpec = resolveOrderSpec(posts, { createdAt: "asc" });
+		const { sql } = compileCursorWhere(
+			orderSpec,
+			{
+				createdAt: "2026-07-01T12:00:00.000Z",
+				id: "post_abc123",
+			},
+			1,
+			postgresDialect,
+			"before",
+		);
+
+		expect(sql).toBe('("created_at", "id") < ($1, $2)');
+	});
+
+	it("flips order spec directions", () => {
+		const manifest = blogManifest();
+		const posts = manifestTable(manifest, "posts");
+		const orderSpec = resolveOrderSpec(posts, { createdAt: "desc" });
+		expect(flipOrderSpec(orderSpec).map((key) => key.direction)).toEqual([
+			"asc",
+			"asc",
+		]);
 	});
 
 	it("merges user where with cursor predicate", () => {

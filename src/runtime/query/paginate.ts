@@ -5,6 +5,7 @@ import {
 	compileCursorWhere,
 	compileOrderByFromSpec,
 	cursorFromRow,
+	flipOrderSpec,
 	mergeWhereWithCursor,
 	resolveOrderSpec,
 } from "./cursor.js";
@@ -20,13 +21,16 @@ export type PaginateArgs = {
 	orderBy: Record<string, string>;
 	take: number;
 	after?: Record<string, unknown>;
+	before?: Record<string, unknown>;
 	with?: Record<string, WithInput>;
 };
 
 export type PaginateRuntimeResult = {
 	items: Record<string, unknown>[];
 	nextCursor: Record<string, unknown> | null;
+	prevCursor: Record<string, unknown> | null;
 	hasMore: boolean;
+	hasPrevious: boolean;
 };
 
 export async function paginateRecords(
@@ -61,19 +65,31 @@ export async function paginateRecords(
 		const cursorWhere = compileCursorWhere(
 			orderSpec,
 			args.after,
-			userParams.length + 1,
+			params.length + 1,
 			dialect,
+			"after",
 		);
-		const merged = mergeWhereWithCursor(
-			userWhereSql,
-			userParams,
-			cursorWhere,
-		);
+		const merged = mergeWhereWithCursor(whereSql, params, cursorWhere);
 		whereSql = merged.sql;
 		params = merged.params;
 	}
 
-	const orderSql = compileOrderByFromSpec(orderSpec);
+	if (args.before) {
+		const cursorWhere = compileCursorWhere(
+			orderSpec,
+			args.before,
+			params.length + 1,
+			dialect,
+			"before",
+		);
+		const merged = mergeWhereWithCursor(whereSql, params, cursorWhere);
+		whereSql = merged.sql;
+		params = merged.params;
+	}
+
+	const backward = Boolean(args.before) && args.after === undefined;
+	const queryOrderSpec = backward ? flipOrderSpec(orderSpec) : orderSpec;
+	const orderSql = compileOrderByFromSpec(queryOrderSpec);
 	const plan = planRelationLoad(
 		manifest,
 		table,
@@ -107,8 +123,9 @@ export async function paginateRecords(
 		query,
 		params,
 	);
-	const hasMore = rows.length > args.take;
-	const pageRows = hasMore ? rows.slice(0, args.take) : rows;
+	const extra = rows.length > args.take;
+	const sliced = extra ? rows.slice(0, args.take) : rows;
+	const pageRows = backward ? sliced.slice().reverse() : sliced;
 	const loaded = await hydrateAndLoadRelations(
 		executor,
 		runtime,
@@ -118,9 +135,24 @@ export async function paginateRecords(
 		plan,
 	);
 
+	if (loaded.length === 0) {
+		return {
+			items: loaded,
+			nextCursor: null,
+			prevCursor: null,
+			hasMore: false,
+			hasPrevious: false,
+		};
+	}
+
+	const hasMore = backward || extra;
+	const hasPrevious = args.after !== undefined || (backward && extra);
+	const firstItem = loaded[0];
 	const lastItem = loaded[loaded.length - 1];
 	const nextCursor =
 		hasMore && lastItem ? cursorFromRow(orderSpec, lastItem) : null;
+	const prevCursor =
+		hasPrevious && firstItem ? cursorFromRow(orderSpec, firstItem) : null;
 
-	return { items: loaded, nextCursor, hasMore };
+	return { items: loaded, nextCursor, prevCursor, hasMore, hasPrevious };
 }

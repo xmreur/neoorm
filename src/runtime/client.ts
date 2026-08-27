@@ -152,11 +152,14 @@ export type TableRepository = {
 		orderBy: Record<string, string>;
 		take: number;
 		after?: Record<string, unknown>;
+		before?: Record<string, unknown>;
 		with?: Record<string, WithInput>;
 	}): Promise<{
 		items: Record<string, unknown>[];
 		nextCursor: Record<string, unknown> | null;
+		prevCursor: Record<string, unknown> | null;
 		hasMore: boolean;
+		hasPrevious: boolean;
 	}>;
 };
 

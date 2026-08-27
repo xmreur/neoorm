@@ -134,9 +134,17 @@ export type PaginateArgsWith<
 	TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 	TWith,
 	TRowPayload extends Record<string, unknown> = Record<string, unknown>,
-> = Omit<PaginateArgs<TSchema, TAccessor, TOrderBy>, "with" | "after"> & {
+> = Omit<
+	PaginateArgs<TSchema, TAccessor, TOrderBy>,
+	"with" | "after" | "before"
+> & {
 	with?: TWith;
 	after?: PaginateCursor<
+		TRowPayload,
+		TOrderBy,
+		ScalarPkName<TSchema[TAccessor]["_columns"]>
+	>;
+	before?: PaginateCursor<
 		TRowPayload,
 		TOrderBy,
 		ScalarPkName<TSchema[TAccessor]["_columns"]>

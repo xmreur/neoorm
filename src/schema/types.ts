@@ -270,13 +270,16 @@ export type PaginateArgs<
 	orderBy: TOrderBy;
 	take: number;
 	after?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy>;
+	before?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy>;
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 
 export type PaginateResult<TRow, TCursor> = {
 	items: TRow[];
 	nextCursor: TCursor | null;
+	prevCursor: TCursor | null;
 	hasMore: boolean;
+	hasPrevious: boolean;
 };
 
 export type UpsertArgs<

@@ -296,10 +296,22 @@ for (;;) {
 ```
 
 - `orderBy` is required; scalar `id` is appended automatically when omitted.
-- `take` is the page size; `hasMore` uses a `take + 1` probe row.
-- `after` is a typed cursor object (`nextCursor` from the previous page).
+- `take` is the page size; `hasMore` / `hasPrevious` use a `take + 1` probe row (plus whether `after` / `before` was passed).
+- `after` is a typed cursor (`nextCursor` from the previous page). `before` walks the other way (`prevCursor`).
+- `after` and `before` can be combined as exclusive window bounds; pass both on every windowed call.
 - For HTTP APIs, encode cursors with `encodeCursor` / `decodeCursor` from `neoorm`.
 - On feed tables, add a composite index on the sort columns.
+
+Walk backward (e.g. “load newer” on a descending feed):
+
+```ts
+const newer = await db.posts.paginate({
+  where: { published: true },
+  orderBy: { createdAt: "desc" },
+  take: 20,
+  before: page.prevCursor,
+});
+```
 
 ## Aggregates
 
