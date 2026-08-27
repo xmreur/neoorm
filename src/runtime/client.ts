@@ -62,8 +62,8 @@ export type TableRepository = {
 	findMany(args?: {
 		where?: Record<string, unknown>;
 		orderBy?: OrderByInput;
-		limit?: number;
-		offset?: number;
+		take?: number;
+		skip?: number;
 		distinct?: readonly string[] | Record<string, boolean | undefined>;
 		select?: readonly string[] | Record<string, boolean | undefined>;
 		omit?: readonly string[] | Record<string, boolean | undefined>;

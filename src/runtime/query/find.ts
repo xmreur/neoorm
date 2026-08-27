@@ -60,7 +60,8 @@ import { columnBySqlName, getTableIndex } from "./table-index.js";
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
 	orderBy?: OrderByInput;
-	limit?: number;
+	take?: number;
+	skip?: number;
 	with?: Record<string, WithInput>;
 };
 
@@ -76,7 +77,8 @@ function isRelationSpec(
 	return (
 		"select" in withSpec ||
 		"orderBy" in withSpec ||
-		"limit" in withSpec ||
+		"take" in withSpec ||
+		"skip" in withSpec ||
 		"with" in withSpec
 	);
 }
@@ -408,8 +410,11 @@ async function loadOneRelation(
 				runtime.tableIndex,
 			)}`;
 		}
-		if (nestedSpec?.limit !== undefined) {
-			sql += ` LIMIT ${normalizeLimitOffset(nestedSpec.limit, "limit")}`;
+		if (nestedSpec?.take !== undefined) {
+			sql += ` LIMIT ${normalizeLimitOffset(nestedSpec.take, "take")}`;
+		}
+		if (nestedSpec?.skip !== undefined) {
+			sql += ` OFFSET ${normalizeLimitOffset(nestedSpec.skip, "skip")}`;
 		}
 
 		const rows = await runQuery(
@@ -589,8 +594,8 @@ export async function hydrateAndLoadRelations(
 type FindManyArgs = {
 	where?: Record<string, unknown>;
 	orderBy?: OrderByInput;
-	limit?: number;
-	offset?: number;
+	take?: number;
+	skip?: number;
 	distinct?: readonly string[] | Record<string, boolean | undefined>;
 	select?: readonly string[] | Record<string, boolean | undefined>;
 	omit?: readonly string[] | Record<string, boolean | undefined>;
@@ -691,14 +696,14 @@ async function executeFindManyWithRelations(
 	const planMode =
 		planOptions?.useHasManyAggregate === false ? "corr" : "agg";
 	const projSig = projectionSignature(projection?.sqlColumns);
-	const signature = `${whereSql}|${orderSqlForWith}|${args.limit ?? ""}|${args.offset ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
+	const signature = `${whereSql}|${orderSqlForWith}|${args.take ?? ""}|${args.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
 	const query = getCachedFindManyQuery(tableIndex, signature, () =>
 		buildFindManyQuery(
 			table,
 			whereSql,
 			orderSqlForWith,
-			args.limit,
-			args.offset,
+			args.take,
+			args.skip,
 			distinctOn,
 			extraSelectCols.length > 0 ? extraSelectCols : undefined,
 			joinClauses,
@@ -772,8 +777,8 @@ export async function findMany(
 		!args?.with &&
 		!args?.distinct &&
 		!projection.hasProjection &&
-		args?.limit === undefined &&
-		args?.offset === undefined;
+		args?.take === undefined &&
+		args?.skip === undefined;
 
 	if (isSimpleFind && tableIndex) {
 		const rows = await runQuery(
@@ -820,14 +825,14 @@ export async function findMany(
 			runtime.tableIndex,
 		);
 		const projSig = projectionSignature(projection.sqlColumns);
-		const signature = `${whereSql}|${orderSql}|${args?.limit ?? ""}|${args?.offset ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
+		const signature = `${whereSql}|${orderSql}|${args?.take ?? ""}|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
 				table,
 				whereSql,
 				orderSql,
-				args?.limit,
-				args?.offset,
+				args?.take,
+				args?.skip,
 				distinctOn,
 				undefined,
 				undefined,
@@ -879,8 +884,7 @@ export async function findFirst(
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const projection = resolveParentProjection(table, args, tableIndex);
 	const hasWith = Boolean(args?.with && Object.keys(args.with).length > 0);
-	const canFastPath =
-		!hasWith && !args?.distinct && args?.offset === undefined;
+	const canFastPath = !hasWith && !args?.distinct && args?.skip === undefined;
 
 	if (canFastPath) {
 		const compiledWhere = getCachedWhereClause(
@@ -957,7 +961,7 @@ export async function findFirst(
 		tableAccessor,
 		table,
 		tableIndex,
-		{ ...args, with: args!.with!, limit: 1 },
+		{ ...args, with: args!.with!, take: 1 },
 		compiledWhere.sql,
 		compiledWhere.params,
 		{ useHasManyAggregate: false },
@@ -1015,7 +1019,7 @@ export async function findById(
 				tableIndex,
 				{
 					where,
-					limit: 1,
+					take: 1,
 					with: args.with,
 					...(args.select !== undefined
 						? { select: args.select }
@@ -1031,7 +1035,7 @@ export async function findById(
 		}
 		const rows = await findMany(executor, runtime, tableAccessor, {
 			where,
-			limit: 1,
+			take: 1,
 			...(args?.select !== undefined ? { select: args.select } : {}),
 			...(args?.omit !== undefined ? { omit: args.omit } : {}),
 		});
@@ -1098,7 +1102,7 @@ export async function findById(
 		tableIndex,
 		{
 			where,
-			limit: 1,
+			take: 1,
 			with: args.with,
 			...(args.select !== undefined ? { select: args.select } : {}),
 			...(args.omit !== undefined ? { omit: args.omit } : {}),

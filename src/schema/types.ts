@@ -89,7 +89,8 @@ export type WithInput =
 	| {
 			select?: readonly string[];
 			orderBy?: Record<string, OrderDirection>;
-			limit?: number;
+			take?: number;
+			skip?: number;
 			with?: Record<string, WithInput>;
 	  };
 
@@ -103,8 +104,8 @@ export type FindManyArgs<
 > = {
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	orderBy?: OrderByInput<TSchema[TAccessor]["_columns"]>;
-	limit?: number;
-	offset?: number;
+	take?: number;
+	skip?: number;
 	distinct?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;

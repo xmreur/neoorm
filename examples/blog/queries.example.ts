@@ -48,7 +48,7 @@ export async function exampleQueries() {
 	const posts = await db.posts.findMany({
 		where: { published: true },
 		orderBy: { createdAt: "desc" },
-		limit: 20,
+		take: 20,
 		with: {
 			author: {
 				select: { id: true, email: true, name: true },

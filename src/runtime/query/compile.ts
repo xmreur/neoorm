@@ -898,8 +898,8 @@ export function buildFindManyQuery(
 	table: ManifestTable,
 	whereSql: string,
 	orderSql: string,
-	limit?: number,
-	offset?: number,
+	take?: number,
+	skip?: number,
 	distinctOn?: readonly string[],
 	extraSelectCols?: string[],
 	joinClauses?: string[],
@@ -938,11 +938,11 @@ export function buildFindManyQuery(
 	if (whereSql) sql += ` ${whereSql}`;
 	if (groupBySql) sql += ` ${groupBySql}`;
 	if (orderSql) sql += ` ${orderSql}`;
-	if (limit !== undefined) {
-		sql += ` LIMIT ${normalizeLimitOffset(limit, "limit")}`;
+	if (take !== undefined) {
+		sql += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
 	}
-	if (offset !== undefined) {
-		sql += ` OFFSET ${normalizeLimitOffset(offset, "offset")}`;
+	if (skip !== undefined) {
+		sql += ` OFFSET ${normalizeLimitOffset(skip, "skip")}`;
 	}
 
 	return sql;

@@ -37,7 +37,8 @@ export type RelationCountSpec = true | { where?: Record<string, unknown> };
 export type InlineRelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
 	orderBy?: OrderByInput;
-	limit?: number;
+	take?: number;
+	skip?: number;
 	with?: Record<string, WithInput>;
 };
 
@@ -314,7 +315,8 @@ function canHasManyAggregate(
 	const spec = chain.nestedSpec;
 	if (spec?.with && Object.keys(spec.with).length > 0) return false;
 	if (spec?.orderBy) return false;
-	if (spec?.limit !== undefined) return false;
+	if (spec?.take !== undefined) return false;
+	if (spec?.skip !== undefined) return false;
 
 	return true;
 }
@@ -554,8 +556,11 @@ function buildHasManySubqueryFromRef(
 			manifestIndex,
 		)}`;
 	}
-	if (node.nestedSpec?.limit !== undefined) {
-		sql += ` LIMIT ${normalizeLimitOffset(node.nestedSpec.limit, "limit")}`;
+	if (node.nestedSpec?.take !== undefined) {
+		sql += ` LIMIT ${normalizeLimitOffset(node.nestedSpec.take, "take")}`;
+	}
+	if (node.nestedSpec?.skip !== undefined) {
+		sql += ` OFFSET ${normalizeLimitOffset(node.nestedSpec.skip, "skip")}`;
 	}
 	sql += ") agg)";
 	return sql;
@@ -1100,7 +1105,8 @@ export function withShapeSignature(
 		if (typeof input === "object" && input !== null) {
 			const spec = input as InlineRelationSpec;
 			const bits = [name];
-			if (spec.limit !== undefined) bits.push(`l${spec.limit}`);
+			if (spec.take !== undefined) bits.push(`t${spec.take}`);
+			if (spec.skip !== undefined) bits.push(`k${spec.skip}`);
 			if (spec.orderBy) bits.push(`o${orderByShapeKey(spec.orderBy)}`);
 			const selectKeys = normalizeSelectColumns(spec.select);
 			if (selectKeys && selectKeys.length > 0) {

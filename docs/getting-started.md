@@ -27,7 +27,7 @@ Query:
 import { db } from "./neoorm/client.js";
 
 const user = await db.users.findById(userId, {
-  with: { posts: { orderBy: { createdAt: "desc" }, limit: 10 } },
+  with: { posts: { orderBy: { createdAt: "desc" }, take: 10 } },
 });
 ```
 

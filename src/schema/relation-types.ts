@@ -370,14 +370,15 @@ export type SelectInput<TColumns extends Record<string, ColumnDef>> =
 export type OmitInput<TColumns extends Record<string, ColumnDef>> =
 	SelectInput<TColumns>;
 
-/** Options for a single relation include (select, orderBy, limit, nested with) */
+/** Options for a single relation include (select, orderBy, take, skip, nested with) */
 export type WithRelationOptions<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
 > = {
 	select?: SelectInput<TargetColumns<TSchema, TTargetAccessor>>;
 	orderBy?: OrderByInput<TargetColumns<TSchema, TTargetAccessor>>;
-	limit?: number;
+	take?: number;
+	skip?: number;
 	with?: WithInputMap<TSchema, TTargetAccessor>;
 };
 
@@ -497,7 +498,8 @@ export type InferRelationIncludeResult<
 					select?: unknown;
 					with?: unknown;
 					orderBy?: unknown;
-					limit?: unknown;
+					take?: unknown;
+					skip?: unknown;
 				}
 				? InferNestedWithResult<
 						TSchema,

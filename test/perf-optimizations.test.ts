@@ -1,14 +1,27 @@
-import { defineSchema, fk, getManyToManyRegistry, id, table, text } from "neoorm/schema";
+import {
+	defineSchema,
+	fk,
+	getManyToManyRegistry,
+	id,
+	table,
+	text,
+} from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { buildManifestIndex } from "../src/runtime/query/table-index.js";
-import { deleteManyRecords, deleteRecord } from "../src/runtime/query/delete.js";
-import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { createRecord } from "../src/runtime/query/create.js";
-import { getCachedInsertQuery, getCachedWhereClause } from "../src/runtime/query/compile.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import {
+	getCachedInsertQuery,
+	getCachedWhereClause,
+} from "../src/runtime/query/compile.js";
+import { createRecord } from "../src/runtime/query/create.js";
+import {
+	deleteManyRecords,
+	deleteRecord,
+} from "../src/runtime/query/delete.js";
+import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findById, findFirst, findMany } from "../src/runtime/query/find.js";
+import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { updateManyRecords } from "../src/runtime/query/update.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
@@ -176,7 +189,7 @@ describe("read path optimizations", () => {
 		});
 
 		const row = await findById(executor, runtime, "users", "u1", {
-			with: { posts: { limit: 3 } },
+			with: { posts: { take: 3 } },
 		});
 
 		expect(row).not.toBeNull();
@@ -204,7 +217,7 @@ describe("read path optimizations", () => {
 		});
 
 		const rows = await findMany(executor, runtime, "users", {
-			with: { posts: { limit: 3 } },
+			with: { posts: { take: 3 } },
 		});
 
 		expect(rows).toHaveLength(1);
