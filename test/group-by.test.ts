@@ -4,6 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	buildGroupByQuery,
+	compileGroupByOrderBy,
 	compileHaving,
 } from "../src/runtime/query/compile.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
@@ -64,6 +65,64 @@ describe("groupBy SQL", () => {
 		expect(() =>
 			buildGroupByQuery(posts, [], { _count: true }, "", "", ""),
 		).toThrow("groupBy requires at least one column");
+	});
+
+	it("builds field _count, having, and orderBy", () => {
+		const selectors = {
+			_count: { _all: true, authorId: true },
+		} as const;
+		const having = compileHaving(
+			posts,
+			selectors,
+			{
+				_count: { _all: { gte: 2 }, authorId: { gt: 0 } },
+			},
+			postgresDialect,
+			1,
+		);
+		const orderSql = compileGroupByOrderBy(posts, ["status"], selectors, {
+			_count: { _all: "desc" },
+		});
+		const sql = buildGroupByQuery(
+			posts,
+			["status"],
+			selectors,
+			"",
+			having.sql,
+			orderSql,
+		);
+
+		expect(sql).toContain('COUNT(*)::int AS "__count_all"');
+		expect(sql).toContain('COUNT("author_id")::int AS "__count_authorId"');
+		expect(sql).toContain(
+			'HAVING COUNT(*) >= $1 AND COUNT("author_id") > $2',
+		);
+		expect(sql).toContain("ORDER BY COUNT(*) DESC");
+		expect(having.params).toEqual([2, 0]);
+	});
+
+	it("throws when having._count mixes operators with field keys", () => {
+		expect(() =>
+			compileHaving(
+				posts,
+				{ _count: { _all: true, authorId: true } },
+				{ _count: { gte: 5, authorId: { gt: 0 } } },
+				postgresDialect,
+			),
+		).toThrow(
+			"having._count cannot mix comparison operators with field keys",
+		);
+	});
+
+	it("throws when having._count fields are not selected", () => {
+		expect(() =>
+			compileHaving(
+				posts,
+				{ _count: { _all: true } },
+				{ _count: { authorId: { gt: 0 } } },
+				postgresDialect,
+			),
+		).toThrow("having._count.authorId requires _count: { authorId: true }");
 	});
 });
 
@@ -126,5 +185,41 @@ describe("groupByRecords", () => {
 		});
 		expect(rows).toEqual([]);
 		expect(executor.queries).toHaveLength(0);
+	});
+
+	it("maps field _count rows and orders by a count field", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					status: "draft",
+					__count_all: 3,
+					__count_authorId: 2,
+				},
+			],
+		});
+
+		const rows = await groupByRecords(executor, runtime, "posts", {
+			by: ["status"],
+			_count: { _all: true, authorId: true },
+			having: { _count: { _all: { gte: 2 }, authorId: { gt: 0 } } },
+			orderBy: { _count: { authorId: "desc" } },
+		});
+
+		expect(executor.queries[0]?.sql).toContain(
+			'COUNT(*)::int AS "__count_all"',
+		);
+		expect(executor.queries[0]?.sql).toContain(
+			'COUNT("author_id")::int AS "__count_authorId"',
+		);
+		expect(executor.queries[0]?.sql).toContain(
+			'ORDER BY COUNT("author_id") DESC',
+		);
+		expect(executor.queries[0]?.params).toEqual([2, 0]);
+		expect(rows).toEqual([
+			{
+				status: "draft",
+				_count: { _all: 3, authorId: 2 },
+			},
+		]);
 	});
 });

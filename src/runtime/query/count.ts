@@ -5,11 +5,23 @@ import {
 	buildExistsQuery,
 	compileWhere,
 	isImpossibleWhere,
+	normalizeCountMap,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findFirst, type WithInput } from "./find.js";
 import { getTableIndex } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
+
+function parseCountSelectRow(
+	row: Record<string, unknown>,
+	select: Record<string, true>,
+): Record<string, number> {
+	const result: Record<string, number> = {};
+	for (const key of Object.keys(select)) {
+		result[key] = (row[key] as number | undefined) ?? 0;
+	}
+	return result;
+}
 
 export async function countRecords(
 	executor: Executor,
@@ -17,12 +29,26 @@ export async function countRecords(
 	tableAccessor: string,
 	args?: {
 		where?: Record<string, unknown>;
+		distinct?: string;
+		select?: Record<string, boolean | undefined>;
 	},
-): Promise<number> {
+): Promise<number | Record<string, number>> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = manifest.tables[tableAccessor];
 	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+
+	if (args?.distinct !== undefined && args.select !== undefined) {
+		throw new Error("count cannot combine distinct and select");
+	}
+
+	let select: Record<string, true> | undefined;
+	if (args?.select !== undefined) {
+		select = normalizeCountMap(args.select);
+		if (Object.keys(select).length === 0) {
+			throw new Error("count select requires at least one field");
+		}
+	}
 
 	const { sql: whereSql, params } = compileWhere(
 		manifest,
@@ -32,7 +58,26 @@ export async function countRecords(
 		1,
 		runtime.tableIndex,
 	);
-	const query = buildCountQuery(table, whereSql, dialect);
+	const query = buildCountQuery(
+		table,
+		whereSql,
+		dialect,
+		args?.distinct,
+		select,
+		runtime.tableIndex,
+	);
+
+	if (select) {
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			{ operation: "select", tableAccessor },
+			query,
+			params,
+		);
+		return parseCountSelectRow(row ?? {}, select);
+	}
+
 	const row = await runQueryOne<{ count: number }>(
 		executor,
 		runtime,

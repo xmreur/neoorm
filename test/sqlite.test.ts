@@ -319,6 +319,34 @@ describe("sqlite runtime", () => {
 		db.close();
 	});
 
+	it("counts distinct values and non-null fields", async () => {
+		const { db } = await setup();
+		const orm = makeOrm(manifest, db);
+		await orm.users.create({ data: { email: "a@x", name: "a", age: 10 } });
+		await orm.users.create({ data: { email: "b@x", name: "b", age: 20 } });
+		await orm.users.create({ data: { email: "c@x", name: "c" } });
+
+		expect(await orm.users.count()).toBe(3);
+		expect(await orm.users.count({ distinct: "active" })).toBe(1);
+		expect(
+			await orm.users.count({ select: { _all: true, age: true } }),
+		).toEqual({ _all: 3, age: 2 });
+
+		const agg = await orm.users.aggregate({
+			_count: { _all: true, age: true },
+		});
+		expect(agg["_count"]).toEqual({ _all: 3, age: 2 });
+
+		const grouped = await orm.users.groupBy({
+			by: ["active"],
+			_count: { _all: true, age: true },
+			having: { _count: { _all: { gte: 1 }, age: { gt: 0 } } },
+			orderBy: { _count: { age: "desc" } },
+		});
+		expect(grouped).toEqual([{ active: 1, _count: { _all: 3, age: 2 } }]);
+		db.close();
+	});
+
 	it("upserts and findOrCreates", async () => {
 		const { db } = await setup();
 		const orm = makeOrm(manifest, db);
