@@ -66,11 +66,11 @@ const db = createNeoOrmClient(manifest, { db: database });
 The full CLI works against SQLite:
 
 ```bash
-npx neoorm migrate deploy
-npx neoorm db push
-npx neoorm db pull
-npx neoorm migrate status
-npx neoorm migrate reset --force
+bunx neoorm migrate deploy
+bunx neoorm db push
+bunx neoorm db pull
+bunx neoorm migrate status
+bunx neoorm migrate reset --force
 ```
 
 - The migration ledger table is `_neoorm_migrations` (`id INTEGER PRIMARY KEY AUTOINCREMENT`).

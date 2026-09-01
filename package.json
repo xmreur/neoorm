@@ -75,10 +75,10 @@
 		"node": ">=20"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json",
-		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"dev": "tsc -w -p tsconfig.build.json",
-		"test": "vitest run",
+		"build": "bunx tsc -p tsconfig.build.json",
+		"typecheck": "bunx tsc -p tsconfig.json --noEmit",
+		"dev": "bunx tsc -w -p tsconfig.build.json",
+		"test": "bunx vitest run",
 		"prepublishOnly": "bun run build && bun run test"
 	},
 	"devDependencies": {

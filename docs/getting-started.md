@@ -3,7 +3,7 @@
 ## Scaffold a new project
 
 ```bash
-npx neoorm init
+bunx neoorm init
 ```
 
 This creates `neoorm.config.ts`, `schema.ts`, `.env.example`, generates `neoorm/client.ts` (and related files), and writes the first migration under `neoorm/migrations/`.
@@ -18,7 +18,7 @@ cp .env.example .env
 Apply migrations:
 
 ```bash
-npx neoorm migrate deploy
+bunx neoorm migrate deploy
 ```
 
 Query:
@@ -75,7 +75,7 @@ export default defineConfig({
 ### 3. Generate the client
 
 ```bash
-npx neoorm generate
+bunx neoorm generate
 ```
 
 This writes `client.ts`, `manifest.ts`, `models.ts`, `includes.ts`, and migration SQL when the schema changed.

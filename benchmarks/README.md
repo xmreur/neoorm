@@ -7,14 +7,14 @@ Performance comparisons against Drizzle, TypeORM, and Prisma live in the sibling
 
 ```bash
 cd ../neoorm-benchmark
-npm install
-npm install ../neoorm   # link local neoorm checkout
+bun install
+bun add ../neoorm   # link local neoorm checkout
 ```
 
 ## Run
 
 ```bash
-npx tsx src/benchmark.ts --weight 30 --runs 10
+bunx tsx src/benchmark.ts --weight 30 --runs 10
 ```
 
 - `--weight` — row multiplier for scaled operations (default: 1)

@@ -14,8 +14,8 @@
 </p>
 
 ```
-npm install neoorm pg        # PostgreSQL
-npm install neoorm           # SQLite (no extra driver needed)
+bun add neoorm pg        # PostgreSQL
+bun add neoorm           # SQLite (no extra driver needed)
 ```
 
 Requires **Node.js 20+** (Node.js 22.5+ for SQLite on Node — or Bun, or pass your own `db` instance; see [SQLite](docs/sqlite.md)).
@@ -39,8 +39,8 @@ Most ORMs force you to learn their query language, fight their type system, or s
 ## Quick start
 
 ```bash
-npx neoorm init               # scaffold schema, config, client
-npx neoorm migrate deploy      # create tables
+bunx neoorm init               # scaffold schema, config, client
+bunx neoorm migrate deploy      # create tables
 ```
 
 ```ts
