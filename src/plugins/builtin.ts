@@ -228,7 +228,7 @@ const timestampType: ColumnTypePlugin = {
 		return "TIMESTAMPTZ";
 	},
 	columnTsType(col) {
-		return scalarTsType(col, "string");
+		return scalarTsType(col, "Date");
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;

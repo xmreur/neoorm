@@ -90,7 +90,7 @@ export async function exampleQueries() {
 	});
 
 	// Keyset pagination for feeds (stable on concurrent inserts)
-	let feedCursor: { createdAt: string; id: string } | null = null;
+	let feedCursor: { createdAt: Date; id: string } | null = null;
 	const feedPage = await db.posts.paginate({
 		where: { published: true },
 		orderBy: { createdAt: "desc" },
