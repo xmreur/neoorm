@@ -9,13 +9,15 @@ export type FkMeta<
 	TAs extends string = string,
 	TInverse extends string = string,
 	TUnique extends boolean = boolean,
-> = ColumnMeta & {
+	TNullable extends boolean = boolean,
+> = Omit<ColumnMeta, "kind" | "unique" | "nullable"> & {
 	kind: "fk";
 	target: TTarget;
 	as: TAs;
 	inverse: TInverse;
 	onDelete?: OnDeleteAction;
 	unique: TUnique;
+	nullable: TNullable;
 };
 
 export type FkBuilder<
@@ -23,14 +25,15 @@ export type FkBuilder<
 	TAs extends string = string,
 	TInverse extends string = string,
 	TUnique extends boolean = boolean,
+	TNullable extends boolean = boolean,
 > = {
 	readonly _type: string | null;
-	readonly _meta: FkMeta<TTarget, TAs, TInverse, TUnique>;
-	notNull(): FkBuilder<TTarget, TAs, TInverse, TUnique>;
-	unique(): FkBuilder<TTarget, TAs, TInverse, true>;
-	primary(): FkBuilder<TTarget, TAs, TInverse, TUnique>;
-	index(): FkBuilder<TTarget, TAs, TInverse, TUnique>;
-	map(name: string): FkBuilder<TTarget, TAs, TInverse, TUnique>;
+	readonly _meta: FkMeta<TTarget, TAs, TInverse, TUnique, TNullable>;
+	notNull(): FkBuilder<TTarget, TAs, TInverse, TUnique, false>;
+	unique(): FkBuilder<TTarget, TAs, TInverse, true, TNullable>;
+	primary(): FkBuilder<TTarget, TAs, TInverse, TUnique, false>;
+	index(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	map(name: string): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 };
 
 export type FkOptions<
@@ -41,19 +44,23 @@ export type FkOptions<
 	as?: TAs;
 	inverse?: TInverse;
 	unique?: TUnique;
-	nullable?: boolean;
 	onDelete?: OnDeleteAction;
 };
 
 /** SQL target ref (`table.column`) for an owned column reference. */
 type ColumnTargetOf<C extends ColumnBuilder<unknown>> =
 	C extends ColumnBuilder<unknown, infer M>
-		? M extends { tableName: infer T extends string; columnName: infer CN extends string }
+		? M extends {
+				tableName: infer T extends string;
+				columnName: infer CN extends string;
+			}
 			? `${T}.${CN}`
 			: string
 		: string;
 
-type FkAsOfOptions<T extends FkOptions> = T extends { as: infer As extends string }
+type FkAsOfOptions<T extends FkOptions> = T extends {
+	as: infer As extends string;
+}
 	? As
 	: "";
 
@@ -63,11 +70,9 @@ type FkInverseOfOptions<T extends FkOptions> = T extends {
 	? Inv
 	: "";
 
-type FkUniqueOfOptions<T extends FkOptions> = T extends { nullable: false }
+type FkUniqueOfOptions<T extends FkOptions> = T extends { unique: true }
 	? true
-	: T extends { unique: true }
-		? true
-		: false;
+	: false;
 
 function isTableDef(value: unknown): value is TableDef {
 	return (
@@ -80,7 +85,10 @@ function isTableDef(value: unknown): value is TableDef {
 
 function isColumnBuilder(value: unknown): value is ColumnBuilder<unknown> {
 	return (
-		typeof value === "object" && value !== null && "_meta" in value && "_type" in value
+		typeof value === "object" &&
+		value !== null &&
+		"_meta" in value &&
+		"_type" in value
 	);
 }
 
@@ -118,7 +126,7 @@ function resolveFkTarget(target: unknown): string {
 		if (!owner) {
 			throw new Error(
 				"fk() received a column reference that does not belong to any table defined via table(). " +
-					"Pass a string target (e.g. `fk(\"users.id\")`) instead.",
+					'Pass a string target (e.g. `fk("users.id")`) instead.',
 			);
 		}
 		return `${owner.table._tableName}.${owner.tsName}`;
@@ -134,7 +142,7 @@ export function fk<
 >(
 	target: TTarget,
 	options?: FkOptions<TAs, TInverse, TUnique>,
-): FkBuilder<TTarget, TAs, TInverse, TUnique>;
+): FkBuilder<TTarget, TAs, TInverse, TUnique, true>;
 export function fk<
 	TT extends TableDef,
 	const TAs extends string = "",
@@ -147,7 +155,8 @@ export function fk<
 	TT["_targetRef"] extends string ? TT["_targetRef"] : string,
 	TAs,
 	TInverse,
-	TUnique
+	TUnique,
+	true
 >;
 export function fk<
 	TC extends ColumnBuilder<unknown>,
@@ -159,16 +168,17 @@ export function fk<
 	ColumnTargetOf<TC>,
 	FkAsOfOptions<TOptions>,
 	FkInverseOfOptions<TOptions>,
-	FkUniqueOfOptions<TOptions>
+	FkUniqueOfOptions<TOptions>,
+	true
 >;
 export function fk(
 	target: string | TableDef | ColumnBuilder<unknown>,
 	options: FkOptions = {},
 ): FkBuilder<string> {
 	const resolved = resolveFkTarget(target);
-	const meta: FkMeta<string, string, string, boolean> = {
+	const meta: FkMeta<string, string, string, boolean, true> = {
 		kind: "fk",
-		nullable: options.nullable !== false,
+		nullable: true,
 		unique: options.unique ?? false,
 		primary: false,
 		defaultNow: false,
@@ -180,9 +190,12 @@ export function fk(
 			: {}),
 	};
 
-	function withMeta<TU extends boolean = boolean>(
-		next: FkMeta<string, string, string, TU>,
-	): FkBuilder<string, string, string, TU> {
+	function withMeta<
+		TU extends boolean = boolean,
+		TN extends boolean = boolean,
+	>(
+		next: FkMeta<string, string, string, TU, TN>,
+	): FkBuilder<string, string, string, TU, TN> {
 		return {
 			_type: null as string | null,
 			_meta: next,
@@ -190,7 +203,7 @@ export function fk(
 				return withMeta({ ...next, nullable: false });
 			},
 			unique() {
-				return withMeta<true>({ ...next, unique: true });
+				return withMeta<true, TN>({ ...next, unique: true });
 			},
 			primary() {
 				return withMeta({ ...next, primary: true, nullable: false });

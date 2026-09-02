@@ -29,9 +29,8 @@ export const schema = defineSchema({
 		userId: fk("users.id", {
 			inverse: "profile",
 			unique: true,
-			nullable: false,
 			onDelete: "cascade",
-		}),
+		}).notNull(),
 		bio: text(),
 		avatarUrl: text(),
 	}),
@@ -41,9 +40,10 @@ export const schema = defineSchema({
 		// `.index()` on a column is shorthand for a single-column index.
 		authorId: fk("users.id", {
 			inverse: "posts",
-			nullable: false,
 			onDelete: "restrict",
-		}).index(),
+		})
+			.notNull()
+			.index(),
 		title: text().notNull(),
 		body: text().notNull(),
 		published: bool().notNull().default(false),
@@ -61,13 +61,11 @@ export const schema = defineSchema({
 		id: id.primary(),
 		postId: fk("posts.id", {
 			inverse: "comments",
-			nullable: false,
 			onDelete: "cascade",
-		}),
+		}).notNull(),
 		authorId: fk("users.id", {
 			inverse: "comments",
-			nullable: false,
-		}),
+		}).notNull(),
 		body: text().notNull(),
 		createdAt: timestamp().notNull().defaultNow(),
 	}),
@@ -82,11 +80,9 @@ export const schema = defineSchema({
 		// Composite primary key inline via `.primary()` on the FK columns.
 		postId: fk("posts.id", {
 			inverse: "postTags",
-			nullable: false,
 		}).primary(),
 		tagId: fk("tags.id", {
 			inverse: "postTags",
-			nullable: false,
 		}).primary(),
 		assignedBy: text(),
 		assignedAt: timestamp().notNull().defaultNow(),

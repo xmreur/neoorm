@@ -33,8 +33,7 @@ const mappedPkSchema = defineSchema({
 		authorId: fk("users.id", {
 			as: "author",
 			inverse: "posts",
-			nullable: false,
-		}),
+		}).notNull(),
 		title: text().notNull(),
 	}),
 });
@@ -235,7 +234,6 @@ describe("manifest-driven primary keys", () => {
 				teamId: fk("teams.id", {
 					as: "team",
 					inverse: "members",
-					nullable: true,
 				}),
 				name: text().notNull(),
 			}),

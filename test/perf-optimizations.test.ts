@@ -40,8 +40,7 @@ const schema = defineSchema({
 		authorId: fk("users.id", {
 			as: "author",
 			inverse: "posts",
-			nullable: false,
-		}),
+		}).notNull(),
 	}),
 });
 
@@ -321,8 +320,9 @@ describe("read path optimizations", () => {
 					customerId: fk("customers.id", {
 						as: "customer",
 						inverse: "orders",
-						nullable: false,
-					}).map("customerId"),
+					})
+						.notNull()
+						.map("customerId"),
 				}),
 			},
 			{ columnNaming: "camelCase" },

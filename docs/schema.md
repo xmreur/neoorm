@@ -58,7 +58,7 @@ export const schema = defineSchema({
     email: text().notNull().unique(),
   }),
   posts: table("posts", {
-    authorId: fk("users.id", { nullable: false }).index(),
+    authorId: fk("users.id").notNull().index(),
     title: text().notNull(),
   }),
 });
@@ -75,15 +75,15 @@ Table and column refs (`fk(users)`, `fk(users.id)`) resolve the target and infer
 | `authorId` | `author` (`Id`/`_id` suffix stripped) | `authors` (plural of `as`) |
 
 ```ts
-authorId: fk("users.id", { nullable: false }),              // as: "author", inverse: "authors" (inferred)
-ownerId:  fk("users.id", { as: "owner", nullable: false }), // explicit as, inverse still inferred ("owners")
+authorId: fk("users.id").notNull(),              // as: "author", inverse: "authors" (inferred)
+ownerId:  fk("users.id", { as: "owner" }).notNull(), // explicit as, inverse still inferred ("owners")
 ```
 
 ### Options
 
-`fk(target, { as?, inverse?, nullable?, onDelete?, unique? })`:
+`fk(target, { as?, inverse?, onDelete?, unique? })`:
 
-- `nullable` defaults to `true`; use `.notNull()` or `{ nullable: false }` for `NOT NULL`
+- nullable by default; use `.notNull()` for `NOT NULL`
 - `onDelete` accepts `"cascade" | "restrict" | "set null" | "no action"`
 - `.primary()` marks the FK as part of the composite primary key
 
@@ -96,8 +96,8 @@ export const schema = defineSchema({
   posts: table("posts", { id: id.primary() }),
   tags: table("tags", { id: id.primary() }),
   postTags: table("post_tags", {
-    postId: fk("posts.id", { nullable: false }).primary(),
-    tagId:  fk("tags.id", { nullable: false }).primary(),
+    postId: fk("posts.id").primary(),
+    tagId:  fk("tags.id").primary(),
   }),
 });
 ```
@@ -273,7 +273,7 @@ Column type plugins (PostGIS, `citext`) still register their required extensions
 Single-column indexes are declared inline with `.index()`:
 
 ```ts
-authorId: fk("users.id", { nullable: false }).index(), // single-column index on author_id
+authorId: fk("users.id").notNull().index(), // single-column index on author_id
 ```
 
 Composite constraints (unique / primary key spanning several columns) use the extras callback:
@@ -283,8 +283,8 @@ export const schema = defineSchema({
   serverMembers: table(
     "server_members",
     {
-      serverId: fk("servers.id", { nullable: false }).index(),
-      userId:  fk("users.id", { nullable: false }).index(),
+      serverId: fk("servers.id").notNull().index(),
+      userId:  fk("users.id").notNull().index(),
     },
     (t) => ({
       uniqueMembership: unique(t.serverId, t.userId),
@@ -308,7 +308,7 @@ export const schema = defineSchema({
   }),
   posts: table("posts", {
     id: id.primary(),
-    authorId: fk("users.id", { nullable: false }).index(),
+    authorId: fk("users.id").notNull().index(),
     title: text().notNull(),
     tags: manyToMany("tags"), // accessor posts.tags -> the "tags" table
   }),
@@ -349,8 +349,8 @@ export const schema = defineSchema({
   }),
   tags: table("tags", { id: id.primary() }),
   postTags: table("post_tags", {
-    postId: fk("posts.id", { nullable: false }).primary(),
-    tagId:  fk("tags.id", { nullable: false }).primary(),
+    postId: fk("posts.id").primary(),
+    tagId:  fk("tags.id").primary(),
   }),
 });
 ```
@@ -383,8 +383,8 @@ export const schema = defineSchema({
   posts: table("posts", { id: id.primary(), /* ... */ }),
   tags: table("tags", { id: id.primary(), /* ... */ }),
   postTags: table("post_tags", {
-    postId: fk("posts.id", { as: "post", inverse: "postTags", nullable: false }).primary(),
-    tagId:  fk("tags.id", { as: "tag", inverse: "postTags", nullable: false }).primary(),
+    postId: fk("posts.id", { as: "post", inverse: "postTags" }).primary(),
+    tagId:  fk("tags.id", { as: "tag", inverse: "postTags" }).primary(),
   }),
 });
 

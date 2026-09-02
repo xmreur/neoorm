@@ -37,9 +37,7 @@ type IsRequired<T> =
 						? true
 						: false
 		: T extends FkBuilder
-			? T["_meta"] extends { nullable: false }
-				? true
-				: false
+			? false
 			: false;
 
 export type InferSelectRow<
@@ -143,8 +141,14 @@ type MergeInverseRelationUnion<U> = {
 };
 
 type FkMetaOf<C> =
-	C extends FkBuilder<infer TTarget, infer TAs, infer TInverse>
-		? FkMeta<TTarget, TAs, TInverse>
+	C extends FkBuilder<
+		infer TTarget,
+		infer TAs,
+		infer TInverse,
+		infer TUnique,
+		infer TNullable
+	>
+		? FkMeta<TTarget, TAs, TInverse, TUnique, TNullable>
 		: never;
 
 /** Mirrors runtime `inferFkAs`: strips a trailing `Id`/`_id` suffix. */
@@ -167,13 +171,19 @@ type Pluralize<S extends string> = S extends `${infer B}${"ch" | "sh"}`
 
 type InferFkInverse<C extends string> = Pluralize<InferFkAs<C>>;
 
-export type FkRelationName<As extends string, K extends string> = As extends ""
-	? InferFkAs<K>
-	: As;
+export type FkRelationName<
+	As extends string,
+	K extends string,
+> = string extends As ? InferFkAs<K> : As extends "" ? InferFkAs<K> : As;
 
-export type FkInverseName<Inv extends string, K extends string> = Inv extends ""
+export type FkInverseName<
+	Inv extends string,
+	K extends string,
+> = string extends Inv
 	? InferFkInverse<K>
-	: Inv;
+	: Inv extends ""
+		? InferFkInverse<K>
+		: Inv;
 
 type FkColumnNames<TColumns extends Record<string, ColumnDef>> = {
 	[K in keyof TColumns]: TColumns[K] extends FkBuilder ? K : never;
