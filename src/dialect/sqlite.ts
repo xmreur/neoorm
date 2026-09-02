@@ -134,11 +134,7 @@ function emitCreateTable(
 	const lines: string[] = [];
 
 	for (const col of table.columns) {
-		if (col.primary && table.primaryKey.length <= 1) {
-			lines.push(`  ${columnDef(col, table, manifest, sqliteDialect)}`);
-		} else if (!col.primary) {
-			lines.push(`  ${columnDef(col, table, manifest, sqliteDialect)}`);
-		}
+		lines.push(`  ${columnDef(col, table, manifest, sqliteDialect)}`);
 	}
 
 	if (table.primaryKey.length > 1) {

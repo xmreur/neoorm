@@ -16,6 +16,12 @@ import type { Dialect, Manifest } from "../dialect/types.js";
 import { introspectToManifest } from "../introspect/to-manifest.js";
 import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
 import type { DatabaseClient } from "../runtime/driver.js";
+import { NeoOrmDriverError } from "../runtime/errors.js";
+import {
+	enrichMigrationError,
+	resolveMigrateContext,
+	type MigrateContext,
+} from "../runtime/schema-error.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
 
@@ -254,16 +260,27 @@ export async function listPendingMigrations(
 export async function applySql(
 	client: DatabaseClient,
 	sql: string[],
+	context: MigrateContext = {},
 ): Promise<void> {
 	if (sql.length === 0) {
 		return;
 	}
 
-	await client.transaction(async (tx) => {
-		for (const statement of sql) {
-			await tx.query(statement);
-		}
-	});
+	try {
+		await client.transaction(async (tx) => {
+			for (const statement of sql) {
+				await tx.query(statement);
+			}
+		});
+	} catch (err) {
+		const statement =
+			err instanceof NeoOrmDriverError ? err.statement : undefined;
+		throw enrichMigrationError(err, {
+			...(context.schemaPath ? { schemaPath: context.schemaPath } : {}),
+			...(context.manifest ? { manifest: context.manifest } : {}),
+			...(statement ? { statement } : {}),
+		});
+	}
 }
 
 export async function applyMigration(
@@ -271,35 +288,56 @@ export async function applyMigration(
 	dialect: Dialect,
 	migrationsDir: string,
 	name: string,
-	schema?: string,
+	schemaOrContext?: string | MigrateContext,
 ): Promise<void> {
+	const context = resolveMigrateContext(schemaOrContext);
 	const sqlPath = join(migrationsDir, name, "migration.sql");
 	const sql = await readFile(sqlPath, "utf-8");
 
-	await client.transaction(async (tx) => {
-		const schemaSql = dialect.emitCreateSchema(schema);
-		if (schemaSql) {
-			await tx.query(schemaSql);
-		}
-		await tx.query(sql);
-		await tx.query(
-			`INSERT INTO ${migrationsTableRef(dialect, schema)} (name) VALUES ($1)`,
-			[name],
-		);
-	});
+	try {
+		await client.transaction(async (tx) => {
+			const schemaSql = dialect.emitCreateSchema(context.schema);
+			if (schemaSql) {
+				await tx.query(schemaSql);
+			}
+			await tx.query(sql);
+			await tx.query(
+				`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name) VALUES ($1)`,
+				[name],
+			);
+		});
+	} catch (err) {
+		throw enrichMigrationError(err, {
+			...(context.schemaPath ? { schemaPath: context.schemaPath } : {}),
+			...(context.manifest ? { manifest: context.manifest } : {}),
+			migrationName: name,
+			sqlPath,
+		});
+	}
 }
 
 export async function migrateDeploy(
 	client: DatabaseClient,
 	dialect: Dialect,
 	migrationsDir: string,
-	schema?: string,
+	schemaOrContext?: string | MigrateContext,
 ): Promise<string[]> {
-	const applied = await getAppliedMigrations(client, dialect, schema);
+	const context = resolveMigrateContext(schemaOrContext);
+	const applied = await getAppliedMigrations(
+		client,
+		dialect,
+		context.schema,
+	);
 	const pending = await listPendingMigrations(migrationsDir, applied);
 
 	for (const name of pending) {
-		await applyMigration(client, dialect, migrationsDir, name, schema);
+		await applyMigration(
+			client,
+			dialect,
+			migrationsDir,
+			name,
+			context,
+		);
 	}
 
 	return pending;
@@ -412,6 +450,7 @@ export type DbPushResult = {
 export type DbPushOptions = {
 	acceptDataLoss?: boolean;
 	schema?: string;
+	schemaPath?: string;
 };
 
 type DestructiveChange = import("../dialect/types.js").DestructiveChange;
@@ -446,7 +485,10 @@ export async function dbPush(
 		dialect,
 	);
 
-	await applySql(client, sql);
+	await applySql(client, sql, {
+		...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
+		manifest: qualifiedTarget,
+	});
 
 	return {
 		appliedStatements: sql.length,

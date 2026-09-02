@@ -313,11 +313,7 @@ function emitCreateTable(
 	const lines: string[] = [];
 
 	for (const col of table.columns) {
-		if (col.primary && table.primaryKey.length <= 1) {
-			lines.push(`  ${columnDef(col, manifest)}`);
-		} else if (!col.primary) {
-			lines.push(`  ${columnDef(col, manifest)}`);
-		}
+		lines.push(`  ${columnDef(col, manifest)}`);
 	}
 
 	if (table.primaryKey.length > 1) {

@@ -4,7 +4,7 @@
 
 | Command | Description |
 |---------|-------------|
-| `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example`, generate client, and first migration |
+| `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
 | `neoorm generate` | Emit manifest, typed client, models, includes, and migrations |
 | `neoorm migrate dev` | Apply pending migrations, then generate a new one if the schema changed |
 | `neoorm migrate deploy` | Apply pending migrations |

@@ -25,12 +25,17 @@ export {
 } from "./column.js";
 export type { SchemaDef, SchemaOptions } from "./define-schema.js";
 export { defineSchema } from "./define-schema.js";
-export type { ManyToManyDef } from "./many-to-many.js";
+export type {
+	InlineManyToManyOptions,
+	ManyToManyDef,
+	ManyToManyExtra,
+} from "./many-to-many.js";
 export {
 	clearManyToManyRegistry,
 	getManyToManyRegistry,
 	manyToMany,
 } from "./many-to-many.js";
+export { clearTableRegistry } from "./table-registry.js";
 export type {
 	FkBuilder,
 	FkMeta,
@@ -39,6 +44,12 @@ export type {
 } from "./relation.js";
 export { fk } from "./relation.js";
 export type {
+	InlineM2MInverseRelations,
+	InlineM2MInverseWhereMap,
+	InlineM2MInverseWriteMap,
+	InlineM2MRelations,
+	InlineM2MWhereMap,
+	InlineM2MWriteMap,
 	InverseRelations,
 	JunctionM2MRelations,
 	NestedCreateInput,
@@ -53,6 +64,7 @@ export type {
 	ColumnRefs,
 	IndexDef,
 	PrimaryKeyDef,
+	ScalarColumnKeys,
 	TableDef,
 	TableExtra,
 	TableOptions,

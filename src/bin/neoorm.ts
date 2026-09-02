@@ -26,6 +26,10 @@ import {
 } from "../migrate/runner.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
+import {
+	NeoOrmQueryError,
+	NeoOrmSchemaError,
+} from "../runtime/errors.js";
 import { openSqliteDatabase } from "../runtime/sqlite-open.js";
 
 type ConnectedDb = {
@@ -53,6 +57,26 @@ function connectDb(
 		dialect: postgresDialect,
 		close: () => pool.end(),
 	};
+}
+
+function formatCliError(err: unknown): string {
+	if (
+		err instanceof NeoOrmSchemaError ||
+		err instanceof NeoOrmQueryError
+	) {
+		return err.message;
+	}
+	if (err instanceof Error) {
+		return err.message;
+	}
+	return String(err);
+}
+
+function printCliError(err: unknown): void {
+	console.error(formatCliError(err));
+	if (process.env.DEBUG && err instanceof Error && err.stack) {
+		console.error(err.stack);
+	}
 }
 
 const program = new Command();
@@ -317,11 +341,18 @@ program
 				}
 
 				if (subcommand === "deploy" || subcommand === "dev") {
+					const schemaPath = resolve(cwd, config.schema);
+					const { readSnapshot } = await import("../codegen/generate.js");
+					const snapshotManifest = await readSnapshot(outDir);
 					const applied = await migrateDeploy(
 						client,
 						dialect,
 						migrationsDir,
-						dbSchema,
+						{
+							...(dbSchema ? { schema: dbSchema } : {}),
+							schemaPath,
+							...(snapshotManifest ? { manifest: snapshotManifest } : {}),
+						},
 					);
 					if (applied.length === 0) {
 						console.log("No pending migrations");
@@ -333,8 +364,7 @@ program
 					}
 
 					if (subcommand === "dev") {
-						const schemaPath = resolve(cwd, config.schema);
-						const { warnings, summary, migrationName } =
+						const { warnings, summary, migrationName, manifest } =
 							await generateFromSchema(schemaPath, outDir, {
 								...(options.acceptDataLoss
 									? { acceptDataLoss: true }
@@ -364,7 +394,11 @@ program
 								client,
 								dialect,
 								join(outDir, "migrations"),
-								dbSchema,
+								{
+									...(dbSchema ? { schema: dbSchema } : {}),
+									manifest,
+									schemaPath,
+								},
 							);
 							if (newlyApplied.length > 0) {
 								console.log(
@@ -463,4 +497,7 @@ program
 		},
 	);
 
-program.parse();
+program.parseAsync(process.argv).catch((err: unknown) => {
+	printCliError(err);
+	process.exit(1);
+});

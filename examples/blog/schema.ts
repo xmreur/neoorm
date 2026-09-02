@@ -5,20 +5,18 @@ import {
 	enumType,
 	fk,
 	id,
-	index,
 	int,
 	jsonb,
 	manyToMany,
-	primaryKey,
 	table,
 	text,
 	timestamp,
-	unique,
+	uuid,
 } from "neoorm/schema";
 
 export const schema = defineSchema({
 	users: table("users", {
-		id: id.primary(),
+		id: uuid().primary(),
 		email: text().notNull().unique(),
 		name: text(),
 		createdAt: timestamp().notNull().defaultNow(),
@@ -27,8 +25,8 @@ export const schema = defineSchema({
 
 	profiles: table("profiles", {
 		id: id.primary(),
+		// `as`/`inverse` can be overridden; `unique` makes it a to-one relation.
 		userId: fk("users.id", {
-			as: "user",
 			inverse: "profile",
 			unique: true,
 			nullable: false,
@@ -38,56 +36,41 @@ export const schema = defineSchema({
 		avatarUrl: text(),
 	}),
 
-	posts: table(
-		"posts",
-		{
-			id: id.primary(),
-			authorId: fk("users.id", {
-				as: "author",
-				inverse: "posts",
-				nullable: false,
-				onDelete: "restrict",
-			}),
-			title: text().notNull(),
-			body: text().notNull(),
-			published: bool().notNull().default(false),
-			views: int().notNull().default(0),
-			status: enumType(["draft", "published", "archived"] as const)
-				.notNull()
-				.default("draft"),
-			metadata: jsonb<Record<string, unknown>>(),
-			price: decimal({ precision: 10, scale: 2 }),
-			createdAt: timestamp().notNull().defaultNow(),
-			updatedAt: timestamp().notNull().defaultNow().updatedAt(),
-		},
-		(t) => ({
-			authorIdx: index().on(t.authorId),
-		}),
-	),
+	posts: table("posts", {
+		id: id.primary(),
+		// `.index()` on a column is shorthand for a single-column index.
+		authorId: fk("users.id", {
+			inverse: "posts",
+			nullable: false,
+			onDelete: "restrict",
+		}).index(),
+		title: text().notNull(),
+		body: text().notNull(),
+		published: bool().notNull().default(false),
+		views: int().notNull().default(0),
+		status: enumType(["draft", "published", "archived"] as const)
+			.notNull()
+			.default("draft"),
+		metadata: jsonb<Record<string, unknown>>(),
+		price: decimal({ precision: 10, scale: 2 }),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+	}),
 
-	comments: table(
-		"comments",
-		{
-			id: id.primary(),
-			postId: fk("posts.id", {
-				as: "post",
-				inverse: "comments",
-				nullable: false,
-				onDelete: "cascade",
-			}),
-			authorId: fk("users.id", {
-				as: "author",
-				inverse: "comments",
-				nullable: false,
-			}),
-			body: text().notNull(),
-			createdAt: timestamp().notNull().defaultNow(),
-		},
-		(t) => ({
-			postIdx: index().on(t.postId),
-			authorIdx: index().on(t.authorId),
+	comments: table("comments", {
+		id: id.primary(),
+		postId: fk("posts.id", {
+			inverse: "comments",
+			nullable: false,
+			onDelete: "cascade",
 		}),
-	),
+		authorId: fk("users.id", {
+			inverse: "comments",
+			nullable: false,
+		}),
+		body: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+	}),
 
 	tags: table("tags", {
 		id: id.primary(),
@@ -95,26 +78,19 @@ export const schema = defineSchema({
 		name: text().notNull(),
 	}),
 
-	postTags: table(
-		"post_tags",
-		{
-			postId: fk("posts.id", {
-				as: "post",
-				inverse: "postTags",
-				nullable: false,
-			}),
-			tagId: fk("tags.id", {
-				as: "tag",
-				inverse: "postTags",
-				nullable: false,
-			}),
-			assignedBy: text(),
-			assignedAt: timestamp().notNull().defaultNow(),
-		},
-		(t) => ({
-			pk: primaryKey(t.postId, t.tagId),
-		}),
-	),
+	postTags: table("post_tags", {
+		// Composite primary key inline via `.primary()` on the FK columns.
+		postId: fk("posts.id", {
+			inverse: "postTags",
+			nullable: false,
+		}).primary(),
+		tagId: fk("tags.id", {
+			inverse: "postTags",
+			nullable: false,
+		}).primary(),
+		assignedBy: text(),
+		assignedAt: timestamp().notNull().defaultNow(),
+	}),
 });
 
 manyToMany(schema.posts, schema.tags, {

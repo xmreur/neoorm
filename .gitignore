@@ -6,3 +6,4 @@ examples/blog/neoorm/
 examples/blog/neoorm-test-out/
 ignore/
 benchmarks/
+test/

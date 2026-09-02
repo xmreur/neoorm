@@ -68,8 +68,14 @@ export {
 	createNeoOrmClient,
 	createNeoOrmClientFromPool,
 } from "./runtime/client.js";
-export type { QueryErrorContext, QueryOperation } from "./runtime/errors.js";
-export { formatQueryError, NeoOrmQueryError } from "./runtime/errors.js";
+export type { QueryErrorContext, QueryOperation, SchemaErrorContext } from "./runtime/errors.js";
+export {
+	formatQueryError,
+	formatSchemaError,
+	NeoOrmDriverError,
+	NeoOrmQueryError,
+	NeoOrmSchemaError,
+} from "./runtime/errors.js";
 export { decodeCursor, encodeCursor } from "./runtime/query/cursor-codec.js";
 export type { CursorInput, ScalarPkName } from "./schema/relation-types.js";
 export type { PaginateArgs, PaginateResult } from "./schema/types.js";

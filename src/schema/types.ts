@@ -18,7 +18,11 @@ import type {
 	WhereInput,
 	WithInputMap,
 } from "./relation-types.js";
-import type { ColumnDef, TableDef } from "./table.js";
+import type {
+	ColumnDef,
+	ScalarColumnKeys,
+	TableDef,
+} from "./table.js";
 
 type IsPrimary<T> =
 	T extends ColumnBuilder<unknown, infer M>
@@ -186,7 +190,7 @@ export type UpdateInput<
 	TAccessor extends keyof TSchema & string = keyof TSchema & string,
 > = Expand<
 	{
-		[K in keyof TColumns as IsPrimary<TColumns[K]> extends true
+		[K in ScalarColumnKeys<TColumns> as IsPrimary<TColumns[K]> extends true
 			? never
 			: IsUpdatedAt<TColumns[K]> extends true
 				? never
@@ -249,7 +253,7 @@ export type FindUniqueArgs<
 };
 
 type AggregateFieldSelect<TColumns extends Record<string, ColumnDef>> = Expand<{
-	[K in keyof TColumns & string]?: true;
+	[K in ScalarColumnKeys<TColumns>]?: true;
 }>;
 
 export type CountSelect<TColumns extends Record<string, ColumnDef>> = Expand<
@@ -335,7 +339,7 @@ export type NumericHaving = Expand<{
 
 type AggregateHavingFields<TColumns extends Record<string, ColumnDef>> =
 	Expand<{
-		[K in keyof TColumns & string]?: number | NumericHaving;
+		[K in ScalarColumnKeys<TColumns>]?: number | NumericHaving;
 	}>;
 
 export type GroupByHaving<TColumns extends Record<string, ColumnDef>> = Expand<{
@@ -359,13 +363,13 @@ export type GroupByOrderBy<TColumns extends Record<string, ColumnDef>> =
 			| OrderDirection
 			| Expand<
 					{ _all?: OrderDirection } & {
-						[K in keyof TColumns & string]?: OrderDirection;
+						[K in ScalarColumnKeys<TColumns>]?: OrderDirection;
 					}
 			  >;
-		_avg?: { [K in keyof TColumns & string]?: OrderDirection };
-		_sum?: { [K in keyof TColumns & string]?: OrderDirection };
-		_min?: { [K in keyof TColumns & string]?: OrderDirection };
-		_max?: { [K in keyof TColumns & string]?: OrderDirection };
+		_avg?: { [K in ScalarColumnKeys<TColumns>]?: OrderDirection };
+		_sum?: { [K in ScalarColumnKeys<TColumns>]?: OrderDirection };
+		_min?: { [K in ScalarColumnKeys<TColumns>]?: OrderDirection };
+		_max?: { [K in ScalarColumnKeys<TColumns>]?: OrderDirection };
 	};
 
 export type GroupByArgs<

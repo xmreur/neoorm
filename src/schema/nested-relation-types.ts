@@ -2,6 +2,8 @@ import type { ColumnBuilder } from "./column.js";
 import type { FkBuilder, FkMeta } from "./relation.js";
 import type {
 	ConnectInput,
+	FkInverseName,
+	FkRelationName,
 	InferInsertRow,
 	SqlNameToAccessor,
 } from "./relation-types.js";
@@ -87,7 +89,7 @@ type ShallowOutgoingFkRelationWriteMap<
 					target: `${infer Sql}.${string}`;
 				}
 				? SqlNameToAccessor<TSchema, Sql> extends keyof TSchema & string
-					? As
+					? FkRelationName<As, K>
 					: never
 				: never
 			: never
@@ -195,7 +197,7 @@ type InverseRelationWriteEntriesForTable<
 							TTarget,
 							TAccessor
 						> extends true
-						? Inv
+						? FkInverseName<Inv, K>
 						: never
 					: never]?: TSchema[TSourceAccessor]["_columns"][K] extends FkBuilder
 					? TSchema[TSourceAccessor]["_columns"][K]["_meta"] extends { unique: true }

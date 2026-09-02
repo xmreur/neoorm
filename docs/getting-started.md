@@ -6,7 +6,7 @@
 bunx neoorm init
 ```
 
-This creates `neoorm.config.ts`, `schema.ts`, `.env.example`, generates `neoorm/client.ts` (and related files), and writes the first migration under `neoorm/migrations/`.
+This creates `neoorm.config.ts`, `schema.ts`, and `.env.example` — no client or migrations yet. Run `bunx neoorm migrate dev` after setting your database URL to generate the client and first migration.
 
 Set your database URL:
 
@@ -15,10 +15,10 @@ cp .env.example .env
 # edit DATABASE_URL in .env
 ```
 
-Apply migrations:
+Generate the typed client and first migration, then apply it:
 
 ```bash
-bunx neoorm migrate deploy
+bunx neoorm migrate dev
 ```
 
 Query:
@@ -48,11 +48,13 @@ export const schema = defineSchema({
 
   posts: table("posts", {
     id: uuid().primary(),
-    authorId: fk("users.id", { as: "author", inverse: "posts", nullable: false }),
+    authorId: fk("users.id", { nullable: false }).index(),
     title: text().notNull(),
   }),
 });
 ```
+
+`fk()` takes a `"table.column"` string target, so tables can be declared inline. The relation name (`as`) is inferred from the column name (`authorId` → `author`); the inverse on the target table is the plural (`authors`). See [Schema DSL](schema.md#foreign-keys).
 
 ### 2. Configure NeoOrm
 

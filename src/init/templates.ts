@@ -28,7 +28,15 @@ export default defineConfig({
 }
 
 export function schemaTemplate(): string {
-	return `import { defineSchema, table, id, text, timestamp, fk } from "neoorm/schema";
+	return `import {
+  defineSchema,
+  table,
+  id,
+  text,
+  timestamp,
+  fk,
+  manyToMany,
+} from "neoorm/schema";
 
 export const schema = defineSchema({
   users: table("users", {
@@ -40,14 +48,16 @@ export const schema = defineSchema({
 
   posts: table("posts", {
     id: id.primary(),
-    authorId: fk("users.id", {
-      as: "author",
-      inverse: "posts",
-      nullable: false,
-    }),
+    authorId: fk("users.id", { nullable: false }).index(),
     title: text().notNull(),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+    tags: manyToMany("tags"), // virtual column -> auto-junction _posts_tags
+  }),
+
+  tags: table("tags", {
+    id: id.primary(),
+    name: text().notNull(),
   }),
 });
 `;

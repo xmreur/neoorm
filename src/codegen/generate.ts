@@ -9,6 +9,8 @@ import type { Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import type { ManyToManyDef } from "../schema/many-to-many.js";
 import type { ColumnDef, ColumnNaming } from "../schema/table.js";
+import { NeoOrmSchemaError } from "../runtime/errors.js";
+import { schemaCompileError } from "../runtime/schema-error.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import {
 	buildDownSql,
@@ -348,6 +350,25 @@ export async function generateFromSchema(
 	outDir: string,
 	options: GenerateOptions = {},
 ): Promise<GenerateResult> {
+	try {
+		return await generateFromSchemaInner(schemaPath, outDir, options);
+	} catch (err) {
+		if (err instanceof NeoOrmSchemaError) {
+			throw err;
+		}
+		throw schemaCompileError(
+			schemaPath,
+			err instanceof Error ? err.message : String(err),
+			err,
+		);
+	}
+}
+
+async function generateFromSchemaInner(
+	schemaPath: string,
+	outDir: string,
+	options: GenerateOptions = {},
+): Promise<GenerateResult> {
 	const { schemaToManifest, validateManifest } = await import(
 		"./schema-to-manifest.js"
 	);
@@ -363,7 +384,10 @@ export async function generateFromSchema(
 
 	const errors = validateManifest(manifest);
 	if (errors.length > 0) {
-		throw new Error(`Schema validation failed:\n${errors.join("\n")}`);
+		throw schemaCompileError(
+			schemaPath,
+			`Schema validation failed:\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+		);
 	}
 
 	const prev = await readSnapshot(outDir);

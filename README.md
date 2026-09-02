@@ -39,8 +39,8 @@ Most ORMs force you to learn their query language, fight their type system, or s
 ## Quick start
 
 ```bash
-bunx neoorm init               # scaffold schema, config, client
-bunx neoorm migrate deploy      # create tables
+bunx neoorm init               # scaffold schema, config, env file
+bunx neoorm migrate dev        # generate typed client + first migration, apply it
 ```
 
 ```ts
@@ -69,11 +69,11 @@ const posts = await db.posts.findMany({
 
 <table>
   <tr>
-    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Tables, columns, foreign keys, indexes, enums, composite keys, many-to-many — all in TypeScript with full type inference.</td>
+    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Tables, columns, foreign keys, indexes, enums, composite keys, many-to-many — all in TypeScript. `fk(table)`/`fk(table.col)` refs, inferred relation names, inline index & composite PKs.</td>
     <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL.</td>
   </tr>
   <tr>
-    <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`, `groupBy`. Where operators for strings, numbers, dates, JSONB, arrays, and nulls. `AND/OR/NOT` combinators.</td>
+    <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`, `groupBy`. Where operators for strings, numbers, dates, JSONB, and nulls. `AND/OR/NOT` combinators.</td>
     <td><strong>📄 Cursor pagination</strong><br/>Keyset-based `paginate` for feeds and infinite scroll. Type-safe cursors, `hasMore` probe, and `encodeCursor`/`decodeCursor` for HTTP APIs.</td>
   </tr>
   <tr>
@@ -101,7 +101,7 @@ const posts = await db.posts.findMany({
 | Topic | |
 |-------|-|
 | [Getting started](docs/getting-started.md) | Setup, manual config, env vars, tenant schemas |
-| [Schema DSL](docs/schema.md) | Tables, columns, types, enums, indexes, many-to-many, naming strategy |
+| [Schema DSL](docs/schema.md) | Tables, columns, foreign keys (incl. table/column refs, inferred relation names, composite PKs, inline indexes) and many-to-many |
 | [Queries](docs/queries.md) | CRUD, where clauses, pagination, aggregates, groupBy, distinct |
 | [Relation writes](docs/relations.md) | Nested connect/create/disconnect/set/delete |
 | [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |

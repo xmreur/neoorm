@@ -24,6 +24,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `text()` | `TEXT` | `string \| null` | |
 | `bool()` | `BOOLEAN` | `boolean \| null` | |
 | `int()` | `INTEGER` | `number \| null` | |
+| `bigint()` | `BIGINT` | `bigint \| null` | Maps to `TEXT` on SQLite |
 | `timestamp()` | `TIMESTAMPTZ` | `Date \| null` | Use `.defaultNow()` for `DEFAULT NOW()`; use `.updatedAt()` for auto-update on ORM writes |
 | `json()` | `JSON` | `unknown \| null` | Generic: `json<MyType>()` |
 | `jsonb()` | `JSONB` | `unknown \| null` | Generic: `jsonb<MyType>()` |
@@ -34,9 +35,90 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `intArray()` | `INTEGER[]` | `number[] \| null` | |
 | `citext()` | `CITEXT` | `string \| null` | Case-insensitive text; requires `citext` extension |
 
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.updatedAt()` (timestamp only), `.primary()`, and `.map(name)`.
+All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.updatedAt()` (timestamp only), `.primary()`, and `.map(name)`; `.index()` declares a single-column index on any column.
 
-Foreign keys use `fk("target_table.target_column", { as, inverse, nullable?, onDelete? })`.
+## Foreign keys
+
+`fk()` accepts three forms of target:
+
+| Target | Example | Notes |
+|--------|---------|-------|
+| string SQL ref | `fk("users.id")` | Works with tables declared inline inside `defineSchema` |
+| table ref | `fk(users)` | Resolves to the target's primary key; requires the table const to be hoisted |
+| column ref | `fk(users.id)` | References a specific column; requires the owner table const to be hoisted |
+
+The string form is the default and lets everything stay inline:
+
+```ts
+import { defineSchema, fk, id, table, uuid } from "neoorm/schema";
+
+export const schema = defineSchema({
+  users: table("users", {
+    id: uuid().primary(),
+    email: text().notNull().unique(),
+  }),
+  posts: table("posts", {
+    authorId: fk("users.id", { nullable: false }).index(),
+    title: text().notNull(),
+  }),
+});
+```
+
+Table and column refs (`fk(users)`, `fk(users.id)`) resolve the target and infer `as`/`inverse` at the type level — see [Table and column references](#table-and-column-references).
+
+### Naming (`as`, `inverse`)
+
+`as` is the relation name on this table, `inverse` is the relation name on the target table. Both are **inferred** when omitted and can be overridden explicitly:
+
+| Column | Default `as` | Default `inverse` |
+|--------|--------------|-------------------|
+| `authorId` | `author` (`Id`/`_id` suffix stripped) | `authors` (plural of `as`) |
+
+```ts
+authorId: fk("users.id", { nullable: false }),              // as: "author", inverse: "authors" (inferred)
+ownerId:  fk("users.id", { as: "owner", nullable: false }), // explicit as, inverse still inferred ("owners")
+```
+
+### Options
+
+`fk(target, { as?, inverse?, nullable?, onDelete?, unique? })`:
+
+- `nullable` defaults to `true`; use `.notNull()` or `{ nullable: false }` for `NOT NULL`
+- `onDelete` accepts `"cascade" | "restrict" | "set null" | "no action"`
+- `.primary()` marks the FK as part of the composite primary key
+
+### Composite primary keys with FKs
+
+FK columns can be marked as part of a composite PK directly, without a `primaryKey(...)` extra:
+
+```ts
+export const schema = defineSchema({
+  posts: table("posts", { id: id.primary() }),
+  tags: table("tags", { id: id.primary() }),
+  postTags: table("post_tags", {
+    postId: fk("posts.id", { nullable: false }).primary(),
+    tagId:  fk("tags.id", { nullable: false }).primary(),
+  }),
+});
+```
+
+### Table and column references
+
+`fk(users)` resolves to the target's primary key and `fk(users.id)` references a specific column. Both infer `as`/`inverse` (and the target itself) at the type level. Because they reference the table *value*, the referenced `table()` calls must be **hoisted** to `const`s before `defineSchema`:
+
+```ts
+const users = table("users", { id: id.primary() });
+
+export const schema = defineSchema({
+  users,
+  posts: table("posts", {
+    authorId: fk(users) // resolves to "users.id"
+      .notNull()
+      .index(),
+    reviewerId: fk(users.id),
+  }),
+});
+```
 
 ## Column modifiers
 
@@ -47,7 +129,8 @@ Foreign keys use `fk("target_table.target_column", { as, inverse, nullable?, onD
 | `.default(value)` | all | Sets `DEFAULT` SQL value |
 | `.defaultNow()` | timestamp | `DEFAULT NOW()` |
 | `.updatedAt()` | timestamp | ORM auto-updates this column to `NOW()` on every write |
-| `.primary()` | all | Sets as primary key |
+| `.primary()` | all | Sets as primary key (on an `fk()`, adds it to the composite PK) |
+| `.index()` | all (incl. `fk()`) | Creates a single-column index |
 | `.map(name)` | all | Custom SQL column name override |
 
 ### Audit timestamps
@@ -128,6 +211,7 @@ The same schema DSL generates SQLite storage types:
 |----------------|----------------|
 | `text`, `id`, `uuid`, `json`, `jsonb`, `decimal`, `textArray`, `intArray`, `citext`, `enumType` | `TEXT` |
 | `int`, `serial` | `INTEGER` |
+| `bigint` | `TEXT` |
 | `serial().primary()` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
 | `bool` | `BOOLEAN` (0/1) |
 | `timestamp` | `TIMESTAMPTZ` (ISO-8601 text) |
@@ -141,7 +225,7 @@ Use `.map()` when the database column name differs from the default snake_case c
 
 ```ts
 emailAddress: text().notNull().map("email"),
-authorId: fk("users.id", { as: "author", inverse: "posts" }).map("author_ref"),
+authorId: fk(users.id, { as: "author", inverse: "posts" }).map("author_ref"),
 ```
 
 `.map()` only produces a migration when the SQL name actually changes. Mapping to the active naming strategy's default name (e.g. `.map("email_verified")` on `emailVerified` in a snake_case table) is a no-op — `neoorm generate` warns about this.
@@ -186,42 +270,134 @@ Column type plugins (PostGIS, `citext`) still register their required extensions
 
 ## Indexes and composite keys
 
+Single-column indexes are declared inline with `.index()`:
+
 ```ts
-posts: table(
-  "posts",
-  { /* columns */ },
-  (t) => ({
-    authorIdx: index().on(t.authorId),
-    slugUnique: unique(t.slug),
-    pk: primaryKey(t.orgId, t.localId),
-  }),
-)
+authorId: fk("users.id", { nullable: false }).index(), // single-column index on author_id
 ```
 
-## Many-to-many
-
-Define the junction table, then register the relation:
+Composite constraints (unique / primary key spanning several columns) use the extras callback:
 
 ```ts
 export const schema = defineSchema({
-  posts: table("posts", { /* ... */ }),
-  tags: table("tags", { /* ... */ }),
+  serverMembers: table(
+    "server_members",
+    {
+      serverId: fk("servers.id", { nullable: false }).index(),
+      userId:  fk("users.id", { nullable: false }).index(),
+    },
+    (t) => ({
+      uniqueMembership: unique(t.serverId, t.userId),
+    }),
+  ),
+});
+```
+
+Composite primary keys over FK columns can be declared inline too (`.primary()` on the FK, see [Foreign keys](#foreign-keys)). The `primaryKey(...)` extra remains available for composite keys over non-FK columns.
+
+## Many-to-many
+
+**Virtual column (recommended):** a `manyToMany("<table key>")` column declares a to-many relation. The junction table is generated automatically (SQL name `_<left>_<right>` — the two SQL table names joined in alphabetical order; FK columns `<singular left>Id` / `<singular right>Id`), and the relation is exposed under the column name. Since `fk()` takes string targets, everything stays inside `defineSchema`:
+
+```ts
+import { defineSchema, table, fk, id, manyToMany, text } from "neoorm/schema";
+
+export const schema = defineSchema({
+  users: table("users", {
+    id: id.primary(),
+  }),
+  posts: table("posts", {
+    id: id.primary(),
+    authorId: fk("users.id", { nullable: false }).index(),
+    title: text().notNull(),
+    tags: manyToMany("tags"), // accessor posts.tags -> the "tags" table
+  }),
+  tags: table("tags", {
+    id: id.primary(),
+    slug: text().notNull().unique(),
+  }),
+});
+
+// db.posts.tags / db.tags.posts
+```
+
+`tags` appears twice, but the table is declared only once. The column key inside `posts` is the **relation accessor** (`db.posts.tags`); the schema-level `tags:` key is the **table key** of the target table, and its name is what `manyToMany("tags")` references. No junction table is declared — `_posts_tags` and its `postId`/`tagId` FK columns are generated for you.
+
+The accessor and the target table key are independent — use any accessor name:
+
+```ts
+posts: table("posts", {
+  id: id.primary(),
+  title: text().notNull(),
+  topicTags: manyToMany("tags"), // accessor db.posts.topicTags -> "tags" table
+}),
+```
+
+`manyToMany` columns are typed as relations, not columns: they are excluded from `select`, `where` scalar filters, `create`/`update` data, and appear as relations in `with`, relation filters (`{ tags: { some: { ... } } }`) and relation writes.
+
+`{ through }` reuses an existing junction table instead of auto-generating one; `leftKey` / `rightKey` name its FK columns:
+
+```ts
+export const schema = defineSchema({
+  posts: table("posts", {
+    id: id.primary(),
+    tags: manyToMany("tags", {
+      through: "post_tags", // an existing junction table
+      leftKey: "postId",
+      rightKey: "tagId",
+    }),
+  }),
+  tags: table("tags", { id: id.primary() }),
   postTags: table("post_tags", {
-    postId: fk("posts.id", { as: "post", inverse: "postTags", nullable: false }),
-    tagId: fk("tags.id", { as: "tag", inverse: "postTags", nullable: false }),
-  }, (t) => ({
-    pk: primaryKey(t.postId, t.tagId),
-  })),
+    postId: fk("posts.id", { nullable: false }).primary(),
+    tagId:  fk("tags.id", { nullable: false }).primary(),
+  }),
+});
+```
+
+`as` overrides the relation name on the source table (defaults to the column key), `inverse` the relation name on the target table (defaults to the source accessor):
+
+```ts
+guilds: table("guilds", {
+  id: id.primary(),
+  name: text().notNull().unique(),
+  moderators: manyToMany("users", { as: "mods", inverse: "guildsLed" }),
+}),
+// db.guilds.mods / db.users.guildsLed
+```
+
+**Extras callback (alternative):** a `manyToMany("<table key>")` entry in the extras callback behaves identically, with the relation name taken from the extras key:
+
+```ts
+posts: table(
+  "posts",
+  { id: id.primary() },
+  (t) => ({ tags: manyToMany("tags") }), // auto-junction `_posts_tags`
+),
+```
+
+**Manual (legacy):** define the junction table, then register the relation with `manyToMany(left, right, options)`:
+
+```ts
+export const schema = defineSchema({
+  posts: table("posts", { id: id.primary(), /* ... */ }),
+  tags: table("tags", { id: id.primary(), /* ... */ }),
+  postTags: table("post_tags", {
+    postId: fk("posts.id", { as: "post", inverse: "postTags", nullable: false }).primary(),
+    tagId:  fk("tags.id", { as: "tag", inverse: "postTags", nullable: false }).primary(),
+  }),
 });
 
 manyToMany(schema.posts, schema.tags, {
   through: schema.postTags,
   left: "post",
   right: "tag",
-  as: "tags",
-  inverse: "posts",
+  as: "tags",       // relation name on posts (posts.tags)
+  inverse: "posts", // relation name on tags (tags.posts)
 });
 ```
+
+For many-to-many relations, `as` is the relation exposed on the left table (e.g. `posts.tags`), `inverse` on the right table (e.g. `tags.posts`).
 
 ## Per-table extras
 
@@ -231,7 +407,7 @@ posts: table(
   { authorId: fk("users.id", { as: "author", inverse: "posts" }) },
   {
     columnNaming: "camelCase",
-    extras: (t) => ({ authorIdx: index().on(t.authorId) }),
+    extras: (t) => ({ slugUnique: unique(t.slug) }),
   },
 )
 ```

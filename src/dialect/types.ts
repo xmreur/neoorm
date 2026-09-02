@@ -14,6 +14,7 @@ export type ManifestColumn = {
 	nullable: boolean;
 	unique: boolean;
 	primary: boolean;
+	index?: boolean;
 	defaultValue?: unknown;
 	defaultNow: boolean;
 	updatedAt?: boolean;

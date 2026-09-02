@@ -1,6 +1,6 @@
 import type { ColumnBuilder } from "./column.js";
 import type { FkBuilder } from "./relation.js";
-import type { ColumnDef } from "./table.js";
+import type { ColumnDef, ScalarColumnKeys } from "./table.js";
 
 export type InferColumnValue<T> =
 	T extends ColumnBuilder<infer V, infer M>
@@ -79,7 +79,7 @@ type InferColumnWhereOperators<TCol extends ColumnDef> =
 					: WhereOperators<InferColumnValue<TCol>>;
 
 export type ColumnWhereInput<TColumns extends Record<string, ColumnDef>> = {
-	[K in keyof TColumns]?:
+	[K in ScalarColumnKeys<TColumns>]?:
 		| InferColumnValue<TColumns[K]>
 		| InferColumnWhereOperators<TColumns[K]>;
 };

@@ -83,6 +83,7 @@ bunx neoorm migrate reset --force
 |----------------|----------------|
 | `id`, `text`, `uuid`, `json`, `jsonb`, `decimal`, `textArray`, `intArray`, `citext`, `enumType` | `TEXT` |
 | `int`, `serial` | `INTEGER` |
+| `bigint` | `TEXT` |
 | `serial().primary()` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
 | `bool` | `BOOLEAN` (stored as 0/1) |
 | `timestamp` | `TIMESTAMPTZ` (stored as ISO-8601 text) |

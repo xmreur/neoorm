@@ -1,7 +1,12 @@
 import type { ColumnBuilder } from "./column.js";
 import type { ColumnWhereInput, InferColumnValue } from "./column-where.js";
+import type { ManyToManyExtra } from "./many-to-many.js";
 import type { FkBuilder, FkMeta } from "./relation.js";
-import type { ColumnDef, TableDef } from "./table.js";
+import type {
+	ColumnDef,
+	ScalarColumnKeys,
+	TableDef,
+} from "./table.js";
 
 type IsPrimary<T> =
 	T extends ColumnBuilder<unknown, infer M>
@@ -42,17 +47,17 @@ type IsRequired<T> =
 			: false;
 
 export type InferSelectRow<TColumns extends Record<string, ColumnDef>> = {
-	[K in keyof TColumns]: InferColumnValue<TColumns[K]>;
+	[K in ScalarColumnKeys<TColumns>]: InferColumnValue<TColumns[K]>;
 };
 
 export type InferInsertRow<TColumns extends Record<string, ColumnDef>> = {
-	[K in keyof TColumns as IsPrimary<TColumns[K]> extends true
+	[K in ScalarColumnKeys<TColumns> as IsPrimary<TColumns[K]> extends true
 		? never
 		: IsGenerated<TColumns[K]> extends true
 			? never
 			: K]?: InferColumnValue<TColumns[K]>;
 } & {
-	[K in keyof TColumns as IsRequired<TColumns[K]> extends true
+	[K in ScalarColumnKeys<TColumns> as IsRequired<TColumns[K]> extends true
 		? K
 		: never]: InferColumnValue<TColumns[K]>;
 };
@@ -79,7 +84,7 @@ export type ConnectOrCreateItem<TColumns extends Record<string, ColumnDef>> = {
 export type OrderDirection = "asc" | "desc";
 
 export type OrderByInput<TColumns extends Record<string, ColumnDef>> = {
-	[K in keyof TColumns]?: OrderDirection;
+	[K in ScalarColumnKeys<TColumns>]?: OrderDirection;
 };
 
 export type ScalarPkName<TColumns extends Record<string, ColumnDef>> = {
@@ -98,7 +103,8 @@ export type CursorInput<
 	TOrderBy extends OrderByInput<TColumns>,
 > = Pick<
 	InferSelectRow<TColumns>,
-	(keyof TOrderBy & keyof TColumns) | ScalarPkName<TColumns>
+	(keyof TOrderBy & keyof TColumns & ScalarColumnKeys<TColumns>) |
+		ScalarPkName<TColumns>
 >;
 
 /** Expands mapped types so IDEs surface keys for autocomplete */
@@ -128,6 +134,35 @@ type FkMetaOf<C> =
 	C extends FkBuilder<infer TTarget, infer TAs, infer TInverse>
 		? FkMeta<TTarget, TAs, TInverse>
 		: never;
+
+/** Mirrors runtime `inferFkAs`: strips a trailing `Id`/`_id` suffix. */
+type InferFkAs<C extends string> =
+	C extends `${infer B}Id`
+		? B
+		: C extends `${infer B}_id`
+			? B
+			: C;
+
+/** Basic pluralizer matching the runtime default for omitted inverses. */
+type Pluralize<S extends string> = S extends `${infer B}${"ch" | "sh"}`
+	? `${S}es`
+	: S extends `${infer B}${"s" | "x" | "z"}`
+		? `${S}es`
+		: S extends `${infer B}y`
+			? B extends `${string}${"a" | "e" | "i" | "o" | "u"}`
+				? `${S}s`
+				: `${B}ies`
+			: `${S}s`;
+
+type InferFkInverse<C extends string> = Pluralize<InferFkAs<C>>;
+
+export type FkRelationName<As extends string, K extends string> = As extends ""
+	? InferFkAs<K>
+	: As;
+
+export type FkInverseName<Inv extends string, K extends string> = Inv extends ""
+	? InferFkInverse<K>
+	: Inv;
 
 type FkColumnNames<TColumns extends Record<string, ColumnDef>> = {
 	[K in keyof TColumns]: TColumns[K] extends FkBuilder ? K : never;
@@ -174,6 +209,7 @@ export type SqlNameToAccessor<
 type OutgoingFkRelationEntry<
 	TSchema extends Record<string, TableDef>,
 	C extends ColumnDef,
+	K extends string,
 > =
 	FkMetaOf<C> extends {
 		target: infer TTarget extends string;
@@ -184,7 +220,7 @@ type OutgoingFkRelationEntry<
 					keyof TSchema & string
 				? IsThroughTable<TSchema[Acc]["_columns"]> extends true
 					? never
-					: { [P in As]: Acc }
+					: { [P in FkRelationName<As, K>]: Acc }
 				: never
 			: never
 		: never;
@@ -194,7 +230,11 @@ export type OutgoingFkRelations<
 	TColumns extends Record<string, ColumnDef>,
 > = MergeRelationUnion<
 	{
-		[K in keyof TColumns]: OutgoingFkRelationEntry<TSchema, TColumns[K]>;
+		[K in keyof TColumns]: OutgoingFkRelationEntry<
+			TSchema,
+			TColumns[K],
+			K & string
+		>;
 	}[keyof TColumns]
 >;
 
@@ -204,6 +244,7 @@ export type InverseRelationEntryForSource<
 	TTargetAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
+	K extends string,
 > =
 	IsThroughTable<TSchema[TSourceAccessor]["_columns"]> extends true
 		? never
@@ -214,7 +255,7 @@ export type InverseRelationEntryForSource<
 			? [TTarget] extends [
 					`${TSchema[TTargetAccessor]["_tableName"]}.${string}`,
 				]
-				? { [P in Inv]: TSourceAccessor }
+				? { [P in FkInverseName<Inv, K>]: TSourceAccessor }
 				: never
 			: never;
 
@@ -229,7 +270,8 @@ export type InverseRelationEntriesForTable<
 		TSchema,
 		TAccessor,
 		TSourceAccessor,
-		TSchema[TSourceAccessor]["_columns"][K]
+		TSchema[TSourceAccessor]["_columns"][K],
+		K
 	>;
 }[FkColumnNames<TSchema[TSourceAccessor]["_columns"]>];
 
@@ -338,16 +380,93 @@ export type JunctionM2MRelations<
 	}[keyof TSchema & string]
 >;
 
+type M2MTargetOf<C> =
+	C extends ManyToManyExtra<infer TTarget, infer _AAs, infer _AInv>
+		? TTarget
+		: never;
+
+/** Relation name for an inline m2m on the source table (defaults to the column key). */
+type M2MNameOf<K extends string, C> =
+	C extends ManyToManyExtra<infer _TTarget, infer AAs, infer _AInv>
+		? AAs extends ""
+			? K
+			: AAs
+		: K;
+
+/** Relation name for an inline m2m on the target table (defaults to the source accessor). */
+type M2MInverseOf<TSource extends string, C> =
+	C extends ManyToManyExtra<infer _TTarget, infer _AAs, infer AInv>
+		? AInv extends ""
+			? TSource
+			: AInv
+		: TSource;
+
+type InlineM2MRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	C extends ColumnDef,
+	K extends string,
+> = [C] extends [ManyToManyExtra]
+	? M2MTargetOf<C> extends infer TTarget extends keyof TSchema & string
+		? { [P in M2MNameOf<K, C>]: TTarget }
+		: never
+	: never;
+
+/** Forward inline m2m relations (virtual manyToMany columns) on the source table. */
+export type InlineM2MRelations<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeInverseRelationUnion<
+	{
+		[K in keyof TSchema[TAccessor]["_columns"]]: InlineM2MRelationEntry<
+			TSchema,
+			TSchema[TAccessor]["_columns"][K],
+			K & string
+		>;
+	}[keyof TSchema[TAccessor]["_columns"]]
+>;
+
+type InlineM2MInverseRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	TSourceAccessor extends keyof TSchema & string,
+	C extends ColumnDef,
+	K extends string,
+> = [C] extends [ManyToManyExtra]
+	? M2MTargetOf<C> extends TAccessor
+		? { [P in M2MInverseOf<TSourceAccessor, C>]: TSourceAccessor }
+		: never
+	: never;
+
+/** Inverse inline m2m relations on the target table (name defaults to the source accessor). */
+export type InlineM2MInverseRelations<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeInverseRelationUnion<
+	{
+		[S in keyof TSchema & string]: {
+			[K in keyof TSchema[S]["_columns"]]: InlineM2MInverseRelationEntry<
+				TSchema,
+				TAccessor,
+				S,
+				TSchema[S]["_columns"][K],
+				K & string
+			>;
+		}[keyof TSchema[S]["_columns"]];
+	}[keyof TSchema & string]
+>;
+
 /** All relation names on a table -> target schema accessor */
 export type RelationAccessors<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = OutgoingFkRelations<TSchema, TSchema[TAccessor]["_columns"]> &
 	InverseRelations<TSchema, TAccessor> &
-	JunctionM2MRelations<TSchema, TAccessor>;
+	JunctionM2MRelations<TSchema, TAccessor> &
+	InlineM2MRelations<TSchema, TAccessor> &
+	InlineM2MInverseRelations<TSchema, TAccessor>;
 
 export type ColumnNames<TColumns extends Record<string, ColumnDef>> =
-	keyof TColumns & string;
+	ScalarColumnKeys<TColumns>;
 
 /** Target schema accessor for a relation name on a table */
 export type RelationTarget<
@@ -529,7 +648,11 @@ type IsManyRelation<
 	? true
 	: TRelation extends keyof JunctionM2MRelations<TSchema, TAccessor>
 		? true
-		: false;
+		: TRelation extends keyof InlineM2MRelations<TSchema, TAccessor>
+			? true
+			: TRelation extends keyof InlineM2MInverseRelations<TSchema, TAccessor>
+				? true
+				: false;
 
 type InferWithRelations<
 	TSchema extends Record<string, TableDef>,
@@ -626,6 +749,7 @@ export type ManyRelationFilter<
 type OutgoingFkRelationWhereEntry<
 	TSchema extends Record<string, TableDef>,
 	C extends ColumnDef,
+	K extends string,
 > =
 	FkMetaOf<C> extends {
 		target: infer TTarget extends string;
@@ -637,7 +761,7 @@ type OutgoingFkRelationWhereEntry<
 				? IsThroughTable<TSchema[Acc]["_columns"]> extends true
 					? never
 					: {
-							[P in As]?: WhereInput<
+							[P in FkRelationName<As, K>]?: WhereInput<
 								TSchema[Acc]["_columns"],
 								TSchema,
 								Acc
@@ -652,6 +776,7 @@ type InverseRelationWhereEntry<
 	TTargetAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
+	K extends string,
 > =
 	IsThroughTable<TSchema[TSourceAccessor]["_columns"]> extends true
 		? never
@@ -662,7 +787,12 @@ type InverseRelationWhereEntry<
 			? [TTarget] extends [
 					`${TSchema[TTargetAccessor]["_tableName"]}.${string}`,
 				]
-				? { [P in Inv]?: ManyRelationFilter<TSchema, TSourceAccessor> }
+				? {
+						[P in FkInverseName<Inv, K>]?: ManyRelationFilter<
+							TSchema,
+							TSourceAccessor
+						>;
+					}
 				: never
 			: never;
 
@@ -696,9 +826,71 @@ type InverseRelationWhereEntriesForTable<
 		TSchema,
 		TAccessor,
 		TSourceAccessor,
-		TSchema[TSourceAccessor]["_columns"][K]
+		TSchema[TSourceAccessor]["_columns"][K],
+		K
 	>;
 }[FkColumnNames<TSchema[TSourceAccessor]["_columns"]>];
+
+type InlineM2MWhereRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	C extends ColumnDef,
+	K extends string,
+> = [C] extends [ManyToManyExtra]
+	? M2MTargetOf<C> extends infer TTarget extends keyof TSchema & string
+		? {
+				[P in M2MNameOf<K, C>]?: ManyRelationFilter<TSchema, TTarget>;
+			}
+		: never
+	: never;
+
+export type InlineM2MWhereMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[K in keyof TSchema[TAccessor]["_columns"]]: InlineM2MWhereRelationEntry<
+			TSchema,
+			TSchema[TAccessor]["_columns"][K],
+			K & string
+		>;
+	}[keyof TSchema[TAccessor]["_columns"]]
+>;
+
+type InlineM2MInverseWhereRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	TSourceAccessor extends keyof TSchema & string,
+	C extends ColumnDef,
+	K extends string,
+> = [C] extends [ManyToManyExtra]
+	? M2MTargetOf<C> extends TAccessor
+		? {
+				[P in M2MInverseOf<TSourceAccessor, C>]?: ManyRelationFilter<
+					TSchema,
+					TSourceAccessor
+				>;
+			}
+		: never
+	: never;
+
+export type InlineM2MInverseWhereMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[S in keyof TSchema & string]: MergeRelationUnion<
+			{
+				[K in keyof TSchema[S]["_columns"]]: InlineM2MInverseWhereRelationEntry<
+					TSchema,
+					TAccessor,
+					S,
+					TSchema[S]["_columns"][K],
+					K & string
+				>;
+			}[keyof TSchema[S]["_columns"]]
+		>;
+	}[keyof TSchema & string]
+>;
 
 export type RelationWhereMap<
 	TSchema extends Record<string, TableDef>,
@@ -707,7 +899,8 @@ export type RelationWhereMap<
 	{
 		[K in keyof TSchema[TAccessor]["_columns"]]: OutgoingFkRelationWhereEntry<
 			TSchema,
-			TSchema[TAccessor]["_columns"][K]
+			TSchema[TAccessor]["_columns"][K],
+			K & string
 		>;
 	}[keyof TSchema[TAccessor]["_columns"]]
 > &
@@ -728,7 +921,9 @@ export type RelationWhereMap<
 						: never
 					: never;
 		}[keyof TSchema & string]
-	>;
+	> &
+	InlineM2MWhereMap<TSchema, TAccessor> &
+	InlineM2MInverseWhereMap<TSchema, TAccessor>;
 
 export type LogicalWhereInput<
 	TColumns extends Record<string, ColumnDef>,
@@ -776,7 +971,7 @@ type OutgoingFkRelationWriteMap<
 					target: `${infer Sql}.${string}`;
 				}
 				? SqlNameToAccessor<TSchema, Sql> extends keyof TSchema & string
-					? As
+					? FkRelationName<As, K>
 					: never
 				: never
 			: never
@@ -816,6 +1011,65 @@ type M2MRelationWriteForAccessor<
 			>[];
 		}
 	: never;
+
+type InlineM2MWriteRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	C extends ColumnDef,
+	K extends string,
+> = [C] extends [ManyToManyExtra]
+	? M2MTargetOf<C> extends infer TTarget extends keyof TSchema & string
+		? { [P in M2MNameOf<K, C>]?: M2MRelationWriteForAccessor<TSchema, TTarget> }
+		: never
+	: never;
+
+export type InlineM2MWriteMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[K in keyof TSchema[TAccessor]["_columns"]]: InlineM2MWriteRelationEntry<
+			TSchema,
+			TSchema[TAccessor]["_columns"][K],
+			K & string
+		>;
+	}[keyof TSchema[TAccessor]["_columns"]]
+>;
+
+type InlineM2MInverseWriteRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	TSourceAccessor extends keyof TSchema & string,
+	C extends ColumnDef,
+	K extends string,
+> = [C] extends [ManyToManyExtra]
+	? M2MTargetOf<C> extends TAccessor
+		? {
+				[P in M2MInverseOf<TSourceAccessor, C>]?: M2MRelationWriteForAccessor<
+					TSchema,
+					TSourceAccessor
+				>;
+			}
+		: never
+	: never;
+
+export type InlineM2MInverseWriteMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[S in keyof TSchema & string]: MergeRelationUnion<
+			{
+				[K in keyof TSchema[S]["_columns"]]: InlineM2MInverseWriteRelationEntry<
+					TSchema,
+					TAccessor,
+					S,
+					TSchema[S]["_columns"][K],
+					K & string
+				>;
+			}[keyof TSchema[S]["_columns"]]
+		>;
+	}[keyof TSchema & string]
+>;
 
 type JunctionM2MWriteEntryForFk<
 	TSchema extends Record<string, TableDef>,
@@ -869,7 +1123,9 @@ export type RelationCreateMap<
 			TSchema,
 			TAccessor
 		> &
-		JunctionM2MRelationWriteMap<TSchema, TAccessor>
+		JunctionM2MRelationWriteMap<TSchema, TAccessor> &
+		InlineM2MWriteMap<TSchema, TAccessor> &
+		InlineM2MInverseWriteMap<TSchema, TAccessor>
 >;
 
 /** Typed relation writes for update. */
@@ -882,7 +1138,9 @@ export type RelationUpdateMap<
 			TSchema,
 			TAccessor
 		> &
-		JunctionM2MRelationWriteMap<TSchema, TAccessor>
+		JunctionM2MRelationWriteMap<TSchema, TAccessor> &
+		InlineM2MWriteMap<TSchema, TAccessor> &
+		InlineM2MInverseWriteMap<TSchema, TAccessor>
 >;
 
 export type { NestedCreateInput } from "./nested-relation-types.js";

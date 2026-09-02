@@ -1,4 +1,5 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
+import { NeoOrmDriverError } from "./errors.js";
 import { buildBeginSql } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -239,8 +240,12 @@ async function executeWriteStatements(
 		try {
 			const result = db.prepare(statement).run();
 			changes += Number(result.changes);
-		} catch {
-			db.exec(statement);
+		} catch (prepareErr) {
+			try {
+				db.exec(statement);
+			} catch (execErr) {
+				throw new NeoOrmDriverError(statement, execErr ?? prepareErr);
+			}
 		}
 	}
 
@@ -288,36 +293,42 @@ export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
 			const sql = convertPlaceholders(text);
+			try {
+				if (params.length > 0) {
+					const stmt = db.prepare(sql);
+					const values = params.map(serializeParam);
+					if (isReadStatement(sql)) {
+						return sqliteRows(stmt.all(...values)) as DriverResult<T>;
+					}
+					if (/\bRETURNING\b/i.test(sql)) {
+						const rows = stmt.all(...values);
+						return sqliteRows(rows) as DriverResult<T>;
+					}
+					const result = stmt.run(...values);
+					return {
+						rows: [],
+						rowCount: Number(result.changes),
+					} as DriverResult<T>;
+				}
 
-			if (params.length > 0) {
-				const stmt = db.prepare(sql);
-				const values = params.map(serializeParam);
 				if (isReadStatement(sql)) {
-					return sqliteRows(stmt.all(...values)) as DriverResult<T>;
+					return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
 				}
+
 				if (/\bRETURNING\b/i.test(sql)) {
-					const rows = stmt.all(...values);
-					return sqliteRows(rows) as DriverResult<T>;
+					return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
 				}
-				const result = stmt.run(...values);
-				return {
-					rows: [],
-					rowCount: Number(result.changes),
-				} as DriverResult<T>;
-			}
 
-			if (isReadStatement(sql)) {
-				return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
+				return (await executeWriteStatements(
+					db,
+					sql,
+				)) as DriverResult<T>;
+			} catch (err) {
+				if (err instanceof NeoOrmDriverError) {
+					throw err;
+				}
+				throw new NeoOrmDriverError(sql, err);
 			}
-
-			if (/\bRETURNING\b/i.test(sql)) {
-				return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
-			}
-
-			return (await executeWriteStatements(
-				db,
-				sql,
-			)) as DriverResult<T>;
 		},
 
 		async transaction<T>(
@@ -395,11 +406,15 @@ function createPgTxClient(state: PgTxState): DatabaseClient {
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
-			const result: QueryResult = await state.client.query(text, params);
-			return {
-				rows: result.rows as T[],
-				rowCount: result.rowCount ?? 0,
-			};
+			try {
+				const result: QueryResult = await state.client.query(text, params);
+				return {
+					rows: result.rows as T[],
+					rowCount: result.rowCount ?? 0,
+				};
+			} catch (err) {
+				throw new NeoOrmDriverError(text, err);
+			}
 		},
 		async transaction<T>(
 			fn: (client: DatabaseClient) => Promise<T>,
@@ -436,11 +451,15 @@ export function pgClient(pool: Pool): DatabaseClient {
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
-			const result: QueryResult = await pool.query(text, params);
-			return {
-				rows: result.rows as T[],
-				rowCount: result.rowCount ?? 0,
-			};
+			try {
+				const result: QueryResult = await pool.query(text, params);
+				return {
+					rows: result.rows as T[],
+					rowCount: result.rowCount ?? 0,
+				};
+			} catch (err) {
+				throw new NeoOrmDriverError(text, err);
+			}
 		},
 		async transaction<T>(
 			fn: (client: DatabaseClient) => Promise<T>,
