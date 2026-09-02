@@ -105,6 +105,8 @@ describe("codegen", () => {
 		expect(modelsContent).toContain("export type User = {");
 		expect(modelsContent).toContain("export type UserPayload =");
 		expect(modelsContent).toContain("export type NeoOrmRowPayloads =");
+		expect(modelsContent).toContain("createdAt: Date;");
+		expect(modelsContent).not.toContain("createdAt: string");
 
 		const migrationsDir = join(outDir, "migrations");
 		const migrationDirs = await readdir(migrationsDir);

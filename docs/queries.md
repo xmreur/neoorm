@@ -335,7 +335,7 @@ const users = await db.users.findMany({
 For feeds, infinite scroll, and large tables, use `paginate` instead of `take`/`skip`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker.
 
 ```ts
-let cursor: { createdAt: string; id: string } | null = null;
+let cursor: { createdAt: Date; id: string } | null = null;
 
 for (;;) {
   const page = await db.posts.paginate({

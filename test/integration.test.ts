@@ -742,7 +742,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			},
 		});
 
-		const originalUpdatedAt = post["updatedAt"] as string;
+		const originalUpdatedAt = post["updatedAt"] as Date;
 
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
