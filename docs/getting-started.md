@@ -48,7 +48,7 @@ export const schema = defineSchema({
 
   posts: table("posts", {
     id: uuid().primary(),
-    authorId: fk("users.id", { nullable: false }).index(),
+    authorId: fk("users.id").notNull().index(),
     title: text().notNull(),
   }),
 });

@@ -54,13 +54,11 @@ const schema = defineSchema({
 			postId: fk("posts.id", {
 				as: "post",
 				inverse: "postTags",
-				nullable: false,
-			}),
+			}).notNull(),
 			tagId: fk("tags.id", {
 				as: "tag",
 				inverse: "postTags",
-				nullable: false,
-			}),
+			}).notNull(),
 		},
 		(t) => ({ pk: primaryKey(t.postId, t.tagId) }),
 	),

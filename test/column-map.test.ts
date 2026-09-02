@@ -33,8 +33,9 @@ const schema = defineSchema({
 			authorId: fk("users.id", {
 				as: "author",
 				inverse: "posts",
-				nullable: false,
-			}).map("author_ref"),
+			})
+				.notNull()
+				.map("author_ref"),
 			title: text().notNull(),
 		},
 		(t) => ({

@@ -51,9 +51,9 @@ export async function introspectPostgres(
 					`    ${tsName}: fk("${escapeTsString(fk.foreign_table_name)}.${escapeTsString(fk.foreign_column_name)}", {`,
 					`      as: "${escapeTsString(relName)}",`,
 					`      inverse: "${escapeTsString(accessor)}",`,
-					`      nullable: ${col.is_nullable === "YES"},`,
 					`    })`,
 				].join("\n");
+				if (col.is_nullable === "NO") def += `.notNull()`;
 				def = appendMapModifier(
 					def,
 					tsName,
@@ -206,11 +206,16 @@ function sqliteColumnBuilder(col: ManifestColumn): string {
 function sqliteColumnDef(col: ManifestColumn, table: ManifestTable): string {
 	if (col.kind === "fk" && col.fkTarget) {
 		const relName = col.tsName.replace(/Id$/, "");
-		let def = `fk("${col.fkTarget}", {\n      as: "${relName}",\n      inverse: "${table.accessor}",\n      nullable: ${col.nullable},`;
+		let def = `fk("${col.fkTarget}", {\n      as: "${relName}",\n      inverse: "${table.accessor}",`;
 		if (col.onDelete) {
 			def += `\n      onDelete: "${col.onDelete}",`;
 		}
 		def += `\n    })`;
+		if (col.primary) {
+			def += ".primary()";
+		} else if (!col.nullable) {
+			def += ".notNull()";
+		}
 		return `${col.tsName}: ${def},`;
 	}
 

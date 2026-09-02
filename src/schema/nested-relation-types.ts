@@ -19,8 +19,14 @@ type MergeInverseRelationUnion<U> = {
 };
 
 type FkMetaOf<C> =
-	C extends FkBuilder<infer TTarget, infer TAs, infer TInverse>
-		? FkMeta<TTarget, TAs, TInverse>
+	C extends FkBuilder<
+		infer TTarget,
+		infer TAs,
+		infer TInverse,
+		infer TUnique,
+		infer TNullable
+	>
+		? FkMeta<TTarget, TAs, TInverse, TUnique, TNullable>
 		: never;
 
 type FkColumnNames<TColumns extends Record<string, ColumnDef>> = {
@@ -190,7 +196,9 @@ type InverseRelationWriteEntriesForTable<
 				> as TSchema[TSourceAccessor]["_columns"][K] extends FkBuilder<
 					infer TTarget extends string,
 					infer _As,
-					infer Inv extends string
+					infer Inv extends string,
+					infer _Unique extends boolean,
+					infer _Nullable extends boolean
 				>
 					? FkTargetMatchesAccessor<
 							TSchema,

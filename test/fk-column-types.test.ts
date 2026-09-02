@@ -19,9 +19,9 @@ const schema = defineSchema({
 	}),
 	orders: table("orders", {
 		id: serial().primary(),
-		itemId: fk("items.id", { nullable: false }),
+		itemId: fk("items.id").notNull(),
 		optionalItemId: fk("items.id"),
-		userId: fk("users.id", { nullable: false }),
+		userId: fk("users.id").notNull(),
 	}),
 });
 
@@ -44,6 +44,7 @@ describe("foreign key TypeScript types", () => {
 		expectTypeOf<NonNullable<OrderCreate["userId"]>>().toEqualTypeOf<string>();
 		expectTypeOf<NonNullable<OrderRow["itemId"]>>().toEqualTypeOf<number>();
 		expectTypeOf<NonNullable<OrderRow["userId"]>>().toEqualTypeOf<string>();
+		expectTypeOf<OrderRow["optionalItemId"]>().toEqualTypeOf<number | null>();
 
 		const data: OrderCreate = { itemId: 1, userId: "u" };
 		void data;

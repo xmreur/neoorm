@@ -471,11 +471,9 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		const columnNaming = leftTable.columnNaming ?? "snakeCase";
 		const leftFk = fk(
 			`${leftTable.sqlName}.${leftTable.primaryKey[0]}`,
-			{ nullable: false },
 		).primary();
 		const rightFk = fk(
 			`${rightTable.sqlName}.${rightTable.primaryKey[0]}`,
-			{ nullable: false },
 		).primary();
 		const columns: ManifestColumn[] = [
 			columnToManifest(leftTsName, leftFk, columnNaming),

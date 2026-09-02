@@ -18,8 +18,7 @@ const eagerLoadingSchema = defineSchema({
 		authorId: fk("users.id", {
 			as: "author",
 			inverse: "posts",
-			nullable: false,
-		}),
+		}).notNull(),
 	}),
 
 	comments: table("comments", {
@@ -27,13 +26,11 @@ const eagerLoadingSchema = defineSchema({
 		postId: fk("posts.id", {
 			as: "post",
 			inverse: "comments",
-			nullable: false,
-		}),
+		}).notNull(),
 		authorId: fk("users.id", {
 			as: "author",
 			inverse: "comments",
-			nullable: false,
-		}),
+		}).notNull(),
 		body: text().notNull(),
 	}),
 });

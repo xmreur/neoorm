@@ -23,8 +23,7 @@ const projectionSchema = defineSchema({
 		authorId: fk("users.id", {
 			as: "author",
 			inverse: "posts",
-			nullable: false,
-		}),
+		}).notNull(),
 	}),
 });
 
