@@ -73,8 +73,8 @@ type ShallowToOneRelationWriteForAccessor<
 	TFkColumn extends ColumnDef,
 > = TAccessor extends keyof TSchema & string
 	? {
-			connect?: ConnectInput<TSchema[TAccessor]["_columns"]>;
-			create?: InferInsertRow<TSchema[TAccessor]["_columns"]>;
+			connect?: ConnectInput<TSchema[TAccessor]["_columns"], TSchema>;
+			create?: InferInsertRow<TSchema[TAccessor]["_columns"], TSchema>;
 		} & DisconnectWriteForFk<TFkColumn>
 	: never;
 
@@ -135,7 +135,7 @@ export type NestedCreateInput<
 	TChildAccessor extends keyof TSchema & string,
 > = Omit<
 	Expand<
-		InferInsertRow<TSchema[TChildAccessor]["_columns"]> &
+		InferInsertRow<TSchema[TChildAccessor]["_columns"], TSchema> &
 			ShallowOutgoingFkRelationWriteMap<
 				TSchema,
 				TSchema[TChildAccessor]["_columns"]
@@ -150,9 +150,9 @@ type ToOneRelationWrite<
 	TChildAccessor extends keyof TSchema & string,
 > = {
 	create?: NestedCreateInput<TSchema, TParentAccessor, TChildAccessor>;
-	connect?: ConnectInput<TSchema[TChildAccessor]["_columns"]>;
+	connect?: ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>;
 	disconnect?: true;
-	delete?: ConnectInput<TSchema[TChildAccessor]["_columns"]>;
+	delete?: ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>;
 };
 
 type ToManyRelationWrite<
@@ -164,17 +164,17 @@ type ToManyRelationWrite<
 		| NestedCreateInput<TSchema, TParentAccessor, TChildAccessor>
 		| NestedCreateInput<TSchema, TParentAccessor, TChildAccessor>[];
 	connect?:
-		| ConnectInput<TSchema[TChildAccessor]["_columns"]>
-		| ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
+		| ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>
+		| ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>[];
 	disconnect?:
 		| true
-		| ConnectInput<TSchema[TChildAccessor]["_columns"]>
-		| ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
+		| ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>
+		| ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>[];
 	delete?:
 		| true
-		| ConnectInput<TSchema[TChildAccessor]["_columns"]>
-		| ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
-	set?: ConnectInput<TSchema[TChildAccessor]["_columns"]>[];
+		| ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>
+		| ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>[];
+	set?: ConnectInput<TSchema[TChildAccessor]["_columns"], TSchema>[];
 };
 
 type InverseRelationWriteEntriesForTable<
@@ -200,7 +200,9 @@ type InverseRelationWriteEntriesForTable<
 						? FkInverseName<Inv, K>
 						: never
 					: never]?: TSchema[TSourceAccessor]["_columns"][K] extends FkBuilder
-					? TSchema[TSourceAccessor]["_columns"][K]["_meta"] extends { unique: true }
+					? TSchema[TSourceAccessor]["_columns"][K]["_meta"] extends {
+							unique: true;
+						}
 						? ToOneRelationWrite<
 								TSchema,
 								TAccessor,

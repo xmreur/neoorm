@@ -1,3 +1,4 @@
+import { findFkReferencedColumn } from "../dialect/fk.js";
 import type {
 	Manifest,
 	ManifestColumn,
@@ -10,8 +11,15 @@ import {
 	singularTypeName,
 } from "./manifest-relations.js";
 
-function columnTsType(col: ManifestColumn): string {
+function columnTsType(col: ManifestColumn, manifest: Manifest): string {
 	if (col.kind === "fk") {
+		const referenced = findFkReferencedColumn(col, manifest);
+		if (referenced && referenced.kind !== "fk") {
+			return getColumnTypeOrThrow(referenced.kind).columnTsType({
+				...referenced,
+				nullable: col.nullable,
+			});
+		}
 		return col.nullable ? "string | null" : "string";
 	}
 	return getColumnTypeOrThrow(col.kind).columnTsType(col);
@@ -37,10 +45,10 @@ function emitGeoJsonTypes(manifest: Manifest): string[] {
 	];
 }
 
-function emitBaseModel(table: ManifestTable): string {
+function emitBaseModel(manifest: Manifest, table: ManifestTable): string {
 	const name = singularTypeName(table.accessor);
 	const fields = table.columns
-		.map((col) => `  ${col.tsName}: ${columnTsType(col)};`)
+		.map((col) => `  ${col.tsName}: ${columnTsType(col, manifest)};`)
 		.join("\n");
 	return `export type ${name} = {\n${fields}\n};`;
 }
@@ -153,7 +161,7 @@ export function emitModelsTs(manifest: Manifest): string {
 	];
 
 	for (const table of tables) {
-		lines.push(emitBaseModel(table));
+		lines.push(emitBaseModel(manifest, table));
 		lines.push("");
 	}
 

@@ -1,5 +1,5 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
-import { parseFkTarget } from "./fk.js";
+import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { quoteIdentifier as q, tableRef } from "./shared.js";
 import type {
 	ColumnAlter,
@@ -36,8 +36,7 @@ export function quoteQualifiedIdentifier(
 	return `${q(resolved)}.${q(name)}`;
 }
 
-export { tableRef } from "./shared.js";
-export { quoteIdentifier } from "./shared.js";
+export { quoteIdentifier, tableRef } from "./shared.js";
 
 function sameSchemaRef(table: ManifestTable, sqlName: string): string {
 	return table.schemaName && table.schemaName !== DEFAULT_PG_SCHEMA
@@ -93,15 +92,9 @@ export function resolveColumnSqlType(
 		return col.storageSqlType;
 	}
 
-	if (col.kind === "fk" && col.fkTarget && manifest) {
-		const { tableSql, columnSql } = parseFkTarget(col.fkTarget);
-		const targetTable = Object.values(manifest.tables).find(
-			(table) => table.sqlName === tableSql,
-		);
-		const targetCol = targetTable?.columns.find(
-			(column) => column.sqlName === columnSql,
-		);
-		if (targetCol) {
+	if (col.kind === "fk" && manifest) {
+		const targetCol = findFkReferencedColumn(col, manifest);
+		if (targetCol && targetCol !== col) {
 			return resolveColumnSqlType(targetCol, manifest);
 		}
 	}

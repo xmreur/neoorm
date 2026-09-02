@@ -1,5 +1,5 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
-import { parseFkTarget } from "./fk.js";
+import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import { quoteIdentifier as q, tableRef } from "./shared.js";
 import type {
@@ -36,15 +36,9 @@ export function sqliteColumnType(
 		return col.storageSqlType;
 	}
 
-	if (col.kind === "fk" && col.fkTarget && manifest) {
-		const { tableSql, columnSql } = parseFkTarget(col.fkTarget);
-		const targetTable = Object.values(manifest.tables).find(
-			(table) => table.sqlName === tableSql,
-		);
-		const targetCol = targetTable?.columns.find(
-			(column) => column.sqlName === columnSql,
-		);
-		if (targetCol) {
+	if (col.kind === "fk" && manifest) {
+		const targetCol = findFkReferencedColumn(col, manifest);
+		if (targetCol && targetCol !== col) {
 			return sqliteColumnType(targetCol, manifest);
 		}
 	}

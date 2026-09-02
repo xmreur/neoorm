@@ -1,16 +1,58 @@
 import type { ColumnBuilder } from "./column.js";
 import type { FkBuilder } from "./relation.js";
-import type { ColumnDef, ScalarColumnKeys } from "./table.js";
+import type { ColumnDef, ScalarColumnKeys, TableDef } from "./table.js";
 
-export type InferColumnValue<T> =
+type SchemaAccessorForSql<
+	TSchema extends Record<string, TableDef>,
+	TSql extends string,
+> = {
+	[K in keyof TSchema & string]: TSchema[K]["_tableName"] extends TSql
+		? K
+		: never;
+}[keyof TSchema & string];
+
+type ScalarValueOf<C> =
+	C extends ColumnBuilder<infer V, infer M>
+		? M extends { nullable: false }
+			? NonNullable<V>
+			: V
+		: never;
+
+type FkTargetValue<
+	TSchema extends Record<string, TableDef>,
+	TTarget extends string,
+> = TTarget extends `${infer Sql}.${infer Col}`
+	? SchemaAccessorForSql<TSchema, Sql> extends infer Acc extends
+			keyof TSchema & string
+		? Col extends keyof TSchema[Acc]["_columns"]
+			? ScalarValueOf<TSchema[Acc]["_columns"][Col]>
+			: never
+		: never
+	: never;
+
+type InferFkValue<
+	T extends FkBuilder,
+	TSchema extends Record<string, TableDef>,
+> = T["_meta"] extends { target: infer Target extends string }
+	? [FkTargetValue<TSchema, Target>] extends [never]
+		? T["_meta"] extends { nullable: false }
+			? string
+			: string | null
+		: T["_meta"] extends { nullable: false }
+			? NonNullable<FkTargetValue<TSchema, Target>>
+			: FkTargetValue<TSchema, Target> | null
+	: string | null;
+
+export type InferColumnValue<
+	T,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> =
 	T extends ColumnBuilder<infer V, infer M>
 		? M extends { nullable: false }
 			? NonNullable<V>
 			: V
 		: T extends FkBuilder
-			? T["_meta"] extends { nullable: false }
-				? string
-				: string | null
+			? InferFkValue<T, TSchema>
 			: never;
 
 type NullableOperators = {
@@ -67,19 +109,25 @@ export type WhereOperators<T> = T extends string
 type ColumnKindOf<TCol extends ColumnDef> =
 	TCol extends ColumnBuilder<unknown, infer M> ? M["kind"] : never;
 
-type InferColumnWhereOperators<TCol extends ColumnDef> =
+type InferColumnWhereOperators<
+	TCol extends ColumnDef,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> =
 	ColumnKindOf<TCol> extends "decimal"
 		? ComparableWhereOperators<string>
 		: ColumnKindOf<TCol> extends "json" | "jsonb"
-			? JsonWhereOperators<InferColumnValue<TCol>>
+			? JsonWhereOperators<InferColumnValue<TCol, TSchema>>
 			: TCol extends ColumnBuilder<unknown, infer _M>
-				? WhereOperators<InferColumnValue<TCol>>
+				? WhereOperators<InferColumnValue<TCol, TSchema>>
 				: TCol extends FkBuilder
-					? WhereOperators<InferColumnValue<TCol>>
-					: WhereOperators<InferColumnValue<TCol>>;
+					? WhereOperators<InferColumnValue<TCol, TSchema>>
+					: WhereOperators<InferColumnValue<TCol, TSchema>>;
 
-export type ColumnWhereInput<TColumns extends Record<string, ColumnDef>> = {
+export type ColumnWhereInput<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = {
 	[K in ScalarColumnKeys<TColumns>]?:
-		| InferColumnValue<TColumns[K]>
-		| InferColumnWhereOperators<TColumns[K]>;
+		| InferColumnValue<TColumns[K], TSchema>
+		| InferColumnWhereOperators<TColumns[K], TSchema>;
 };
