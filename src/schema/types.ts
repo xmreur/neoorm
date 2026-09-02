@@ -18,11 +18,7 @@ import type {
 	WhereInput,
 	WithInputMap,
 } from "./relation-types.js";
-import type {
-	ColumnDef,
-	ScalarColumnKeys,
-	TableDef,
-} from "./table.js";
+import type { ColumnDef, ScalarColumnKeys, TableDef } from "./table.js";
 
 type IsPrimary<T> =
 	T extends ColumnBuilder<unknown, infer M>
@@ -88,7 +84,9 @@ export type CreateInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string = keyof TSchema & string,
-> = Expand<InferInsertRow<TColumns> & RelationCreateMap<TSchema, TAccessor>>;
+> = Expand<
+	InferInsertRow<TColumns, TSchema> & RelationCreateMap<TSchema, TAccessor>
+>;
 
 /** @deprecated Use WithInputMap for typed relation includes */
 export type WithInput =
@@ -103,7 +101,7 @@ export type WithInput =
 	  };
 
 export type SchemaTables<TSchema extends Record<string, TableDef>> = {
-	[K in keyof TSchema]: InferSelectRow<TSchema[K]["_columns"]>;
+	[K in keyof TSchema]: InferSelectRow<TSchema[K]["_columns"], TSchema>;
 };
 
 export type FindManyArgs<
@@ -143,14 +141,16 @@ export type CreateArgs<
 	returnCreated?: boolean;
 };
 
-export type CreateManyInput<TColumns extends Record<string, ColumnDef>> =
-	Expand<InferInsertRow<TColumns>>;
+export type CreateManyInput<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = Expand<InferInsertRow<TColumns, TSchema>>;
 
 export type CreateManyArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	data: CreateManyInput<TSchema[TAccessor]["_columns"]>[];
+	data: CreateManyInput<TSchema[TAccessor]["_columns"], TSchema>[];
 	skipDuplicates?: boolean;
 };
 
@@ -175,14 +175,17 @@ export type ScalarSetOp<TValue> = Expand<{
 	set?: TValue;
 }>;
 
-type UpdateScalarInput<TCol extends ColumnDef> =
-	| InferColumnValue<TCol>
+type UpdateScalarInput<
+	TCol extends ColumnDef,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> =
+	| InferColumnValue<TCol, TSchema>
 	| (ColumnKindOf<TCol> extends NumericColumnKinds
 			? NumericUpdateOps<
-					NonNullable<InferColumnValue<TCol>>,
-					InferColumnValue<TCol>
+					NonNullable<InferColumnValue<TCol, TSchema>>,
+					InferColumnValue<TCol, TSchema>
 				>
-			: ScalarSetOp<InferColumnValue<TCol>>);
+			: ScalarSetOp<InferColumnValue<TCol, TSchema>>);
 
 export type UpdateInput<
 	TColumns extends Record<string, ColumnDef>,
@@ -194,7 +197,7 @@ export type UpdateInput<
 			? never
 			: IsUpdatedAt<TColumns[K]> extends true
 				? never
-				: K]?: UpdateScalarInput<TColumns[K]>;
+				: K]?: UpdateScalarInput<TColumns[K], TSchema>;
 	} & RelationUpdateMap<TSchema, TAccessor>
 >;
 
@@ -407,8 +410,8 @@ export type PaginateArgs<
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	orderBy: TOrderBy;
 	take: number;
-	after?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy>;
-	before?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy>;
+	after?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy, TSchema>;
+	before?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy, TSchema>;
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 

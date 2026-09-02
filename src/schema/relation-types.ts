@@ -2,11 +2,7 @@ import type { ColumnBuilder } from "./column.js";
 import type { ColumnWhereInput, InferColumnValue } from "./column-where.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
 import type { FkBuilder, FkMeta } from "./relation.js";
-import type {
-	ColumnDef,
-	ScalarColumnKeys,
-	TableDef,
-} from "./table.js";
+import type { ColumnDef, ScalarColumnKeys, TableDef } from "./table.js";
 
 type IsPrimary<T> =
 	T extends ColumnBuilder<unknown, infer M>
@@ -46,39 +42,54 @@ type IsRequired<T> =
 				: false
 			: false;
 
-export type InferSelectRow<TColumns extends Record<string, ColumnDef>> = {
-	[K in ScalarColumnKeys<TColumns>]: InferColumnValue<TColumns[K]>;
+export type InferSelectRow<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = {
+	[K in ScalarColumnKeys<TColumns>]: InferColumnValue<TColumns[K], TSchema>;
 };
 
-export type InferInsertRow<TColumns extends Record<string, ColumnDef>> = {
+export type InferInsertRow<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = {
 	[K in ScalarColumnKeys<TColumns> as IsPrimary<TColumns[K]> extends true
 		? never
 		: IsGenerated<TColumns[K]> extends true
 			? never
-			: K]?: InferColumnValue<TColumns[K]>;
+			: K]?: InferColumnValue<TColumns[K], TSchema>;
 } & {
 	[K in ScalarColumnKeys<TColumns> as IsRequired<TColumns[K]> extends true
 		? K
-		: never]: InferColumnValue<TColumns[K]>;
+		: never]: InferColumnValue<TColumns[K], TSchema>;
 };
 
-type PrimaryIdValue<TColumns extends Record<string, ColumnDef>> = {
+type PrimaryIdValue<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = {
 	[K in keyof TColumns]: TColumns[K] extends ColumnBuilder<unknown, infer M>
 		? M extends { primary: true }
-			? InferColumnValue<TColumns[K]>
+			? InferColumnValue<TColumns[K], TSchema>
 			: never
 		: never;
 }[keyof TColumns & string];
 
-export type ConnectInput<TColumns extends Record<string, ColumnDef>> = {
-	id: [PrimaryIdValue<TColumns>] extends [never]
+export type ConnectInput<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = {
+	id: [PrimaryIdValue<TColumns, TSchema>] extends [never]
 		? string
-		: PrimaryIdValue<TColumns>;
+		: PrimaryIdValue<TColumns, TSchema>;
 };
 
-export type ConnectOrCreateItem<TColumns extends Record<string, ColumnDef>> = {
-	where: Partial<InferSelectRow<TColumns>>;
-	create: InferInsertRow<TColumns>;
+export type ConnectOrCreateItem<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = {
+	where: Partial<InferSelectRow<TColumns, TSchema>>;
+	create: InferInsertRow<TColumns, TSchema>;
 };
 
 export type OrderDirection = "asc" | "desc";
@@ -101,10 +112,11 @@ export type PrimaryKeyColumns<TColumns extends Record<string, ColumnDef>> =
 export type CursorInput<
 	TColumns extends Record<string, ColumnDef>,
 	TOrderBy extends OrderByInput<TColumns>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
 > = Pick<
-	InferSelectRow<TColumns>,
-	(keyof TOrderBy & keyof TColumns & ScalarColumnKeys<TColumns>) |
-		ScalarPkName<TColumns>
+	InferSelectRow<TColumns, TSchema>,
+	| (keyof TOrderBy & keyof TColumns & ScalarColumnKeys<TColumns>)
+	| ScalarPkName<TColumns>
 >;
 
 /** Expands mapped types so IDEs surface keys for autocomplete */
@@ -136,12 +148,11 @@ type FkMetaOf<C> =
 		: never;
 
 /** Mirrors runtime `inferFkAs`: strips a trailing `Id`/`_id` suffix. */
-type InferFkAs<C extends string> =
-	C extends `${infer B}Id`
+type InferFkAs<C extends string> = C extends `${infer B}Id`
+	? B
+	: C extends `${infer B}_id`
 		? B
-		: C extends `${infer B}_id`
-			? B
-			: C;
+		: C;
 
 /** Basic pluralizer matching the runtime default for omitted inverses. */
 type Pluralize<S extends string> = S extends `${infer B}${"ch" | "sh"}`
@@ -584,7 +595,7 @@ export type ApplyOmit<Row extends Record<string, unknown>, O> = Omit<
 type RelationTargetModel<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
-> = InferSelectRow<TSchema[TTargetAccessor]["_columns"]>;
+> = InferSelectRow<TSchema[TTargetAccessor]["_columns"], TSchema>;
 
 type InferNestedWithResult<
 	TSchema extends Record<string, TableDef>,
@@ -650,7 +661,10 @@ type IsManyRelation<
 		? true
 		: TRelation extends keyof InlineM2MRelations<TSchema, TAccessor>
 			? true
-			: TRelation extends keyof InlineM2MInverseRelations<TSchema, TAccessor>
+			: TRelation extends keyof InlineM2MInverseRelations<
+						TSchema,
+						TAccessor
+					>
 				? true
 				: false;
 
@@ -697,7 +711,8 @@ export type InferWithResult<
 	TAccessor extends keyof TSchema & string,
 	W,
 	TBase extends Record<string, unknown> = InferSelectRow<
-		TSchema[TAccessor]["_columns"]
+		TSchema[TAccessor]["_columns"],
+		TSchema
 	>,
 > = W extends undefined
 	? TBase
@@ -715,7 +730,8 @@ export type InferFindResult<
 	S = undefined,
 	O = undefined,
 	TBase extends Record<string, unknown> = InferSelectRow<
-		TSchema[TAccessor]["_columns"]
+		TSchema[TAccessor]["_columns"],
+		TSchema
 	>,
 > = [S] extends [undefined]
 	? [O] extends [undefined]
@@ -940,7 +956,7 @@ export type WhereInput<
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string = keyof TSchema & string,
 > = LogicalWhereInput<TColumns, TSchema, TAccessor> &
-	ColumnWhereInput<TColumns> &
+	ColumnWhereInput<TColumns, TSchema> &
 	RelationWhereMap<TSchema, TAccessor>;
 
 type DisconnectWriteForFk<C extends ColumnDef> = C extends FkBuilder
@@ -955,8 +971,8 @@ type ToOneRelationWriteForAccessor<
 	TFkColumn extends ColumnDef,
 > = TAccessor extends keyof TSchema & string
 	? {
-			connect?: ConnectInput<TSchema[TAccessor]["_columns"]>;
-			create?: InferInsertRow<TSchema[TAccessor]["_columns"]>;
+			connect?: ConnectInput<TSchema[TAccessor]["_columns"], TSchema>;
+			create?: InferInsertRow<TSchema[TAccessor]["_columns"], TSchema>;
 		} & DisconnectWriteForFk<TFkColumn>
 	: never;
 
@@ -998,16 +1014,20 @@ type M2MRelationWriteForAccessor<
 	TTargetAccessor extends keyof TSchema & string,
 > = TTargetAccessor extends keyof TSchema & string
 	? {
-			connect?: ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
+			connect?: ConnectInput<
+				TSchema[TTargetAccessor]["_columns"],
+				TSchema
+			>[];
 			disconnect?:
 				| true
-				| ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
+				| ConnectInput<TSchema[TTargetAccessor]["_columns"], TSchema>[];
 			delete?:
 				| true
-				| ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
-			set?: ConnectInput<TSchema[TTargetAccessor]["_columns"]>[];
+				| ConnectInput<TSchema[TTargetAccessor]["_columns"], TSchema>[];
+			set?: ConnectInput<TSchema[TTargetAccessor]["_columns"], TSchema>[];
 			connectOrCreate?: ConnectOrCreateItem<
-				TSchema[TTargetAccessor]["_columns"]
+				TSchema[TTargetAccessor]["_columns"],
+				TSchema
 			>[];
 		}
 	: never;
@@ -1018,7 +1038,12 @@ type InlineM2MWriteRelationEntry<
 	K extends string,
 > = [C] extends [ManyToManyExtra]
 	? M2MTargetOf<C> extends infer TTarget extends keyof TSchema & string
-		? { [P in M2MNameOf<K, C>]?: M2MRelationWriteForAccessor<TSchema, TTarget> }
+		? {
+				[P in M2MNameOf<K, C>]?: M2MRelationWriteForAccessor<
+					TSchema,
+					TTarget
+				>;
+			}
 		: never
 	: never;
 
@@ -1044,10 +1069,10 @@ type InlineM2MInverseWriteRelationEntry<
 > = [C] extends [ManyToManyExtra]
 	? M2MTargetOf<C> extends TAccessor
 		? {
-				[P in M2MInverseOf<TSourceAccessor, C>]?: M2MRelationWriteForAccessor<
-					TSchema,
-					TSourceAccessor
-				>;
+				[P in M2MInverseOf<
+					TSourceAccessor,
+					C
+				>]?: M2MRelationWriteForAccessor<TSchema, TSourceAccessor>;
 			}
 		: never
 	: never;
