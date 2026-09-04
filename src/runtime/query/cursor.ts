@@ -9,6 +9,7 @@ import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
 	columnByTsName,
 	getTableIndex,
+	requireTsColumn,
 	type ManifestIndex,
 } from "./table-index.js";
 
@@ -35,12 +36,13 @@ export function resolveOrderSpec(
 	const directions = new Set<"asc" | "desc">();
 
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
-		const col = columnByTsName(tableIndex, table, tsKey);
-		if (!col) {
-			throw new Error(
-				`Unknown orderBy column "${tsKey}" on table "${table.accessor}"`,
-			);
-		}
+		const col = requireTsColumn(
+			tableIndex,
+			table,
+			tsKey,
+			"orderBy",
+			"select",
+		);
 		const dir = direction.toLowerCase() === "desc" ? "desc" : "asc";
 		directions.add(dir);
 		specs.push({

@@ -27,7 +27,21 @@ import type {
 	TableDef,
 	TableExtra,
 } from "../schema/table.js";
+import { schemaError } from "../runtime/error-builders.js";
+import {
+	formatCandidateList,
+	listColumnTsNames,
+	listTableAccessors,
+	suggestSchemaColumn,
+	suggestSchemaTableAccessor,
+} from "../runtime/error-hints.js";
 import { resolveSqlColumnName } from "../utils/case.js";
+
+export type SchemaValidationIssue = {
+	code: string;
+	message: string;
+	suggestions?: string[];
+};
 
 export type SchemaToManifestOptions = {
 	enumMode?: "check" | "union" | "native";
@@ -56,10 +70,16 @@ function resolveEnumTypeName(
 function requireColumnDef(
 	columns: Record<string, ColumnDef>,
 	tsName: string,
+	tableAccessor?: string,
 ): ColumnDef {
 	const column = columns[tsName];
 	if (!column) {
-		throw new Error(`Unknown column "${tsName}" in table extras`);
+		throw schemaError(
+			"unknown_column",
+			`Unknown column "${tsName}" in table extras`,
+			tableAccessor ? { tableAccessor } : {},
+			suggestSchemaColumn(tsName, columns, tableAccessor),
+		);
 	}
 	return column;
 }
@@ -184,8 +204,14 @@ const UPDATED_AT_COLUMN_KINDS = new Set(["timestamp"]);
 
 function validateUpdatedAtColumn(tsName: string, kind: string): void {
 	if (!UPDATED_AT_COLUMN_KINDS.has(kind)) {
-		throw new Error(
+		throw schemaError(
+			"invalid_updated_at",
 			`Column "${tsName}": .updatedAt() is only supported on timestamp columns (got "${kind}")`,
+			{},
+			[
+				"Use .updatedAt() only on timestamp() columns",
+				"Example: `updatedAt: timestamp().notNull().updatedAt()`",
+			],
 		);
 	}
 }
@@ -208,22 +234,34 @@ function resolveFkTargetSql(
 	const { accessor, column } = resolveFkAccessorTarget(col._meta, tables);
 	const targetTable = tables[accessor];
 	if (!targetTable) {
-		throw new Error(
+		throw schemaError(
+			"unknown_table_accessor",
 			`Foreign key references unknown table accessor "${accessor}"`,
+			{},
+			suggestSchemaTableAccessor(accessor, tables),
 		);
 	}
 
 	const targetColumnTs =
 		column ?? findPrimaryKeyColumn(targetTable._columns);
 	if (!targetColumnTs) {
-		throw new Error(
+		throw schemaError(
+			"missing_primary_key",
 			`Foreign key target "${accessor}" has no primary key column`,
+			{ tableAccessor: accessor, tableSqlName: targetTable._tableName },
+			[
+				`Add a primary key to "${accessor}" (e.g. id: uuid().primary() or id: id())`,
+				"Or pass an explicit column: fk(\"users.id\")",
+			],
 		);
 	}
 
 	if (!targetTable._columns[targetColumnTs]) {
-		throw new Error(
+		throw schemaError(
+			"unknown_column",
 			`Foreign key references unknown column "${accessor}.${targetColumnTs}"`,
+			{ tableAccessor: accessor },
+			suggestSchemaColumn(targetColumnTs, targetTable._columns, accessor),
 		);
 	}
 
@@ -313,8 +351,14 @@ function columnToManifest(
 	}
 
 	if (!isColumnBuilder(col)) {
-		throw new Error(
+		throw schemaError(
+			"invalid_column",
 			`Column "${tsName}" is not a scalar or foreign-key column`,
+			{},
+			[
+				"Table columns must be column builders (text(), uuid(), fk(), etc.) or manyToMany() extras",
+				"Move indexes, primaryKey(), and check() into the table extras callback: table({ ... }, (t) => ({ ... }))",
+			],
 		);
 	}
 
@@ -575,10 +619,14 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				: columns.filter((c) => c.primary).map((c) => c.sqlName);
 
 		if (pk.length === 0) {
-			throw new Error(
-				`Table "${tableDef._tableName}" has no primary key. ` +
-					"Add a primary key column (e.g. `id: uuid().primary()` or `id: id()`) " +
-					"or define a composite key with `primaryKey(t.colA, t.colB)` in the table extras callback.",
+			throw schemaError(
+				"missing_primary_key",
+				`Table "${tableDef._tableName}" has no primary key`,
+				{ tableAccessor: accessor, tableSqlName: tableDef._tableName },
+				[
+					"Add a primary key column (e.g. `id: uuid().primary()` or `id: id()`)",
+					"Or define a composite key with `primaryKey(t.colA, t.colB)` in the table extras callback",
+				],
 			);
 		}
 
@@ -644,8 +692,11 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		const targetTable = manifestTables[extra.target];
 		if (!sourceTable) continue;
 		if (!targetTable) {
-			throw new Error(
+			throw schemaError(
+				"unknown_m2m_target",
 				`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown table accessor "${extra.target}"`,
+				{ tableAccessor: sourceAccessor },
+				suggestSchemaTableAccessor(extra.target, tables),
 			);
 		}
 
@@ -659,8 +710,15 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		if (extra.through) {
 			const throughTable = manifestTables[extra.through];
 			if (!throughTable) {
-				throw new Error(
-					`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown junction table accessor "${extra.through}". Define the junction table first with table().`,
+				throw schemaError(
+					"unknown_m2m_through",
+					`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown junction table accessor "${extra.through}"`,
+					{ tableAccessor: sourceAccessor },
+					[
+						`Define the junction table first: ${extra.through}: table("...")({ ... })`,
+						"Junction table accessors use camelCase, not SQL names",
+						...suggestSchemaTableAccessor(extra.through, tables),
+					],
 				);
 			}
 			throughAccessor = extra.through;
@@ -672,9 +730,14 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			);
 			const autoAccessor = throughKey;
 			if (manifestTables[autoAccessor]) {
-				throw new Error(
-					`Auto-generated junction table accessor "${autoAccessor}" collides with an existing table. ` +
-						`Use manyToMany("${extra.target}", { through: "yourJunctionAccessor" }) with an explicit junction table.`,
+				throw schemaError(
+					"junction_collision",
+					`Auto-generated junction table accessor "${autoAccessor}" collides with an existing table`,
+					{ tableAccessor: sourceAccessor },
+					[
+						`Use manyToMany("${extra.target}", { through: "yourJunctionAccessor" }) with an explicit junction table`,
+						`Define a junction table with a unique accessor before the manyToMany() extra`,
+					],
 				);
 			}
 			addAutoJunction(
@@ -696,13 +759,25 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			(c) => c.tsName === rightTsName,
 		);
 		if (!leftFk) {
-			throw new Error(
+			throw schemaError(
+				"unknown_junction_column",
 				`manyToMany("${extra.target}") on table "${sourceAccessor}" cannot find junction column "${leftTsName}" on table "${throughKey}"`,
+				{ tableAccessor: throughAccessor },
+				[
+					`Add a FK column named "${leftTsName}" to the junction table, or set leftKey in manyToMany options`,
+					`Default left key is "${singularize(sourceAccessor)}Id"`,
+				],
 			);
 		}
 		if (!rightFk) {
-			throw new Error(
+			throw schemaError(
+				"unknown_junction_column",
 				`manyToMany("${extra.target}") on table "${sourceAccessor}" cannot find junction column "${rightTsName}" on table "${throughKey}"`,
+				{ tableAccessor: throughAccessor },
+				[
+					`Add a FK column named "${rightTsName}" to the junction table, or set rightKey in manyToMany options`,
+					`Default right key is "${singularize(targetTable.accessor)}Id"`,
+				],
 			);
 		}
 
@@ -752,9 +827,17 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				) {
 					continue;
 				}
-				throw new Error(
-					`Relation "${rel.inverse}" on table "${inverseTable.sqlName}" is already used by another foreign key. ` +
-						"Set an explicit `.inverse()` on the fk() to disambiguate.",
+				throw schemaError(
+					"duplicate_inverse",
+					`Relation "${rel.inverse}" on table "${inverseTable.sqlName}" is already used by another foreign key`,
+					{
+						tableAccessor: inverseTable.accessor,
+						tableSqlName: inverseTable.sqlName,
+					},
+					[
+						"Set an explicit `.inverse(\"uniqueName\")` on each fk() to disambiguate",
+						"Each inverse relation name must be unique on the target table",
+					],
 				);
 			}
 
@@ -828,13 +911,20 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	};
 }
 
-export function validateManifest(manifest: Manifest): string[] {
-	const errors: string[] = [];
+export function validateManifest(manifest: Manifest): SchemaValidationIssue[] {
+	const errors: SchemaValidationIssue[] = [];
 	const sqlNames = new Set<string>();
 
 	for (const table of Object.values(manifest.tables)) {
 		if (sqlNames.has(table.sqlName)) {
-			errors.push(`Duplicate table SQL name: ${table.sqlName}`);
+			errors.push({
+				code: "duplicate_table_sql_name",
+				message: `Duplicate table SQL name: ${table.sqlName}`,
+				suggestions: [
+					"Each table must have a unique SQL name",
+					"Check for duplicate table() SQL name arguments or colliding accessors",
+				],
+			});
 		}
 		sqlNames.add(table.sqlName);
 
@@ -846,9 +936,14 @@ export function validateManifest(manifest: Manifest): string[] {
 					(t) => t.sqlName === targetTable,
 				);
 				if (!target) {
-					errors.push(
-						`FK ${table.accessor}.${col.tsName} references unknown table ${targetTable}`,
-					);
+					errors.push({
+						code: "unknown_fk_target",
+						message: `FK ${table.accessor}.${col.tsName} references unknown table ${targetTable}`,
+						suggestions: [
+							"Regenerate the client after schema changes (`neoorm generate`)",
+							`Valid table accessors: ${formatCandidateList(listTableAccessors(manifest))}`,
+						],
+					});
 					continue;
 				}
 				const columnExists = target.columns.some(
@@ -856,17 +951,26 @@ export function validateManifest(manifest: Manifest): string[] {
 						c.sqlName === targetColumn || c.tsName === targetColumn,
 				);
 				if (!columnExists) {
-					errors.push(
-						`FK ${table.accessor}.${col.tsName} references unknown column ${targetTable}.${targetColumn}`,
-					);
+					errors.push({
+						code: "unknown_fk_column",
+						message: `FK ${table.accessor}.${col.tsName} references unknown column ${targetTable}.${targetColumn}`,
+						suggestions: [
+							`Valid columns on "${target.accessor}": ${formatCandidateList(listColumnTsNames(target))}`,
+						],
+					});
 				}
 				continue;
 			}
 
 			if (col.kind !== "fk" && !getColumnType(col.kind)) {
-				errors.push(
-					`Unknown column kind "${col.kind}" on ${table.accessor}.${col.tsName}. Import the plugin that provides this type.`,
-				);
+				errors.push({
+					code: "unknown_column_kind",
+					message: `Unknown column kind "${col.kind}" on ${table.accessor}.${col.tsName}`,
+					suggestions: [
+						`Import the plugin that provides the "${col.kind}" column type`,
+						"Register plugins in neoorm.config.ts if using a custom type",
+					],
+				});
 			}
 		}
 	}

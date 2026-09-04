@@ -70,6 +70,7 @@ export {
 	createNeoOrmClientFromPool,
 } from "./runtime/client.js";
 export type { QueryErrorContext, QueryOperation, SchemaErrorContext } from "./runtime/errors.js";
+export type { SchemaValidationIssue } from "./codegen/schema-to-manifest.js";
 export {
 	formatQueryError,
 	formatSchemaError,

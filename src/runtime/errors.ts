@@ -18,6 +18,9 @@ export type QueryErrorContext = {
 	constraint?: string;
 	detail?: string;
 	migrationHint?: string;
+	code?: string;
+	phase?: "compile" | "runtime";
+	suggestions?: string[];
 };
 
 export type SchemaErrorContext = {
@@ -29,6 +32,8 @@ export type SchemaErrorContext = {
 	sqlPath?: string;
 	statement?: string;
 	detail?: string;
+	code?: string;
+	suggestions?: string[];
 };
 
 const OPERATION_LABEL: Record<QueryOperation, string> = {
@@ -51,11 +56,29 @@ function operationTarget(context: QueryErrorContext): string {
 	return "query";
 }
 
+function appendSuggestions(
+	lines: string[],
+	suggestions?: string[],
+): void {
+	if (!suggestions || suggestions.length === 0) return;
+	lines.push("");
+	lines.push("  Suggestions:");
+	for (const suggestion of suggestions) {
+		lines.push(`  - ${suggestion}`);
+	}
+}
+
 export function formatQueryError(context: QueryErrorContext): string {
-	const label = OPERATION_LABEL[context.operation];
 	const target = operationTarget(context);
 	const reason = context.detail ?? "database error";
-	const lines = [`${label} on ${target} failed: ${reason}`];
+	const lines: string[] = [];
+
+	if (context.phase === "compile") {
+		lines.push(`Query build failed on ${target}: ${reason}`);
+	} else {
+		const label = OPERATION_LABEL[context.operation];
+		lines.push(`${label} on ${target} failed: ${reason}`);
+	}
 
 	if (context.tableAccessor || context.tableSqlName) {
 		const parts: string[] = [];
@@ -96,6 +119,8 @@ export function formatQueryError(context: QueryErrorContext): string {
 	if (context.migrationHint) {
 		lines.push(`  Migration: ${context.migrationHint}`);
 	}
+
+	appendSuggestions(lines, context.suggestions);
 
 	return lines.join("\n");
 }
@@ -145,6 +170,8 @@ export function formatSchemaError(context: SchemaErrorContext): string {
 			lines.push(`  ${line}`);
 		}
 	}
+
+	appendSuggestions(lines, context.suggestions);
 
 	return lines.join("\n").trimEnd();
 }

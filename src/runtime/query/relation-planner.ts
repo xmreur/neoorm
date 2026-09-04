@@ -30,6 +30,7 @@ import {
 	columnsByTsNames,
 	getOrSetSqlCache,
 	getTableIndex,
+	requireRelation,
 	type ManifestIndex,
 } from "./table-index.js";
 
@@ -800,6 +801,19 @@ export function planRelationLoad(
 			relationName,
 			withInput,
 		);
+		if (
+			!chain &&
+			!findM2M(manifest, parentTable.accessor, relationName) &&
+			!findRelation(parentTable, relationName, parentTableIndex)
+		) {
+			requireRelation(
+				parentTableIndex,
+				manifest,
+				parentTable,
+				relationName,
+				"select",
+			);
+		}
 		if (
 			chain &&
 			chain.relation.cardinality === "many" &&

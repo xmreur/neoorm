@@ -9,6 +9,7 @@ import type { Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import type { ColumnDef, ColumnNaming } from "../schema/table.js";
 import { NeoOrmSchemaError } from "../runtime/errors.js";
+import { schemaError } from "../runtime/error-builders.js";
 import { schemaCompileError } from "../runtime/schema-error.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import {
@@ -66,8 +67,14 @@ export async function loadSchemaModule(schemaPath: string): Promise<{
 
 	const schema = mod.schema ?? mod.default?.schema ?? mod.default;
 	if (!schema || !schema._tables) {
-		throw new Error(
-			`Schema file must export a schema via \`export const schema = defineSchema(...)\``,
+		throw schemaError(
+			"invalid_schema_export",
+			"Schema file must export a schema via `export const schema = defineSchema(...)`",
+			{ schemaPath },
+			[
+				"Add `export const schema = defineSchema({ ... })` to your schema file",
+				"Or export default with a `schema` property",
+			],
 		);
 	}
 
@@ -356,9 +363,17 @@ async function generateFromSchemaInner(
 
 	const errors = validateManifest(manifest);
 	if (errors.length > 0) {
+		const detail = errors
+			.map((error, index) => `  ${index + 1}. ${error.message}`)
+			.join("\n");
+		const suggestions = [
+			...new Set(errors.flatMap((error) => error.suggestions ?? [])),
+		];
 		throw schemaCompileError(
 			schemaPath,
-			`Schema validation failed:\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+			`Schema validation failed:\n${detail}`,
+			undefined,
+			suggestions,
 		);
 	}
 

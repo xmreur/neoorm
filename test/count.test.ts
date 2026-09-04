@@ -3,6 +3,7 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
+import { NeoOrmQueryError } from "../src/runtime/errors.js";
 import { buildCountQuery } from "../src/runtime/query/compile.js";
 import { countRecords } from "../src/runtime/query/count.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
@@ -64,7 +65,10 @@ describe("count SQL", () => {
 	it("throws on an unknown distinct column", () => {
 		expect(() =>
 			buildCountQuery(users, "", postgresDialect, "notAColumn"),
-		).toThrow("Unknown count column: notAColumn");
+		).toThrow(NeoOrmQueryError);
+		expect(() =>
+			buildCountQuery(users, "", postgresDialect, "notAColumn"),
+		).toThrow('Unknown column "notAColumn" in count');
 	});
 
 	it("throws on an unknown select column", () => {
@@ -72,7 +76,12 @@ describe("count SQL", () => {
 			buildCountQuery(users, "", postgresDialect, undefined, {
 				nope: true,
 			}),
-		).toThrow("Unknown count column: nope");
+		).toThrow(NeoOrmQueryError);
+		expect(() =>
+			buildCountQuery(users, "", postgresDialect, undefined, {
+				nope: true,
+			}),
+		).toThrow('Unknown column "nope" in count');
 	});
 });
 

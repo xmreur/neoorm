@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { NeoOrmQueryError } from "../src/runtime/errors.js";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { parseAggregateRow } from "../src/runtime/query/aggregate.js";
@@ -37,7 +37,10 @@ describe("aggregate SQL", () => {
 	it("throws on an unknown _count field", () => {
 		expect(() =>
 			buildAggregateQuery(posts, { _count: { nope: true } }, ""),
-		).toThrow("Unknown count column: nope");
+		).toThrow(NeoOrmQueryError);
+		expect(() =>
+			buildAggregateQuery(posts, { _count: { nope: true } }, ""),
+		).toThrow('Unknown column "nope" in count');
 	});
 
 	it("parses star _count as a number and a field map as an object", () => {

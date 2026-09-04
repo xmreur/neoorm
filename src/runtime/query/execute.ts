@@ -14,6 +14,7 @@ import {
 	isPgError,
 	isSchemaDriftPgCode,
 } from "../pg-error.js";
+import { enrichSqliteError, isSqliteError } from "../sqlite-error.js";
 
 import type { ManifestIndex } from "./table-index.js";
 
@@ -41,9 +42,9 @@ async function resolveMigrationHint(
 	dialect: Dialect,
 	migrationsDir: string | undefined,
 	schema: string | undefined,
-	pgCode: string | undefined,
+	driftCode: string | undefined,
 ): Promise<string | undefined> {
-	if (!driver || !isSchemaDriftPgCode(pgCode)) {
+	if (!driver || !driftCode || !isSchemaDriftCode(driftCode)) {
 		return undefined;
 	}
 
@@ -73,6 +74,33 @@ async function resolveMigrationHint(
 	}
 }
 
+function isSchemaDriftCode(code: string): boolean {
+	if (isSchemaDriftPgCode(code)) {
+		return true;
+	}
+	return (
+		code === "sqlite_no_such_table" ||
+		code === "sqlite_no_such_column" ||
+		code === "sqlite_foreign_key_violation"
+	);
+}
+
+async function enrichQueryError(
+	runtime: QueryRuntime,
+	ctx: RunQueryContext,
+	sql: string,
+	err: unknown,
+): Promise<QueryErrorContext> {
+	const base = queryBaseContext(ctx, sql);
+	if (isPgError(err)) {
+		return enrichPgError(err, runtime.manifest, base);
+	}
+	if (isSqliteError(err)) {
+		return enrichSqliteError(err, runtime.manifest, base);
+	}
+	throw err;
+}
+
 async function throwQueryError(
 	runtime: QueryRuntime,
 	context: QueryErrorContext,
@@ -83,7 +111,7 @@ async function throwQueryError(
 		runtime.dialect ?? postgresDialect,
 		runtime.migrationsDir,
 		runtime.schema,
-		context.pgCode,
+		context.pgCode ?? context.code,
 	);
 	throw new NeoOrmQueryError(
 		migrationHint ? { ...context, migrationHint } : context,
@@ -110,12 +138,8 @@ export async function runQuery<T = Record<string, unknown>>(
 	try {
 		return await executor.query<T>(sql, params);
 	} catch (err) {
-		if (isPgError(err)) {
-			const enriched = enrichPgError(
-				err,
-				runtime.manifest,
-				queryBaseContext(ctx, sql),
-			);
+		if (isPgError(err) || isSqliteError(err)) {
+			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
 		throw err;
@@ -132,12 +156,8 @@ export async function runExecute<T = Record<string, unknown>>(
 	try {
 		return await executor.execute<T>(sql, params);
 	} catch (err) {
-		if (isPgError(err)) {
-			const enriched = enrichPgError(
-				err,
-				runtime.manifest,
-				queryBaseContext(ctx, sql),
-			);
+		if (isPgError(err) || isSqliteError(err)) {
+			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
 		throw err;
@@ -189,12 +209,8 @@ export async function runQueryOne<T = Record<string, unknown>>(
 		if (err instanceof NeoOrmQueryError) {
 			throw err;
 		}
-		if (isPgError(err)) {
-			const enriched = enrichPgError(
-				err,
-				runtime.manifest,
-				queryBaseContext(ctx, sql),
-			);
+		if (isPgError(err) || isSqliteError(err)) {
+			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
 		throw err;

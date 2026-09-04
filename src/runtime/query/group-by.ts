@@ -14,7 +14,7 @@ import {
 } from "./compile.js";
 import { mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
-import { columnByTsName, getTableIndex } from "./table-index.js";
+import { getTableIndex, requireTable, requireTsColumn } from "./table-index.js";
 
 export async function groupByRecords(
 	executor: Executor,
@@ -42,8 +42,7 @@ export async function groupByRecords(
 ): Promise<Record<string, unknown>[]> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const byKeys = normalizeSelectColumns(args.by);
 	if (!byKeys || byKeys.length === 0) {
@@ -52,9 +51,7 @@ export async function groupByRecords(
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	for (const key of byKeys) {
-		if (!columnByTsName(tableIndex, table, key)) {
-			throw new Error(`Unknown groupBy column: ${key}`);
-		}
+		requireTsColumn(tableIndex, table, key, "groupBy", "select");
 	}
 
 	const selectors: AggregateSelectors = {};

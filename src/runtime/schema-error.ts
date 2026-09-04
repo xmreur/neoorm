@@ -120,6 +120,15 @@ export function schemaCompileError(
 	schemaPath: string,
 	detail: string,
 	cause?: unknown,
+	suggestions?: string[],
 ): NeoOrmSchemaError {
-	return new NeoOrmSchemaError({ schemaPath, detail }, cause);
+	return new NeoOrmSchemaError(
+		{
+			schemaPath,
+			detail,
+			code: "schema_compile_error",
+			...(suggestions && suggestions.length > 0 ? { suggestions } : {}),
+		},
+		cause,
+	);
 }

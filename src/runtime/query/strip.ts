@@ -3,8 +3,8 @@ import type { Manifest, ManifestTable } from "../../dialect/types.js";
 import { normalizeSelectColumns } from "./compile.js";
 import type { ColumnPickArg } from "./projection.js";
 import {
-	columnByTsName,
 	getTableIndex,
+	requireTsColumn,
 	type ManifestIndex,
 	type TableIndex,
 } from "./table-index.js";
@@ -29,11 +29,7 @@ function resolveStripKeys(
 	}
 
 	for (const key of extra) {
-		if (!columnByTsName(tableIndex, table, key)) {
-			throw new Error(
-				`Unknown column "${key}" in strip omit for table "${table.accessor}"`,
-			);
-		}
+		requireTsColumn(tableIndex, table, key, "strip omit", "select");
 		keys.add(key);
 	}
 	return keys;

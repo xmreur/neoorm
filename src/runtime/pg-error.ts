@@ -89,6 +89,115 @@ function headlineForPgCode(err: PgErrorLike): string {
 	}
 }
 
+function suggestionsForPgError(
+	err: PgErrorLike,
+	table: ManifestTable | undefined,
+	columnTsName?: string,
+): string[] {
+	const suggestions: string[] = [];
+
+	switch (err.code) {
+		case "23502":
+			if (columnTsName) {
+				suggestions.push(
+					`Provide "${columnTsName}" in create/update input`,
+				);
+				const col = table?.columns.find((c) => c.tsName === columnTsName);
+				if (col?.kind === "fk") {
+					suggestions.push(
+						"Connect the related record first, or set the FK column directly",
+					);
+					if (col.nullable === false) {
+						suggestions.push(
+							"This FK column is required because it is .notNull() in the schema",
+						);
+					}
+				}
+			} else {
+				suggestions.push(
+					"A required column was omitted or set to null in the query input",
+				);
+			}
+			break;
+		case "23505":
+			suggestions.push(
+				"A record with the same unique value already exists",
+			);
+			suggestions.push(
+				"Use upsert() or update an existing row instead of insert",
+			);
+			break;
+		case "23503":
+			suggestions.push("The referenced parent row does not exist");
+			suggestions.push(
+				"Create the parent record first, or verify relation connect/write syntax",
+			);
+			suggestions.push(
+				"Run `neoorm migrate deploy` if the schema changed recently",
+			);
+			break;
+		case "23514":
+			suggestions.push(
+				"A check constraint or enum value was rejected by the database",
+			);
+			break;
+		case "42P01":
+			suggestions.push(
+				"The table does not exist in the database — schema may be out of date",
+			);
+			suggestions.push(
+				"Run `neoorm migrate deploy` and regenerate the client (`neoorm generate`)",
+			);
+			break;
+		case "42703":
+			suggestions.push(
+				"The column does not exist in the database — schema may be out of date",
+			);
+			if (columnTsName && table) {
+				suggestions.push(
+					`In queries use the TypeScript name "${columnTsName}", not the SQL name`,
+				);
+			}
+			suggestions.push(
+				"Run `neoorm migrate deploy` and regenerate the client (`neoorm generate`)",
+			);
+			break;
+		case "22P02":
+			suggestions.push(
+				"The value type does not match the column type in the database",
+			);
+			if (columnTsName) {
+				suggestions.push(`Check the value passed for "${columnTsName}"`);
+			}
+			break;
+		default:
+			break;
+	}
+
+	return suggestions;
+}
+
+function errorCodeForPg(err: PgErrorLike): string | undefined {
+	switch (err.code) {
+		case "23502":
+			return "pg_not_null_violation";
+		case "23505":
+			return "pg_unique_violation";
+		case "23503":
+			return "pg_foreign_key_violation";
+		case "23514":
+			return "pg_check_violation";
+		case "42P01":
+			return "pg_relation_not_found";
+		case "42703":
+			return "pg_column_not_found";
+		case "22P02":
+			return "pg_invalid_input";
+		default:
+			return err.code ? `pg_${err.code.toLowerCase()}` : undefined;
+	}
+}
+
 const SCHEMA_DRIFT_CODES = new Set(["42P01", "42703", "23503"]);
 
 export function isSchemaDriftPgCode(code: string | undefined): boolean {
@@ -113,6 +222,7 @@ export function enrichPgError(
 
 	const context: QueryErrorContext = {
 		operation: base.operation,
+		phase: "runtime",
 		sql: truncateSql(base.sql),
 		detail: err.detail
 			? `${headlineForPgCode(err)} (${err.detail})`
@@ -145,6 +255,16 @@ export function enrichPgError(
 		context.constraint = err.constraint;
 	}
 
+	const code = errorCodeForPg(err);
+	if (code !== undefined) {
+		context.code = code;
+	}
+
+	const suggestions = suggestionsForPgError(err, table, columnTsName);
+	if (suggestions.length > 0) {
+		context.suggestions = suggestions;
+	}
+
 	return context;
 }
 
@@ -163,9 +283,14 @@ export function emptyReturningContext(
 				: "FIND OR CREATE";
 	const context: QueryErrorContext = {
 		operation,
+		phase: "runtime",
 		tableAccessor,
 		sql: truncateSql(sql),
 		detail: `${operationLabel} … RETURNING returned no row`,
+		suggestions: [
+			"The insert may have been blocked by a trigger or RLS policy",
+			"Check database triggers and row-level security on this table",
+		],
 	};
 	if (table?.sqlName !== undefined) {
 		context.tableSqlName = table.sqlName;
