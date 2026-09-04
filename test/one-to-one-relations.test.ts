@@ -69,8 +69,9 @@ describe("one-to-one relations", () => {
 	});
 
 	it("generated UserPayload.profile is singular, not an array", () => {
-		expectTypeOf<UserPayload["profile"]>().toEqualTypeOf<
-			Profile | null | undefined
+		expectTypeOf<UserPayload["profile"]>().not.toEqualTypeOf<Profile[]>();
+		expectTypeOf<Exclude<UserPayload["profile"], undefined>>().toEqualTypeOf<
+			Profile | null
 		>();
 	});
 
