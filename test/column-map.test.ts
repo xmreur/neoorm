@@ -13,35 +13,26 @@ import { compileOrderBy, compileWhere } from "../src/runtime/query/compile.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 const schemaWithoutMap = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		emailAddress: text().notNull(),
 	}),
 });
 
 const schema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		emailAddress: text().notNull().map("email"),
 		legacyCode: text().map("legacy_user_code"),
 	}),
 
-	posts: table(
-		"posts",
-		{
-			id: id.primary(),
-			authorId: fk("users.id", {
-				as: "author",
-				inverse: "posts",
-			})
-				.notNull()
-				.map("author_ref"),
-			title: text().notNull(),
-		},
-		(t) => ({
-			authorIdx: index().on(t.authorId),
-		}),
-	),
+	posts: table({
+		id: id(),
+		authorId: fk("users").as("author").inverse("posts")
+			.notNull()
+			.map("author_ref"),
+		title: text().notNull(),
+	}, (t) => [index(t.authorId)]),
 });
 
 describe("column map", () => {
@@ -103,8 +94,8 @@ describe("column map", () => {
 
 	it("warns when map matches default snake_case", () => {
 		const redundantSchema = defineSchema({
-			users: table("users", {
-				id: id.primary(),
+			users: table({
+				id: id(),
 				emailVerified: bool()
 					.notNull()
 					.default(false)

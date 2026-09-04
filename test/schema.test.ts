@@ -1,4 +1,3 @@
-import { getManyToManyRegistry } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import {
@@ -12,7 +11,7 @@ import { compile, sqlTag } from "../src/sql/template.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
-	return schemaToManifest(schema, getManyToManyRegistry());
+	return schemaToManifest(schema);
 }
 
 describe("schema", () => {
@@ -24,7 +23,7 @@ describe("schema", () => {
 			"posts",
 			"comments",
 			"tags",
-			"postTags",
+			"posts_tags",
 		]);
 		expect(validateManifest(manifest)).toEqual([]);
 	});

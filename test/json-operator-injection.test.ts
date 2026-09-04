@@ -9,7 +9,7 @@ import { manifestTable } from "./helpers/manifest.js";
 const databaseUrl = process.env.DATABASE_URL;
 
 const schema = defineSchema({
-	users: table("users", {
+	users: table({
 		id: text().primary(),
 		name: text().notNull(),
 		meta: jsonb(),
@@ -66,7 +66,7 @@ describe("json path operator", () => {
 });
 
 describe.skipIf(!databaseUrl)("json path operator injection (integration)", () => {
-	const users = table("jpath_users", {
+	const users = table({
 		id: text().primary(),
 		name: text().notNull(),
 		meta: jsonb(),

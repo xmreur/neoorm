@@ -15,8 +15,8 @@ import { manifestTable } from "./helpers/manifest.js";
 describe("column naming strategies", () => {
 	it("keeps snakeCase as the default SQL naming strategy", () => {
 		const schema = defineSchema({
-			users: table("users", {
-				id: id.primary(),
+			users: table({
+				id: id(),
 				emailAddress: text().notNull(),
 			}),
 		});
@@ -35,14 +35,12 @@ describe("column naming strategies", () => {
 			users: table(
 				"users",
 				{
-					id: id.primary(),
+					id: id(),
 					emailAddress: text().notNull(),
 				},
 				{
 					columnNaming: "camelCase",
-					extras: (t) => ({
-						emailIdx: index().on(t.emailAddress),
-					}),
+					extras: (t) => [index(t.emailAddress)],
 				},
 			),
 		});
@@ -75,14 +73,14 @@ describe("column naming strategies", () => {
 	it("allows a global camelCase default with per-table snakeCase override", () => {
 		const schema = defineSchema(
 			{
-				camelUsers: table("camel_users", {
-					id: id.primary(),
+				camelUsers: table({
+					id: id(),
 					emailAddress: text().notNull(),
 				}),
 				snakeUsers: table(
 					"snake_users",
 					{
-						id: id.primary(),
+						id: id(),
 						emailAddress: text().notNull(),
 					},
 					{ columnNaming: "snakeCase" },
@@ -110,12 +108,9 @@ describe("column naming strategies", () => {
 			users: table(
 				"users",
 				{
-					id: id.primary(),
+					id: id(),
 					emailAddress: text().notNull().map("email"),
-					authorId: fk("users.id", {
-						as: "author",
-						inverse: "posts",
-					}).map("author_ref"),
+					authorId: fk("users.id").as("author").inverse("posts").map("author_ref"),
 				},
 				{ columnNaming: "camelCase" },
 			),
@@ -134,8 +129,8 @@ describe("column naming strategies", () => {
 
 	it("diffs naming strategy changes as column renames", () => {
 		const snakeSchema = defineSchema({
-			users: table("users", {
-				id: id.primary(),
+			users: table({
+				id: id(),
 				emailAddress: text().notNull(),
 			}),
 		});
@@ -143,7 +138,7 @@ describe("column naming strategies", () => {
 			users: table(
 				"users",
 				{
-					id: id.primary(),
+					id: id(),
 					emailAddress: text().notNull(),
 				},
 				{ columnNaming: "camelCase" },
@@ -169,7 +164,7 @@ describe("column naming strategies", () => {
 			users: table(
 				"users",
 				{
-					id: id.primary(),
+					id: id(),
 					emailAddress: text().notNull().map("emailAddress"),
 				},
 				{ columnNaming: "camelCase" },

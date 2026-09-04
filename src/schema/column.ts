@@ -28,11 +28,12 @@ export type ColumnMeta = {
 	defaultNow: boolean;
 	typeOptions?: Record<string, unknown> | undefined;
 	mapName?: string | undefined;
+	checkExpression?: string | undefined;
 };
 
 type UpdatedAtMeta = { updatedAt: true };
 
-export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
+type BaseColumnBuilder<TValue, TMeta extends ColumnMeta> = {
 	readonly _type: TValue;
 	readonly _meta: TMeta;
 	notNull(): ColumnBuilder<
@@ -48,11 +49,6 @@ export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
 		TValue,
 		Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
 	>;
-	defaultNow(): ColumnBuilder<
-		TValue,
-		Omit<TMeta, "defaultNow"> & { defaultNow: true }
-	>;
-	updatedAt(): ColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
 	primary(): ColumnBuilder<
 		TValue,
 		Omit<TMeta, "primary"> & { primary: true }
@@ -60,7 +56,27 @@ export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
 	map(
 		name: string,
 	): ColumnBuilder<TValue, Omit<TMeta, "mapName"> & { mapName: string }>;
+	check(
+		expression: string,
+	): ColumnBuilder<
+		TValue,
+		Omit<TMeta, "checkExpression"> & { checkExpression: string }
+	>;
 };
+
+export type TimestampColumnBuilder<
+	TValue,
+	TMeta extends ColumnMeta = ColumnMeta,
+> = BaseColumnBuilder<TValue, TMeta> & {
+	defaultNow(): ColumnBuilder<
+		TValue,
+		Omit<TMeta, "defaultNow"> & { defaultNow: true }
+	>;
+	updatedAt(): ColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
+};
+
+export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> =
+	BaseColumnBuilder<TValue, TMeta>;
 
 export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 	meta: TMeta,
@@ -109,20 +125,6 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 				"defaultValue"
 			> & { defaultValue: TValue });
 		},
-		defaultNow() {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "defaultNow"> & { defaultNow: true }
-			>({ ...meta, defaultNow: true } as Omit<TMeta, "defaultNow"> & {
-				defaultNow: true;
-			});
-		},
-		updatedAt() {
-			return createColumnBuilder<TValue, TMeta & UpdatedAtMeta>({
-				...meta,
-				updatedAt: true,
-			} as TMeta & UpdatedAtMeta);
-		},
 		primary() {
 			return createColumnBuilder<
 				TValue,
@@ -142,8 +144,75 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 				mapName: string;
 			});
 		},
+		check(expression: string) {
+			return createColumnBuilder<
+				TValue,
+				Omit<TMeta, "checkExpression"> & { checkExpression: string }
+			>({ ...meta, checkExpression: expression } as Omit<
+				TMeta,
+				"checkExpression"
+			> & { checkExpression: string });
+		},
 	};
 	return builder;
+}
+
+export function createTimestampColumnBuilder<
+	TValue,
+	TMeta extends ColumnMeta,
+>(meta: TMeta): TimestampColumnBuilder<TValue, TMeta> {
+	const base = createColumnBuilder<TValue, TMeta>(meta);
+	const builder: TimestampColumnBuilder<TValue, TMeta> = {
+		...base,
+		notNull() {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "nullable"> & { nullable: false }
+			>({ ...meta, nullable: false } as Omit<TMeta, "nullable"> & {
+				nullable: false;
+			});
+		},
+		defaultNow() {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "defaultNow"> & { defaultNow: true }
+			>({ ...meta, defaultNow: true } as Omit<TMeta, "defaultNow"> & {
+				defaultNow: true;
+			});
+		},
+		updatedAt() {
+			return createTimestampColumnBuilder<TValue, TMeta & UpdatedAtMeta>({
+				...meta,
+				updatedAt: true,
+			} as TMeta & UpdatedAtMeta);
+		},
+	};
+	return builder;
+}
+
+export function timestamps() {
+	const createdAt = createTimestampColumnBuilder<
+		Date,
+		ColumnMeta & { nullable: false; defaultNow: true }
+	>({
+		kind: "timestamp",
+		nullable: false,
+		unique: false,
+		primary: false,
+		defaultNow: true,
+	});
+	const updatedAt = createTimestampColumnBuilder<
+		Date,
+		ColumnMeta & { nullable: false; defaultNow: true } & UpdatedAtMeta
+	>({
+		kind: "timestamp",
+		nullable: false,
+		unique: false,
+		primary: false,
+		defaultNow: true,
+		updatedAt: true,
+	});
+	return { createdAt, updatedAt };
 }
 
 export {

@@ -1,4 +1,4 @@
-import { defineSchema, fk, getManyToManyRegistry, id, table, text } from "neoorm/schema";
+import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -13,17 +13,14 @@ import {
 } from "../src/runtime/query/table-index.js";
 
 const schema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		name: text().notNull(),
 	}),
-	posts: table("posts", {
-		id: id.primary(),
+	posts: table({
+		id: id(),
 		title: text().notNull(),
-		authorId: fk("users.id", {
-			as: "author",
-			inverse: "posts",
-		}).notNull(),
+		authorId: fk("users.id").as("author").inverse("posts").notNull(),
 	}),
 });
 
@@ -70,7 +67,7 @@ describe("table index lookups", () => {
 
 	it("caches updatedAt columns and expressions on index", () => {
 		const blogIndex = buildManifestIndex(
-			schemaToManifest(blogSchema, getManyToManyRegistry()),
+			schemaToManifest(blogSchema),
 		);
 		const postsIndex = blogIndex.get("posts")!;
 		const tagsIndex = blogIndex.get("tags")!;
@@ -88,7 +85,7 @@ describe("table index lookups", () => {
 		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
 
 		const blogIndex = buildManifestIndex(
-			schemaToManifest(blogSchema, getManyToManyRegistry()),
+			schemaToManifest(blogSchema),
 		);
 		const postsIndex = blogIndex.get("posts")!;
 		expect(postsIndex.needsRowRename).toBe(true);

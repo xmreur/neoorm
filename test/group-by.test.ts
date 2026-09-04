@@ -9,30 +9,14 @@ import {
 } from "../src/runtime/query/compile.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { groupByRecords } from "../src/runtime/query/group-by.js";
-import {
-	getManyToManyRegistry,
-	manyToMany,
-} from "../src/schema/many-to-many.js";
 import { manifestTable } from "./helpers/manifest.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
-
-function ensureBlogManyToManyRegistry(): void {
-	if (getManyToManyRegistry().length > 0) return;
-	manyToMany(schema.posts, schema.tags, {
-		through: schema.postTags,
-		left: "post",
-		right: "tag",
-		as: "tags",
-		inverse: "posts",
-	});
-}
 
 describe("groupBy SQL", () => {
 	const manifest = schemaToManifest(schema);
 	const posts = manifestTable(manifest, "posts");
 
 	it("builds GROUP BY with having, orderBy, and take", () => {
-		ensureBlogManyToManyRegistry();
 		const having = compileHaving(
 			posts,
 			{ _count: true, _avg: { views: true } },

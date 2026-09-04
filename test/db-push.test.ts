@@ -25,8 +25,8 @@ describe.skipIf(!databaseUrl)("db push integration", () => {
 
 	it("pushes schema to empty database and applies alters on second push", async () => {
 		const schemaV1 = defineSchema({
-			pushTestUsers: table("push_test_users", {
-				id: id.primary(),
+			pushTestUsers: table({
+				id: id(),
 				name: text().notNull(),
 			}),
 		});
@@ -38,8 +38,8 @@ describe.skipIf(!databaseUrl)("db push integration", () => {
 		expect(first.appliedStatements).toBeGreaterThan(0);
 
 		const schemaV2 = defineSchema({
-			pushTestUsers: table("push_test_users", {
-				id: id.primary(),
+			pushTestUsers: table({
+				id: id(),
 				name: text().notNull(),
 				nickname: text(),
 			}),

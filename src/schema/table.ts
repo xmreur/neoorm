@@ -35,6 +35,7 @@ type TableColumnKeys<TColumns extends Record<string, ColumnDef>> = {
 		| "_extras"
 		| "_columnNaming"
 		| "_targetRef"
+		| "_accessor"
 		? never
 		: K;
 }[keyof TColumns & string];
@@ -58,10 +59,16 @@ export type PkColumnName<TColumns> = {
 		: never;
 }[keyof TColumns & string];
 
+export type IndexWherePredicate = Record<
+	string,
+	boolean | number | string | null
+>;
+
 export type IndexDef = {
 	kind: "index";
 	columns: readonly string[];
 	unique: boolean;
+	where?: IndexWherePredicate;
 };
 
 export type PrimaryKeyDef = {
@@ -69,16 +76,15 @@ export type PrimaryKeyDef = {
 	columns: readonly string[];
 };
 
-export type TableExtra = IndexDef | PrimaryKeyDef | ManyToManyExtra;
+export type TableExtra = IndexDef | PrimaryKeyDef | IndexBuilder;
 
 export type ColumnNaming = "snakeCase" | "camelCase";
 
 export type TableOptions<
 	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
-	TExtras extends Record<string, TableExtra> = Record<string, never>,
 > = {
 	columnNaming?: ColumnNaming;
-	extras?: (t: ColumnRefs<TColumns>) => TExtras;
+	extras?: (t: ColumnRefs<TColumns>) => readonly TableExtra[];
 };
 
 export type TableDef<
@@ -87,8 +93,9 @@ export type TableDef<
 	TTargetRef extends string = string,
 > = {
 	readonly _tableName: TName;
+	readonly _accessor?: string;
 	readonly _columns: TColumns;
-	readonly _extras: Record<string, TableExtra>;
+	readonly _extras: readonly TableExtra[];
 	readonly _targetRef: TTargetRef;
 	readonly _columnNaming?: ColumnNaming;
 };
@@ -97,14 +104,28 @@ export type ColumnRefs<TColumns extends Record<string, ColumnDef>> = {
 	readonly [K in keyof TColumns]: K & string;
 };
 
-export function index(): {
-	on(...columns: readonly string[]): IndexDef;
-} {
+export type IndexBuilder = {
+	readonly kind: "index";
+	readonly columns: readonly string[];
+	readonly unique: boolean;
+	where(predicate: IndexWherePredicate): IndexDef;
+};
+
+function createIndexDef(
+	columns: readonly string[],
+	unique: boolean,
+): IndexBuilder {
+	const def: IndexDef = { kind: "index", columns, unique };
 	return {
-		on(...columns: readonly string[]) {
-			return { kind: "index", columns, unique: false };
+		...def,
+		where(predicate: IndexWherePredicate) {
+			return { ...def, where: predicate };
 		},
 	};
+}
+
+export function index(...columns: readonly string[]): IndexBuilder {
+	return createIndexDef(columns, false);
 }
 
 export function unique(...columns: readonly string[]): IndexDef {
@@ -115,35 +136,48 @@ export function primaryKey(...columns: readonly string[]): PrimaryKeyDef {
 	return { kind: "primaryKey", columns };
 }
 
-export function table<
+function isColumnMap(value: unknown): value is Record<string, ColumnDef> {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		!("kind" in value)
+	);
+}
+
+function resolveExtras<TColumns extends Record<string, ColumnDef>>(
+	refs: ColumnRefs<TColumns>,
+	config?:
+		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])
+		| TableOptions<TColumns>,
+): readonly TableExtra[] {
+	if (!config) {
+		return [];
+	}
+	if (typeof config === "function") {
+		return config(refs);
+	}
+	return config.extras ? config.extras(refs) : [];
+}
+
+function buildTableDef<
 	TName extends string,
 	TColumns extends Record<string, ColumnDef>,
-	TExtras extends Record<string, TableExtra> = Record<string, never>,
 >(
-	name: TName,
+	sqlName: TName,
 	columns: TColumns,
-	config?:
-		| ((t: ColumnRefs<TColumns>) => TExtras)
-		| TableOptions<TColumns, TExtras>,
+	extras: readonly TableExtra[],
+	columnNaming?: ColumnNaming,
 ): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
 	TableColumns<TName, TColumns> {
-	const refs = Object.fromEntries(
-		Object.keys(columns).map((k) => [k, k]),
-	) as ColumnRefs<TColumns>;
-
-	const extraBuilder = typeof config === "function" ? config : config?.extras;
-	const extraDefs = extraBuilder ? extraBuilder(refs) : ({} as TExtras);
-
 	const pkColumnName = findPrimaryKeyColumn(columns);
 
 	const def = {
-		_tableName: name,
+		_tableName: sqlName,
 		_columns: columns,
-		_extras: extraDefs,
-		_targetRef: pkColumnName ? `${name}.${pkColumnName}` : `${name}.`,
-		...(typeof config === "object" && config.columnNaming
-			? { _columnNaming: config.columnNaming }
-			: {}),
+		_extras: extras,
+		_targetRef: pkColumnName ? `${sqlName}.${pkColumnName}` : `${sqlName}.`,
+		...(columnNaming ? { _columnNaming: columnNaming } : {}),
 	} as unknown as TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
 		TableColumns<TName, TColumns>;
 
@@ -155,6 +189,63 @@ export function table<
 		`${TName}.${PkColumnName<TColumns>}`
 	> &
 		TableColumns<TName, TColumns>;
+}
+
+export function table<
+	TColumns extends Record<string, ColumnDef>,
+>(
+	columns: TColumns,
+	config?:
+		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])
+		| TableOptions<TColumns>,
+): TableDef<"", TColumns, `.${PkColumnName<TColumns>}`> &
+	TableColumns<"", TColumns>;
+export function table<
+	TName extends string,
+	TColumns extends Record<string, ColumnDef>,
+>(
+	sqlName: TName,
+	columns: TColumns,
+	config?:
+		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])
+		| TableOptions<TColumns>,
+): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
+	TableColumns<TName, TColumns>;
+export function table(
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	first: any,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	second?: any,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	third?: any,
+): TableDef & TableColumns<string, Record<string, ColumnDef>> {
+	if (typeof first === "string" && isColumnMap(second)) {
+		const refs = Object.fromEntries(
+			Object.keys(second).map((k) => [k, k]),
+		) as ColumnRefs<Record<string, ColumnDef>>;
+		const extras = resolveExtras(refs, third);
+		const columnNaming =
+			typeof third === "object" && third !== null && !Array.isArray(third)
+				? third.columnNaming
+				: undefined;
+		return buildTableDef(first, second, extras, columnNaming);
+	}
+
+	if (!isColumnMap(first)) {
+		throw new Error(
+			"table() expects a column map as the first argument, or a SQL name followed by a column map",
+		);
+	}
+
+	const refs = Object.fromEntries(
+		Object.keys(first).map((k) => [k, k]),
+	) as ColumnRefs<Record<string, ColumnDef>>;
+	const extras = resolveExtras(refs, second);
+	const columnNaming =
+		typeof second === "object" && second !== null && !Array.isArray(second)
+			? second.columnNaming
+			: undefined;
+	return buildTableDef("", first, extras, columnNaming);
 }
 
 function findPrimaryKeyColumn(

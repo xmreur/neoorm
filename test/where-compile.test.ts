@@ -1,4 +1,3 @@
-import { getManyToManyRegistry } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -8,7 +7,7 @@ import { compileWhere } from "../src/runtime/query/compile.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
-	return schemaToManifest(schema, getManyToManyRegistry());
+	return schemaToManifest(schema);
 }
 
 describe("where compilation", () => {
@@ -131,7 +130,7 @@ describe("where compilation", () => {
 			postgresDialect,
 		);
 		expect(sql).toContain("EXISTS");
-		expect(sql).toContain('"post_tags"');
+		expect(sql).toContain('"posts_tags"');
 		expect(sql).toContain('"tags"');
 		expect(sql).toContain('"post_id" = "posts"."id"');
 		expect(sql).toContain('"slug" = $1');

@@ -1,4 +1,3 @@
-import { getManyToManyRegistry } from "neoorm/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import { schema } from "../examples/postgis/schema.js";
 import { emitModelsTs } from "../src/codegen/emit-models.js";
@@ -23,11 +22,7 @@ describe("postgis plugin", () => {
 	});
 
 	function postgisManifest() {
-		return schemaToManifest(
-			schema,
-			getManyToManyRegistry(),
-			getPluginRegistry(),
-		);
+		return schemaToManifest(schema, getPluginRegistry());
 	}
 
 	it("converts postgis schema to manifest with extensions", () => {

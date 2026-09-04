@@ -12,7 +12,7 @@ const databaseUrl = process.env.DATABASE_URL;
 describe("bigint column kind", () => {
 	it("builds a BIGINT column that maps to the TS bigint type", () => {
 const schema = defineSchema({
-			users: table("bg_users", {
+			users: table({
 				id: text().primary(),
 				count: bigint().notNull().default(9007199254740993n),
 			}),
@@ -27,8 +27,8 @@ const schema = defineSchema({
 
 	it("serializes bigint values as strings for pg and deserializes back", async () => {
 		const schema = defineSchema({
-			users: table("bg_users", {
-				id: id.primary(),
+			users: table({
+				id: id(),
 				count: bigint().notNull(),
 			}),
 		});
@@ -80,8 +80,8 @@ describe.skipIf(!databaseUrl)("bigint introspection (integration)", () => {
 
 	it("reads and writes bigint values without precision loss", async () => {
 		const schema = defineSchema({
-			users: table("bg_users", {
-				id: id.primary(),
+			users: table({
+				id: id(),
 				count: bigint().notNull(),
 			}),
 		});

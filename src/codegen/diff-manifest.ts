@@ -120,12 +120,13 @@ function indexesEqual(a: ManifestIndex, b: ManifestIndex): boolean {
 	return (
 		a.unique === b.unique &&
 		a.columns.length === b.columns.length &&
-		a.columns.every((col, i) => col === b.columns[i])
+		a.columns.every((col, i) => col === b.columns[i]) &&
+		a.whereSql === b.whereSql
 	);
 }
 
 function indexSignature(index: ManifestIndex): string {
-	return `${index.unique ? "u" : "n"}:${index.columns.join(",")}`;
+	return `${index.unique ? "u" : "n"}:${index.columns.join(",")}:${index.whereSql ?? ""}`;
 }
 
 function diffIndexes(

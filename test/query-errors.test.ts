@@ -9,8 +9,8 @@ import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { runQueryOne } from "../src/runtime/query/execute.js";
 
 const schema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		emailAddress: text().notNull().map("email"),
 		name: text().notNull(),
 	}),

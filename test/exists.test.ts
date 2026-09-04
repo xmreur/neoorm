@@ -3,11 +3,10 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { existsRecords } from "../src/runtime/query/count.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { getManyToManyRegistry } from "../src/schema/many-to-many.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
 describe("exists", () => {
-	const manifest = schemaToManifest(schema, getManyToManyRegistry());
+	const manifest = schemaToManifest(schema);
 	const runtime: QueryRuntime = { manifest };
 
 	it("returns true when a row matches", async () => {

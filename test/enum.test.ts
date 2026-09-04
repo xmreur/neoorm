@@ -21,7 +21,7 @@ function requirePostsTable(manifest: Manifest): ManifestTable {
 }
 
 const schema = defineSchema({
-	posts: table("posts", {
+	posts: table({
 		id: text().notNull().primary(),
 		status: enumType(["draft", "published"] as const)
 			.notNull()
@@ -57,7 +57,7 @@ describe("enumType column", () => {
 	});
 
 	it("supports union mode without DB check", () => {
-		const manifest = schemaToManifest(schema, undefined, undefined, {
+		const manifest = schemaToManifest(schema, undefined, {
 			enumMode: "union",
 		});
 		const posts = requirePostsTable(manifest);
@@ -71,7 +71,7 @@ describe("enumType column", () => {
 	});
 
 	it("supports native postgres enum mode", () => {
-		const manifest = schemaToManifest(schema, undefined, undefined, {
+		const manifest = schemaToManifest(schema, undefined, {
 			enumMode: "native",
 		});
 		const posts = requirePostsTable(manifest);
@@ -93,7 +93,7 @@ describe("enumType column", () => {
 	});
 
 	it("emits CREATE TYPE in initial migration for native enums", () => {
-		const manifest = schemaToManifest(schema, undefined, undefined, {
+		const manifest = schemaToManifest(schema, undefined, {
 			enumMode: "native",
 		});
 		const diff = diffManifest(null, manifest);
@@ -103,11 +103,11 @@ describe("enumType column", () => {
 	});
 
 	it("flags enum value changes as manual migrations", () => {
-		const prev = schemaToManifest(schema, undefined, undefined, {
+		const prev = schemaToManifest(schema, undefined, {
 			enumMode: "native",
 		});
 		const nextSchema = defineSchema({
-			posts: table("posts", {
+			posts: table({
 				id: text().notNull().primary(),
 				status: enumType([
 					"draft",
@@ -116,7 +116,7 @@ describe("enumType column", () => {
 				] as const).notNull(),
 			}),
 		});
-		const next = schemaToManifest(nextSchema, undefined, undefined, {
+		const next = schemaToManifest(nextSchema, undefined, {
 			enumMode: "native",
 		});
 		const diff = diffManifest(prev, next);

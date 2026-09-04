@@ -8,11 +8,10 @@ import {
 	FIND_OR_CREATE_FLAG,
 } from "../src/runtime/query/compile.js";
 import { assertUniqueWhere } from "../src/runtime/query/unique.js";
-import { getManyToManyRegistry } from "../src/schema/many-to-many.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 describe("findOrCreate SQL", () => {
-	const manifest = schemaToManifest(schema, getManyToManyRegistry());
+	const manifest = schemaToManifest(schema);
 	const tags = manifestTable(manifest, "tags");
 
 	it("builds CTE with ON CONFLICT DO NOTHING and created flag", () => {

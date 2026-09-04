@@ -2,14 +2,15 @@ import type { ColumnBuilder } from "./column.js";
 import type { FkBuilder } from "./relation.js";
 import type { ColumnDef, ScalarColumnKeys, TableDef } from "./table.js";
 
-type SchemaAccessorForSql<
-	TSchema extends Record<string, TableDef>,
-	TSql extends string,
-> = {
-	[K in keyof TSchema & string]: TSchema[K]["_tableName"] extends TSql
-		? K
+type PkColumnOf<TColumns extends Record<string, ColumnDef>> = {
+	[K in keyof TColumns]: TColumns[K] extends ColumnBuilder<unknown, infer M>
+		? M extends { primary: true }
+			? K
+			: M extends { kind: "id" }
+				? K
+				: never
 		: never;
-}[keyof TSchema & string];
+}[keyof TColumns & string];
 
 type ScalarValueOf<C> =
 	C extends ColumnBuilder<infer V, infer M>
@@ -21,14 +22,18 @@ type ScalarValueOf<C> =
 type FkTargetValue<
 	TSchema extends Record<string, TableDef>,
 	TTarget extends string,
-> = TTarget extends `${infer Sql}.${infer Col}`
-	? SchemaAccessorForSql<TSchema, Sql> extends infer Acc extends
-			keyof TSchema & string
+> = TTarget extends `${infer Acc}.${infer Col}`
+	? Acc extends keyof TSchema & string
 		? Col extends keyof TSchema[Acc]["_columns"]
 			? ScalarValueOf<TSchema[Acc]["_columns"][Col]>
 			: never
 		: never
-	: never;
+	: TTarget extends keyof TSchema & string
+		? PkColumnOf<TSchema[TTarget]["_columns"]> extends infer PK extends
+				keyof TSchema[TTarget]["_columns"] & string
+			? ScalarValueOf<TSchema[TTarget]["_columns"][PK]>
+			: never
+		: never;
 
 type InferFkValue<
 	T extends FkBuilder,

@@ -8,14 +8,14 @@ import { createNeoOrmClientFromSqlite } from "../src/runtime/client.js";
 import { sqliteClient, type SqliteDatabaseLike } from "../src/runtime/driver.js";
 
 const schema = defineSchema({
-	users: table("users", {
+	users: table({
 		id: text().primary(),
 		email: text().notNull(),
 	}),
-	logs: table("logs", {
+	logs: table({
 		id: text().primary(),
 		msg: text().notNull(),
-		userId: fk("users.id", { as: "user", inverse: "logs" }),
+		userId: fk("users.id").as("user").inverse("logs"),
 	}),
 });
 

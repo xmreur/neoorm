@@ -6,30 +6,14 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
-import {
-	getManyToManyRegistry,
-	manyToMany,
-} from "../src/schema/many-to-many.js";
 import { defined } from "./helpers/manifest.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
-
-function ensureBlogManyToManyRegistry(): void {
-	if (getManyToManyRegistry().length > 0) return;
-	manyToMany(schema.posts, schema.tags, {
-		through: schema.postTags,
-		left: "post",
-		right: "tag",
-		as: "tags",
-		inverse: "posts",
-	});
-}
 
 describe.skipIf(!DATABASE_URL)("integration", () => {
 	let pool: Pool;
 
 	beforeAll(async () => {
-		ensureBlogManyToManyRegistry();
 		pool = new Pool({ connectionString: DATABASE_URL });
 		const manifest = schemaToManifest(schema);
 

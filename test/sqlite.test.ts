@@ -24,55 +24,42 @@ import {
 	table,
 	text,
 } from "../src/schema/index.js";
-import { getManyToManyRegistry } from "../src/schema/many-to-many.js";
 import type { InferSelectRow } from "../src/schema/types.js";
 
 const schema = defineSchema({
-	users: table("users", {
+	users: table({
 		id: serial().primary(),
 		email: text().unique(),
 		name: text().notNull(),
 		age: int(),
 		active: int().default(1),
 	}),
-	posts: table(
+		posts: table(
 		"posts",
 		{
 			id: serial().primary(),
 			title: text().notNull(),
-			authorId: fk("users.id", { as: "author", inverse: "posts" }),
+			authorId: fk("users.id").as("author").inverse("posts"),
+			tags: manyToMany("tags", { through: "posts_tags" }),
 		},
-		(t) => ({ titleIdx: index().on(t.title) }),
+		(t) => [index(t.title)],
 	),
-	tags: table("tags", {
+	tags: table({
 		id: serial().primary(),
 		slug: text().notNull(),
 	}),
-	postTags: table(
+	posts_tags: table(
 		"post_tags",
 		{
-			postId: fk("posts.id", {
-				as: "post",
-				inverse: "postTags",
-			}).notNull(),
-			tagId: fk("tags.id", {
-				as: "tag",
-				inverse: "postTags",
-			}).notNull(),
+			postId: fk("posts.id").as("post").inverse("posts_tags").notNull(),
+			tagId: fk("tags.id").as("tag").inverse("posts_tags").notNull(),
 		},
-		(t) => ({ pk: primaryKey(t.postId, t.tagId) }),
+		(t) => [primaryKey(t.postId, t.tagId)],
 	),
 });
 
-manyToMany(schema.posts, schema.tags, {
-	through: schema.postTags,
-	left: "post",
-	right: "tag",
-	as: "tags",
-	inverse: "posts",
-});
 
-const manifest = schemaToManifest(schema, getManyToManyRegistry());
+const manifest = schemaToManifest(schema);
 
 type TestTables = (typeof schema)["_tables"];
 type TestWith = { [K in keyof TestTables & string]: Record<string, any> };

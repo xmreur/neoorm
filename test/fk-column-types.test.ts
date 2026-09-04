@@ -11,17 +11,17 @@ import {
 import type { CreateInput, InferSelectRow } from "../src/schema/types.js";
 
 const schema = defineSchema({
-	items: table("items", {
+	items: table({
 		id: serial().primary(),
 	}),
-	users: table("users", {
+	users: table({
 		id: uuid().primary(),
 	}),
-	orders: table("orders", {
+	orders: table({
 		id: serial().primary(),
 		itemId: fk("items.id").notNull(),
 		optionalItemId: fk("items.id"),
-		userId: fk("users.id").notNull(),
+		userId: fk("users").notNull(),
 	}),
 });
 

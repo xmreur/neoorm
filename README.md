@@ -69,7 +69,7 @@ const posts = await db.posts.findMany({
 
 <table>
   <tr>
-    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Tables, columns, foreign keys, indexes, enums, composite keys, many-to-many — all in TypeScript. `fk(table)`/`fk(table.col)` refs, inferred relation names, inline index & composite PKs.</td>
+    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Accessor-based tables (`table({…})`), fluent FKs (`fk("users").inverse("posts")`), `id()`, `timestamps()`, array extras, virtual M2M, checks, and partial indexes.</td>
     <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL.</td>
   </tr>
   <tr>

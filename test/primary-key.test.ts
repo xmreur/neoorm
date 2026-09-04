@@ -23,17 +23,14 @@ import { createMockExecutor } from "./helpers/mock-executor.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 const mappedPkSchema = defineSchema({
-	users: table("users", {
-		id: id.primary().map("user_id"),
+	users: table({
+		id: id().map("user_id"),
 		email: text().notNull(),
 	}),
 
-	posts: table("posts", {
-		id: id.primary(),
-		authorId: fk("users.id", {
-			as: "author",
-			inverse: "posts",
-		}).notNull(),
+	posts: table({
+		id: id(),
+		authorId: fk("users.id").as("author").inverse("posts").notNull(),
 		title: text().notNull(),
 	}),
 });
@@ -46,9 +43,7 @@ const compositePkSchema = defineSchema({
 			itemCode: text().notNull(),
 			name: text().notNull(),
 		},
-		(t) => ({
-			pk: primaryKey(t.tenantId, t.itemCode),
-		}),
+		(t) => [primaryKey(t.tenantId, t.itemCode)],
 	),
 });
 
@@ -225,16 +220,13 @@ describe("manifest-driven primary keys", () => {
 
 	it("uses target PK sql column in inverse-many connect SQL", async () => {
 		const childMappedSchema = defineSchema({
-			teams: table("teams", {
-				id: id.primary(),
+			teams: table({
+				id: id(),
 				name: text().notNull(),
 			}),
-			members: table("members", {
-				id: id.primary().map("member_id"),
-				teamId: fk("teams.id", {
-					as: "team",
-					inverse: "members",
-				}),
+			members: table({
+				id: id().map("member_id"),
+				teamId: fk("teams.id").as("team").inverse("members"),
 				name: text().notNull(),
 			}),
 		});
@@ -268,7 +260,7 @@ describe("manifest-driven primary keys", () => {
 describe("primary key validation", () => {
 	it("rejects schemas where a table has no primary key", () => {
 		const invalid = defineSchema({
-			members: table("members", {
+			members: table({
 				role: text().notNull(),
 			}),
 		});

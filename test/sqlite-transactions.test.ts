@@ -8,7 +8,7 @@ import { createNeoOrmClientFromSqlite } from "../src/runtime/client.js";
 import { sqliteClient, type SqliteDatabaseLike } from "../src/runtime/driver.js";
 
 const schema = defineSchema({
-	items: table("items", {
+	items: table({
 		id: text().primary(),
 		n: int().notNull(),
 	}),

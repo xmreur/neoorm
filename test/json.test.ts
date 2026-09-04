@@ -24,7 +24,7 @@ function requirePostsTable(manifest: Manifest): ManifestTable {
 }
 
 const schema = defineSchema({
-	posts: table("posts", {
+	posts: table({
 		id: text().notNull().primary(),
 		metadata: jsonb().notNull(),
 		payload: json(),

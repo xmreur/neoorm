@@ -1,4 +1,3 @@
-import { getManyToManyRegistry } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -17,7 +16,7 @@ import {
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
-	return schemaToManifest(schema, getManyToManyRegistry());
+	return schemaToManifest(schema);
 }
 
 describe("cursor pagination", () => {
@@ -163,9 +162,9 @@ describe("cursor pagination", () => {
 
 	it("rejects composite primary key tables", () => {
 		const manifest = blogManifest();
-		const postTags = manifestTable(manifest, "postTags");
+		const posts_tags = manifestTable(manifest, "posts_tags");
 		expect(() =>
-			resolveOrderSpec(postTags, { assignedAt: "desc" }),
+			resolveOrderSpec(posts_tags, { assignedAt: "desc" }),
 		).toThrow(/single-column primary key/);
 	});
 

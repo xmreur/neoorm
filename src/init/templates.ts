@@ -33,30 +33,28 @@ export function schemaTemplate(): string {
   table,
   id,
   text,
-  timestamp,
   fk,
   manyToMany,
+  timestamps,
 } from "neoorm/schema";
 
 export const schema = defineSchema({
-  users: table("users", {
-    id: id.primary(),
+  users: table({
+    id: id(),
     email: text().notNull().unique(),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+    ...timestamps(),
   }),
 
-  posts: table("posts", {
-    id: id.primary(),
-    authorId: fk("users.id").notNull().index(),
+  posts: table({
+    id: id(),
+    authorId: fk("users").notNull().index(),
     title: text().notNull(),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow().updatedAt(),
-    tags: manyToMany("tags"), // virtual column -> auto-junction _posts_tags
+    ...timestamps(),
+    tags: manyToMany("tags"),
   }),
 
-  tags: table("tags", {
-    id: id.primary(),
+  tags: table({
+    id: id(),
     name: text().notNull(),
   }),
 });

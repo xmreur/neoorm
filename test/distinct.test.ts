@@ -5,22 +5,7 @@ import type { Executor } from "../src/runtime/executor.js";
 import { buildFindManyQuery } from "../src/runtime/query/compile.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findMany } from "../src/runtime/query/find.js";
-import {
-	getManyToManyRegistry,
-	manyToMany,
-} from "../src/schema/many-to-many.js";
 import { manifestTable } from "./helpers/manifest.js";
-
-function ensureBlogManyToManyRegistry(): void {
-	if (getManyToManyRegistry().length > 0) return;
-	manyToMany(schema.posts, schema.tags, {
-		through: schema.postTags,
-		left: "post",
-		right: "tag",
-		as: "tags",
-		inverse: "posts",
-	});
-}
 
 describe("distinct findMany", () => {
 	const manifest = schemaToManifest(schema);
@@ -41,7 +26,6 @@ describe("distinct findMany", () => {
 	});
 
 	it("rejects distinct without matching orderBy prefix", async () => {
-		ensureBlogManyToManyRegistry();
 		const runtime: QueryRuntime = { manifest };
 		const executor: Executor = {
 			inTransaction: false,

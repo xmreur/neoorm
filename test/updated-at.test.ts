@@ -1,10 +1,5 @@
-import {
-	defineSchema,
-	getManyToManyRegistry,
-	table,
-	text,
-	timestamp,
-} from "neoorm/schema";
+import { createColumnBuilder } from "../src/schema/column.js";
+import { defineSchema, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -20,7 +15,7 @@ import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
-	return schemaToManifest(schema, getManyToManyRegistry());
+	return schemaToManifest(schema);
 }
 
 describe("updatedAt", () => {
@@ -74,8 +69,15 @@ describe("updatedAt", () => {
 
 	it("rejects updatedAt on non-temporal columns", () => {
 		const invalid = defineSchema({
-			items: table("items", {
-				name: text().updatedAt(),
+			items: table({
+				name: createColumnBuilder<string | null, { kind: "text"; nullable: true; unique: false; primary: false; defaultNow: false; updatedAt: true }>({
+					kind: "text",
+					nullable: true,
+					unique: false,
+					primary: false,
+					defaultNow: false,
+					updatedAt: true,
+				}),
 			}),
 		});
 

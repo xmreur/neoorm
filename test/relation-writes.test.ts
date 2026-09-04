@@ -10,22 +10,7 @@ import {
 	hasPostRelationWrites,
 	splitScalarsAndRelationWrites,
 } from "../src/runtime/query/relation-writes.js";
-import {
-	getManyToManyRegistry,
-	manyToMany,
-} from "../src/schema/many-to-many.js";
 import { manifestTable } from "./helpers/manifest.js";
-
-function ensureBlogManyToManyRegistry(): void {
-	if (getManyToManyRegistry().length > 0) return;
-	manyToMany(schema.posts, schema.tags, {
-		through: schema.postTags,
-		left: "post",
-		right: "tag",
-		as: "tags",
-		inverse: "posts",
-	});
-}
 
 function createMockExecutor(): Executor & {
 	queries: { sql: string; params: unknown[] }[];
@@ -63,7 +48,6 @@ describe("relation-writes", () => {
 	let runtime: QueryRuntime;
 
 	beforeAll(() => {
-		ensureBlogManyToManyRegistry();
 		manifest = schemaToManifest(schema);
 		runtime = { manifest };
 	});
@@ -243,7 +227,7 @@ describe("relation-writes", () => {
 			q.sql.startsWith("DELETE"),
 		);
 		expect(deleteQueries).toHaveLength(2);
-		expect(deleteQueries[0]?.sql).toContain("post_tags");
+		expect(deleteQueries[0]?.sql).toContain("posts_tags");
 		expect(deleteQueries[1]?.sql).toContain("tags");
 		expect(deleteQueries[1]?.params).toEqual(["tag_1"]);
 	});
@@ -268,7 +252,7 @@ describe("relation-writes", () => {
 		const deleteQuery = executor.queries.find((q) =>
 			q.sql.startsWith("DELETE"),
 		);
-		expect(deleteQuery?.sql).toContain("post_tags");
+		expect(deleteQuery?.sql).toContain("posts_tags");
 		expect(
 			executor.queries.filter((q) => q.sql.includes("INSERT")).length,
 		).toBe(2);

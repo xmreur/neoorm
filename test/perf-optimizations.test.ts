@@ -1,11 +1,4 @@
-import {
-	defineSchema,
-	fk,
-	getManyToManyRegistry,
-	id,
-	table,
-	text,
-} from "neoorm/schema";
+import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -30,17 +23,14 @@ import {
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
 const schema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		name: text().notNull(),
 	}),
-	posts: table("posts", {
-		id: id.primary(),
+	posts: table({
+		id: id(),
 		title: text().notNull(),
-		authorId: fk("users.id", {
-			as: "author",
-			inverse: "posts",
-		}).notNull(),
+		authorId: fk("users.id").as("author").inverse("posts").notNull(),
 	}),
 });
 
@@ -231,7 +221,7 @@ describe("read path optimizations", () => {
 
 	it("findAll SQL aliases renamed columns to ts names", () => {
 		const blogIndex = buildManifestIndex(
-			schemaToManifest(blogSchema, getManyToManyRegistry()),
+			schemaToManifest(blogSchema),
 		);
 		const usersIndex = blogIndex.get("users")!;
 		expect(usersIndex.findAllSql).toContain('AS "createdAt"');
@@ -309,18 +299,15 @@ describe("read path optimizations", () => {
 	it("findMany with simple has-many uses JOIN aggregate (benchmark shape)", async () => {
 		const benchmarkSchema = defineSchema(
 			{
-				customers: table("Customer", {
-					id: id.primary(),
+				customers: table({
+					id: id(),
 					name: text().notNull(),
 					email: text().notNull(),
 				}),
-				orders: table("Order", {
-					id: id.primary(),
+				orders: table({
+					id: id(),
 					totalAmount: text().notNull().map("totalAmount"),
-					customerId: fk("customers.id", {
-						as: "customer",
-						inverse: "orders",
-					})
+					customerId: fk("customers.id").as("customer").inverse("orders")
 						.notNull()
 						.map("customerId"),
 				}),
@@ -350,7 +337,7 @@ describe("read path optimizations", () => {
 		});
 
 		const sql = executor.queries[0]?.sql ?? "";
-		expect(sql).toContain('LEFT JOIN "Order" AS "_hm_orders"');
+		expect(sql).toContain('LEFT JOIN "orders" AS "_hm_orders"');
 		expect(sql).toContain("GROUP BY");
 		expect(sql).toContain("json_agg");
 		expect(sql).not.toMatch(

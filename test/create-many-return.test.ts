@@ -35,7 +35,7 @@ function createMockExecutor(
 }
 
 const serialSchema = defineSchema({
-	logs: table("logs", {
+	logs: table({
 		id: serial().primary(),
 		message: text().notNull(),
 	}),

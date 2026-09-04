@@ -3,7 +3,12 @@ export type {
 	EnumTypeOptions,
 	UuidOptions,
 } from "../plugins/builtin.js";
-export type { ColumnBuilder, ColumnKind, ColumnMeta } from "./column.js";
+export type {
+	ColumnBuilder,
+	ColumnKind,
+	ColumnMeta,
+	TimestampColumnBuilder,
+} from "./column.js";
 export {
 	bigint,
 	bool,
@@ -21,25 +26,20 @@ export {
 	text,
 	textArray,
 	timestamp,
+	timestamps,
 	uuid,
 } from "./column.js";
 export type { SchemaDef, SchemaOptions } from "./define-schema.js";
 export { defineSchema } from "./define-schema.js";
 export type {
 	InlineManyToManyOptions,
-	ManyToManyDef,
 	ManyToManyExtra,
 } from "./many-to-many.js";
-export {
-	clearManyToManyRegistry,
-	getManyToManyRegistry,
-	manyToMany,
-} from "./many-to-many.js";
+export { manyToMany } from "./many-to-many.js";
 export { clearTableRegistry } from "./table-registry.js";
 export type {
 	FkBuilder,
 	FkMeta,
-	FkOptions,
 	OnDeleteAction,
 } from "./relation.js";
 export { fk } from "./relation.js";
@@ -63,6 +63,7 @@ export type {
 	ColumnNaming,
 	ColumnRefs,
 	IndexDef,
+	IndexWherePredicate,
 	PrimaryKeyDef,
 	ScalarColumnKeys,
 	TableDef,

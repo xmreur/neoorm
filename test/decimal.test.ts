@@ -20,7 +20,7 @@ function requireProductsTable(manifest: Manifest): ManifestTable {
 }
 
 const schema = defineSchema({
-	products: table("products", {
+	products: table({
 		id: text().notNull().primary(),
 		price: decimal({ precision: 10, scale: 2 }).notNull().default("0.00"),
 		weight: numeric({ precision: 8, scale: 3 }),

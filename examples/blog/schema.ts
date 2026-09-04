@@ -11,88 +11,60 @@ import {
 	table,
 	text,
 	timestamp,
+	timestamps,
 	uuid,
 } from "neoorm/schema";
 
 export const schema = defineSchema({
-	users: table("users", {
+	users: table({
 		id: uuid().primary(),
 		email: text().notNull().unique(),
 		name: text(),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+		...timestamps(),
 	}),
 
-	profiles: table("profiles", {
-		id: id.primary(),
-		// `as`/`inverse` can be overridden; `unique` makes it a to-one relation.
-		userId: fk("users.id", {
-			inverse: "profile",
-			unique: true,
-			onDelete: "cascade",
-		}).notNull(),
+	profiles: table({
+		id: id(),
+		userId: fk("users")
+			.notNull()
+			.unique()
+			.onDelete("cascade")
+			.inverse("profile"),
 		bio: text(),
 		avatarUrl: text(),
 	}),
 
-	posts: table("posts", {
-		id: id.primary(),
-		// `.index()` on a column is shorthand for a single-column index.
-		authorId: fk("users.id", {
-			inverse: "posts",
-			onDelete: "restrict",
-		})
+	posts: table({
+		id: id(),
+		authorId: fk("users")
 			.notNull()
-			.index(),
+			.index()
+			.onDelete("restrict")
+			.inverse("posts"),
 		title: text().notNull(),
 		body: text().notNull(),
 		published: bool().notNull().default(false),
 		views: int().notNull().default(0),
-		status: enumType(["draft", "published", "archived"] as const)
+		status: enumType(["draft", "published", "archived"])
 			.notNull()
 			.default("draft"),
 		metadata: jsonb<Record<string, unknown>>(),
 		price: decimal({ precision: 10, scale: 2 }),
-		createdAt: timestamp().notNull().defaultNow(),
-		updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+		...timestamps(),
+		tags: manyToMany("tags"),
 	}),
 
-	comments: table("comments", {
-		id: id.primary(),
-		postId: fk("posts.id", {
-			inverse: "comments",
-			onDelete: "cascade",
-		}).notNull(),
-		authorId: fk("users.id", {
-			inverse: "comments",
-		}).notNull(),
+	comments: table({
+		id: id(),
+		postId: fk("posts").notNull().onDelete("cascade").inverse("comments"),
+		authorId: fk("users").notNull(),
 		body: text().notNull(),
-		createdAt: timestamp().notNull().defaultNow(),
+		createdAt: timestamps().createdAt,
 	}),
 
-	tags: table("tags", {
-		id: id.primary(),
+	tags: table({
+		id: id(),
 		slug: text().notNull().unique(),
 		name: text().notNull(),
 	}),
-
-	postTags: table("post_tags", {
-		// Composite primary key inline via `.primary()` on the FK columns.
-		postId: fk("posts.id", {
-			inverse: "postTags",
-		}).primary(),
-		tagId: fk("tags.id", {
-			inverse: "postTags",
-		}).primary(),
-		assignedBy: text(),
-		assignedAt: timestamp().notNull().defaultNow(),
-	}),
-});
-
-manyToMany(schema.posts, schema.tags, {
-	through: schema.postTags,
-	left: "post",
-	right: "tag",
-	as: "tags",
-	inverse: "posts",
 });

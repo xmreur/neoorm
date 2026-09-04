@@ -37,10 +37,10 @@ function createMockExecutor(): Executor & {
 describe("find FK grouping", () => {
 	it("groups rows by a mapped FK column name", async () => {
 		const schema = defineSchema({
-			users: table("users", { id: id.primary() }),
-			posts: table("posts", {
-				id: id.primary(),
-				ownerId: fk("users.id", { as: "owner", inverse: "posts" }).map(
+			users: table({ id: id() }),
+			posts: table({
+				id: id(),
+				ownerId: fk("users.id").as("owner").inverse("posts").map(
 					"owner_ref",
 				),
 			}),
@@ -80,10 +80,10 @@ describe("find FK grouping", () => {
 
 	it("groups rows by a non-standard snake_case FK name that does not round-trip through camelCase", async () => {
 		const schema = defineSchema({
-			users: table("users", { id: id.primary() }),
-			posts: table("posts", {
-				id: id.primary(),
-				ownerId: fk("users.id", { as: "owner", inverse: "posts" }).map(
+			users: table({ id: id() }),
+			posts: table({
+				id: id(),
+				ownerId: fk("users.id").as("owner").inverse("posts").map(
 					"owner_ref_id",
 				),
 			}),
@@ -120,15 +120,12 @@ describe("find FK grouping", () => {
 
 	it("groups rows under a camelCase naming strategy with a custom mapped FK", async () => {
 		const schema = defineSchema({
-			users: table("users", { id: id.primary() }),
+			users: table({ id: id() }),
 			posts: table(
 				"posts",
 				{
-					id: id.primary(),
-					ownerId: fk("users.id", {
-						as: "owner",
-						inverse: "posts",
-					}).map("ownerRef"),
+					id: id(),
+					ownerId: fk("users.id").as("owner").inverse("posts").map("ownerRef"),
 				},
 				{ columnNaming: "camelCase" },
 			),
