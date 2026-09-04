@@ -592,6 +592,12 @@ type SelectKeys<S> = S extends readonly (infer K extends PropertyKey)[]
 		? { [K in keyof S]: S[K] extends true ? K : never }[keyof S]
 		: never;
 
+/** Keys removed by `strip()` — schema `.hidden()` columns plus optional extra omit. */
+export type StripOmitKeys<
+	TColumns extends Record<string, ColumnDef>,
+	O = undefined,
+> = HiddenKeys<TColumns> | (O extends undefined ? never : SelectKeys<O>);
+
 export type ApplySelect<Row extends Record<string, unknown>, S> = Pick<
 	Row,
 	SelectKeys<S> & keyof Row
@@ -601,6 +607,29 @@ export type ApplyOmit<Row extends Record<string, unknown>, O> = Omit<
 	Row,
 	SelectKeys<O> & keyof Row
 >;
+
+/** Column names marked `.hidden()` in the schema. */
+export type HiddenKeys<TColumns extends Record<string, ColumnDef>> = {
+	[K in ScalarColumnKeys<TColumns>]: TColumns[K] extends {
+		readonly _meta: infer M;
+	}
+		? M extends { hidden: true }
+			? K
+			: never
+		: never;
+}[ScalarColumnKeys<TColumns>];
+
+/** Result of `strip()` — removes hidden and extra omitted keys; preserves null/undefined and maps arrays. */
+export type StripResult<
+	T,
+	Keys extends PropertyKey = never,
+> = T extends null | undefined
+	? T
+	: T extends readonly (infer Item extends Record<string, unknown>)[]
+		? Array<StripResult<Item, Keys>>
+		: T extends Record<string, unknown>
+			? Omit<T, Keys>
+			: T;
 
 type RelationTargetModel<
 	TSchema extends Record<string, TableDef>,

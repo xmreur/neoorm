@@ -203,6 +203,9 @@ function columnToManifest(
 		if (meta.onDelete !== undefined) {
 			result.onDelete = meta.onDelete;
 		}
+		if (meta.hidden === true) {
+			result.hidden = true;
+		}
 		return result;
 	}
 
@@ -239,6 +242,9 @@ function columnToManifest(
 	}
 	if (meta.kind === "serial") {
 		result.generated = true;
+	}
+	if (meta.hidden === true) {
+		result.hidden = true;
 	}
 	return result;
 }

@@ -26,6 +26,8 @@ import type {
 	PaginateResult,
 	ScalarPkName,
 	SelectInput,
+	StripOmitKeys,
+	StripResult,
 	UpdateArgs,
 	UpdateInput,
 	UpdateManyAndReturnArgs,
@@ -334,6 +336,18 @@ export type TypedTableRepository<
 				ScalarPkName<TSchema[TAccessor]["_columns"]>
 			>
 		>
+	>;
+	strip<
+		T extends TRowPayload | TRowPayload[] | null | undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+	>(
+		row: T,
+		omit?: O,
+	): StripResult<
+		T,
+		StripOmitKeys<TSchema[TAccessor]["_columns"], O>
 	>;
 };
 

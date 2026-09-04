@@ -330,6 +330,30 @@ const users = await db.users.findMany({
 // users[0].posts[0].title is string; .body is excluded from the type
 ```
 
+### API responses (`strip`)
+
+Use query `omit` when you do not want a column fetched from the database. Use `strip` when you need the full row internally (for example login) but want a safe object for the response.
+
+Mark sensitive columns in the schema with `.hidden()`:
+
+```ts
+password: text().notNull().hidden(),
+```
+
+Then strip before returning:
+
+```ts
+const user = await db.users.findById(id);
+if (!user) return null;
+return db.users.strip(user);
+// hidden fields removed; nested `with` relations stripped too
+
+return db.users.strip(users); // arrays
+return db.users.strip(user, { token: true }); // hidden + extra keys
+```
+
+`null` and `undefined` pass through unchanged.
+
 ## Cursor pagination
 
 For feeds, infinite scroll, and large tables, use `paginate` instead of `take`/`skip`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker.

@@ -23,6 +23,7 @@ export type ColumnMeta = {
 	unique: boolean;
 	primary: boolean;
 	index?: boolean | undefined;
+	hidden?: boolean | undefined;
 	defaultValue?: unknown;
 	defaultNow: boolean;
 	typeOptions?: Record<string, unknown> | undefined;
@@ -40,6 +41,7 @@ export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> = {
 	>;
 	unique(): ColumnBuilder<TValue, Omit<TMeta, "unique"> & { unique: true }>;
 	index(): ColumnBuilder<TValue, Omit<TMeta, "index"> & { index: true }>;
+	hidden(): ColumnBuilder<TValue, Omit<TMeta, "hidden"> & { hidden: true }>;
 	default(
 		value: TValue,
 	): ColumnBuilder<
@@ -88,6 +90,14 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 				Omit<TMeta, "index"> & { index: true }
 			>({ ...meta, index: true } as Omit<TMeta, "index"> & {
 				index: true;
+			});
+		},
+		hidden() {
+			return createColumnBuilder<
+				TValue,
+				Omit<TMeta, "hidden"> & { hidden: true }
+			>({ ...meta, hidden: true } as Omit<TMeta, "hidden"> & {
+				hidden: true;
 			});
 		},
 		default(value: TValue) {
