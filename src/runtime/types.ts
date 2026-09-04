@@ -36,6 +36,27 @@ import type {
 	WithInputMap,
 } from "../schema/types.js";
 
+type StripSelectKeys<O> = O extends readonly (infer K extends PropertyKey)[]
+	? K
+	: O extends Record<string, unknown>
+		? { [K in keyof O]: O[K] extends true ? K : never }[keyof O]
+		: never;
+
+/** Row payload with `.strip()` for generated `*Payload` types. */
+export type StripCapablePayload<
+	TRow extends Record<string, unknown>,
+	THidden extends keyof TRow & string = never,
+> = TRow & {
+	strip<
+		const O extends
+			| readonly (keyof TRow & string)[]
+			| Partial<Record<keyof TRow & string, true>>
+			| undefined = undefined,
+	>(
+		omit?: O,
+	): Omit<TRow, THidden | StripSelectKeys<O>>;
+};
+
 /** Cursor fields derived from row payload types (matches generated models at runtime). */
 export type PaginateCursor<
 	TRowPayload extends Record<string, unknown>,

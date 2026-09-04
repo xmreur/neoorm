@@ -279,7 +279,11 @@ export async function writeGeneratedFiles(
 		emitIncludesTs(manifest),
 		"utf-8",
 	);
-	await writeFile(join(outDir, "models.ts"), emitModelsTs(manifest), "utf-8");
+	await writeFile(
+		join(outDir, "models.ts"),
+		emitModelsTs(manifest, NEOORM_PACKAGE),
+		"utf-8",
+	);
 	await writeFile(
 		join(outDir, "client.ts"),
 		emitClientTs(schemaImportPath(outDir, schemaPath), NEOORM_PACKAGE),

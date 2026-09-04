@@ -64,6 +64,7 @@ export type {
 	TypedNeoOrmClient,
 	TypedTableRepository,
 } from "./runtime/client.js";
+export type { StripCapablePayload } from "./runtime/types.js";
 export {
 	createNeoOrmClient,
 	createNeoOrmClientFromPool,
