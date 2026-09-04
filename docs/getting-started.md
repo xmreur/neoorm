@@ -61,6 +61,8 @@ export const schema = defineSchema({
 
 See [Schema DSL](schema.md).
 
+Browse [Examples](examples.md) for copy-paste patterns (CRUD, relations, pagination, transactions, `strip`, and more).
+
 ### 2. Configure NeoOrm
 
 ```ts

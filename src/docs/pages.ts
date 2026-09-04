@@ -10,6 +10,7 @@ export type DocsPage = {
 
 const PAGE_ORDER = [
 	"getting-started",
+	"examples",
 	"schema",
 	"queries",
 	"relations",

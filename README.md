@@ -101,7 +101,8 @@ const posts = await db.posts.findMany({
 | Topic | |
 |-------|-|
 | [Getting started](docs/getting-started.md) | Setup, manual config, env vars, tenant schemas |
-| [Schema DSL](docs/schema.md) | Tables, columns, foreign keys (incl. table/column refs, inferred relation names, composite PKs, inline indexes) and many-to-many |
+| [Examples](docs/examples.md) | Copy-paste patterns for schema, queries, relations, and more |
+| [Schema DSL](docs/schema.md) | Tables, columns, foreign keys, many-to-many |
 | [Queries](docs/queries.md) | CRUD, where clauses, pagination, aggregates, groupBy, distinct |
 | [Relation writes](docs/relations.md) | Nested connect/create/disconnect/set/delete |
 | [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |
@@ -112,7 +113,7 @@ const posts = await db.posts.findMany({
 | [SQLite](docs/sqlite.md) | SQLite dialect, drivers, type mapping, limitations |
 | [Plugins](docs/plugins.md) | PostGIS, citext, custom plugins |
 
-See the [blog example](examples/blog/schema.ts) for a complete schema, and [queries.example.ts](examples/blog/queries.example.ts) for typed queries and mutations.
+See [Getting started](docs/getting-started.md) and [Examples](docs/examples.md) to begin, or the [blog example](examples/blog/schema.ts) for a full schema and [queries.example.ts](examples/blog/queries.example.ts) for typed queries and mutations.
 
 ---
 
