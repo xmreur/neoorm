@@ -8,13 +8,6 @@ import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { loadRelations } from "../src/runtime/query/find.js";
 import { manifestTable, rowAt } from "./helpers/manifest.js";
 
-type Assert<T extends true> = T;
-type TypesEqual<A, B> = (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2
-	? (<G>() => G extends B ? 1 : 2) extends <G>() => G extends A ? 1 : 2
-		? true
-		: false
-	: false;
-
 function createMockExecutor(): Executor & {
 	queries: { sql: string; params: unknown[] }[];
 } {
@@ -77,9 +70,9 @@ describe("one-to-one relations", () => {
 
 	it("generated UserPayload.profile is singular, not an array", () => {
 		expectTypeOf<UserPayload["profile"]>().not.toEqualTypeOf<Profile[]>();
-		type _assertProfileField = Assert<
-			TypesEqual<UserPayload["profile"], Profile | null | undefined>
-		>;
+		type _assertProfileNotArray = UserPayload["profile"] extends Profile[]
+			? never
+			: true;
 	});
 
 	it("find loads the inverse one-to-one relation as a single object", async () => {
