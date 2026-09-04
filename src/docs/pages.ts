@@ -16,6 +16,7 @@ const PAGE_ORDER = [
 	"relations",
 	"transactions",
 	"migrations",
+	"errors",
 	"cli",
 	"configuration",
 	"sqlite",

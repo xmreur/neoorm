@@ -2,7 +2,7 @@ import type { ManifestTable } from "../../dialect/types.js";
 import { normalizeSelectColumns } from "./compile.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { primaryKeyTsNames } from "./primary-key.js";
-import { columnByTsName, type TableIndex } from "./table-index.js";
+import { columnByTsName, requireTsColumn, type TableIndex } from "./table-index.js";
 
 export type ColumnPickArg =
 	| readonly string[]
@@ -31,11 +31,7 @@ function validateProjectionColumns(
 	tableIndex?: TableIndex,
 ): void {
 	for (const key of keys) {
-		if (!columnByTsName(tableIndex, table, key)) {
-			throw new Error(
-				`Unknown column "${key}" in ${label} for table "${table.accessor}"`,
-			);
-		}
+		requireTsColumn(tableIndex, table, key, label, "select");
 	}
 }
 

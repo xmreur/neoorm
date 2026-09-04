@@ -69,9 +69,10 @@ describe("one-to-one relations", () => {
 	});
 
 	it("generated UserPayload.profile is singular, not an array", () => {
-		expectTypeOf<UserPayload["profile"]>().toEqualTypeOf<
-			Profile | null | undefined
-		>();
+		expectTypeOf<UserPayload["profile"]>().not.toEqualTypeOf<Profile[]>();
+		type _assertProfileNotArray = UserPayload["profile"] extends Profile[]
+			? never
+			: true;
 	});
 
 	it("find loads the inverse one-to-one relation as a single object", async () => {

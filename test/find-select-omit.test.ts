@@ -2,6 +2,7 @@ import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
+import { NeoOrmQueryError } from "../src/runtime/errors.js";
 import { findUnique } from "../src/runtime/query/count.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findById, findFirst, findMany } from "../src/runtime/query/find.js";
@@ -258,7 +259,12 @@ describe("root select / omit", () => {
 			findMany(executor, runtime, "users", {
 				select: { nope: true } as never,
 			}),
-		).rejects.toThrow('Unknown column "nope" in select for table "users"');
+		).rejects.toThrow(NeoOrmQueryError);
+		await expect(
+			findMany(executor, runtime, "users", {
+				select: { nope: true } as never,
+			}),
+		).rejects.toThrow('Unknown column "nope" in select');
 	});
 
 	it("does not reuse cached SQL across different projections", async () => {

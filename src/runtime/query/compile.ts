@@ -27,6 +27,7 @@ import {
 	columnsByTsNames,
 	getOrSetSqlCache,
 	getTableIndex,
+	requireTsColumn,
 	type ManifestIndex,
 	reorderKeyValues,
 	sortedKeysCacheKey,
@@ -1236,9 +1237,15 @@ export function requireCountSqlCol(
 ): string {
 	const sqlCol = countSqlCol(table, tsName, manifestIndex);
 	if (!sqlCol) {
-		throw new Error(`Unknown count column: ${tsName}`);
+		requireTsColumn(
+			getTableIndex(manifestIndex, table.accessor),
+			table,
+			tsName,
+			"count",
+			"select",
+		);
 	}
-	return sqlCol;
+	return sqlCol!;
 }
 
 export function normalizeCountMap(
@@ -1618,9 +1625,15 @@ function requireFieldAggExpression(
 		manifestIndex,
 	);
 	if (!expr) {
-		throw new Error(`Unknown aggregate column: ${colName}`);
+		requireTsColumn(
+			getTableIndex(manifestIndex, table.accessor),
+			table,
+			colName,
+			`aggregate ${key}`,
+			"select",
+		);
 	}
-	return expr;
+	return expr!;
 }
 
 export function compileHaving(
@@ -1816,10 +1829,13 @@ export function compileGroupByOrderBy(
 		if (!bySet.has(tsKey)) {
 			throw new Error(`orderBy column "${tsKey}" is not in groupBy by`);
 		}
-		const col = columnByTsName(tableIndex, table, tsKey);
-		if (!col) {
-			throw new Error(`Unknown groupBy column: ${tsKey}`);
-		}
+		const col = requireTsColumn(
+			tableIndex,
+			table,
+			tsKey,
+			"groupBy orderBy",
+			"select",
+		);
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
 		parts.push(`${quoteIdentifier(col.sqlName)} ${dir}`);
 	}
@@ -1838,11 +1854,9 @@ export function resolveGroupByColumns(
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols: ManifestColumn[] = [];
 	for (const key of byKeys) {
-		const col = columnByTsName(tableIndex, table, key);
-		if (!col) {
-			throw new Error(`Unknown groupBy column: ${key}`);
-		}
-		cols.push(col);
+		cols.push(
+			requireTsColumn(tableIndex, table, key, "groupBy", "select"),
+		);
 	}
 	return cols;
 }

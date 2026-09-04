@@ -8,6 +8,15 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
+import { queryCompileError } from "../error-builders.js";
+import {
+	didYouMean,
+	formatCandidateList,
+	listTableAccessors,
+	suggestRelation,
+	suggestTsColumn,
+} from "../error-hints.js";
+import type { QueryOperation } from "../errors.js";
 import { buildFindAllQuery, buildFindByIdQuery } from "./compile.js";
 import type { RelationLoadPlan } from "./relation-planner.js";
 
@@ -280,4 +289,85 @@ export function columnsByTsNames(
 		if (col) cols.push(col);
 	}
 	return cols;
+}
+
+export function requireTable(
+	manifest: Manifest,
+	accessor: string,
+	operation: QueryOperation = "select",
+): ManifestTable {
+	const table = manifest.tables[accessor];
+	if (table) {
+		return table;
+	}
+
+	const accessors = listTableAccessors(manifest);
+	const suggestions = [
+		"Table accessors use camelCase keys from defineSchema({ ... })",
+		...didYouMean(accessor, accessors).map(
+			(match) => `Did you mean "${match}"?`,
+		),
+		`Valid table accessors: ${formatCandidateList(accessors)}`,
+	];
+
+	throw queryCompileError(
+		operation,
+		`Unknown table accessor "${accessor}"`,
+		{
+			code: "unknown_table",
+			suggestions,
+		},
+	);
+}
+
+export function requireTsColumn(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	tsName: string,
+	label: string,
+	operation: QueryOperation = "select",
+): ManifestColumn {
+	const col = columnByTsName(tableIndex, table, tsName);
+	if (col) {
+		return col;
+	}
+
+	throw queryCompileError(
+		operation,
+		`Unknown column "${tsName}" in ${label}`,
+		{
+			code: "unknown_column",
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+			suggestions: suggestTsColumn(tsName, table, label),
+		},
+	);
+}
+
+export function requireRelation(
+	tableIndex: TableIndex | undefined,
+	manifest: Manifest,
+	table: ManifestTable,
+	name: string,
+	operation: QueryOperation = "select",
+): ManifestRelation {
+	const rel = effectiveRelationByName(tableIndex, manifest, table, name);
+	if (rel) {
+		return rel;
+	}
+
+	const relationNames = [
+		...new Set(effectiveRelations(manifest, table).map((r) => r.name)),
+	].sort();
+
+	throw queryCompileError(
+		operation,
+		`Unknown relation "${name}" on table "${table.accessor}"`,
+		{
+			code: "unknown_relation",
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+			suggestions: suggestRelation(name, table, relationNames),
+		},
+	);
 }
