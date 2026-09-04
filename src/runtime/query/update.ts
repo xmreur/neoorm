@@ -12,10 +12,9 @@ import {
 	getCachedUpdateManyQuery,
 	getCachedWhereClause,
 	isImpossibleWhere,
-	mapRowToTs,
-	mapRowsToTs,
 	type UpdateReturning,
 } from "./compile.js";
+import { mapRowToTs, mapRowsToTs } from "./map-row.js";
 import { runCreate } from "./create.js";
 import {
 	type QueryRuntime,

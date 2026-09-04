@@ -340,19 +340,21 @@ Mark sensitive columns in the schema with `.hidden()`:
 password: text().notNull().hidden(),
 ```
 
-Then strip before returning:
+Every row returned from queries includes a non-enumerable `.strip()` method:
 
 ```ts
 const user = await db.users.findById(id);
 if (!user) return null;
-return db.users.strip(user);
+return user.strip();
 // hidden fields removed; nested `with` relations stripped too
 
-return db.users.strip(users); // arrays
-return db.users.strip(user, { token: true }); // hidden + extra keys
+const users = await db.users.findMany();
+return users.map((user) => user.strip());
+
+return user.strip({ refreshToken: true }); // hidden + extra column keys
 ```
 
-`null` and `undefined` pass through unchanged.
+`strip()` returns a plain object (no `.strip` method) suitable for JSON responses. `null` and `undefined` pass through unchanged when using the underlying strip helper directly.
 
 ## Cursor pagination
 

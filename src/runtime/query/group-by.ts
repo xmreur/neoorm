@@ -8,11 +8,11 @@ import {
 	compileWhere,
 	getCachedGroupByQuery,
 	isImpossibleWhere,
-	mapRowToTs,
 	normalizeSelectColumns,
 	type OrderByInput,
 	toCountSelector,
 } from "./compile.js";
+import { mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
 import { columnByTsName, getTableIndex } from "./table-index.js";
 

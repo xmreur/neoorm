@@ -9,6 +9,8 @@ import {
 	type TableIndex,
 } from "./table-index.js";
 
+const stripMethod = Symbol.for("neoorm.strip.attached");
+
 function hiddenColumnNames(table: ManifestTable): string[] {
 	return table.columns
 		.filter((col) => col.hidden === true)
@@ -96,6 +98,85 @@ function stripRow(
 	}
 
 	return result;
+}
+
+function attachStripToRow(
+	tableIndex: TableIndex,
+	table: ManifestTable,
+	row: Record<string, unknown>,
+): void {
+	if (row[stripMethod as unknown as string] === true) {
+		return;
+	}
+	Object.defineProperty(row, stripMethod as unknown as string, {
+		value: true,
+		enumerable: false,
+		configurable: true,
+	});
+	Object.defineProperty(row, "strip", {
+		value: (omit?: ColumnPickArg) =>
+			stripRecords(
+				tableIndex.manifest,
+				table,
+				row,
+				omit,
+				tableIndex.manifestIndex,
+			),
+		enumerable: false,
+		configurable: true,
+	});
+
+	const relations = effectiveRelations(tableIndex.manifest, table);
+	for (const relation of relations) {
+		const value = row[relation.name];
+		if (value == null) {
+			continue;
+		}
+		const targetTable = tableIndex.manifest.tables[relation.targetAccessor];
+		const targetIndex = getTableIndex(
+			tableIndex.manifestIndex,
+			relation.targetAccessor,
+		);
+		if (!targetTable || !targetIndex) {
+			continue;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) {
+				if (item && typeof item === "object" && !Array.isArray(item)) {
+					attachStripToRow(
+						targetIndex,
+						targetTable,
+						item as Record<string, unknown>,
+					);
+				}
+			}
+			continue;
+		}
+		if (typeof value === "object") {
+			attachStripToRow(
+				targetIndex,
+				targetTable,
+				value as Record<string, unknown>,
+			);
+		}
+	}
+}
+
+export function attachStripToRows(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	rows: Record<string, unknown> | Record<string, unknown>[],
+): void {
+	if (!tableIndex) {
+		return;
+	}
+	if (Array.isArray(rows)) {
+		for (const row of rows) {
+			attachStripToRow(tableIndex, table, row);
+		}
+		return;
+	}
+	attachStripToRow(tableIndex, table, rows);
 }
 
 export function stripRecords<

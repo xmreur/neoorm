@@ -5,8 +5,8 @@ import {
 	compileWhere,
 	dataToSqlValues,
 	FIND_OR_CREATE_FLAG,
-	mapRowToTs,
 } from "./compile.js";
+import { mapRowToTs } from "./map-row.js";
 import { runCreate } from "./create.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findMany, loadRelations, type WithInput } from "./find.js";

@@ -20,13 +20,12 @@ import {
 	getCachedOrderByClause,
 	getCachedWhereClause,
 	isImpossibleWhere,
-	mapRowsToTs,
-	mapRowToTs,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
 	rowsToTsIndexed,
 } from "./compile.js";
+import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import {

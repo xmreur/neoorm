@@ -68,6 +68,7 @@ export type {
 	SelectInput,
 	StripOmitKeys,
 	StripResult,
+	StripCapable,
 	WhereInput,
 	WithInclude,
 	WithInputMap,

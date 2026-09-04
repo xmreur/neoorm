@@ -14,13 +14,13 @@ import {
 	buildSelectColumns,
 	compileOrderBy,
 	compileWhere,
-	mapRowToTs,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
 	orderByShapeKey,
 	whereShapeKey,
 } from "./compile.js";
+import { mapRowToTs } from "./map-row.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";

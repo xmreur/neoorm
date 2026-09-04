@@ -67,12 +67,53 @@ type BaseColumnBuilder<TValue, TMeta extends ColumnMeta> = {
 export type TimestampColumnBuilder<
 	TValue,
 	TMeta extends ColumnMeta = ColumnMeta,
-> = BaseColumnBuilder<TValue, TMeta> & {
-	defaultNow(): ColumnBuilder<
+> = Omit<
+	BaseColumnBuilder<TValue, TMeta>,
+	"notNull" | "unique" | "index" | "hidden" | "default" | "primary" | "map" | "check"
+> & {
+	notNull(): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "nullable"> & { nullable: false }
+	>;
+	unique(): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "unique"> & { unique: true }
+	>;
+	index(): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "index"> & { index: true }
+	>;
+	hidden(): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "hidden"> & { hidden: true }
+	>;
+	default(
+		value: TValue,
+	): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
+	>;
+	primary(): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "primary"> & { primary: true }
+	>;
+	map(
+		name: string,
+	): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "mapName"> & { mapName: string }
+	>;
+	check(
+		expression: string,
+	): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "checkExpression"> & { checkExpression: string }
+	>;
+	defaultNow(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "defaultNow"> & { defaultNow: true }
 	>;
-	updatedAt(): ColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
+	updatedAt(): TimestampColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
 };
 
 export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> =
@@ -161,9 +202,9 @@ export function createTimestampColumnBuilder<
 	TValue,
 	TMeta extends ColumnMeta,
 >(meta: TMeta): TimestampColumnBuilder<TValue, TMeta> {
-	const base = createColumnBuilder<TValue, TMeta>(meta);
 	const builder: TimestampColumnBuilder<TValue, TMeta> = {
-		...base,
+		_type: undefined as unknown as TValue,
+		_meta: meta,
 		notNull() {
 			return createTimestampColumnBuilder<
 				TValue,
@@ -171,6 +212,61 @@ export function createTimestampColumnBuilder<
 			>({ ...meta, nullable: false } as Omit<TMeta, "nullable"> & {
 				nullable: false;
 			});
+		},
+		unique() {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "unique"> & { unique: true }
+			>({ ...meta, unique: true } as Omit<TMeta, "unique"> & {
+				unique: true;
+			});
+		},
+		index() {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "index"> & { index: true }
+			>({ ...meta, index: true } as Omit<TMeta, "index"> & { index: true });
+		},
+		hidden() {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "hidden"> & { hidden: true }
+			>({ ...meta, hidden: true } as Omit<TMeta, "hidden"> & {
+				hidden: true;
+			});
+		},
+		default(value: TValue) {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
+			>({ ...meta, defaultValue: value } as Omit<TMeta, "defaultValue"> & {
+				defaultValue: TValue;
+			});
+		},
+		primary() {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "primary"> & { primary: true }
+			>({ ...meta, primary: true } as Omit<TMeta, "primary"> & {
+				primary: true;
+			});
+		},
+		map(name: string) {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "mapName"> & { mapName: string }
+			>({ ...meta, mapName: name } as Omit<TMeta, "mapName"> & {
+				mapName: string;
+			});
+		},
+		check(expression: string) {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "checkExpression"> & { checkExpression: string }
+			>({ ...meta, checkExpression: expression } as Omit<
+				TMeta,
+				"checkExpression"
+			> & { checkExpression: string });
 		},
 		defaultNow() {
 			return createTimestampColumnBuilder<
