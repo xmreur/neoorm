@@ -1,4 +1,3 @@
-import { getManyToManyRegistry } from "neoorm/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import { schema } from "../examples/postgis/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -19,11 +18,7 @@ describe("postgis where operators", () => {
 	});
 
 	it("compiles intersects", () => {
-		const manifest = schemaToManifest(
-			schema,
-			getManyToManyRegistry(),
-			getPluginRegistry(),
-		);
+		const manifest = schemaToManifest(schema, getPluginRegistry());
 		const places = manifestTable(manifest, "places");
 		const polygon = {
 			type: "Polygon",
@@ -51,11 +46,7 @@ describe("postgis where operators", () => {
 	});
 
 	it("compiles within", () => {
-		const manifest = schemaToManifest(
-			schema,
-			getManyToManyRegistry(),
-			getPluginRegistry(),
-		);
+		const manifest = schemaToManifest(schema, getPluginRegistry());
 		const places = manifestTable(manifest, "places");
 		const polygon = {
 			type: "Polygon",
@@ -81,11 +72,7 @@ describe("postgis where operators", () => {
 	});
 
 	it("compiles dWithin", () => {
-		const manifest = schemaToManifest(
-			schema,
-			getManyToManyRegistry(),
-			getPluginRegistry(),
-		);
+		const manifest = schemaToManifest(schema, getPluginRegistry());
 		const places = manifestTable(manifest, "places");
 		const point = { type: "Point", coordinates: [0, 0] };
 

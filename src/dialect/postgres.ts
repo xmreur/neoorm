@@ -348,7 +348,8 @@ function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 	const indexName = resolveIndexSqlName(table.sqlName, index);
 	const cols = index.columns.map((c) => q(c)).join(", ");
 	const unique = index.unique ? "UNIQUE " : "";
-	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols});`;
+	const where = index.whereSql ? ` WHERE ${index.whereSql}` : "";
+	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols})${where};`;
 }
 
 function emitDropIndex(indexName: string): string {

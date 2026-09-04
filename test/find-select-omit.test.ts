@@ -9,21 +9,18 @@ import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { atIndex } from "./helpers/manifest.js";
 
 const projectionSchema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		email: text().notNull().unique(),
 		name: text().notNull(),
 		bio: text(),
 	}),
 
-	posts: table("posts", {
-		id: id.primary(),
+	posts: table({
+		id: id(),
 		title: text().notNull(),
 		body: text().notNull(),
-		authorId: fk("users.id", {
-			as: "author",
-			inverse: "posts",
-		}).notNull(),
+		authorId: fk("users.id").as("author").inverse("posts").notNull(),
 	}),
 });
 

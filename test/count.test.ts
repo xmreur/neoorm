@@ -6,12 +6,11 @@ import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { buildCountQuery } from "../src/runtime/query/compile.js";
 import { countRecords } from "../src/runtime/query/count.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { getManyToManyRegistry } from "../src/schema/many-to-many.js";
 import { manifestTable } from "./helpers/manifest.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
 describe("count SQL", () => {
-	const manifest = schemaToManifest(schema, getManyToManyRegistry());
+	const manifest = schemaToManifest(schema);
 	const users = manifestTable(manifest, "users");
 
 	it("counts all rows with COUNT(*)", () => {
@@ -78,7 +77,7 @@ describe("count SQL", () => {
 });
 
 describe("countRecords", () => {
-	const manifest = schemaToManifest(schema, getManyToManyRegistry());
+	const manifest = schemaToManifest(schema);
 	const runtime: QueryRuntime = { manifest };
 
 	it("parses a select row into a flat object", async () => {

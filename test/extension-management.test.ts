@@ -39,7 +39,7 @@ describe("extension management", () => {
 	it("includes user-declared extensions in the manifest", () => {
 		const schema = defineSchema(
 			{
-				users: table("users", {
+				users: table({
 					id: uuid().primary(),
 					search: text().notNull(),
 				}),
@@ -58,7 +58,7 @@ describe("extension management", () => {
 	it("emits CREATE EXTENSION for new user-declared extensions", () => {
 		const schema = defineSchema(
 			{
-				users: table("users", {
+				users: table({
 					id: uuid().primary(),
 					search: text().notNull(),
 				}),
@@ -79,8 +79,8 @@ describe("extension management", () => {
 		const { geometry } = await import("../src/plugins/postgis/index.js");
 		const schema = defineSchema(
 			{
-				places: table("places", {
-					id: id.primary(),
+				places: table({
+					id: id(),
 					location: geometry({
 						subtype: "Point",
 						srid: 4326,
@@ -102,8 +102,8 @@ describe("extension management", () => {
 		const { geometry } = await import("../src/plugins/postgis/index.js");
 		const schema = defineSchema(
 			{
-				places: table("places", {
-					id: id.primary(),
+				places: table({
+					id: id(),
 					location: geometry({
 						subtype: "Point",
 						srid: 4326,

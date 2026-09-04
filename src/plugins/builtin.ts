@@ -1,6 +1,13 @@
 import type { ManifestColumn } from "../dialect/types.js";
-import type { ColumnBuilder, ColumnMeta } from "../schema/column.js";
-import { createColumnBuilder } from "../schema/column.js";
+import type {
+	ColumnBuilder,
+	ColumnMeta,
+	TimestampColumnBuilder,
+} from "../schema/column.js";
+import {
+	createColumnBuilder,
+	createTimestampColumnBuilder,
+} from "../schema/column.js";
 import { jsonWhereOperators } from "./json/operators.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
@@ -216,7 +223,7 @@ const bigintType: ColumnTypePlugin = {
 const timestampType: ColumnTypePlugin = {
 	kind: "timestamp",
 	createBuilder() {
-		return createColumnBuilder<Date | null, ColumnMeta>({
+		return createTimestampColumnBuilder<Date | null, ColumnMeta>({
 			kind: "timestamp",
 			nullable: true,
 			unique: false,
@@ -588,11 +595,9 @@ type IdColumnMeta = {
 	defaultNow: false;
 };
 
-export const id = {
-	primary(): ColumnBuilder<string, IdColumnMeta> {
-		return idType.createBuilder() as ColumnBuilder<string, IdColumnMeta>;
-	},
-};
+export function id(): ColumnBuilder<string, IdColumnMeta> {
+	return idType.createBuilder() as ColumnBuilder<string, IdColumnMeta>;
+}
 
 export function text(): ColumnBuilder<string | null> {
 	return textType.createBuilder() as ColumnBuilder<string | null>;
@@ -619,8 +624,8 @@ export function bigint(): ColumnBuilder<
 	>;
 }
 
-export function timestamp(): ColumnBuilder<Date | null> {
-	return timestampType.createBuilder() as ColumnBuilder<Date | null>;
+export function timestamp(): TimestampColumnBuilder<Date | null> {
+	return timestampType.createBuilder() as TimestampColumnBuilder<Date | null>;
 }
 
 export function uuid(options?: UuidOptions): ColumnBuilder<string | null> {

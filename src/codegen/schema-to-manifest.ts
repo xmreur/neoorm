@@ -17,15 +17,13 @@ import type { NeoOrmPlugin } from "../plugins/types.js";
 import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
 import type { ColumnBuilder } from "../schema/column.js";
 import type { SchemaDef } from "../schema/define-schema.js";
-import { fk, type FkBuilder } from "../schema/relation.js";
-import type {
-	ManyToManyDef,
-	ManyToManyExtra,
-} from "../schema/many-to-many.js";
-import { getManyToManyRegistry } from "../schema/many-to-many.js";
+import { fk, type FkBuilder, resolveFkAccessorTarget } from "../schema/relation.js";
+import type { ManyToManyExtra } from "../schema/many-to-many.js";
 import type {
 	ColumnDef,
 	ColumnNaming,
+	IndexDef,
+	IndexWherePredicate,
 	TableDef,
 	TableExtra,
 } from "../schema/table.js";
@@ -94,7 +92,35 @@ function singularize(word: string): string {
 }
 
 function autoJunctionName(leftSql: string, rightSql: string): string {
-	return `_${[leftSql, rightSql].sort().join("_")}`;
+	return [leftSql, rightSql].sort().join("_");
+}
+
+function findPrimaryKeyColumn(
+	columns: Record<string, ColumnDef>,
+): string | undefined {
+	for (const [tsName, col] of Object.entries(columns)) {
+		if (
+			typeof col === "object" &&
+			col !== null &&
+			"_meta" in col &&
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(col as any)._meta?.primary === true
+		) {
+			return tsName;
+		}
+	}
+	for (const [tsName, col] of Object.entries(columns)) {
+		if (
+			typeof col === "object" &&
+			col !== null &&
+			"_meta" in col &&
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(col as any)._meta?.kind === "id"
+		) {
+			return tsName;
+		}
+	}
+	return undefined;
 }
 
 function finalizeEnumColumns(
@@ -117,10 +143,10 @@ function finalizeEnumColumns(
 			}
 
 			if (enumMode === "check") {
-				col.checkExpression = buildEnumCheckExpression(
-					col.sqlName,
-					values,
-				);
+				const enumCheck = buildEnumCheckExpression(col.sqlName, values);
+				col.checkExpression = col.checkExpression
+					? `(${col.checkExpression}) AND (${enumCheck})`
+					: enumCheck;
 				continue;
 			}
 
@@ -173,13 +199,90 @@ function resolveSqlName(
 	return resolveSqlColumnName(tsName, columnNaming, mapName);
 }
 
+function resolveFkTargetSql(
+	col: FkBuilder,
+	tables: Record<string, TableDef>,
+	defaultColumnNaming: ColumnNaming,
+	sourceColumnNaming: ColumnNaming,
+): string {
+	const { accessor, column } = resolveFkAccessorTarget(col._meta, tables);
+	const targetTable = tables[accessor];
+	if (!targetTable) {
+		throw new Error(
+			`Foreign key references unknown table accessor "${accessor}"`,
+		);
+	}
+
+	const targetColumnTs =
+		column ?? findPrimaryKeyColumn(targetTable._columns);
+	if (!targetColumnTs) {
+		throw new Error(
+			`Foreign key target "${accessor}" has no primary key column`,
+		);
+	}
+
+	if (!targetTable._columns[targetColumnTs]) {
+		throw new Error(
+			`Foreign key references unknown column "${accessor}.${targetColumnTs}"`,
+		);
+	}
+
+	const targetColumnNaming =
+		targetTable._columnNaming ?? defaultColumnNaming;
+	const targetColSql = resolveSqlName(
+		targetColumnTs,
+		targetTable._columns[targetColumnTs],
+		targetColumnNaming,
+	);
+
+	return `${targetTable._tableName}.${targetColSql}`;
+}
+
+function compileIndexWhere(
+	where: IndexWherePredicate,
+	columns: Record<string, ColumnDef>,
+	columnNaming: ColumnNaming,
+	provider?: "postgresql" | "sqlite",
+): string {
+	const parts: string[] = [];
+	for (const [tsName, value] of Object.entries(where)) {
+		const col = requireColumnDef(columns, tsName);
+		const sqlName = resolveSqlName(tsName, col, columnNaming);
+		const quoted = `"${sqlName.replace(/"/g, '""')}"`;
+		if (value === null) {
+			parts.push(`${quoted} IS NULL`);
+		} else if (typeof value === "boolean") {
+			parts.push(
+				provider === "sqlite"
+					? `${quoted} = ${value ? 1 : 0}`
+					: `${quoted} = ${value}`,
+			);
+		} else if (typeof value === "number") {
+			parts.push(`${quoted} = ${value}`);
+		} else {
+			parts.push(
+				`${quoted} = '${String(value).replace(/'/g, "''")}'`,
+			);
+		}
+	}
+	return parts.join(" AND ");
+}
+
 function columnToManifest(
 	tsName: string,
 	col: ColumnDef,
 	columnNaming: ColumnNaming,
+	tables: Record<string, TableDef>,
+	defaultColumnNaming: ColumnNaming,
 ): ManifestColumn {
 	if (isFkBuilder(col)) {
 		const meta = col._meta;
+		const fkTarget = resolveFkTargetSql(
+			col,
+			tables,
+			defaultColumnNaming,
+			columnNaming,
+		);
 		const result: ManifestColumn = {
 			tsName,
 			sqlName: resolveSqlName(tsName, col, columnNaming),
@@ -191,7 +294,7 @@ function columnToManifest(
 			...("updatedAt" in meta && meta.updatedAt === true
 				? { updatedAt: true as const }
 				: {}),
-			fkTarget: meta.target,
+			fkTarget,
 			fkAs: meta.as || inferFkAs(tsName),
 		};
 		if (meta.inverse) {
@@ -246,31 +349,50 @@ function columnToManifest(
 	if (meta.hidden === true) {
 		result.hidden = true;
 	}
+	if (meta.checkExpression) {
+		result.checkExpression = meta.checkExpression;
+	}
 	return result;
 }
 
 function extrasToManifest(
-	extras: Record<string, TableExtra>,
+	extras: readonly TableExtra[],
 	columns: Record<string, ColumnDef>,
 	tableSqlName: string,
 	columnNaming: ColumnNaming,
+	provider?: "postgresql" | "sqlite",
 ): { indexes: ManifestIndex[]; primaryKey: string[] } {
 	const indexes: ManifestIndex[] = [];
 	let primaryKey: string[] = [];
 
-	for (const [name, extra] of Object.entries(extras)) {
+	for (const extra of extras) {
 		if (extra.kind === "index") {
-			const index: ManifestIndex = {
-				name,
-				columns: extra.columns.map((tsName) =>
-					resolveSqlName(
-						tsName,
-						requireColumnDef(columns, tsName),
-						columnNaming,
-					),
+			const wherePredicate =
+				"where" in extra &&
+				extra.where !== undefined &&
+				typeof extra.where !== "function"
+					? extra.where
+					: undefined;
+			const sqlColumns = extra.columns.map((tsName) =>
+				resolveSqlName(
+					tsName,
+					requireColumnDef(columns, tsName),
+					columnNaming,
 				),
+			);
+			const index: ManifestIndex = {
+				name: sqlColumns.join("_"),
+				columns: sqlColumns,
 				unique: extra.unique,
 			};
+			if (wherePredicate) {
+				index.whereSql = compileIndexWhere(
+					wherePredicate,
+					columns,
+					columnNaming,
+					provider,
+				);
+			}
 			index.sqlName = resolveIndexSqlName(tableSqlName, index);
 			indexes.push(index);
 		} else if (extra.kind === "primaryKey") {
@@ -289,6 +411,7 @@ function extrasToManifest(
 
 function buildRelations(
 	columns: ManifestColumn[],
+	sourceAccessor: string,
 	sqlNameToAccessor: Record<string, string>,
 	manifestTables: Record<string, ManifestTable>,
 ): ManifestRelation[] {
@@ -315,7 +438,11 @@ function buildRelations(
 				? resolveFkTargetSqlColumn(targetTable, colRef)
 				: (colRef ?? ""),
 			cardinality,
-			inverse: col.fkInverse ?? pluralize(col.fkAs),
+			inverse:
+				col.fkInverse ??
+				(col.unique
+					? singularize(sourceAccessor)
+					: pluralize(col.fkAs)),
 		};
 		if (col.onDelete !== undefined) {
 			rel.onDelete = col.onDelete;
@@ -371,7 +498,6 @@ function resolveM2M(incoming: IncomingM2M): ManifestManyToMany {
 
 export function schemaToManifest<T extends Record<string, TableDef>>(
 	schema: SchemaDef<T>,
-	m2mDefs: readonly ManyToManyDef[] = getManyToManyRegistry(),
 	plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
 	options: SchemaToManifestOptions = {},
 ): Manifest {
@@ -397,19 +523,28 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		const columnNaming = tableDef._columnNaming ?? defaultColumnNaming;
 		const columns = Object.entries(tableDef._columns)
 			.filter(([, col]) => !isManyToMany(col))
-			.map(([name, col]) => columnToManifest(name, col, columnNaming));
+			.map(([name, col]) =>
+				columnToManifest(
+					name,
+					col,
+					columnNaming,
+					tables,
+					defaultColumnNaming,
+				),
+			);
 
 		const { indexes, primaryKey } = extrasToManifest(
 			tableDef._extras,
 			tableDef._columns,
 			tableDef._tableName,
 			columnNaming,
+			provider,
 		);
 
 		for (const col of columns) {
 			if (!col.index) continue;
 			const inline: ManifestIndex = {
-				name: col.tsName,
+				name: col.sqlName,
 				columns: [col.sqlName],
 				unique: false,
 			};
@@ -422,12 +557,6 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			if (already) continue;
 			inline.sqlName = resolveIndexSqlName(tableDef._tableName, inline);
 			indexes.push(inline);
-		}
-
-		for (const [extraName, extra] of Object.entries(tableDef._extras)) {
-			if (extra.kind === "manyToMany") {
-				inlineM2Ms.push({ sourceAccessor: accessor, extraName, extra });
-			}
 		}
 
 		for (const [colName, col] of Object.entries(tableDef._columns)) {
@@ -448,8 +577,8 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		if (pk.length === 0) {
 			throw new Error(
 				`Table "${tableDef._tableName}" has no primary key. ` +
-					"Add a primary key column (e.g. `id: uuid().primary()`) " +
-					"or define a composite key with `primaryKey(t.colA, t.colB)` in the table's extras callback.",
+					"Add a primary key column (e.g. `id: uuid().primary()` or `id: id()`) " +
+					"or define a composite key with `primaryKey(t.colA, t.colB)` in the table extras callback.",
 			);
 		}
 
@@ -475,15 +604,23 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		rightTsName: string,
 	): ManifestTable => {
 		const columnNaming = leftTable.columnNaming ?? "snakeCase";
-		const leftFk = fk(
-			`${leftTable.sqlName}.${leftTable.primaryKey[0]}`,
-		).primary();
-		const rightFk = fk(
-			`${rightTable.sqlName}.${rightTable.primaryKey[0]}`,
-		).primary();
+		const leftFk = fk(leftTable.accessor).primary();
+		const rightFk = fk(rightTable.accessor).primary();
 		const columns: ManifestColumn[] = [
-			columnToManifest(leftTsName, leftFk, columnNaming),
-			columnToManifest(rightTsName, rightFk, columnNaming),
+			columnToManifest(
+				leftTsName,
+				leftFk,
+				columnNaming,
+				tables,
+				defaultColumnNaming,
+			),
+			columnToManifest(
+				rightTsName,
+				rightFk,
+				columnNaming,
+				tables,
+				defaultColumnNaming,
+			),
 		];
 		const table: ManifestTable = {
 			accessor,
@@ -500,52 +637,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		return table;
 	};
 
-	const knownThrough = new Map<string, string>();
-	for (const table of Object.values(manifestTables)) {
-		knownThrough.set(table.sqlName, table.accessor);
-	}
-
 	const incomingM2Ms: IncomingM2M[] = [];
-
-	for (const m of m2mDefs) {
-		const throughAccessor =
-			Object.entries(tables).find(
-				([, t]) => t._tableName === m.throughKey,
-			)?.[0] ?? m.throughKey;
-
-		const leftAccessor =
-			Object.entries(tables).find(
-				([, t]) => t._tableName === m.leftKey,
-			)?.[0] ?? m.leftKey;
-
-		const rightAccessor =
-			Object.entries(tables).find(
-				([, t]) => t._tableName === m.rightKey,
-			)?.[0] ?? m.rightKey;
-
-		const throughTable = manifestTables[throughAccessor];
-		const leftFk = throughTable?.columns.find(
-			(c) => c.fkAs === m.leftRelation,
-		);
-		const rightFk = throughTable?.columns.find(
-			(c) => c.fkAs === m.rightRelation,
-		);
-
-		incomingM2Ms.push({
-			leftTable: m.leftKey,
-			leftAccessor,
-			rightTable: m.rightKey,
-			rightAccessor,
-			throughTable: m.throughKey,
-			throughAccessor,
-			leftFkColumn: leftFk?.sqlName ?? "",
-			rightFkColumn: rightFk?.sqlName ?? "",
-			leftRelation: m.leftRelation,
-			rightRelation: m.rightRelation,
-			as: m.as,
-			inverse: m.inverse,
-		});
-	}
 
 	for (const { sourceAccessor, extraName, extra } of inlineM2Ms) {
 		const sourceTable = manifestTables[sourceAccessor];
@@ -565,30 +657,34 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		let throughAccessor: string;
 		let throughKey: string;
 		if (extra.through) {
-			const resolvedThrough = knownThrough.get(extra.through);
-			if (!resolvedThrough) {
+			const throughTable = manifestTables[extra.through];
+			if (!throughTable) {
 				throw new Error(
-					`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown junction table "${extra.through}". Define the junction table first with table().`,
+					`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown junction table accessor "${extra.through}". Define the junction table first with table().`,
 				);
 			}
-			throughAccessor = resolvedThrough;
-			throughKey = extra.through;
+			throughAccessor = extra.through;
+			throughKey = throughTable.sqlName;
 		} else {
 			throughKey = autoJunctionName(
 				sourceTable.sqlName,
 				targetTable.sqlName,
 			);
 			const autoAccessor = throughKey;
-			if (!manifestTables[autoAccessor]) {
-				addAutoJunction(
-					autoAccessor,
-					throughKey,
-					sourceTable,
-					targetTable,
-					leftTsName,
-					rightTsName,
+			if (manifestTables[autoAccessor]) {
+				throw new Error(
+					`Auto-generated junction table accessor "${autoAccessor}" collides with an existing table. ` +
+						`Use manyToMany("${extra.target}", { through: "yourJunctionAccessor" }) with an explicit junction table.`,
 				);
 			}
+			addAutoJunction(
+				autoAccessor,
+				throughKey,
+				sourceTable,
+				targetTable,
+				leftTsName,
+				rightTsName,
+			);
 			throughAccessor = autoAccessor;
 		}
 
@@ -629,6 +725,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	for (const table of Object.values(manifestTables)) {
 		table.relations = buildRelations(
 			table.columns,
+			table.accessor,
 			sqlNameToAccessor,
 			manifestTables,
 		);
@@ -657,7 +754,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				}
 				throw new Error(
 					`Relation "${rel.inverse}" on table "${inverseTable.sqlName}" is already used by another foreign key. ` +
-						"Set an explicit `inverse` in the fk() options to disambiguate.",
+						"Set an explicit `.inverse()` on the fk() to disambiguate.",
 				);
 			}
 
@@ -743,13 +840,24 @@ export function validateManifest(manifest: Manifest): string[] {
 
 		for (const col of table.columns) {
 			if (col.kind === "fk" && col.fkTarget) {
-				const { tableSql: targetTable } = parseFkTarget(col.fkTarget);
-				const exists = Object.values(manifest.tables).some(
+				const { tableSql: targetTable, columnSql: targetColumn } =
+					parseFkTarget(col.fkTarget);
+				const target = Object.values(manifest.tables).find(
 					(t) => t.sqlName === targetTable,
 				);
-				if (!exists) {
+				if (!target) {
 					errors.push(
 						`FK ${table.accessor}.${col.tsName} references unknown table ${targetTable}`,
+					);
+					continue;
+				}
+				const columnExists = target.columns.some(
+					(c) =>
+						c.sqlName === targetColumn || c.tsName === targetColumn,
+				);
+				if (!columnExists) {
+					errors.push(
+						`FK ${table.accessor}.${col.tsName} references unknown column ${targetTable}.${targetColumn}`,
 					);
 				}
 				continue;

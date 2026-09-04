@@ -7,7 +7,6 @@ import { postgresDialect } from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
-import type { ManyToManyDef } from "../schema/many-to-many.js";
 import type { ColumnDef, ColumnNaming } from "../schema/table.js";
 import { NeoOrmSchemaError } from "../runtime/errors.js";
 import { schemaCompileError } from "../runtime/schema-error.js";
@@ -30,30 +29,6 @@ function dialectForProvider(
 	provider: "postgresql" | "sqlite" | undefined,
 ): Dialect {
 	return provider === "sqlite" ? sqliteDialect : postgresDialect;
-}
-
-async function resolveManyToManyDefs(): Promise<ManyToManyDef[]> {
-	const { getManyToManyRegistry } = await import("../schema/many-to-many.js");
-	const fromDist = getManyToManyRegistry();
-	if (fromDist.length > 0) {
-		return [...fromDist];
-	}
-
-	// tsx path aliases may load schema DSL from src/ while codegen runs from dist/
-	try {
-		const codegenDir = dirname(fileURLToPath(import.meta.url));
-		const { getManyToManyRegistry: getSrcRegistry } = await import(
-			join(codegenDir, "../../src/schema/many-to-many.js")
-		);
-		const fromSrc = getSrcRegistry();
-		if (fromSrc.length > 0) {
-			return [...fromSrc];
-		}
-	} catch {
-		// src/ not available in published package — dist registry is authoritative
-	}
-
-	return [];
 }
 
 async function resolvePluginRegistry(): Promise<NeoOrmPlugin[]> {
@@ -83,15 +58,9 @@ export async function loadSchemaModule(schemaPath: string): Promise<{
 	schema: import("../schema/define-schema.js").SchemaDef<
 		Record<string, import("../schema/table.js").TableDef>
 	>;
-	manyToMany: ManyToManyDef[];
 	plugins: NeoOrmPlugin[];
 }> {
 	const { importTsModule } = await import("../utils/load-ts.js");
-	const { clearManyToManyRegistry } = await import(
-		"../schema/many-to-many.js"
-	);
-
-	clearManyToManyRegistry();
 
 	const mod = await importTsModule(schemaPath);
 
@@ -102,10 +71,9 @@ export async function loadSchemaModule(schemaPath: string): Promise<{
 		);
 	}
 
-	const manyToMany = await resolveManyToManyDefs();
 	const plugins = await resolvePluginRegistry();
 
-	return { schema, manyToMany, plugins };
+	return { schema, plugins };
 }
 
 export function hashManifest(manifest: Manifest): string {
@@ -373,8 +341,8 @@ async function generateFromSchemaInner(
 		"./schema-to-manifest.js"
 	);
 
-	const { schema, manyToMany, plugins } = await loadSchemaModule(schemaPath);
-	const schemaManifest = schemaToManifest(schema, manyToMany, plugins, {
+	const { schema, plugins } = await loadSchemaModule(schemaPath);
+	const schemaManifest = schemaToManifest(schema, plugins, {
 		...(options.enumMode ? { enumMode: options.enumMode } : {}),
 		...(options.provider ? { provider: options.provider } : {}),
 		...(options.url ? { url: options.url } : {}),

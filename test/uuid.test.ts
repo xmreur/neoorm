@@ -26,30 +26,30 @@ function requireUsersTable(manifest: Manifest): ManifestTable {
 }
 
 const schemaV7 = defineSchema({
-	users: table("users", {
+	users: table({
 		id: uuid().primary(),
 		name: text().notNull(),
 	}),
 });
 
 const schemaV4 = defineSchema({
-	users: table("users", {
+	users: table({
 		id: uuid({ version: 4 }).primary(),
 		name: text().notNull(),
 	}),
 });
 
 const textIdSchema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		name: text().notNull(),
 	}),
-	posts: table("posts", {
-		id: id.primary(),
+	posts: table({
+		id: id(),
 		title: text().notNull(),
 	}),
-	categories: table("categories", {
-		id: id.primary(),
+	categories: table({
+		id: id(),
 		label: text().notNull(),
 	}),
 });
@@ -158,7 +158,7 @@ describe("uuid column", () => {
 	});
 });
 
-describe("id.primary() text IDs", () => {
+describe("id() text IDs", () => {
 	it("generates prefix plus full UUID", () => {
 		const manifest = schemaToManifest(textIdSchema);
 		const users = manifestTable(manifest, "users");

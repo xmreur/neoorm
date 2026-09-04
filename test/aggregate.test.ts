@@ -3,29 +3,13 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { parseAggregateRow } from "../src/runtime/query/aggregate.js";
 import { buildAggregateQuery } from "../src/runtime/query/compile.js";
-import {
-	getManyToManyRegistry,
-	manyToMany,
-} from "../src/schema/many-to-many.js";
 import { manifestTable } from "./helpers/manifest.js";
-
-function ensureBlogManyToManyRegistry(): void {
-	if (getManyToManyRegistry().length > 0) return;
-	manyToMany(schema.posts, schema.tags, {
-		through: schema.postTags,
-		left: "post",
-		right: "tag",
-		as: "tags",
-		inverse: "posts",
-	});
-}
 
 describe("aggregate SQL", () => {
 	const manifest = schemaToManifest(schema);
 	const posts = manifestTable(manifest, "posts");
 
 	it("builds aggregate query with count and avg", () => {
-		ensureBlogManyToManyRegistry();
 		const sql = buildAggregateQuery(
 			posts,
 			{ _count: true, _avg: { views: true } },

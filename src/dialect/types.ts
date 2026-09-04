@@ -67,6 +67,7 @@ export type ManifestIndex = {
 	columns: readonly string[];
 	unique: boolean;
 	sqlName?: string;
+	whereSql?: string;
 };
 
 export type ManifestTable = {

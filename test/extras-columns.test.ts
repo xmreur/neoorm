@@ -1,12 +1,4 @@
-import {
-	bytea,
-	citext,
-	defineSchema,
-	intArray,
-	table,
-	text,
-	textArray,
-} from "neoorm/schema";
+import { bytea, citext, defineSchema, intArray, table, text, textArray } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import {
 	schemaToManifest,
@@ -26,7 +18,7 @@ function requireSamplesTable(manifest: Manifest): ManifestTable {
 }
 
 const schema = defineSchema({
-	samples: table("samples", {
+	samples: table({
 		id: text().notNull().primary(),
 		email: citext().notNull(),
 		blob: bytea(),

@@ -7,30 +7,21 @@ import { findMany, loadRelations } from "../src/runtime/query/find.js";
 import { atIndex, manifestTable } from "./helpers/manifest.js";
 
 const eagerLoadingSchema = defineSchema({
-	users: table("users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		name: text().notNull(),
 	}),
 
-	posts: table("posts", {
-		id: id.primary(),
+	posts: table({
+		id: id(),
 		title: text().notNull(),
-		authorId: fk("users.id", {
-			as: "author",
-			inverse: "posts",
-		}).notNull(),
+		authorId: fk("users.id").as("author").inverse("posts").notNull(),
 	}),
 
-	comments: table("comments", {
-		id: id.primary(),
-		postId: fk("posts.id", {
-			as: "post",
-			inverse: "comments",
-		}).notNull(),
-		authorId: fk("users.id", {
-			as: "author",
-			inverse: "comments",
-		}).notNull(),
+	comments: table({
+		id: id(),
+		postId: fk("posts.id").as("post").inverse("comments").notNull(),
+		authorId: fk("users.id").as("author").inverse("comments").notNull(),
 		body: text().notNull(),
 	}),
 });

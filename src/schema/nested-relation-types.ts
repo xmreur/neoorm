@@ -5,7 +5,6 @@ import type {
 	FkInverseName,
 	FkRelationName,
 	InferInsertRow,
-	SqlNameToAccessor,
 } from "./relation-types.js";
 import type { ColumnDef, TableDef } from "./table.js";
 
@@ -63,9 +62,11 @@ type FkTargetMatchesAccessor<
 	TSchema extends Record<string, TableDef>,
 	TTarget extends string,
 	TAccessor extends keyof TSchema & string,
-> = [TTarget] extends [`${TSchema[TAccessor]["_tableName"]}.${string}`]
+> = [TTarget] extends [`${TAccessor}.${string}`]
 	? true
-	: false;
+	: [TTarget] extends [TAccessor]
+		? true
+		: false;
 
 type DisconnectWriteForFk<C extends ColumnDef> = C extends FkBuilder
 	? C["_meta"] extends { nullable: true }
@@ -84,34 +85,43 @@ type ShallowToOneRelationWriteForAccessor<
 		} & DisconnectWriteForFk<TFkColumn>
 	: never;
 
+type FkTargetAccessor<
+	TSchema extends Record<string, TableDef>,
+	TTarget extends string,
+> = TTarget extends `${infer Acc}.${string}`
+	? Acc extends keyof TSchema & string
+		? Acc
+		: never
+	: TTarget extends keyof TSchema & string
+		? TTarget
+		: never;
+
 type ShallowOutgoingFkRelationWriteMap<
 	TSchema extends Record<string, TableDef>,
 	TColumns extends Record<string, ColumnDef>,
 > = {
 	[K in keyof TColumns & string as TColumns[K] extends FkBuilder
 		? TColumns[K]["_meta"] extends FkMeta
-			? TColumns[K]["_meta"] extends {
-					as: infer As extends string;
-					target: `${infer Sql}.${string}`;
-				}
-				? SqlNameToAccessor<TSchema, Sql> extends keyof TSchema & string
+			? TColumns[K]["_meta"] extends { as: infer As extends string }
+				? FkTargetAccessor<
+						TSchema,
+						TColumns[K]["_meta"]["target"]
+					> extends keyof TSchema & string
 					? FkRelationName<As, K>
 					: never
 				: never
 			: never
 		: never]?: TColumns[K] extends FkBuilder
 		? TColumns[K]["_meta"] extends FkMeta
-			? TColumns[K]["_meta"]["target"] extends `${infer Sql}.${string}`
-				? SqlNameToAccessor<TSchema, Sql> extends infer Acc extends
-						keyof TSchema & string
-					? Acc extends keyof TSchema & string
-						? ShallowToOneRelationWriteForAccessor<
-								TSchema,
-								Acc,
-								TColumns[K]
-							>
-						: never
-					: never
+			? FkTargetAccessor<
+					TSchema,
+					TColumns[K]["_meta"]["target"]
+				> extends infer Acc extends keyof TSchema & string
+				? ShallowToOneRelationWriteForAccessor<
+						TSchema,
+						Acc,
+						TColumns[K]
+					>
 				: never
 			: never
 		: never;

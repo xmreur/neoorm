@@ -21,7 +21,7 @@ function requireItemsTable(manifest: Manifest): ManifestTable {
 }
 
 const schema = defineSchema({
-	items: table("items", {
+	items: table({
 		id: serial().primary(),
 		name: text().notNull(),
 	}),

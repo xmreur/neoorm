@@ -12,7 +12,10 @@ export type FkMeta<
 	TNullable extends boolean = boolean,
 > = Omit<ColumnMeta, "kind" | "unique" | "nullable"> & {
 	kind: "fk";
+	/** Accessor target: `"users"` or `"users.id"`. Empty when using table/column refs. */
 	target: TTarget;
+	tableRef?: TableDef;
+	columnBuilderRef?: ColumnBuilder<unknown>;
 	as: TAs;
 	inverse: TInverse;
 	onDelete?: OnDeleteAction;
@@ -35,20 +38,16 @@ export type FkBuilder<
 	index(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 	hidden(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 	map(name: string): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	as(name: string): FkBuilder<TTarget, string, TInverse, TUnique, TNullable>;
+	inverse<TNext extends string>(
+		name: TNext,
+	): FkBuilder<TTarget, TAs, TNext, TUnique, TNullable>;
+	onDelete(
+		action: OnDeleteAction,
+	): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 };
 
-export type FkOptions<
-	TAs extends string = string,
-	TInverse extends string = string,
-	TUnique extends boolean = boolean,
-> = {
-	as?: TAs;
-	inverse?: TInverse;
-	unique?: TUnique;
-	onDelete?: OnDeleteAction;
-};
-
-/** SQL target ref (`table.column`) for an owned column reference. */
+/** Accessor target (`users` or `users.id`) for an owned column reference. */
 type ColumnTargetOf<C extends ColumnBuilder<unknown>> =
 	C extends ColumnBuilder<unknown, infer M>
 		? M extends {
@@ -58,22 +57,6 @@ type ColumnTargetOf<C extends ColumnBuilder<unknown>> =
 			? `${T}.${CN}`
 			: string
 		: string;
-
-type FkAsOfOptions<T extends FkOptions> = T extends {
-	as: infer As extends string;
-}
-	? As
-	: "";
-
-type FkInverseOfOptions<T extends FkOptions> = T extends {
-	inverse: infer Inv extends string;
-}
-	? Inv
-	: "";
-
-type FkUniqueOfOptions<T extends FkOptions> = T extends { unique: true }
-	? true
-	: false;
 
 function isTableDef(value: unknown): value is TableDef {
 	return (
@@ -93,110 +76,66 @@ function isColumnBuilder(value: unknown): value is ColumnBuilder<unknown> {
 	);
 }
 
-function findPrimaryKeyColumn(table: TableDef): string | undefined {
-	for (const [tsName, col] of Object.entries(table._columns)) {
-		if (
-			typeof col === "object" &&
-			col !== null &&
-			"_meta" in col &&
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(col as any)._meta.primary === true
-		) {
-			return tsName;
-		}
-	}
-	return undefined;
-}
+type FkTargetInit =
+	| { kind: "accessor"; target: string }
+	| { kind: "table"; tableRef: TableDef }
+	| { kind: "column"; columnBuilderRef: ColumnBuilder<unknown> };
 
-function resolveFkTarget(target: unknown): string {
+function resolveFkTargetInit(target: unknown): FkTargetInit {
 	if (typeof target === "string") {
-		return target;
+		return { kind: "accessor", target };
 	}
 	if (isTableDef(target)) {
-		const pk = findPrimaryKeyColumn(target);
-		if (!pk) {
-			throw new Error(
-				`Foreign key target table "${target._tableName}" has no primary key column. ` +
-					"Pass an explicit column reference (e.g. `fk(tableRef)` targets the primary key).",
-			);
-		}
-		return `${target._tableName}.${pk}`;
+		return { kind: "table", tableRef: target };
 	}
 	if (isColumnBuilder(target)) {
-		const owner = findOwningTable(target);
-		if (!owner) {
-			throw new Error(
-				"fk() received a column reference that does not belong to any table defined via table(). " +
-					'Pass a string target (e.g. `fk("users.id")`) instead.',
-			);
-		}
-		return `${owner.table._tableName}.${owner.tsName}`;
+		return { kind: "column", columnBuilderRef: target };
 	}
 	throw new Error(`Invalid foreign key target: ${String(target)}`);
 }
 
-export function fk<
-	const TTarget extends string,
-	const TAs extends string = "",
-	const TInverse extends string = "",
-	const TUnique extends boolean = false,
->(
+export function fk<const TTarget extends string>(
 	target: TTarget,
-	options?: FkOptions<TAs, TInverse, TUnique>,
-): FkBuilder<TTarget, TAs, TInverse, TUnique, true>;
-export function fk<
-	TT extends TableDef,
-	const TAs extends string = "",
-	const TInverse extends string = "",
-	const TUnique extends boolean = false,
->(
+): FkBuilder<TTarget, "", "", false, true>;
+export function fk<TT extends TableDef>(
 	target: TT,
-	options?: FkOptions<TAs, TInverse, TUnique>,
 ): FkBuilder<
 	TT["_targetRef"] extends string ? TT["_targetRef"] : string,
-	TAs,
-	TInverse,
-	TUnique,
+	"",
+	"",
+	false,
 	true
 >;
-export function fk<
-	TC extends ColumnBuilder<unknown>,
-	const TOptions extends FkOptions<string, string, boolean> = {},
->(
+export function fk<TC extends ColumnBuilder<unknown>>(
 	target: TC,
-	options?: TOptions,
-): FkBuilder<
-	ColumnTargetOf<TC>,
-	FkAsOfOptions<TOptions>,
-	FkInverseOfOptions<TOptions>,
-	FkUniqueOfOptions<TOptions>,
-	true
->;
+): FkBuilder<ColumnTargetOf<TC>, "", "", false, true>;
 export function fk(
 	target: string | TableDef | ColumnBuilder<unknown>,
-	options: FkOptions = {},
 ): FkBuilder<string> {
-	const resolved = resolveFkTarget(target);
+	const init = resolveFkTargetInit(target);
 	const meta: FkMeta<string, string, string, boolean, true> = {
 		kind: "fk",
 		nullable: true,
-		unique: options.unique ?? false,
+		unique: false,
 		primary: false,
 		defaultNow: false,
-		target: resolved,
-		as: options.as ?? "",
-		inverse: options.inverse ?? "",
-		...(options.onDelete !== undefined
-			? { onDelete: options.onDelete }
+		target: init.kind === "accessor" ? init.target : "",
+		...(init.kind === "table" ? { tableRef: init.tableRef } : {}),
+		...(init.kind === "column"
+			? { columnBuilderRef: init.columnBuilderRef }
 			: {}),
+		as: "",
+		inverse: "",
 	};
 
 	function withMeta<
+		TAs extends string = string,
+		TInv extends string = string,
 		TU extends boolean = boolean,
 		TN extends boolean = boolean,
 	>(
-		next: FkMeta<string, string, string, TU, TN>,
-	): FkBuilder<string, string, string, TU, TN> {
+		next: FkMeta<string, TAs, TInv, TU, TN>,
+	): FkBuilder<string, TAs, TInv, TU, TN> {
 		return {
 			_type: null as string | null,
 			_meta: next,
@@ -204,7 +143,7 @@ export function fk(
 				return withMeta({ ...next, nullable: false });
 			},
 			unique() {
-				return withMeta<true, TN>({ ...next, unique: true });
+				return withMeta<TAs, TInv, true, TN>({ ...next, unique: true });
 			},
 			primary() {
 				return withMeta({ ...next, primary: true, nullable: false });
@@ -218,8 +157,62 @@ export function fk(
 			map(name: string) {
 				return withMeta({ ...next, mapName: name });
 			},
+			as(name: string) {
+				return withMeta<string, TInv, TU, TN>({ ...next, as: name });
+			},
+			inverse<TNext extends string>(name: TNext) {
+				return withMeta<TAs, TNext, TU, TN>({ ...next, inverse: name });
+			},
+			onDelete(action: OnDeleteAction) {
+				return withMeta({ ...next, onDelete: action });
+			},
 		};
 	}
 
 	return withMeta(meta);
+}
+
+export function resolveFkAccessorTarget(
+	meta: FkMeta,
+	tables: Record<string, TableDef>,
+): { accessor: string; column?: string } {
+	if (meta.tableRef) {
+		const accessor = Object.entries(tables).find(
+			([, table]) => table === meta.tableRef,
+		)?.[0];
+		if (!accessor) {
+			throw new Error(
+				"Foreign key table reference does not belong to this schema. " +
+					"Pass the table via defineSchema({ users, ... }).",
+			);
+		}
+		return { accessor };
+	}
+
+	if (meta.columnBuilderRef) {
+		const owner = findOwningTable(meta.columnBuilderRef);
+		if (!owner) {
+			throw new Error(
+				"fk() received a column reference that does not belong to any table defined via table().",
+			);
+		}
+		const accessor = Object.entries(tables).find(
+			([, table]) => table === owner.table,
+		)?.[0];
+		if (!accessor) {
+			throw new Error(
+				"Foreign key column reference does not belong to this schema.",
+			);
+		}
+		return { accessor, column: owner.tsName };
+	}
+
+	const dot = meta.target.indexOf(".");
+	if (dot === -1) {
+		return { accessor: meta.target };
+	}
+	return {
+		accessor: meta.target.slice(0, dot),
+		column: meta.target.slice(dot + 1),
+	};
 }

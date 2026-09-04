@@ -8,15 +8,15 @@ const databaseUrl = process.env.DATABASE_URL;
 
 const schema = defineSchema({
 	users: table("wp_users", {
-		id: id.primary(),
+		id: id(),
 		email: text().notNull(),
 		name: text().notNull(),
 		meta: jsonb(),
 	}),
 	posts: table("wp_posts", {
-		id: id.primary(),
+		id: id(),
 		title: text().notNull(),
-		authorId: fk("wp_users.id", { as: "author", inverse: "posts" }),
+		authorId: fk("users").as("author").inverse("posts").notNull(),
 	}),
 });
 

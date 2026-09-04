@@ -4,21 +4,6 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { updateManyRecords } from "../src/runtime/query/update.js";
-import {
-	getManyToManyRegistry,
-	manyToMany,
-} from "../src/schema/many-to-many.js";
-
-function ensureBlogManyToManyRegistry(): void {
-	if (getManyToManyRegistry().length > 0) return;
-	manyToMany(schema.posts, schema.tags, {
-		through: schema.postTags,
-		left: "post",
-		right: "tag",
-		as: "tags",
-		inverse: "posts",
-	});
-}
 
 function createMockExecutor(
 	parentIds: string[],
@@ -65,7 +50,6 @@ describe("updateMany relation writes", () => {
 	let runtime: QueryRuntime;
 
 	beforeAll(() => {
-		ensureBlogManyToManyRegistry();
 		manifest = schemaToManifest(schema);
 		runtime = { manifest };
 	});

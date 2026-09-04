@@ -8,8 +8,8 @@ import { buildFindManyQuery } from "../src/runtime/query/compile.js";
 const databaseUrl = process.env.DATABASE_URL;
 
 const schema = defineSchema({
-	users: table("lmt_users", {
-		id: id.primary(),
+	users: table({
+		id: id(),
 		name: text().notNull(),
 	}),
 });

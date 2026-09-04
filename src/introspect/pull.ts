@@ -1,6 +1,6 @@
 import type { DatabaseClient } from "../runtime/driver.js";
 import { resolvePgSchemaName } from "../dialect/postgres.js";
-import type { ManifestColumn, ManifestTable } from "../dialect/types.js";
+import type { Manifest, ManifestColumn, ManifestTable } from "../dialect/types.js";
 import { findIntrospectColumnType } from "../plugins/registry.js";
 import type { ColumnNaming } from "../schema/table.js";
 import {
@@ -12,12 +12,38 @@ import {
 import { queryColumns, queryForeignKeys, queryTables } from "./queries.js";
 import { introspectSqliteToManifest } from "./sqlite/to-manifest.js";
 
+function inferFkAs(tsName: string): string {
+	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
+}
+
+function tableHeader(accessor: string, sqlName: string): string {
+	if (sqlName === accessor) {
+		return `  ${accessor}: table({`;
+	}
+	return `  ${accessor}: table("${escapeTsString(sqlName)}", {`;
+}
+
+function tableFooter(columnNaming: ColumnNaming): string {
+	if (columnNaming === "camelCase") {
+		return `  }, { columnNaming: "camelCase" }),`;
+	}
+	return `  }),`;
+}
+
 export async function introspectPostgres(
 	client: DatabaseClient,
 	options: { schema?: string } = {},
 ): Promise<string> {
 	const schema = resolvePgSchemaName(options.schema);
 	const tables = await queryTables(client, schema);
+
+	const sqlToAccessor = new Map<string, string>();
+	for (const { table_name } of tables) {
+		const accessor = sanitizeTsIdentifier(
+			toCamelCase(table_name.endsWith("s") ? table_name : `${table_name}s`),
+		);
+		sqlToAccessor.set(table_name, accessor);
+	}
 
 	const pluginImports = new Set<string>();
 	const pluginColumnImports = new Set<string>();
@@ -34,25 +60,32 @@ export async function introspectPostgres(
 			cols.map((col) => col.column_name),
 		);
 
-		const accessor = sanitizeTsIdentifier(
-			toCamelCase(table_name.endsWith("s") ? table_name : `${table_name}s`),
-		);
-		const blockLines: string[] = [
-			`  ${accessor}: table("${escapeTsString(table_name)}", {`,
-		];
+		const accessor = sqlToAccessor.get(table_name) ?? table_name;
+		const blockLines: string[] = [tableHeader(accessor, table_name)];
 
 		for (const col of cols) {
 			const tsName = sanitizeTsIdentifier(toCamelCase(col.column_name));
 			const fk = fkMap.get(col.column_name);
 
 			if (fk) {
-				const relName = tsName.replace(/Id$/, "");
-				let def = [
-					`    ${tsName}: fk("${escapeTsString(fk.foreign_table_name)}.${escapeTsString(fk.foreign_column_name)}", {`,
-					`      as: "${escapeTsString(relName)}",`,
-					`      inverse: "${escapeTsString(accessor)}",`,
-					`    })`,
-				].join("\n");
+				const targetAccessor =
+					sqlToAccessor.get(fk.foreign_table_name) ??
+					sanitizeTsIdentifier(
+						toCamelCase(fk.foreign_table_name),
+					);
+				const targetColumn = sanitizeTsIdentifier(
+					toCamelCase(fk.foreign_column_name),
+				);
+				const targetRef =
+					targetColumn === "id"
+						? targetAccessor
+						: `${targetAccessor}.${targetColumn}`;
+				const relName = inferFkAs(tsName);
+				let def = `    ${tsName}: fk("${escapeTsString(targetRef)}")`;
+				if (relName !== inferFkAs(tsName)) {
+					def += `.as("${escapeTsString(relName)}")`;
+				}
+				def += `.inverse("${escapeTsString(accessor)}")`;
 				if (col.is_nullable === "NO") def += `.notNull()`;
 				def = appendMapModifier(
 					def,
@@ -71,7 +104,7 @@ export async function introspectPostgres(
 						: `    id: uuid().primary(),`;
 				blockLines.push(def);
 			} else if (col.column_name === "id") {
-				blockLines.push(`    id: id.primary(),`);
+				blockLines.push(`    id: id(),`);
 			} else {
 				const pluginType = findIntrospectColumnType(
 					col.data_type,
@@ -131,11 +164,7 @@ export async function introspectPostgres(
 			}
 		}
 
-		if (columnNaming === "camelCase") {
-			blockLines.push(`  }, { columnNaming: "camelCase" }),`);
-		} else {
-			blockLines.push(`  }),`);
-		}
+		blockLines.push(tableFooter(columnNaming));
 		tableBlocks.push(blockLines.join("\n"));
 	}
 
@@ -151,6 +180,7 @@ export async function introspectPostgres(
 		`  uuid,`,
 		`  fk,`,
 		`  index,`,
+		`  unique,`,
 		`  primaryKey,`,
 		`} from "neoorm/schema";`,
 	];
@@ -203,14 +233,50 @@ function sqliteColumnBuilder(col: ManifestColumn): string {
 	}
 }
 
-function sqliteColumnDef(col: ManifestColumn, table: ManifestTable): string {
+function resolveFkAccessorTarget(
+	col: ManifestColumn,
+	manifest: Manifest,
+): string {
+	if (!col.fkTarget) {
+		return "";
+	}
+	const dot = col.fkTarget.indexOf(".");
+	if (dot === -1) {
+		return col.fkTarget;
+	}
+	const sqlTable = col.fkTarget.slice(0, dot);
+	const sqlColumn = col.fkTarget.slice(dot + 1);
+	const targetTable = Object.values(manifest.tables).find(
+		(table) => table.sqlName === sqlTable,
+	);
+	const accessor = targetTable?.accessor ?? sqlTable;
+	const targetCol = targetTable?.columns.find(
+		(c) => c.sqlName === sqlColumn || c.tsName === sqlColumn,
+	);
+	if (targetCol?.tsName === "id") {
+		return accessor;
+	}
+	return `${accessor}.${targetCol?.tsName ?? sqlColumn}`;
+}
+
+function sqliteColumnDef(
+	col: ManifestColumn,
+	table: ManifestTable,
+	manifest: Manifest,
+): string {
 	if (col.kind === "fk" && col.fkTarget) {
-		const relName = col.tsName.replace(/Id$/, "");
-		let def = `fk("${col.fkTarget}", {\n      as: "${relName}",\n      inverse: "${table.accessor}",`;
-		if (col.onDelete) {
-			def += `\n      onDelete: "${col.onDelete}",`;
+		const targetRef = resolveFkAccessorTarget(col, manifest);
+		const relName = inferFkAs(col.tsName);
+		let def = `fk("${targetRef}")`;
+		if (col.fkAs && col.fkAs !== relName) {
+			def += `.as("${col.fkAs}")`;
 		}
-		def += `\n    })`;
+		if (col.fkInverse) {
+			def += `.inverse("${col.fkInverse}")`;
+		}
+		if (col.onDelete) {
+			def += `.onDelete("${col.onDelete}")`;
+		}
 		if (col.primary) {
 			def += ".primary()";
 		} else if (!col.nullable) {
@@ -243,25 +309,22 @@ export async function introspectSqlite(client: DatabaseClient): Promise<string> 
 		const tsNameBySql = new Map(
 			table.columns.map((col) => [col.sqlName, col.tsName]),
 		);
-		const lines: string[] = [
-			`  ${table.accessor}: table("${table.sqlName}", {`,
-		];
+		const lines: string[] = [tableHeader(table.accessor, table.sqlName)];
 		for (const col of table.columns) {
-			lines.push(`    ${sqliteColumnDef(col, table)}`);
+			lines.push(`    ${sqliteColumnDef(col, table, manifest)}`);
 		}
 
 		const extras: string[] = [];
 		for (const index of table.indexes) {
 			const builder = index.unique ? "unique" : "index";
-			extras.push(
-				`    ${index.name}: ${builder}().on(${index.columns
-					.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
-					.join(", ")}),`,
-			);
+			const cols = index.columns
+				.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+				.join(", ");
+			extras.push(`    ${builder}(${cols}),`);
 		}
 		if (table.primaryKey.length > 1) {
 			extras.push(
-				`    pk: primaryKey(${table.primaryKey
+				`    primaryKey(${table.primaryKey
 					.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
 					.join(", ")}),`,
 			);
@@ -269,9 +332,9 @@ export async function introspectSqlite(client: DatabaseClient): Promise<string> 
 
 		if (extras.length > 0) {
 			lines.push(
-				`  }, (t) => ({
+				`  }, (t) => [
 ${extras.join("\n")}
-  })),`,
+  ]),`,
 			);
 		} else {
 			lines.push(`  }),`);
