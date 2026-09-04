@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { NeoOrmQueryError } from "../src/runtime/errors.js";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
