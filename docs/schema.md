@@ -51,7 +51,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 
 All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`.
 
-`.hidden()` marks a column as sensitive for API responses. Use `db.users.strip(row)` before returning data.
+`.hidden()` marks a column as sensitive for API responses. Query results expose `.strip()` on each row to remove hidden fields before returning data.
 
 ### Audit timestamps
 

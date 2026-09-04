@@ -7,9 +7,8 @@ import {
 	dataToSqlValues,
 	getCachedInsertQuery,
 	type InsertReturning,
-	mapRowToTs,
-	mapRowsToTs,
 } from "./compile.js";
+import { mapRowToTs, mapRowsToTs } from "./map-row.js";
 import {
 	type QueryRuntime,
 	runExecute,

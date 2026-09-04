@@ -12,6 +12,8 @@ import { buildFindAllQuery, buildFindByIdQuery } from "./compile.js";
 import type { RelationLoadPlan } from "./relation-planner.js";
 
 export type TableIndex = {
+	manifest: Manifest;
+	manifestIndex?: ManifestIndex;
 	columnsByTsName: Map<string, ManifestColumn>;
 	columnsBySqlName: Map<string, ManifestColumn>;
 	relationsByName: Map<string, ManifestRelation>;
@@ -159,6 +161,7 @@ export function buildTableIndex(
 	);
 
 	return {
+		manifest,
 		columnsByTsName,
 		columnsBySqlName,
 		relationsByName,
@@ -196,6 +199,9 @@ export function buildManifestIndex(
 			accessor,
 			buildTableIndex(manifest, accessor, table, dialect),
 		);
+	}
+	for (const tableIndex of index.values()) {
+		tableIndex.manifestIndex = index;
 	}
 	return index;
 }

@@ -127,6 +127,7 @@ export type {
 	HiddenKeys,
 	StripOmitKeys,
 	StripResult,
+	StripCapable,
 	UpdateArgs,
 	UpdateInput,
 	UpdateManyAndReturnArgs,

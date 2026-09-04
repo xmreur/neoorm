@@ -642,6 +642,16 @@ export type StripResult<
 			? Omit<T, Keys>
 			: T;
 
+/** Row payload with `.strip()` — removes `.hidden()` columns and optional extra fields. */
+export type StripCapable<
+	TColumns extends Record<string, ColumnDef>,
+	TRow extends Record<string, unknown>,
+> = TRow & {
+	strip<const O extends OmitInput<TColumns> | undefined = undefined>(
+		omit?: O,
+	): StripResult<TRow, StripOmitKeys<TColumns, O>>;
+};
+
 type RelationTargetModel<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,

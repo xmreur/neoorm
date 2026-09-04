@@ -4,9 +4,9 @@ import {
 	buildUpsertQuery,
 	dataToSqlValues,
 	dataToUpdateAssignments,
-	mapRowToTs,
 	upsertAtomicValues,
 } from "./compile.js";
+import { mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";

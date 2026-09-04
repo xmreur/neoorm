@@ -19,6 +19,7 @@ import type {
 	InferCountResult,
 	InferFindResult,
 	InferGroupByResult,
+	InferSelectRow,
 	InferWithResult,
 	OmitInput,
 	OrderByInput,
@@ -26,8 +27,7 @@ import type {
 	PaginateResult,
 	ScalarPkName,
 	SelectInput,
-	StripOmitKeys,
-	StripResult,
+	StripCapable,
 	UpdateArgs,
 	UpdateInput,
 	UpdateManyAndReturnArgs,
@@ -163,7 +163,10 @@ export type DefaultWithMap<TTables extends Record<string, TableDef>> = {
 };
 
 export type DefaultRowPayloadMap<TTables extends Record<string, TableDef>> = {
-	[K in keyof TTables & string]: Record<string, unknown>;
+	[K in keyof TTables & string]: StripCapable<
+		TTables[K]["_columns"],
+		InferSelectRow<TTables[K]["_columns"], TTables>
+	>;
 };
 
 export type TransactionIsolationLevel =
@@ -336,18 +339,6 @@ export type TypedTableRepository<
 				ScalarPkName<TSchema[TAccessor]["_columns"]>
 			>
 		>
-	>;
-	strip<
-		T extends TRowPayload | TRowPayload[] | null | undefined,
-		const O extends
-			| OmitInput<TSchema[TAccessor]["_columns"]>
-			| undefined = undefined,
-	>(
-		row: T,
-		omit?: O,
-	): StripResult<
-		T,
-		StripOmitKeys<TSchema[TAccessor]["_columns"], O>
 	>;
 };
 
