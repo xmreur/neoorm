@@ -35,7 +35,9 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `intArray()` | `INTEGER[]` | `number[] \| null` | |
 | `citext()` | `CITEXT` | `string \| null` | Case-insensitive text; requires `citext` extension |
 
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.updatedAt()` (timestamp only), `.primary()`, and `.map(name)`; `.index()` declares a single-column index on any column.
+All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.defaultNow()`, `.updatedAt()` (timestamp only), `.primary()`, `.map(name)`, and `.hidden()`; `.index()` declares a single-column index on any column.
+
+`.hidden()` marks a column as sensitive for API responses. It does not change SQL or migrations. Use `db.users.strip(row)` to remove hidden columns (and optionally extra fields) before returning data. Queries still fetch hidden columns unless you use `omit` at query time.
 
 ## Foreign keys
 

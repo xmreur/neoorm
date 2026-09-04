@@ -33,6 +33,7 @@ export type FkBuilder<
 	unique(): FkBuilder<TTarget, TAs, TInverse, true, TNullable>;
 	primary(): FkBuilder<TTarget, TAs, TInverse, TUnique, false>;
 	index(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	hidden(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 	map(name: string): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 };
 
@@ -210,6 +211,9 @@ export function fk(
 			},
 			index() {
 				return withMeta({ ...next, index: true });
+			},
+			hidden() {
+				return withMeta({ ...next, hidden: true });
 			},
 			map(name: string) {
 				return withMeta({ ...next, mapName: name });

@@ -36,6 +36,7 @@ import { findById, findFirst, findMany } from "./query/find.js";
 import { findOrCreateRecord } from "./query/find-or-create.js";
 import { groupByRecords } from "./query/group-by.js";
 import { paginateRecords } from "./query/paginate.js";
+import { stripRecords } from "./query/strip.js";
 import { buildManifestIndex } from "./query/table-index.js";
 import {
 	updateById,
@@ -200,6 +201,14 @@ export type TableRepository = {
 		hasMore: boolean;
 		hasPrevious: boolean;
 	}>;
+	strip(
+		row:
+			| Record<string, unknown>
+			| Record<string, unknown>[]
+			| null
+			| undefined,
+		omit?: readonly string[] | Record<string, boolean | undefined>,
+	): Record<string, unknown> | Record<string, unknown>[] | null | undefined;
 };
 
 /** @deprecated Use TypedNeoOrmClient with createNeoOrmClient generic instead */
@@ -227,6 +236,11 @@ function createTableRepository(
 	runtime: QueryRuntime,
 	accessor: string,
 ): TableRepository {
+	const table = runtime.manifest.tables[accessor];
+	if (!table) {
+		throw new Error(`Unknown table accessor "${accessor}"`);
+	}
+
 	return {
 		findMany: (args) => findMany(executor, runtime, accessor, args),
 		findFirst: (args) => findFirst(executor, runtime, accessor, args),
@@ -259,6 +273,8 @@ function createTableRepository(
 		groupBy: (args) => groupByRecords(executor, runtime, accessor, args),
 		deleteById: (id) => deleteById(executor, runtime, accessor, id),
 		paginate: (args) => paginateRecords(executor, runtime, accessor, args),
+		strip: (row, omit) =>
+			stripRecords(runtime.manifest, table, row, omit, runtime.tableIndex),
 	};
 }
 
