@@ -77,6 +77,19 @@ neoorm migrate reset --force [--skip-apply]
 - `--force` — required (safety guard)
 - `--skip-apply` — only drop, don't re-apply
 
+## `neoorm docs`
+
+Serve the NeoOrm documentation locally in your browser.
+
+```
+neoorm docs [options]
+```
+
+Options:
+- `-p, --port <port>` — port to listen on (default: `7583`)
+- `-H, --host <host>` — host to bind (default: `127.0.0.1`)
+- `--open` — open the docs site in your default browser
+
 ## `neoorm db push`
 
 Push the current snapshot schema to the database without going through the migration ledger.

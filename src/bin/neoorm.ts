@@ -421,7 +421,39 @@ program
 	);
 
 program
-	.command("db")
+	.command("docs")
+	.description("Serve NeoOrm documentation locally")
+	.option("-p, --port <port>", "Port to listen on", "7583")
+	.option("-H, --host <host>", "Host to bind", "127.0.0.1")
+	.option("--open", "Open the docs site in your browser")
+	.action(async (options: { port: string; host: string; open?: boolean }) => {
+		const port = Number.parseInt(options.port, 10);
+		if (!Number.isFinite(port) || port < 1 || port > 65535) {
+			console.error("--port must be a number between 1 and 65535");
+			process.exit(1);
+		}
+
+		const { startDocsServer } = await import("../docs/server.js");
+		const server = await startDocsServer({
+			port,
+			host: options.host,
+			...(options.open ? { open: true } : {}),
+			version: packageJson.version,
+		});
+
+		console.log(`NeoOrm docs running at ${server.url}`);
+		console.log("Press Ctrl+C to stop");
+
+		await new Promise<void>((resolve) => {
+			const onSignal = () => resolve();
+			process.once("SIGINT", onSignal);
+			process.once("SIGTERM", onSignal);
+		});
+
+		await server.close();
+	});
+
+program
 	.description("Database utilities")
 	.argument("<subcommand>", "push | pull")
 	.option("-o, --output <file>", "Output file for pull", "schema.pulled.ts")

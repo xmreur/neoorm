@@ -107,6 +107,7 @@ const posts = await db.posts.findMany({
 | [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |
 | [Migrations](docs/migrations.md) | Deploy, dev, status, rollback, reset |
 | [CLI reference](docs/cli.md) | All commands and flags |
+| [Documentation site](docs/getting-started.md) | Run `neoorm docs` for a local docs browser |
 | [Configuration](docs/configuration.md) | Config file options reference |
 | [SQLite](docs/sqlite.md) | SQLite dialect, drivers, type mapping, limitations |
 | [Plugins](docs/plugins.md) | PostGIS, citext, custom plugins |
