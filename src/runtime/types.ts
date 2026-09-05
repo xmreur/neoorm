@@ -196,11 +196,13 @@ export type TransactionIsolationLevel =
 	| "RepeatableRead"
 	| "Serializable";
 
+/** Options for `$transaction`. */
 export type TransactionOptions = {
 	isolationLevel?: TransactionIsolationLevel;
 	readOnly?: boolean;
 };
 
+/** Client scoped to a single database transaction. */
 export type TransactionClient<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<
@@ -213,6 +215,11 @@ export type TransactionClient<
 	> = DefaultRowPayloadMap<TTables>,
 > = TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
 
+/**
+ * Typed repository for one table accessor on a generated client.
+ *
+ * Method args use schema-inferred `where`, `with`, `select`, and `data` types.
+ */
 export type TypedTableRepository<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -363,6 +370,7 @@ export type TypedTableRepository<
 	>;
 };
 
+/** Generated typed client: one repository per table accessor plus `$transaction`. */
 export type TypedNeoOrmClient<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<

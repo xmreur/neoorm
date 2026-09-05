@@ -106,6 +106,7 @@ export function rebaseParamRefs(sql: string, offset: number): string {
 	return result;
 }
 
+/** Build a parameterized SQL fragment from a tagged template. */
 export function sqlTag(
 	strings: TemplateStringsArray,
 	...values: unknown[]
@@ -135,6 +136,7 @@ export function sqlTag(
 	return sqlFragment(text, params);
 }
 
+/** Quote a SQL identifier (table or column name). */
 export function sqlId(name: string): SqlFragment {
 	const escaped = `"${name.replace(/"/g, '""')}"`;
 	return sqlFragment(escaped, []);
@@ -145,6 +147,7 @@ export type CompiledSql = {
 	params: unknown[];
 };
 
+/** Extract text and params from a {@link SqlFragment}. */
 export function compile(fragment: SqlFragment): CompiledSql {
 	return { text: fragment.text, params: [...fragment.params] };
 }

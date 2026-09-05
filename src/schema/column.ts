@@ -17,6 +17,7 @@ export type CoreColumnKind =
 	| "fk";
 export type ColumnKind = CoreColumnKind | (string & {});
 
+/** Runtime metadata attached to a column builder. */
 export type ColumnMeta = {
 	kind: ColumnKind;
 	nullable: boolean;
@@ -33,91 +34,107 @@ export type ColumnMeta = {
 
 type UpdatedAtMeta = { updatedAt: true };
 
-type BaseColumnBuilder<TValue, TMeta extends ColumnMeta> = {
+/** Fluent builder for a scalar column. Chain modifiers before assigning to a table. */
+export interface ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> {
 	readonly _type: TValue;
 	readonly _meta: TMeta;
+	/** Require a value for this column (`NOT NULL`). */
 	notNull(): ColumnBuilder<
 		TValue,
 		Omit<TMeta, "nullable"> & { nullable: false }
 	>;
+	/** Add a `UNIQUE` constraint. */
 	unique(): ColumnBuilder<TValue, Omit<TMeta, "unique"> & { unique: true }>;
+	/** Create a btree index on this column. */
 	index(): ColumnBuilder<TValue, Omit<TMeta, "index"> & { index: true }>;
+	/** Omit from default `select` output (still queryable explicitly). */
 	hidden(): ColumnBuilder<TValue, Omit<TMeta, "hidden"> & { hidden: true }>;
+	/** Set the SQL default for inserts. */
 	default(
 		value: TValue,
 	): ColumnBuilder<
 		TValue,
 		Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
 	>;
+	/** Mark as primary key (implies `NOT NULL`). */
 	primary(): ColumnBuilder<
 		TValue,
 		Omit<TMeta, "primary"> & { primary: true }
 	>;
+	/** Map the TS property name to a different database column name. */
 	map(
 		name: string,
 	): ColumnBuilder<TValue, Omit<TMeta, "mapName"> & { mapName: string }>;
+	/** Add a `CHECK` constraint with the given SQL expression. */
 	check(
 		expression: string,
 	): ColumnBuilder<
 		TValue,
 		Omit<TMeta, "checkExpression"> & { checkExpression: string }
 	>;
-};
+}
 
-export type TimestampColumnBuilder<
+/** Fluent builder for a timestamp column (supports `defaultNow` and `updatedAt`). */
+export interface TimestampColumnBuilder<
 	TValue,
 	TMeta extends ColumnMeta = ColumnMeta,
-> = Omit<
-	BaseColumnBuilder<TValue, TMeta>,
-	"notNull" | "unique" | "index" | "hidden" | "default" | "primary" | "map" | "check"
-> & {
+> {
+	readonly _type: TValue;
+	readonly _meta: TMeta;
+	/** Require a value for this column (`NOT NULL`). */
 	notNull(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "nullable"> & { nullable: false }
 	>;
+	/** Add a `UNIQUE` constraint. */
 	unique(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "unique"> & { unique: true }
 	>;
+	/** Create a btree index on this column. */
 	index(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "index"> & { index: true }
 	>;
+	/** Omit from default `select` output (still queryable explicitly). */
 	hidden(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "hidden"> & { hidden: true }
 	>;
+	/** Set the SQL default for inserts. */
 	default(
 		value: TValue,
 	): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
 	>;
+	/** Mark as primary key (implies `NOT NULL`). */
 	primary(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "primary"> & { primary: true }
 	>;
+	/** Map the TS property name to a different database column name. */
 	map(
 		name: string,
 	): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "mapName"> & { mapName: string }
 	>;
+	/** Add a `CHECK` constraint with the given SQL expression. */
 	check(
 		expression: string,
 	): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "checkExpression"> & { checkExpression: string }
 	>;
+	/** Default to `now()` on insert. */
 	defaultNow(): TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "defaultNow"> & { defaultNow: true }
 	>;
+	/** Auto-set to `now()` on row updates. */
 	updatedAt(): TimestampColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
-};
-
-export type ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> =
-	BaseColumnBuilder<TValue, TMeta>;
+}
 
 export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 	meta: TMeta,
@@ -286,6 +303,11 @@ export function createTimestampColumnBuilder<
 	return builder;
 }
 
+/**
+ * Add `createdAt` and `updatedAt` timestamp columns.
+ *
+ * Both are `notNull` with `defaultNow`; `updatedAt` is auto-updated on writes.
+ */
 export function timestamps() {
 	const createdAt = createTimestampColumnBuilder<
 		Date,

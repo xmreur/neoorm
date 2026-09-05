@@ -1,3 +1,10 @@
+/**
+ * @packageDocumentation
+ * NeoOrm — TypeScript-first PostgreSQL and SQLite ORM.
+ *
+ * Import the generated client from your `out` directory; use this entry for
+ * config, migrations, codegen, and runtime client factories.
+ */
 export {
 	buildDownSql,
 	diffManifest,

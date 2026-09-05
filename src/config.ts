@@ -1,10 +1,16 @@
 export type NeoOrmConfig = {
+	/** Path to `schema.ts`. */
 	schema: string;
+	/** Output directory for generated client and migrations. */
 	out: string;
 	datasource: {
+		/** Database provider. */
 		provider: "postgresql" | "sqlite";
+		/** Connection URL or SQLite file path. */
 		url: string;
+		/** PostgreSQL schema name. */
 		schema?: string;
+		/** Enum storage mode for PostgreSQL. @default "check" */
 		enum?: "check" | "union" | "native";
 	};
 };
@@ -85,10 +91,16 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 	};
 }
 
+/** Type-safe config object for `neoorm.config.ts`. */
 export function defineConfig(config: NeoOrmConfig): NeoOrmConfig {
 	return config;
 }
 
+/**
+ * Load and validate `neoorm.config.ts` from a project directory.
+ *
+ * @param cwd - Project root containing `neoorm.config.ts`.
+ */
 export async function loadConfig(cwd: string): Promise<NeoOrmConfig> {
 	const { join } = await import("node:path");
 	const { importTsModule } = await import("./utils/load-ts.js");

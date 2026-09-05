@@ -5,6 +5,12 @@ type EncodedCursorPayload = {
 	c: Record<string, unknown>;
 };
 
+/**
+ * Encode a cursor object for use in HTTP APIs or client storage.
+ *
+ * @param cursor - Keyset cursor fields from `paginate`.
+ * @returns Base64url-encoded JSON payload.
+ */
 export function encodeCursor(cursor: Record<string, unknown>): string {
 	const payload: EncodedCursorPayload = {
 		v: CURSOR_CODEC_VERSION,
@@ -13,6 +19,11 @@ export function encodeCursor(cursor: Record<string, unknown>): string {
 	return Buffer.from(JSON.stringify(payload), "utf-8").toString("base64url");
 }
 
+/**
+ * Decode a cursor string produced by {@link encodeCursor}.
+ *
+ * @param encoded - Base64url cursor from `paginate` or an API request.
+ */
 export function decodeCursor<
 	T extends Record<string, unknown> = Record<string, unknown>,
 >(encoded: string): T {

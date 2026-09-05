@@ -18,6 +18,7 @@ export type PluginWhereOperator = {
 	) => PluginWhereCompileResult;
 };
 
+/** Column type contributed by a plugin (e.g. PostGIS geometry). */
 export type ColumnTypePlugin = {
 	readonly kind: string;
 	createBuilder(options?: Record<string, unknown>): ColumnBuilder<unknown>;
@@ -33,6 +34,7 @@ export type ColumnTypePlugin = {
 	introspect?(pgDataType: string, udtName: string): boolean;
 };
 
+/** Plugin bundle: column types and optional PostgreSQL extensions. */
 export type NeoOrmPlugin = {
 	readonly name: string;
 	readonly extensions?: readonly string[];

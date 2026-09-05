@@ -54,14 +54,23 @@ import type {
 	TypedTableRepository,
 } from "./types.js";
 
+/**
+ * Options for {@link createNeoOrmClient} and {@link createNeoOrmClientFromPool}.
+ */
 export type NeoOrmClientOptions = {
+	/** PostgreSQL connection string. Falls back to `DATABASE_URL`. */
 	connectionString?: string;
+	/** Database provider. Inferred from manifest when omitted. */
 	provider?: "postgres" | "sqlite";
+	/** SQLite database handle (Bun or Node 22.5+). */
 	db?: SqliteDatabaseLike;
+	/** SQLite file path when `db` is not provided. */
 	databasePath?: string;
+	/** Directory containing migration SQL files. */
 	migrationsDir?: string;
+	/** PostgreSQL schema name. @default "public" */
 	schema?: string;
-	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). Default: false. */
+	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). @default false */
 	preparedStatements?: boolean;
 	pool?: {
 		max?: number;
@@ -69,6 +78,11 @@ export type NeoOrmClientOptions = {
 	};
 };
 
+/**
+ * Untyped table repository. Prefer the generated typed client from `neoorm generate`.
+ *
+ * Shared args: `where`, `select`/`omit`, and `with` for relation includes.
+ */
 export type TableRepository = {
 	findMany(args?: {
 		where?: Record<string, unknown>;
@@ -373,6 +387,12 @@ function buildClient<
 	return client;
 }
 
+/**
+ * Create a typed NeoOrm client from a compiled manifest.
+ *
+ * @param manifest - Manifest emitted by `neoorm generate`.
+ * @param connectionStringOrOptions - PostgreSQL URL or connection options.
+ */
 export function createNeoOrmClient<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<
@@ -451,8 +471,14 @@ export function createNeoOrmClient<
 			await pool.end();
 		},
 	);
-}
+};
 
+/**
+ * Create a typed NeoOrm client from an existing `pg` connection pool.
+ *
+ * @param manifest - Manifest emitted by `neoorm generate`.
+ * @param pool - Node `pg` Pool instance.
+ */
 export function createNeoOrmClientFromPool<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<

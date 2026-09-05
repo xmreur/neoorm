@@ -7,6 +7,7 @@ export type QueryOperation =
 	| "findOrCreate"
 	| "raw";
 
+/** Context attached to {@link NeoOrmQueryError}. */
 export type QueryErrorContext = {
 	operation: QueryOperation;
 	tableAccessor?: string;
@@ -23,6 +24,7 @@ export type QueryErrorContext = {
 	suggestions?: string[];
 };
 
+/** Context attached to {@link NeoOrmSchemaError}. */
 export type SchemaErrorContext = {
 	schemaPath?: string;
 	tableAccessor?: string;
@@ -68,6 +70,7 @@ function appendSuggestions(
 	}
 }
 
+/** Format a query error context into a multi-line message. */
 export function formatQueryError(context: QueryErrorContext): string {
 	const target = operationTarget(context);
 	const reason = context.detail ?? "database error";
@@ -125,6 +128,7 @@ export function formatQueryError(context: QueryErrorContext): string {
 	return lines.join("\n");
 }
 
+/** Format a schema error context into a multi-line message. */
 export function formatSchemaError(context: SchemaErrorContext): string {
 	const lines: string[] = [];
 
@@ -176,6 +180,7 @@ export function formatSchemaError(context: SchemaErrorContext): string {
 	return lines.join("\n").trimEnd();
 }
 
+/** Thrown when a query fails at compile time or at the database. */
 export class NeoOrmQueryError extends Error {
 	readonly context: QueryErrorContext;
 	override readonly cause: unknown;
@@ -188,6 +193,7 @@ export class NeoOrmQueryError extends Error {
 	}
 }
 
+/** Thrown when schema compilation or migration fails. */
 export class NeoOrmSchemaError extends Error {
 	readonly context: SchemaErrorContext;
 	override readonly cause: unknown;
@@ -200,6 +206,7 @@ export class NeoOrmSchemaError extends Error {
 	}
 }
 
+/** Thrown when the database driver rejects a statement. */
 export class NeoOrmDriverError extends Error {
 	readonly statement: string;
 	override readonly cause: unknown;

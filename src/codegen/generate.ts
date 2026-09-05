@@ -307,6 +307,7 @@ export async function writeGeneratedFiles(
 	return { migrationName };
 }
 
+/** Result of {@link generateFromSchema}. */
 export type GenerateResult = {
 	manifest: Manifest;
 	migrationName: string | null;
@@ -324,6 +325,12 @@ export type GenerateOptions = {
 	url?: string;
 };
 
+/**
+ * Generate client, models, and migration SQL from a schema file.
+ *
+ * @param schemaPath - Path to `schema.ts`.
+ * @param outDir - Output directory from config `out`.
+ */
 export async function generateFromSchema(
 	schemaPath: string,
 	outDir: string,

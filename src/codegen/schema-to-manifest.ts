@@ -43,6 +43,7 @@ export type SchemaValidationIssue = {
 	suggestions?: string[];
 };
 
+/** Options for {@link schemaToManifest}. */
 export type SchemaToManifestOptions = {
 	enumMode?: "check" | "union" | "native";
 	provider?: "postgresql" | "sqlite";
@@ -538,6 +539,13 @@ function resolveM2M(incoming: IncomingM2M): ManifestManyToMany {
 	};
 }
 
+/**
+ * Compile a schema definition into a migration manifest.
+ *
+ * @param schema - Result of `defineSchema(...)`.
+ * @param plugins - Column type plugins (defaults to built-in registry).
+ * @param options - Enum mode and datasource provider hints.
+ */
 export function schemaToManifest<T extends Record<string, TableDef>>(
 	schema: SchemaDef<T>,
 	plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
@@ -909,6 +917,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	};
 }
 
+/** Validate a manifest and return structured issues (empty when valid). */
 export function validateManifest(manifest: Manifest): SchemaValidationIssue[] {
 	const errors: SchemaValidationIssue[] = [];
 	const sqlNames = new Set<string>();

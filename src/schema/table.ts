@@ -80,6 +80,7 @@ export type TableExtra = IndexDef | PrimaryKeyDef | IndexBuilder;
 
 export type ColumnNaming = "snakeCase" | "camelCase";
 
+/** Options for {@link table}. */
 export type TableOptions<
 	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
 > = {
@@ -108,6 +109,7 @@ export type IndexBuilder = {
 	readonly kind: "index";
 	readonly columns: readonly string[];
 	readonly unique: boolean;
+	/** Partial index: only index rows matching the predicate. */
 	where(predicate: IndexWherePredicate): IndexDef;
 };
 
@@ -124,14 +126,17 @@ function createIndexDef(
 	};
 }
 
+/** Create a non-unique index on one or more columns (use in table extras). */
 export function index(...columns: readonly string[]): IndexBuilder {
 	return createIndexDef(columns, false);
 }
 
+/** Create a unique composite index on one or more columns. */
 export function unique(...columns: readonly string[]): IndexDef {
 	return { kind: "index", columns, unique: true };
 }
 
+/** Declare a composite primary key (use in table extras). */
 export function primaryKey(...columns: readonly string[]): PrimaryKeyDef {
 	return { kind: "primaryKey", columns };
 }
@@ -191,6 +196,21 @@ function buildTableDef<
 		TableColumns<TName, TColumns>;
 }
 
+/**
+ * Define a table and its columns.
+ *
+ * @param columns - Column map (`text()`, `fk()`, `many()`, etc.).
+ * @param config - Extras callback for indexes/constraints, or `{ columnNaming, extras }`.
+ *
+ * @example
+ * ```ts
+ * users: table({ id: uuid().primary(), email: text().notNull() }),
+ * postTags: table("post_tags", {
+ *   postId: fk("posts").primary(),
+ *   tagId: fk("tags").primary(),
+ * }),
+ * ```
+ */
 export function table<
 	TColumns extends Record<string, ColumnDef>,
 >(

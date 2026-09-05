@@ -1,10 +1,14 @@
 import type { ColumnNaming, TableDef } from "./table.js";
 
+/** Options for {@link defineSchema}. */
 export type SchemaOptions = {
+	/** Default SQL column naming for all tables. @default "snakeCase" */
 	columnNaming?: ColumnNaming;
+	/** PostgreSQL extensions to enable (e.g. `"uuid-ossp"`, `"pg_trgm"`). */
 	extensions?: readonly string[];
 };
 
+/** A schema definition: table accessors plus internal metadata. */
 export type SchemaDef<TTables extends Record<string, TableDef>> = {
 	readonly _tables: TTables;
 	readonly _columnNaming?: ColumnNaming;
@@ -51,6 +55,21 @@ function assignTableAccessor(table: TableDef, accessor: string): void {
 	});
 }
 
+/**
+ * Define a database schema from table accessors.
+ *
+ * @param tables - Map of accessor names to `table()` definitions.
+ * @param options - Schema-wide column naming and PostgreSQL extensions.
+ * @returns A schema object passed to `neoorm generate` and used for type inference.
+ *
+ * @example
+ * ```ts
+ * export const schema = defineSchema({
+ *   users: table({ id: uuid().primary(), email: text().notNull() }),
+ *   posts: table({ authorId: fk("users").notNull(), title: text().notNull() }),
+ * });
+ * ```
+ */
 export function defineSchema<TTables extends Record<string, TableDef>>(
 	tables: TTables,
 	options: SchemaOptions = {},

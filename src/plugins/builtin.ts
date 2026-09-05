@@ -12,14 +12,17 @@ import { jsonWhereOperators } from "./json/operators.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
 export type UuidOptions = {
+	/** UUID version. @default 7 */
 	version?: 4 | 7;
 };
 
+/** Options for {@link decimal} and {@link numeric}. */
 export type DecimalOptions = {
 	precision?: number;
 	scale?: number;
 };
 
+/** Options for {@link enumType}. */
 export type EnumTypeOptions = {
 	name?: string;
 };
@@ -595,18 +598,22 @@ type IdColumnMeta = {
 	defaultNow: false;
 };
 
+/** App-generated `{prefix}_{uuid}` primary key (`TEXT`). */
 export function id(): ColumnBuilder<string, IdColumnMeta> {
 	return idType.createBuilder() as ColumnBuilder<string, IdColumnMeta>;
 }
 
+/** `TEXT` column. */
 export function text(): ColumnBuilder<string | null> {
 	return textType.createBuilder() as ColumnBuilder<string | null>;
 }
 
+/** `BOOLEAN` column. */
 export function bool(): ColumnBuilder<boolean | null> {
 	return boolType.createBuilder() as ColumnBuilder<boolean | null>;
 }
 
+/** `INTEGER` column. */
 export function int(): ColumnBuilder<number | null, ColumnMeta & { kind: "int" }> {
 	return intType.createBuilder() as ColumnBuilder<
 		number | null,
@@ -614,6 +621,7 @@ export function int(): ColumnBuilder<number | null, ColumnMeta & { kind: "int" }
 	>;
 }
 
+/** `BIGINT` column (stored as `TEXT` on SQLite). */
 export function bigint(): ColumnBuilder<
 	bigint | null,
 	ColumnMeta & { kind: "bigint" }
@@ -624,24 +632,33 @@ export function bigint(): ColumnBuilder<
 	>;
 }
 
+/** `TIMESTAMPTZ` column with `defaultNow` / `updatedAt` support. */
 export function timestamp(): TimestampColumnBuilder<Date | null> {
 	return timestampType.createBuilder() as TimestampColumnBuilder<Date | null>;
 }
 
+/**
+ * `UUID` column. Defaults to UUID v7; pass `{ version: 4 }` for v4.
+ *
+ * @param options - UUID generation version.
+ */
 export function uuid(options?: UuidOptions): ColumnBuilder<string | null> {
 	return uuidType.createBuilder(
 		options as Record<string, unknown> | undefined,
 	) as ColumnBuilder<string | null>;
 }
 
+/** `JSON` column. */
 export function json<T = unknown>(): ColumnBuilder<T | null> {
 	return jsonType.createBuilder() as ColumnBuilder<T | null>;
 }
 
+/** `JSONB` column (PostgreSQL; `JSON` on SQLite). */
 export function jsonb<T = unknown>(): ColumnBuilder<T | null> {
 	return jsonbType.createBuilder() as ColumnBuilder<T | null>;
 }
 
+/** `NUMERIC` column — use string values to avoid float loss. */
 export function decimal(
 	options?: DecimalOptions,
 ): ColumnBuilder<string | null, ColumnMeta & { kind: "decimal" }> {
@@ -650,12 +667,14 @@ export function decimal(
 	) as ColumnBuilder<string | null, ColumnMeta & { kind: "decimal" }>;
 }
 
+/** Alias for {@link decimal}. */
 export function numeric(
 	options?: DecimalOptions,
 ): ColumnBuilder<string | null, ColumnMeta & { kind: "decimal" }> {
 	return decimal(options);
 }
 
+/** Auto-increment integer identity column. */
 export function serial(): ColumnBuilder<
 	number,
 	ColumnMeta & { kind: "serial"; nullable: false }
@@ -666,6 +685,7 @@ export function serial(): ColumnBuilder<
 	>;
 }
 
+/** String enum column. Storage mode depends on `datasource.enum` in config. */
 export function enumType<const T extends readonly [string, ...string[]]>(
 	values: T,
 	options?: EnumTypeOptions,
@@ -676,18 +696,22 @@ export function enumType<const T extends readonly [string, ...string[]]>(
 	}) as ColumnBuilder<T[number] | null>;
 }
 
+/** `BYTEA` column. */
 export function bytea(): ColumnBuilder<Buffer | null> {
 	return byteaType.createBuilder() as ColumnBuilder<Buffer | null>;
 }
 
+/** `TEXT[]` array column. */
 export function textArray(): ColumnBuilder<string[] | null> {
 	return textArrayType.createBuilder() as ColumnBuilder<string[] | null>;
 }
 
+/** `INTEGER[]` array column. */
 export function intArray(): ColumnBuilder<number[] | null> {
 	return intArrayType.createBuilder() as ColumnBuilder<number[] | null>;
 }
 
+/** `CITEXT` case-insensitive text (requires `citext` extension). */
 export function citext(): ColumnBuilder<string | null> {
 	return citextType.createBuilder() as ColumnBuilder<string | null>;
 }
