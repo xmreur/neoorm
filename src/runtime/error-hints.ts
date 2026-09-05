@@ -130,7 +130,7 @@ export function suggestTableAccessor(
 	}
 
 	suggestions.push(
-		"FK and manyToMany targets use schema accessors (camelCase), not SQL table names",
+		"FK and many() targets use schema accessors (camelCase), not SQL table names",
 	);
 
 	const matches = didYouMean(input, accessors);
@@ -209,7 +209,7 @@ export function suggestSchemaTableAccessor(
 	}
 
 	suggestions.push(
-		"FK and manyToMany targets use schema accessors (camelCase), not SQL table names",
+		"FK and many() targets use schema accessors (camelCase), not SQL table names",
 	);
 
 	const matches = didYouMean(input, accessors);

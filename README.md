@@ -69,7 +69,7 @@ const posts = await db.posts.findMany({
 
 <table>
   <tr>
-    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Accessor-based tables (`table({…})`), fluent FKs (`fk("users").inverse("posts")`), `id()`, `timestamps()`, array extras, virtual M2M, checks, and partial indexes.</td>
+    <td width="50%"><strong>🧩 Schema DSL</strong><br/>Accessor-based tables (`table({…})`), fluent FKs (`fk("users")`), `many("tags")`, `id()`, `timestamps()`, array extras, checks, and partial indexes.</td>
     <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL.</td>
   </tr>
   <tr>
@@ -122,7 +122,7 @@ See [Getting started](docs/getting-started.md) and [Examples](docs/examples.md) 
 | Import | Purpose |
 |--------|---------|
 | `neoorm` | `defineConfig`, `createNeoOrmClient`, `createNeoOrmClientFromPool`, client types |
-| `neoorm/schema` | Schema DSL (`defineSchema`, `table`, column builders, `fk`, `manyToMany`, `index`, `unique`, `primaryKey`) |
+| `neoorm/schema` | Schema DSL (`defineSchema`, `table`, column builders, `fk`, `many`, `index`, `unique`, `primaryKey`) |
 | `neoorm/sql` | Tagged SQL templates (`sql`), SQL fragment builder, fluent query builder |
 | `neoorm/plugins` | Plugin registry, `NeoOrmPlugin`, `ColumnTypePlugin` |
 | `neoorm/plugins/postgis` | PostGIS column types (`geometry`, `geography`, `point`) and spatial operators |

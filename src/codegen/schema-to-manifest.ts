@@ -356,7 +356,7 @@ function columnToManifest(
 			`Column "${tsName}" is not a scalar or foreign-key column`,
 			{},
 			[
-				"Table columns must be column builders (text(), uuid(), fk(), etc.) or manyToMany() extras",
+				"Table columns must be column builders (text(), uuid(), fk(), etc.) or many() extras",
 				"Move indexes, primaryKey(), and check() into the table extras callback: table({ ... }, (t) => ({ ... }))",
 			],
 		);
@@ -484,9 +484,7 @@ function buildRelations(
 			cardinality,
 			inverse:
 				col.fkInverse ??
-				(col.unique
-					? singularize(sourceAccessor)
-					: pluralize(col.fkAs)),
+				(col.unique ? singularize(sourceAccessor) : sourceAccessor),
 		};
 		if (col.onDelete !== undefined) {
 			rel.onDelete = col.onDelete;
@@ -694,7 +692,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		if (!targetTable) {
 			throw schemaError(
 				"unknown_m2m_target",
-				`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown table accessor "${extra.target}"`,
+				`many("${extra.target}") on table "${sourceAccessor}" references unknown table accessor "${extra.target}"`,
 				{ tableAccessor: sourceAccessor },
 				suggestSchemaTableAccessor(extra.target, tables),
 			);
@@ -712,7 +710,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			if (!throughTable) {
 				throw schemaError(
 					"unknown_m2m_through",
-					`manyToMany("${extra.target}") on table "${sourceAccessor}" references unknown junction table accessor "${extra.through}"`,
+					`many("${extra.target}") on table "${sourceAccessor}" references unknown junction table accessor "${extra.through}"`,
 					{ tableAccessor: sourceAccessor },
 					[
 						`Define the junction table first: ${extra.through}: table("...")({ ... })`,
@@ -735,8 +733,8 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 					`Auto-generated junction table accessor "${autoAccessor}" collides with an existing table`,
 					{ tableAccessor: sourceAccessor },
 					[
-						`Use manyToMany("${extra.target}", { through: "yourJunctionAccessor" }) with an explicit junction table`,
-						`Define a junction table with a unique accessor before the manyToMany() extra`,
+						`Use many("${extra.target}", { through: "yourJunctionAccessor" }) with an explicit junction table`,
+						`Define a junction table with a unique accessor before the many() extra`,
 					],
 				);
 			}
@@ -761,10 +759,10 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		if (!leftFk) {
 			throw schemaError(
 				"unknown_junction_column",
-				`manyToMany("${extra.target}") on table "${sourceAccessor}" cannot find junction column "${leftTsName}" on table "${throughKey}"`,
+				`many("${extra.target}") on table "${sourceAccessor}" cannot find junction column "${leftTsName}" on table "${throughKey}"`,
 				{ tableAccessor: throughAccessor },
 				[
-					`Add a FK column named "${leftTsName}" to the junction table, or set leftKey in manyToMany options`,
+					`Add a FK column named "${leftTsName}" to the junction table, or set leftKey in many options`,
 					`Default left key is "${singularize(sourceAccessor)}Id"`,
 				],
 			);
@@ -772,10 +770,10 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		if (!rightFk) {
 			throw schemaError(
 				"unknown_junction_column",
-				`manyToMany("${extra.target}") on table "${sourceAccessor}" cannot find junction column "${rightTsName}" on table "${throughKey}"`,
+				`many("${extra.target}") on table "${sourceAccessor}" cannot find junction column "${rightTsName}" on table "${throughKey}"`,
 				{ tableAccessor: throughAccessor },
 				[
-					`Add a FK column named "${rightTsName}" to the junction table, or set rightKey in manyToMany options`,
+					`Add a FK column named "${rightTsName}" to the junction table, or set rightKey in many options`,
 					`Default right key is "${singularize(targetTable.accessor)}Id"`,
 				],
 			);

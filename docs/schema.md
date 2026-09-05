@@ -1,6 +1,6 @@
 # Schema DSL
 
-NeoOrm **0.6** uses accessor-based identity: schema keys, `fk("users")`, `manyToMany("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
+NeoOrm **0.6** uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
 
 ## Tables and accessors
 
@@ -83,27 +83,32 @@ posts: table({
   authorId: fk("users")
     .notNull()
     .index()
-    .onDelete("restrict")
-    .inverse("posts"),
+    .onDelete("restrict"),
 }),
 ```
+
+Relation names are inferred — no `.inverse()` needed on the happy path:
+
+- `authorId` → `author` on `posts` (`with: { author: true }`)
+- inverse on `users` → `posts` (`with: { posts: true }`)
 
 Fluent modifiers (no options bag):
 
 | Method | Effect |
 |--------|--------|
-| `.as("author")` | relation name on this table (inferred from column name when omitted) |
-| `.inverse("posts")` | relation name on the target table |
+| `.as("author")` | override relation name on this table (default: strip `Id` from column name) |
+| `.inverse("articles")` | override relation name on the target table (rare — see defaults below) |
 | `.onDelete("cascade" \| "restrict" \| "set null" \| "no action")` | FK action |
 | `.notNull()` | `NOT NULL` |
 | `.unique()` | `UNIQUE` — unique FKs infer a **singular** inverse (`profiles.userId` → `users.profile`) |
 | `.primary()` | part of composite PK |
 | `.index()` | single-column index |
 
-Default inference when `inverse` is omitted:
+Default inference when `.as()` / `.inverse()` are omitted:
 
-- to-many: plural of `as` (`authorId` → `as: "author"`, inverse `"authors"`)
-- unique to-one: singular of the **source accessor** (`profiles.userId` → `users.profile`)
+- **this table:** `authorId` → `author` (strip trailing `Id`)
+- **target table (to-many):** source accessor (`posts.authorId` → `users.posts`)
+- **target table (unique to-one):** singular of source accessor (`profiles.userId` → `users.profile`)
 
 ### Composite primary keys with FKs
 
@@ -181,7 +186,7 @@ Declare a virtual column on the source table:
 posts: table({
   id: id(),
   title: text().notNull(),
-  tags: manyToMany("tags"),
+  tags: many("tags"),
 }),
 tags: table({ id: id(), slug: text().notNull().unique() }),
 ```
@@ -195,7 +200,7 @@ Reuse an existing junction by **accessor**:
 
 ```ts
 posts: table({
-  tags: manyToMany("tags", {
+  tags: many("tags", {
     through: "postTags",
     leftKey: "postId",
     rightKey: "tagId",
@@ -231,7 +236,7 @@ export const schema = defineSchema(
 
 ```ts
 emailAddress: text().notNull().map("email"),
-authorId: fk("users").as("author").inverse("posts").map("author_ref"),
+authorId: fk("users").as("author").map("author_ref"),
 ```
 
 ## Enum columns

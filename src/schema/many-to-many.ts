@@ -38,7 +38,7 @@ type ManyToManyInverseOf<T extends InlineManyToManyOptions> = T extends {
 	? Inv
 	: "";
 
-export function manyToMany<
+export function many<
 	const TTarget extends string,
 	const TOptions extends InlineManyToManyOptions = {},
 >(
@@ -59,3 +59,6 @@ export function manyToMany<
 		inverse: (options?.inverse ?? "") as ManyToManyInverseOf<TOptions>,
 	};
 }
+
+/** @deprecated Use `many()` instead. */
+export const manyToMany = many;

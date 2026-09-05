@@ -215,7 +215,7 @@ type InverseRelationWriteEntriesForTable<
 							TTarget,
 							TAccessor
 						> extends true
-						? FkInverseName<Inv, K>
+						? FkInverseName<Inv, TSourceAccessor, _Unique>
 						: never
 					: never]?: TSchema[TSourceAccessor]["_columns"][K] extends FkBuilder
 					? TSchema[TSourceAccessor]["_columns"][K]["_meta"] extends {
