@@ -3,6 +3,10 @@ import { spawn } from "node:child_process";
 import { loadDocsPages, hydratePageTitles, type DocsPage } from "./pages.js";
 import { renderDocsIndex, renderDocsPage } from "./render.js";
 import { resolveDocsDir } from "./resolve-docs-dir.js";
+import {
+	buildSearchIndex,
+	type DocsSearchRecord,
+} from "./search.js";
 
 export type DocsServerOptions = {
 	port?: number;
@@ -36,9 +40,18 @@ function parseSlug(pathname: string): string | null {
 	return slug;
 }
 
-function createRequestHandler(
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+	res.writeHead(status, {
+		"Content-Type": "application/json; charset=utf-8",
+		"Cache-Control": "no-cache",
+	});
+	res.end(JSON.stringify(body));
+}
+
+export function createRequestHandler(
 	pages: DocsPage[],
 	version: string,
+	searchIndex: DocsSearchRecord[],
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
 	const bySlug = new Map(pages.map((page) => [page.slug, page]));
 
@@ -47,6 +60,11 @@ function createRequestHandler(
 		const { pathname } = url;
 
 		try {
+			if (pathname === "/search-index.json") {
+				sendJson(res, 200, searchIndex);
+				return;
+			}
+
 			if (pathname === "/" || pathname === "/index.html") {
 				sendHtml(res, 200, renderDocsIndex(pages, version));
 				return;
@@ -94,10 +112,11 @@ export async function startDocsServer(
 		throw new Error(`No markdown files found in ${docsDir}`);
 	}
 	await hydratePageTitles(pages);
+	const searchIndex = await buildSearchIndex(pages);
 
 	const host = options.host ?? "127.0.0.1";
 	const port = options.port ?? 7583;
-	const handler = createRequestHandler(pages, options.version);
+	const handler = createRequestHandler(pages, options.version, searchIndex);
 
 	const server = createServer((req, res) => {
 		void handler(req, res);

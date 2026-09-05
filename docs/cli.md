@@ -90,6 +90,8 @@ Options:
 - `-H, --host <host>` — host to bind (default: `127.0.0.1`)
 - `--open` — open the docs site in your default browser
 
+The sidebar includes a search box with live results across all documentation pages.
+
 ## `neoorm db push`
 
 Push the current snapshot schema to the database without going through the migration ledger.
