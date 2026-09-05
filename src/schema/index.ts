@@ -35,7 +35,7 @@ export type {
 	InlineManyToManyOptions,
 	ManyToManyExtra,
 } from "./many-to-many.js";
-export { manyToMany } from "./many-to-many.js";
+export { many, manyToMany } from "./many-to-many.js";
 export { clearTableRegistry } from "./table-registry.js";
 export type {
 	FkBuilder,

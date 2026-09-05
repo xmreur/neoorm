@@ -20,7 +20,7 @@ const schema = defineSchema({
 	orders: table({
 		id: serial().primary(),
 		itemId: fk("items.id").notNull(),
-		optionalItemId: fk("items.id"),
+		optionalItemId: fk("items.id").inverse("optionalOrders"),
 		userId: fk("users").notNull(),
 	}),
 });

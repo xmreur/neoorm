@@ -24,7 +24,7 @@ try {
 
 ## Schema: use accessors, not SQL names
 
-Foreign keys and `manyToMany()` targets refer to **schema accessors** (the keys in `defineSchema({ ... })`), not SQL table names.
+Foreign keys and `many()` targets refer to **schema accessors** (the keys in `defineSchema({ ... })`), not SQL table names.
 
 ```ts
 // Wrong — "server_members" is the SQL table name

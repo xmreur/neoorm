@@ -7,7 +7,7 @@ import {
 	id,
 	int,
 	jsonb,
-	manyToMany,
+	many,
 	table,
 	text,
 	timestamp,
@@ -25,22 +25,14 @@ export const schema = defineSchema({
 
 	profiles: table({
 		id: id(),
-		userId: fk("users")
-			.notNull()
-			.unique()
-			.onDelete("cascade")
-			.inverse("profile"),
+		userId: fk("users").notNull().unique().onDelete("cascade"),
 		bio: text(),
 		avatarUrl: text(),
 	}),
 
 	posts: table({
 		id: id(),
-		authorId: fk("users")
-			.notNull()
-			.index()
-			.onDelete("restrict")
-			.inverse("posts"),
+		authorId: fk("users").notNull().index().onDelete("restrict"),
 		title: text().notNull(),
 		body: text().notNull(),
 		published: bool().notNull().default(false),
@@ -51,12 +43,12 @@ export const schema = defineSchema({
 		metadata: jsonb<Record<string, unknown>>(),
 		price: decimal({ precision: 10, scale: 2 }),
 		...timestamps(),
-		tags: manyToMany("tags"),
+		tags: many("tags"),
 	}),
 
 	comments: table({
 		id: id(),
-		postId: fk("posts").notNull().onDelete("cascade").inverse("comments"),
+		postId: fk("posts").notNull().onDelete("cascade"),
 		authorId: fk("users").notNull(),
 		body: text().notNull(),
 		createdAt: timestamps().createdAt,

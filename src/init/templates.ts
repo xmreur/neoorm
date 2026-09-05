@@ -34,7 +34,7 @@ export function schemaTemplate(): string {
   id,
   text,
   fk,
-  manyToMany,
+  many,
   timestamps,
 } from "neoorm/schema";
 
@@ -50,7 +50,7 @@ export const schema = defineSchema({
     authorId: fk("users").notNull().index(),
     title: text().notNull(),
     ...timestamps(),
-    tags: manyToMany("tags"),
+    tags: many("tags"),
   }),
 
   tags: table({

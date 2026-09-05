@@ -158,18 +158,16 @@ type InferFkAs<C extends string> = C extends `${infer B}Id`
 		? B
 		: C;
 
-/** Basic pluralizer matching the runtime default for omitted inverses. */
-type Pluralize<S extends string> = S extends `${infer B}${"ch" | "sh"}`
-	? `${S}es`
-	: S extends `${infer B}${"s" | "x" | "z"}`
-		? `${S}es`
-		: S extends `${infer B}y`
-			? B extends `${string}${"a" | "e" | "i" | "o" | "u"}`
-				? `${S}s`
-				: `${B}ies`
-			: `${S}s`;
-
-type InferFkInverse<C extends string> = Pluralize<InferFkAs<C>>;
+/** Basic singularizer matching runtime `singularize()`. */
+type Singularize<S extends string> = S extends `${infer B}ies`
+	? `${B}y`
+	: S extends `${infer B}${"ses" | "xes" | "zes" | "ches" | "shes"}`
+		? B
+		: S extends `${infer B}s`
+			? B extends `${string}ss`
+				? S
+				: B
+			: S;
 
 export type FkRelationName<
 	As extends string,
@@ -178,11 +176,16 @@ export type FkRelationName<
 
 export type FkInverseName<
 	Inv extends string,
-	K extends string,
+	TSourceAccessor extends string,
+	TUnique extends boolean,
 > = string extends Inv
-	? InferFkInverse<K>
+	? TUnique extends true
+		? Singularize<TSourceAccessor>
+		: TSourceAccessor
 	: Inv extends ""
-		? InferFkInverse<K>
+		? TUnique extends true
+			? Singularize<TSourceAccessor>
+			: TSourceAccessor
 		: Inv;
 
 type FkColumnNames<TColumns extends Record<string, ColumnDef>> = {
@@ -275,13 +278,26 @@ export type InverseRelationEntryForSource<
 		: FkMetaOf<C> extends {
 					target: infer TTarget extends string;
 					inverse: infer Inv extends string;
+					unique: infer TUnique extends boolean;
 				}
 			? [TTarget] extends [
 					`${TTargetAccessor & string}.${string}`,
 				]
-				? { [P in FkInverseName<Inv, K>]: TSourceAccessor }
+				? {
+						[P in FkInverseName<
+							Inv,
+							TSourceAccessor,
+							TUnique
+						>]: TSourceAccessor;
+					}
 				: [TTarget] extends [TTargetAccessor]
-					? { [P in FkInverseName<Inv, K>]: TSourceAccessor }
+					? {
+							[P in FkInverseName<
+								Inv,
+								TSourceAccessor,
+								TUnique
+							>]: TSourceAccessor;
+						}
 					: never
 			: never;
 
@@ -868,19 +884,28 @@ type InverseRelationWhereEntry<
 		: FkMetaOf<C> extends {
 					target: infer TTarget extends string;
 					inverse: infer Inv extends string;
+					unique: infer TUnique extends boolean;
 				}
 			? [TTarget] extends [
 					`${TTargetAccessor & string}.${string}`,
 				]
 				? {
-						[P in FkInverseName<Inv, K>]?: ManyRelationFilter<
+						[P in FkInverseName<
+							Inv,
+							TSourceAccessor,
+							TUnique
+						>]?: ManyRelationFilter<
 							TSchema,
 							TSourceAccessor
 						>;
 					}
 				: [TTarget] extends [TTargetAccessor]
 					? {
-							[P in FkInverseName<Inv, K>]?: ManyRelationFilter<
+							[P in FkInverseName<
+								Inv,
+								TSourceAccessor,
+								TUnique
+							>]?: ManyRelationFilter<
 								TSchema,
 								TSourceAccessor
 							>;

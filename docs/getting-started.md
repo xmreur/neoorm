@@ -49,7 +49,7 @@ export const schema = defineSchema({
 
   posts: table({
     id: id(),
-    authorId: fk("users").notNull().index().inverse("posts"),
+    authorId: fk("users").notNull().index(),
     title: text().notNull(),
   }),
 });
@@ -57,7 +57,7 @@ export const schema = defineSchema({
 
 - `table({ ... })` uses the accessor as the SQL table name.
 - `fk("users")` references the **users accessor** (not a SQL string).
-- Relation names are inferred (`authorId` → `author` on posts, `posts` on users when `.inverse("posts")` is set).
+- Relation names are inferred (`authorId` → `author` on posts, `posts` on users).
 
 See [Schema DSL](schema.md).
 

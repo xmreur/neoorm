@@ -16,6 +16,19 @@ function inferFkAs(tsName: string): string {
 	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
 }
 
+function singularize(word: string): string {
+	if (/ies$/.test(word)) {
+		return `${word.slice(0, -3)}y`;
+	}
+	if (/(ses|xes|zes|ches|shes)$/.test(word)) {
+		return word.slice(0, -2);
+	}
+	if (/s$/.test(word) && !/ss$/.test(word)) {
+		return word.slice(0, -1);
+	}
+	return word;
+}
+
 function tableHeader(accessor: string, sqlName: string): string {
 	if (sqlName === accessor) {
 		return `  ${accessor}: table({`;
@@ -85,7 +98,6 @@ export async function introspectPostgres(
 				if (relName !== inferFkAs(tsName)) {
 					def += `.as("${escapeTsString(relName)}")`;
 				}
-				def += `.inverse("${escapeTsString(accessor)}")`;
 				if (col.is_nullable === "NO") def += `.notNull()`;
 				def = appendMapModifier(
 					def,
@@ -271,7 +283,10 @@ function sqliteColumnDef(
 		if (col.fkAs && col.fkAs !== relName) {
 			def += `.as("${col.fkAs}")`;
 		}
-		if (col.fkInverse) {
+		const defaultInverse = col.unique
+			? singularize(table.accessor)
+			: table.accessor;
+		if (col.fkInverse && col.fkInverse !== defaultInverse) {
 			def += `.inverse("${col.fkInverse}")`;
 		}
 		if (col.onDelete) {
