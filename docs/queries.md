@@ -338,13 +338,12 @@ Mark sensitive columns in the schema with `.hidden()`:
 password: text().notNull().hidden(),
 ```
 
-By default, queries **omit** hidden columns from the result (root table and nested `with` includes). They are not fetched unless you ask for them:
+By default, queries **omit** hidden columns from the result (root table and nested `with` includes). Pass `includeHidden: true` when the app needs them (for example password verification on login):
 
 ```ts
-// login — explicitly select the hash column
 const user = await db.users.findFirst({
   where: { email: input.email },
-  select: { id: true, email: true, password: true },
+  includeHidden: true,
 });
 ```
 
@@ -355,18 +354,15 @@ const posts = await db.posts.findMany({
   with: { author: true }, // author.password omitted
 });
 
-// fetch a hidden field on a relation when needed
 const posts = await db.posts.findMany({
-  with: { author: { select: { id: true, email: true, password: true } } },
+  with: { author: { includeHidden: true } },
 });
 ```
 
-Use query `omit` to skip non-hidden columns you do not want fetched. Use `.strip()` when you selected sensitive fields internally but want a safe object for the response, or to omit extra keys:
+You can still use `select` to fetch a subset that includes hidden columns. Use query `omit` to skip non-hidden columns you do not want fetched. Use `.strip()` when you fetched sensitive fields internally but want a safe object for the response:
 
 ```ts
-const user = await db.users.findById(id, {
-  select: { id: true, email: true, password: true },
-});
+const user = await db.users.findById(id, { includeHidden: true });
 if (!user) return null;
 return user.strip(); // plain object without password
 

@@ -561,6 +561,8 @@ export type WithRelationOptions<
 	take?: number;
 	skip?: number;
 	with?: WithInputMap<TSchema, TTargetAccessor>;
+	/** Include schema `.hidden()` columns in the default output for this relation. */
+	includeHidden?: boolean;
 };
 
 export type WithInclude<
@@ -689,6 +691,7 @@ type InferNestedWithResult<
 > = TInclude extends {
 	select?: infer S;
 	with?: infer NW;
+	includeHidden?: infer _IncludeHidden;
 }
 	? ApplySelect<
 			InferSelectRow<TSchema[TTargetAccessor]["_columns"], TSchema>,
@@ -697,7 +700,9 @@ type InferNestedWithResult<
 			(NW extends Record<string, unknown>
 				? InferWithRelations<TSchema, TTargetAccessor, NW>
 				: EmptyObject)
-	: InferVisibleRow<TSchema[TTargetAccessor]["_columns"], TSchema>;
+	: TInclude extends { includeHidden: true }
+		? InferSelectRow<TSchema[TTargetAccessor]["_columns"], TSchema>
+		: InferVisibleRow<TSchema[TTargetAccessor]["_columns"], TSchema>;
 
 export type InferRelationIncludeResult<
 	TSchema extends Record<string, TableDef>,
@@ -719,6 +724,7 @@ export type InferRelationIncludeResult<
 					orderBy?: unknown;
 					take?: unknown;
 					skip?: unknown;
+					includeHidden?: unknown;
 				}
 				? InferNestedWithResult<TSchema, TTarget, TInclude>
 				: TInclude extends true
@@ -799,7 +805,7 @@ export type InferWithResult<
 				InferCountResult<TSchema, TAccessor, W>
 		>;
 
-/** Query result type after applying `select`, `omit`, and `with`. */
+/** Query result type after applying `select`, `omit`, `includeHidden`, and `with`. */
 export type InferFindResult<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -810,20 +816,28 @@ export type InferFindResult<
 		TSchema[TAccessor]["_columns"],
 		TSchema
 	>,
+	IncludeHidden extends boolean = false,
 > = [S] extends [undefined]
 	? [O] extends [undefined]
 		? InferWithResult<
 				TSchema,
 				TAccessor,
 				W,
-				Omit<TRowPayload, HiddenKeys<TSchema[TAccessor]["_columns"]>>
+				IncludeHidden extends true
+					? TRowPayload
+					: Omit<TRowPayload, HiddenKeys<TSchema[TAccessor]["_columns"]>>
 			>
 		: InferWithResult<
 				TSchema,
 				TAccessor,
 				W,
 				ApplyOmit<
-					Omit<TRowPayload, HiddenKeys<TSchema[TAccessor]["_columns"]>>,
+					IncludeHidden extends true
+						? TRowPayload
+						: Omit<
+								TRowPayload,
+								HiddenKeys<TSchema[TAccessor]["_columns"]>
+							>,
 					O
 				>
 			>

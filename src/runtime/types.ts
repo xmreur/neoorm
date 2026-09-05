@@ -67,6 +67,8 @@ export type PaginateCursor<
 	(keyof TOrderBy & keyof TRowPayload) | (TPk & keyof TRowPayload)
 >;
 
+type IncludeHiddenFlag<IH> = IH extends true ? true : false;
+
 /** Query args with an explicit generated `with` type (better IDE autocomplete) */
 export type FindManyArgsWith<
 	TSchema extends Record<string, TableDef>,
@@ -92,6 +94,7 @@ export type FindByIdArgsWith<TWith, TSelect = undefined, TOmit = undefined> = {
 	with?: TWith;
 	select?: TSelect;
 	omit?: TOmit;
+	includeHidden?: boolean;
 };
 
 export type FindUniqueArgsWith<
@@ -237,10 +240,23 @@ export type TypedTableRepository<
 		const O extends
 			| OmitInput<TSchema[TAccessor]["_columns"]>
 			| undefined = undefined,
+		const IH extends boolean | undefined = undefined,
 	>(
-		args?: FindManyArgsWith<TSchema, TAccessor, W, S, O>,
+		args?: FindManyArgsWith<TSchema, TAccessor, W, S, O> & {
+			includeHidden?: IH;
+		},
 	): Promise<
-		Array<InferFindResult<TSchema, TAccessor, W, S, O, TRowPayload>>
+		Array<
+			InferFindResult<
+				TSchema,
+				TAccessor,
+				W,
+				S,
+				O,
+				TRowPayload,
+				IncludeHiddenFlag<IH>
+			>
+		>
 	>;
 	findFirst<
 		W extends TWith | undefined = undefined,
@@ -250,15 +266,19 @@ export type TypedTableRepository<
 		const O extends
 			| OmitInput<TSchema[TAccessor]["_columns"]>
 			| undefined = undefined,
+		const IH extends boolean | undefined = undefined,
 	>(
-		args?: FindFirstArgsWith<TSchema, TAccessor, W, S, O>,
+		args?: FindFirstArgsWith<TSchema, TAccessor, W, S, O> & {
+			includeHidden?: IH;
+		},
 	): Promise<InferFindResult<
 		TSchema,
 		TAccessor,
 		W,
 		S,
 		O,
-		TRowPayload
+		TRowPayload,
+		IncludeHiddenFlag<IH>
 	> | null>;
 	findUnique<
 		W extends TWith | undefined = undefined,
@@ -268,15 +288,19 @@ export type TypedTableRepository<
 		const O extends
 			| OmitInput<TSchema[TAccessor]["_columns"]>
 			| undefined = undefined,
+		const IH extends boolean | undefined = undefined,
 	>(
-		args: FindUniqueArgsWith<TSchema, TAccessor, W, S, O>,
+		args: FindUniqueArgsWith<TSchema, TAccessor, W, S, O> & {
+			includeHidden?: IH;
+		},
 	): Promise<InferFindResult<
 		TSchema,
 		TAccessor,
 		W,
 		S,
 		O,
-		TRowPayload
+		TRowPayload,
+		IncludeHiddenFlag<IH>
 	> | null>;
 	findById<
 		W extends TWith | undefined = undefined,
@@ -286,16 +310,18 @@ export type TypedTableRepository<
 		const O extends
 			| OmitInput<TSchema[TAccessor]["_columns"]>
 			| undefined = undefined,
+		const IH extends boolean | undefined = undefined,
 	>(
 		id: string | Record<string, unknown>,
-		args?: FindByIdArgsWith<W, S, O>,
+		args?: FindByIdArgsWith<W, S, O> & { includeHidden?: IH },
 	): Promise<InferFindResult<
 		TSchema,
 		TAccessor,
 		W,
 		S,
 		O,
-		TRowPayload
+		TRowPayload,
+		IncludeHiddenFlag<IH>
 	> | null>;
 	create<W extends TWith | undefined = undefined>(
 		args: CreateArgsWith<TSchema, TAccessor, W>,

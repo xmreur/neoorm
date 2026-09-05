@@ -367,12 +367,12 @@ const rows = await db.sql`
 
 ## API responses (`strip`)
 
-Hidden columns are omitted from default queries. For login, select the hash explicitly, verify, then strip before sending JSON:
+Hidden columns are omitted from default queries. For login, use `includeHidden: true`, verify, then strip before sending JSON:
 
 ```ts
 const user = await db.users.findFirst({
   where: { email: input.email },
-  select: { id: true, email: true, password: true },
+  includeHidden: true,
 });
 
 if (!user || !verifyPassword(input.password, user.password)) {

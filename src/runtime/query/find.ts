@@ -54,7 +54,7 @@ import {
 	type RelationPlanOptions,
 	withShapeSignature,
 } from "./relation-planner.js";
-import { columnBySqlName, getTableIndex } from "./table-index.js";
+import { columnBySqlName, getTableIndex, type ManifestIndex } from "./table-index.js";
 
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
@@ -63,6 +63,7 @@ type RelationSpec = {
 	take?: number;
 	skip?: number;
 	with?: Record<string, WithInput>;
+	includeHidden?: boolean;
 };
 
 export type WithInput =
@@ -80,7 +81,8 @@ function isRelationSpec(
 		"orderBy" in withSpec ||
 		"take" in withSpec ||
 		"skip" in withSpec ||
-		"with" in withSpec
+		"with" in withSpec ||
+		"includeHidden" in withSpec
 	);
 }
 
@@ -318,10 +320,16 @@ async function countM2MLinks(
 function columnsForSelect(
 	table: ManifestTable,
 	withSpec: WithInput | undefined,
+	manifestIndex?: ManifestIndex,
 ): string {
 	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
-	return buildSelectColumns(table, selectKeys ? [...selectKeys] : undefined);
+	return buildSelectColumns(
+		table,
+		selectKeys ? [...selectKeys] : undefined,
+		manifestIndex,
+		nestedSpec?.includeHidden,
+	);
 }
 
 async function loadNestedRelations(
@@ -397,7 +405,11 @@ async function loadOneRelation(
 		const targetPkCol = quoteIdentifier(
 			targetRelationPkSql(targetTable, relation),
 		);
-		const selectCols = columnsForSelect(targetTable, withSpec);
+		const selectCols = columnsForSelect(
+			targetTable,
+			withSpec,
+			runtime.tableIndex,
+		);
 		const [targetPkTsName] = primaryKeyTsNames(targetTable);
 		if (!targetPkTsName) {
 			throw new Error(
@@ -435,7 +447,11 @@ async function loadOneRelation(
 	} else {
 		const fkCol = quoteIdentifier(relation.fkSqlColumn);
 		const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
-		const selectCols = columnsForSelect(targetTable, withSpec);
+		const selectCols = columnsForSelect(
+			targetTable,
+			withSpec,
+			runtime.tableIndex,
+		);
 
 		let sql = `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})`;
 		const { extraWhere, extraParams } = compileBatchedRelationWhere(
@@ -667,12 +683,14 @@ type FindManyArgs = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
 	omit?: readonly string[] | Record<string, boolean | undefined>;
 	with?: Record<string, WithInput>;
+	includeHidden?: boolean;
 };
 
 type FindByIdArgs = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
 	omit?: readonly string[] | Record<string, boolean | undefined>;
 	with?: Record<string, WithInput>;
+	includeHidden?: boolean;
 };
 
 async function executeFindManyWithRelations(
@@ -764,7 +782,10 @@ async function executeFindManyWithRelations(
 	const withSignature = withShapeSignature(args.with);
 	const planMode =
 		planOptions?.useHasManyAggregate === false ? "corr" : "agg";
-	const projSig = projectionSignature(projection?.sqlColumns);
+	const projSig = projectionSignature(
+		projection.sqlColumns,
+		projection.includeHidden,
+	);
 	const signature = `${whereSql}|${orderSqlForWith}|${args.take ?? ""}|${args.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
 	const query = getCachedFindManyQuery(tableIndex, signature, () =>
 		buildFindManyQuery(
@@ -778,7 +799,8 @@ async function executeFindManyWithRelations(
 			joinClauses,
 			runtime.tableIndex,
 			groupBySql || undefined,
-			projection?.sqlColumns,
+			projection.sqlColumns,
+			projection.includeHidden,
 		),
 	);
 
@@ -846,6 +868,7 @@ export async function findMany(
 		!args?.with &&
 		!args?.distinct &&
 		!projection.hasProjection &&
+		!projection.includeHidden &&
 		args?.take === undefined &&
 		args?.skip === undefined;
 
@@ -893,7 +916,10 @@ export async function findMany(
 			undefined,
 			runtime.tableIndex,
 		);
-		const projSig = projectionSignature(projection.sqlColumns);
+		const projSig = projectionSignature(
+			projection.sqlColumns,
+			projection.includeHidden,
+		);
 		const signature = `${whereSql}|${orderSql}|${args?.take ?? ""}|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
@@ -908,6 +934,7 @@ export async function findMany(
 				runtime.tableIndex,
 				undefined,
 				projection.sqlColumns,
+				projection.includeHidden,
 			),
 		);
 
@@ -976,7 +1003,10 @@ export async function findFirst(
 			runtime.tableIndex,
 		);
 
-		const projSig = projectionSignature(projection.sqlColumns);
+		const projSig = projectionSignature(
+			projection.sqlColumns,
+			projection.includeHidden,
+		);
 		const signature = `${whereSql}|${orderSql}|1|||${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
@@ -991,6 +1021,7 @@ export async function findFirst(
 				runtime.tableIndex,
 				undefined,
 				projection.sqlColumns,
+				projection.includeHidden,
 			),
 		);
 
@@ -1094,6 +1125,9 @@ export async function findById(
 						? { select: args.select }
 						: {}),
 					...(args.omit !== undefined ? { omit: args.omit } : {}),
+					...(args.includeHidden !== undefined
+						? { includeHidden: args.includeHidden }
+						: {}),
 				},
 				compiledWhere.sql,
 				compiledWhere.params,
@@ -1107,6 +1141,9 @@ export async function findById(
 			take: 1,
 			...(args?.select !== undefined ? { select: args.select } : {}),
 			...(args?.omit !== undefined ? { omit: args.omit } : {}),
+			...(args?.includeHidden !== undefined
+				? { includeHidden: args.includeHidden }
+				: {}),
 		});
 		return rows[0] ?? null;
 	}
@@ -1118,15 +1155,23 @@ export async function findById(
 		const query = projection.hasProjection
 			? getCachedFindManyQuery(
 					tableIndex,
-					`byId|${projectionSignature(projection.sqlColumns)}`,
+					`byId|${projectionSignature(projection.sqlColumns, projection.includeHidden)}`,
 					() =>
 						buildFindByIdQuery(
 							table,
 							projection.sqlColumns,
 							runtime.tableIndex,
+							projection.includeHidden,
 						),
 				)
-			: tableIndex?.findByIdSql || buildFindByIdQuery(table);
+			: projection.includeHidden
+				? buildFindByIdQuery(
+						table,
+						undefined,
+						runtime.tableIndex,
+						true,
+					)
+				: tableIndex?.findByIdSql || buildFindByIdQuery(table);
 		const row = await runQueryOne(executor, runtime, ctx, query, [pkValue]);
 		return row
 			? projectFindRow(mapRowToTs(tableIndex, table, row), projection)
