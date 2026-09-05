@@ -1023,6 +1023,18 @@ export function normalizeSelectColumns(
 		.map(([key]) => key);
 }
 
+/** Columns returned by default SELECT (omits `.hidden()` unless explicitly selected). */
+export function columnsForOutput(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	select?: readonly string[],
+): ManifestColumn[] {
+	if (select && select.length > 0) {
+		return columnsByTsNames(tableIndex, table, select);
+	}
+	return table.columns.filter((col) => col.hidden !== true);
+}
+
 function aliasToTsName(expression: string, col: ManifestColumn): string {
 	if (col.sqlName === col.tsName) return expression;
 	return `${expression} AS ${quoteIdentifier(col.tsName)}`;
@@ -1045,10 +1057,7 @@ export function buildSelectColumns(
 	manifestIndex?: ManifestIndex,
 ): string {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const cols =
-		select && select.length > 0
-			? columnsByTsNames(tableIndex, table, select)
-			: table.columns;
+	const cols = columnsForOutput(tableIndex, table, select);
 
 	return cols.map((c) => selectExpression(c)).join(", ");
 }
@@ -1060,10 +1069,7 @@ export function buildQualifiedSelectColumns(
 ): string {
 	const ref = tableRef(table);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const cols =
-		select && select.length > 0
-			? columnsByTsNames(tableIndex, table, select)
-			: table.columns;
+	const cols = columnsForOutput(tableIndex, table, select);
 
 	return cols.map((c) => `${ref}.${selectExpression(c)}`).join(", ");
 }
@@ -2419,78 +2425,38 @@ export function rowToTs(
 	return result;
 }
 
-function rowHasSqlNames(
-	index: TableIndex,
-	row: Record<string, unknown>,
-): boolean {
-	for (const col of index.renameColumns) {
-		if (col.sqlName !== col.tsName && col.sqlName in row) {
-			return true;
-		}
-	}
-	return false;
-}
-
-export function rowToTsIndexed(
-	index: TableIndex,
+function mapKnownTableColumns(
 	table: ManifestTable,
 	row: Record<string, unknown>,
 ): Record<string, unknown> {
-	if (index.selectUsesColumnAliases && !rowHasSqlNames(index, row)) {
-		if (index.deserializeColumns.length === 0) {
-			return row;
-		}
-		const result: Record<string, unknown> = { ...row };
-		for (const col of index.deserializeColumns) {
-			const key = col.tsName in row ? col.tsName : col.sqlName;
-			if (key in row) {
-				const plugin = getColumnType(col.kind);
-				if (plugin?.deserializeValue) {
-					result[col.tsName] = plugin.deserializeValue(col, row[key]);
-				}
-			}
-		}
-		return result;
-	}
-
-	if (!index.needsRowRename && index.deserializeColumns.length === 0) {
-		return row;
-	}
-
-	if (!index.needsRowRename) {
-		const result: Record<string, unknown> = { ...row };
-		for (const col of index.deserializeColumns) {
-			if (col.sqlName in row) {
-				const plugin = getColumnType(col.kind);
-				if (plugin?.deserializeValue) {
-					result[col.tsName] = plugin.deserializeValue(
-						col,
-						row[col.sqlName],
-					);
-				}
-			}
-		}
-		return result;
-	}
-
 	const result: Record<string, unknown> = {};
 	for (const col of table.columns) {
-		if (col.sqlName in row) {
-			result[col.tsName] = row[col.sqlName];
+		let raw: unknown;
+		if (col.tsName in row) {
+			raw = row[col.tsName];
+		} else if (col.sqlName in row) {
+			raw = row[col.sqlName];
+		} else {
+			continue;
 		}
-	}
-	for (const col of index.deserializeColumns) {
-		if (col.sqlName in row) {
-			const plugin = getColumnType(col.kind);
-			if (plugin?.deserializeValue) {
-				result[col.tsName] = plugin.deserializeValue(
-					col,
-					row[col.sqlName],
-				);
-			}
+		if (col.kind === "fk") {
+			result[col.tsName] = raw;
+			continue;
 		}
+		const plugin = getColumnType(col.kind);
+		result[col.tsName] = plugin?.deserializeValue
+			? plugin.deserializeValue(col, raw)
+			: raw;
 	}
 	return result;
+}
+
+export function rowToTsIndexed(
+	_index: TableIndex,
+	table: ManifestTable,
+	row: Record<string, unknown>,
+): Record<string, unknown> {
+	return mapKnownTableColumns(table, row);
 }
 
 export function rowsToTsIndexed(
@@ -2498,16 +2464,6 @@ export function rowsToTsIndexed(
 	table: ManifestTable,
 	rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
-	if (
-		index.selectUsesColumnAliases &&
-		index.deserializeColumns.length === 0 &&
-		!index.needsRowRename
-	) {
-		return rows;
-	}
-	if (!index.needsRowRename && index.deserializeColumns.length === 0) {
-		return rows;
-	}
 	return rows.map((row) => rowToTsIndexed(index, table, row));
 }
 
