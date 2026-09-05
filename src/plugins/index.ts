@@ -1,3 +1,7 @@
+/**
+ * @packageDocumentation
+ * NeoOrm plugin registry and column type extension API.
+ */
 export { ensurePlugins } from "./ensure-plugins.js";
 export {
 	clearPluginRegistry,

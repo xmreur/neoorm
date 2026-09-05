@@ -26,6 +26,7 @@ function parseQualifiedColumn(col: string): SqlFragment {
 	return sqlId(col);
 }
 
+/** Fluent SQL builder for simple select/join/group queries. */
 export const sqlBuilder = {
 	selectFrom(table: string): JoinBuilder {
 		const fromClause = sqlId(table).text;

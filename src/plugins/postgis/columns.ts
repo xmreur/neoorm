@@ -125,18 +125,21 @@ export const pointType = createSpatialTypePlugin("point", "geometry", {
 	srid: 4326,
 });
 
+/** PostGIS `geometry` column. Requires `import "neoorm/plugins/postgis"`. */
 export function geometry(options?: GeometryOptions) {
 	return geometryType.createBuilder(
 		options as Record<string, unknown> | undefined,
 	);
 }
 
+/** PostGIS `geography` column. */
 export function geography(options?: GeographyOptions) {
 	return geographyType.createBuilder(
 		options as Record<string, unknown> | undefined,
 	);
 }
 
+/** PostGIS `geometry(Point)` column with default SRID 4326. */
 export function point(options?: PointOptions) {
 	return pointType.createBuilder(
 		options as Record<string, unknown> | undefined,

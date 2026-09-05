@@ -1,3 +1,4 @@
+/** Virtual many-to-many relation column (not a physical table column). */
 export type ManyToManyExtra<
 	TTarget extends string = string,
 	TAs extends string = string,
@@ -18,11 +19,17 @@ export type ManyToManyExtra<
 	inverse: TInverse;
 };
 
+/** Options for {@link many}. */
 export type InlineManyToManyOptions = {
+	/** Junction table accessor. When omitted, a junction table is generated. */
 	through?: string;
+	/** Junction column (TS name) referencing the source table. */
 	leftKey?: string;
+	/** Junction column (TS name) referencing the target table. */
 	rightKey?: string;
+	/** Relation name on the source table. Defaults to the column key. */
 	as?: string;
+	/** Relation name on the target table. Defaults to the source accessor. */
 	inverse?: string;
 };
 
@@ -38,6 +45,19 @@ type ManyToManyInverseOf<T extends InlineManyToManyOptions> = T extends {
 	? Inv
 	: "";
 
+/**
+ * Declare a many-to-many relation as a virtual column on the source table.
+ *
+ * @param target - Target table accessor (e.g. `"tags"`).
+ * @param options - Optional junction table accessor and key overrides.
+ *
+ * @example
+ * ```ts
+ * posts: table({
+ *   tags: many("tags"),
+ * }),
+ * ```
+ */
 export function many<
 	const TTarget extends string,
 	const TOptions extends InlineManyToManyOptions = {},

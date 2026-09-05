@@ -40,6 +40,7 @@ type IsRequired<T> =
 			? false
 			: false;
 
+/** Inferred select row shape for a table's scalar columns. */
 export type InferSelectRow<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -47,6 +48,7 @@ export type InferSelectRow<
 	[K in ScalarColumnKeys<TColumns>]: InferColumnValue<TColumns[K], TSchema>;
 };
 
+/** Inferred create/insert payload for a table (required fields enforced). */
 export type InferInsertRow<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -73,6 +75,7 @@ type PrimaryIdValue<
 		: never;
 }[keyof TColumns & string];
 
+/** Primary-key reference for relation `connect` writes (`{ id: ... }`). */
 export type ConnectInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -798,7 +801,7 @@ export type InferWithResult<
 				InferCountResult<TSchema, TAccessor, W>
 		>;
 
-/** Parent `select`/`omit` plus `with` relations. `never` if both select and omit are set. */
+/** Query result type after applying `select`, `omit`, and `with`. */
 export type InferFindResult<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -1052,6 +1055,7 @@ export type LogicalWhereInput<
 	NOT?: WhereInput<TColumns, TSchema, TAccessor>;
 };
 
+/** Filter and sort operators for `where` clauses on a table. */
 export type WhereInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,

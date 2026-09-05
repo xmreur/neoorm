@@ -126,6 +126,7 @@ export function computeMigrationStatus(
 	return { applied, pending, orphanApplied };
 }
 
+/** List applied and pending migrations. */
 export async function migrateStatus(
 	client: DatabaseClient,
 	dialect: Dialect,
@@ -316,6 +317,7 @@ export async function applyMigration(
 	}
 }
 
+/** Apply all pending migrations from disk. */
 export async function migrateDeploy(
 	client: DatabaseClient,
 	dialect: Dialect,
@@ -392,6 +394,7 @@ export async function revertMigration(
 	});
 }
 
+/** Roll back the most recent applied migration(s). */
 export async function migrateDown(
 	client: DatabaseClient,
 	dialect: Dialect,
@@ -455,6 +458,7 @@ export type DbPushOptions = {
 
 type DestructiveChange = import("../dialect/types.js").DestructiveChange;
 
+/** Push schema changes directly to the database without creating a migration file. */
 export async function dbPush(
 	client: DatabaseClient,
 	dialect: Dialect,

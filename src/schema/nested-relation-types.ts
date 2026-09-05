@@ -145,6 +145,7 @@ type ParentFkColumnOnChild<
 		: never;
 }[FkColumnNames<TSchema[TChildAccessor]["_columns"]>];
 
+/** Nested create payload for a child row (parent FK omitted). */
 export type NestedCreateInput<
 	TSchema extends Record<string, TableDef>,
 	TParentAccessor extends keyof TSchema & string,

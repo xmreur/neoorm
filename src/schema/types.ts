@@ -76,6 +76,7 @@ export type {
 } from "./relation-types.js";
 
 export type RelationWriteInput = {
+	/** Connect an existing related record by primary key. */
 	connect?: { id: string };
 	connectOrCreate?: ConnectOrCreateItem<Record<string, ColumnDef>>[];
 	disconnect?: true | { id: string } | { id: string }[];
@@ -84,6 +85,7 @@ export type RelationWriteInput = {
 	create?: Record<string, unknown> | Record<string, unknown>[];
 };
 
+/** Create payload: scalar fields plus nested relation writes. */
 export type CreateInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -108,6 +110,7 @@ export type SchemaTables<TSchema extends Record<string, TableDef>> = {
 	[K in keyof TSchema]: InferSelectRow<TSchema[K]["_columns"], TSchema>;
 };
 
+/** Arguments for `findMany` / `findFirst`. */
 export type FindManyArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -136,6 +139,7 @@ export type FindByIdArgs<
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 
+/** Arguments for `create`. */
 export type CreateArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -191,6 +195,7 @@ type UpdateScalarInput<
 				>
 			: ScalarSetOp<InferColumnValue<TCol, TSchema>>);
 
+/** Update payload: scalar field ops plus nested relation writes. */
 export type UpdateInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -404,6 +409,7 @@ export type InferGroupByResult<
 		InferAggregateResult<TArgs>
 >;
 
+/** Arguments for keyset cursor pagination (`paginate`). */
 export type PaginateArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -419,6 +425,7 @@ export type PaginateArgs<
 	with?: WithInputMap<TSchema, TAccessor>;
 };
 
+/** Result of a `paginate` call. */
 export type PaginateResult<TRow, TCursor> = {
 	items: TRow[];
 	nextCursor: TCursor | null;

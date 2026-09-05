@@ -1,3 +1,9 @@
+/**
+ * @packageDocumentation
+ * NeoOrm schema DSL — define tables, columns, foreign keys, and relations.
+ *
+ * Import from `neoorm/schema` when authoring `schema.ts`.
+ */
 export type {
 	DecimalOptions,
 	EnumTypeOptions,

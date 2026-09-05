@@ -57,6 +57,7 @@ function ensureBuiltins(): void {
 	indexColumnTypes(citextPlugin, true);
 }
 
+/** Register a column-type plugin (call before schema compilation). */
 export function registerPlugin(plugin: NeoOrmPlugin): void {
 	ensureBuiltins();
 	if (!registry().some((p) => p.name === plugin.name)) {

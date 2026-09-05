@@ -2,8 +2,10 @@ import type { ColumnBuilder, ColumnMeta } from "./column.js";
 import type { TableDef } from "./table.js";
 import { findOwningTable } from "./table-registry.js";
 
+/** Foreign-key `ON DELETE` action passed to {@link fk}.onDelete. */
 export type OnDeleteAction = "cascade" | "restrict" | "set null" | "no action";
 
+/** Internal metadata for a foreign-key column builder. */
 export type FkMeta<
 	TTarget extends string = string,
 	TAs extends string = string,
@@ -23,29 +25,46 @@ export type FkMeta<
 	nullable: TNullable;
 };
 
-export type FkBuilder<
+/**
+ * Fluent builder for a foreign-key column.
+ *
+ * Relation names are inferred when `.as()` / `.inverse()` are omitted:
+ * - this table: strip `Id` from the column name (`authorId` → `author`)
+ * - target table (to-many): source accessor (`posts` on `users`)
+ * - target table (unique to-one): singular source accessor (`profile` on `users`)
+ */
+export interface FkBuilder<
 	TTarget extends string = string,
 	TAs extends string = string,
 	TInverse extends string = string,
 	TUnique extends boolean = boolean,
 	TNullable extends boolean = boolean,
-> = {
+> {
 	readonly _type: string | null;
 	readonly _meta: FkMeta<TTarget, TAs, TInverse, TUnique, TNullable>;
+	/** Require a value for this column (`NOT NULL`). */
 	notNull(): FkBuilder<TTarget, TAs, TInverse, TUnique, false>;
+	/** Add a `UNIQUE` constraint (one-to-one relation on the target). */
 	unique(): FkBuilder<TTarget, TAs, TInverse, true, TNullable>;
+	/** Mark as primary key (implies `NOT NULL`). */
 	primary(): FkBuilder<TTarget, TAs, TInverse, TUnique, false>;
+	/** Create a btree index on this column. */
 	index(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	/** Omit from default `select` output (still queryable explicitly). */
 	hidden(): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	/** Map the TS property name to a different database column name. */
 	map(name: string): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	/** Relation name on this table. Defaults to stripping `Id` from the column name. */
 	as(name: string): FkBuilder<TTarget, string, TInverse, TUnique, TNullable>;
+	/** Relation name on the target table. Defaults to the source table accessor. */
 	inverse<TNext extends string>(
 		name: TNext,
 	): FkBuilder<TTarget, TAs, TNext, TUnique, TNullable>;
+	/** `ON DELETE` action for the foreign-key constraint. */
 	onDelete(
 		action: OnDeleteAction,
 	): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
-};
+}
 
 /** Accessor target (`users` or `users.id`) for an owned column reference. */
 type ColumnTargetOf<C extends ColumnBuilder<unknown>> =
@@ -94,6 +113,19 @@ function resolveFkTargetInit(target: unknown): FkTargetInit {
 	throw new Error(`Invalid foreign key target: ${String(target)}`);
 }
 
+/**
+ * Declare a foreign-key column referencing another table.
+ *
+ * @param target - Target accessor (`"users"`), accessor.column (`"users.id"`),
+ *   hoisted `table()` ref, or hoisted column ref.
+ *
+ * @example
+ * ```ts
+ * authorId: fk("users").notNull().onDelete("restrict"),
+ * userId: fk(users).notNull().unique(),
+ * parentId: fk("comments").as("parent").inverse("children"),
+ * ```
+ */
 export function fk<const TTarget extends string>(
 	target: TTarget,
 ): FkBuilder<TTarget, "", "", false, true>;

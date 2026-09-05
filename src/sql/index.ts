@@ -1,3 +1,7 @@
+/**
+ * @packageDocumentation
+ * Parameterized SQL templates and a small fluent query builder.
+ */
 export { sqlBuilder } from "./builder.js";
 export type { CompiledSql, SqlFragment, SqlValue } from "./template.js";
 export {
@@ -10,5 +14,5 @@ export {
 
 import { sqlTag } from "./template.js";
 
-/** Tagged template for parameterized SQL */
+/** Tagged template for parameterized SQL (`sql\`SELECT ...\``). */
 export const sql = sqlTag;
