@@ -330,9 +330,7 @@ const users = await db.users.findMany({
 // users[0].posts[0].title is string; .body is excluded from the type
 ```
 
-### API responses (`strip`)
-
-Use query `omit` when you do not want a column fetched from the database. Use `strip` when you need the full row internally (for example login) but want a safe object for the response.
+### Sensitive columns (`.hidden()`) and API responses (`strip`)
 
 Mark sensitive columns in the schema with `.hidden()`:
 
@@ -340,21 +338,42 @@ Mark sensitive columns in the schema with `.hidden()`:
 password: text().notNull().hidden(),
 ```
 
-Every row returned from queries includes a non-enumerable `.strip()` method:
+By default, queries **omit** hidden columns from the result (root table and nested `with` includes). They are not fetched unless you ask for them:
 
 ```ts
-const user = await db.users.findById(id);
-if (!user) return null;
-return user.strip();
-// hidden fields removed; nested `with` relations stripped too
+// login — explicitly select the hash column
+const user = await db.users.findFirst({
+  where: { email: input.email },
+  select: { id: true, email: true, password: true },
+});
+```
 
-const users = await db.users.findMany();
-return users.map((user) => user.strip());
+Nested includes follow the same rule:
+
+```ts
+const posts = await db.posts.findMany({
+  with: { author: true }, // author.password omitted
+});
+
+// fetch a hidden field on a relation when needed
+const posts = await db.posts.findMany({
+  with: { author: { select: { id: true, email: true, password: true } } },
+});
+```
+
+Use query `omit` to skip non-hidden columns you do not want fetched. Use `.strip()` when you selected sensitive fields internally but want a safe object for the response, or to omit extra keys:
+
+```ts
+const user = await db.users.findById(id, {
+  select: { id: true, email: true, password: true },
+});
+if (!user) return null;
+return user.strip(); // plain object without password
 
 return user.strip({ refreshToken: true }); // hidden + extra column keys
 ```
 
-`strip()` returns a plain object (no `.strip` method) suitable for JSON responses. `null` and `undefined` pass through unchanged when using the underlying strip helper directly.
+Every row returned from queries includes a non-enumerable `.strip()` method. `strip()` recurses into nested `with` relations. It returns a plain object (no `.strip` method) suitable for JSON responses.
 
 ## Cursor pagination
 

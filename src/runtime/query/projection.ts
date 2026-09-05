@@ -1,5 +1,5 @@
 import type { ManifestTable } from "../../dialect/types.js";
-import { normalizeSelectColumns } from "./compile.js";
+import { columnsForOutput, normalizeSelectColumns } from "./compile.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { primaryKeyTsNames } from "./primary-key.js";
 import { columnByTsName, requireTsColumn, type TableIndex } from "./table-index.js";
@@ -125,7 +125,7 @@ export function resolveParentProjection(
 		}
 		validateProjectionColumns(table, omitKeys, "omit", tableIndex);
 		const omitSet = new Set(omitKeys);
-		const requested = table.columns
+		const requested = columnsForOutput(tableIndex, table)
 			.map((col) => col.tsName)
 			.filter((name) => !omitSet.has(name));
 		if (requested.length === 0 && !hasWithSpec(withSpec)) {

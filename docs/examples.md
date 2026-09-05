@@ -367,19 +367,20 @@ const rows = await db.sql`
 
 ## API responses (`strip`)
 
-Fetch sensitive fields for auth, then strip before sending JSON:
+Hidden columns are omitted from default queries. For login, select the hash explicitly, verify, then strip before sending JSON:
 
 ```ts
 const user = await db.users.findFirst({
   where: { email: input.email },
+  select: { id: true, email: true, password: true },
 });
 
 if (!user || !verifyPassword(input.password, user.password)) {
   throw new Error("Invalid credentials");
 }
 
-return user.strip(); // removes .hidden() columns (e.g. password)
-return user.strip({ email: true }); // hidden + extra fields
+return user.strip(); // plain object without password
+return user.strip({ refreshToken: true }); // hidden + extra fields
 ```
 
 `.strip()` is non-enumerable and returns a plain object. See [Queries → API responses](queries.md#api-responses-strip).

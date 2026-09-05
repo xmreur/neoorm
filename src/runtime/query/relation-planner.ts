@@ -12,6 +12,7 @@ import type {
 import {
 	buildQualifiedSelectColumns,
 	buildSelectColumns,
+	columnsForOutput,
 	compileOrderBy,
 	compileWhere,
 	normalizeLimitOffset,
@@ -187,12 +188,8 @@ function columnsForInlineSelect(
 	manifestIndex?: ManifestIndex,
 ): ManifestTable["columns"] {
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
-	if (!selectKeys || selectKeys.length === 0) return table.columns;
-	return columnsByTsNames(
-		getTableIndex(manifestIndex, table.accessor),
-		table,
-		selectKeys,
-	);
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	return columnsForOutput(tableIndex, table, selectKeys);
 }
 
 function tryBuildInlineChainNode(
@@ -479,10 +476,11 @@ function buildJoinClauses(
 			? normalizeSelectColumns(nestedSpec.select)
 			: undefined;
 
-		const targetCols =
-			selectKeys && selectKeys.length > 0
-				? columnsByTsNames(targetTableIndex, targetTable, selectKeys)
-				: targetTable.columns;
+		const targetCols = columnsForOutput(
+			targetTableIndex,
+			targetTable,
+			selectKeys,
+		);
 
 		for (const col of targetCols) {
 			const prefixedName = `__${relationName}__${col.sqlName}`;

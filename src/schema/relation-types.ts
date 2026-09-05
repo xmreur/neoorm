@@ -48,6 +48,12 @@ export type InferSelectRow<
 	[K in ScalarColumnKeys<TColumns>]: InferColumnValue<TColumns[K], TSchema>;
 };
 
+/** Default query row — omits schema `.hidden()` columns unless explicitly selected. */
+export type InferVisibleRow<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = Omit<InferSelectRow<TColumns, TSchema>, HiddenKeys<TColumns>>;
+
 /** Inferred create/insert payload for a table (required fields enforced). */
 export type InferInsertRow<
 	TColumns extends Record<string, ColumnDef>,
@@ -674,32 +680,30 @@ export type StripCapable<
 type RelationTargetModel<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
-> = InferSelectRow<TSchema[TTargetAccessor]["_columns"], TSchema>;
+> = InferVisibleRow<TSchema[TTargetAccessor]["_columns"], TSchema>;
 
 type InferNestedWithResult<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
 	TInclude,
-	TModel extends Record<string, unknown>,
 > = TInclude extends {
 	select?: infer S;
 	with?: infer NW;
 }
-	? ApplySelect<TModel, S> &
+	? ApplySelect<
+			InferSelectRow<TSchema[TTargetAccessor]["_columns"], TSchema>,
+			S
+		> &
 			(NW extends Record<string, unknown>
 				? InferWithRelations<TSchema, TTargetAccessor, NW>
 				: EmptyObject)
-	: TModel;
+	: InferVisibleRow<TSchema[TTargetAccessor]["_columns"], TSchema>;
 
 export type InferRelationIncludeResult<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string,
 	TInclude,
-	TModel extends Record<string, unknown> = RelationTargetModel<
-		TSchema,
-		RelationTarget<TSchema, TAccessor, TRelation> & keyof TSchema & string
-	>,
 > = TRelation extends keyof RelationAccessors<TSchema, TAccessor> & string
 	? [NonNullable<RelationAccessors<TSchema, TAccessor>[TRelation]>] extends [
 			never,
@@ -716,12 +720,7 @@ export type InferRelationIncludeResult<
 					take?: unknown;
 					skip?: unknown;
 				}
-				? InferNestedWithResult<
-						TSchema,
-						TTarget,
-						TInclude,
-						RelationTargetModel<TSchema, TTarget>
-					>
+				? InferNestedWithResult<TSchema, TTarget, TInclude>
 				: TInclude extends true
 					? RelationTargetModel<TSchema, TTarget>
 					: TInclude extends false | undefined
@@ -763,8 +762,7 @@ type InferWithRelations<
 					TSchema,
 					TAccessor,
 					R,
-					W[R],
-					RelationTargetModel<TSchema, TTarget>
+					W[R]
 				> extends infer Row
 				? [Row] extends [never]
 					? never
@@ -789,7 +787,7 @@ export type InferWithResult<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	W,
-	TBase extends Record<string, unknown> = InferSelectRow<
+	TBase extends Record<string, unknown> = InferVisibleRow<
 		TSchema[TAccessor]["_columns"],
 		TSchema
 	>,
@@ -808,16 +806,29 @@ export type InferFindResult<
 	W,
 	S = undefined,
 	O = undefined,
-	TBase extends Record<string, unknown> = InferSelectRow<
+	TRowPayload extends Record<string, unknown> = InferVisibleRow<
 		TSchema[TAccessor]["_columns"],
 		TSchema
 	>,
 > = [S] extends [undefined]
 	? [O] extends [undefined]
-		? InferWithResult<TSchema, TAccessor, W, TBase>
-		: InferWithResult<TSchema, TAccessor, W, ApplyOmit<TBase, O>>
+		? InferWithResult<
+				TSchema,
+				TAccessor,
+				W,
+				Omit<TRowPayload, HiddenKeys<TSchema[TAccessor]["_columns"]>>
+			>
+		: InferWithResult<
+				TSchema,
+				TAccessor,
+				W,
+				ApplyOmit<
+					Omit<TRowPayload, HiddenKeys<TSchema[TAccessor]["_columns"]>>,
+					O
+				>
+			>
 	: [O] extends [undefined]
-		? InferWithResult<TSchema, TAccessor, W, ApplySelect<TBase, S>>
+		? InferWithResult<TSchema, TAccessor, W, ApplySelect<TRowPayload, S>>
 		: never;
 
 export type ManyRelationFilter<
