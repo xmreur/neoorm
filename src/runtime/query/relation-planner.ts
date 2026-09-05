@@ -44,6 +44,7 @@ export type InlineRelationSpec = {
 	take?: number;
 	skip?: number;
 	with?: Record<string, WithInput>;
+	includeHidden?: boolean;
 };
 
 type ExtraSqlBuild = {
@@ -189,7 +190,12 @@ function columnsForInlineSelect(
 ): ManifestTable["columns"] {
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	return columnsForOutput(tableIndex, table, selectKeys);
+	return columnsForOutput(
+		tableIndex,
+		table,
+		selectKeys,
+		nestedSpec?.includeHidden,
+	);
 }
 
 function tryBuildInlineChainNode(
@@ -480,6 +486,7 @@ function buildJoinClauses(
 			targetTableIndex,
 			targetTable,
 			selectKeys,
+			nestedSpec?.includeHidden,
 		);
 
 		for (const col of targetCols) {
@@ -1245,6 +1252,7 @@ export function withShapeSignature(
 			}
 			const spec = input as InlineRelationSpec;
 			const bits = [name];
+			if (spec.includeHidden) bits.push("ih");
 			if (spec.take !== undefined) bits.push(`t${spec.take}`);
 			if (spec.skip !== undefined) bits.push(`k${spec.skip}`);
 			if (spec.orderBy) bits.push(`o${orderByShapeKey(spec.orderBy)}`);

@@ -123,6 +123,8 @@ export type FindManyArgs<
 	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	/** Include schema `.hidden()` columns in the default output. */
+	includeHidden?: boolean;
 };
 
 export type FindFirstArgs<
@@ -137,6 +139,7 @@ export type FindByIdArgs<
 	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	includeHidden?: boolean;
 };
 
 /** Arguments for `create`. */
@@ -262,6 +265,7 @@ export type FindUniqueArgs<
 	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	includeHidden?: boolean;
 };
 
 type AggregateFieldSelect<TColumns extends Record<string, ColumnDef>> = Expand<{

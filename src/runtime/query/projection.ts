@@ -12,12 +12,14 @@ export type ParentProjection = {
 	hasProjection: boolean;
 	requested: readonly string[];
 	sqlColumns: readonly string[] | undefined;
+	includeHidden: boolean;
 };
 
 export type ParentProjectionArgs = {
 	select?: ColumnPickArg;
 	omit?: ColumnPickArg;
 	with?: Record<string, unknown>;
+	includeHidden?: boolean;
 };
 
 function hasWithSpec(withSpec: Record<string, unknown> | undefined): boolean {
@@ -81,8 +83,11 @@ function mergeSqlColumns(
 
 export function projectionSignature(
 	sqlColumns: readonly string[] | undefined,
+	includeHidden?: boolean,
 ): string {
-	if (!sqlColumns) return "";
+	if (!sqlColumns) {
+		return includeHidden ? "ih:1" : "";
+	}
 	return [...sqlColumns].sort().join(",");
 }
 
@@ -99,6 +104,7 @@ export function resolveParentProjection(
 	}
 
 	const withSpec = args?.with;
+	const includeHidden = args?.includeHidden === true;
 	const extras = internalSelectColumns(table, withSpec, tableIndex);
 
 	if (select !== undefined) {
@@ -111,7 +117,12 @@ export function resolveParentProjection(
 		if (sqlColumns.length === 0) {
 			throw new Error("select must include at least one column");
 		}
-		return { hasProjection: true, requested: keys, sqlColumns };
+		return {
+			hasProjection: true,
+			requested: keys,
+			sqlColumns,
+			includeHidden,
+		};
 	}
 
 	if (omit !== undefined) {
@@ -121,11 +132,17 @@ export function resolveParentProjection(
 				hasProjection: false,
 				requested: [],
 				sqlColumns: undefined,
+				includeHidden,
 			};
 		}
 		validateProjectionColumns(table, omitKeys, "omit", tableIndex);
 		const omitSet = new Set(omitKeys);
-		const requested = columnsForOutput(tableIndex, table)
+		const requested = columnsForOutput(
+			tableIndex,
+			table,
+			undefined,
+			includeHidden,
+		)
 			.map((col) => col.tsName)
 			.filter((name) => !omitSet.has(name));
 		if (requested.length === 0 && !hasWithSpec(withSpec)) {
@@ -135,10 +152,15 @@ export function resolveParentProjection(
 		if (sqlColumns.length === 0) {
 			throw new Error("omit cannot remove every column");
 		}
-		return { hasProjection: true, requested, sqlColumns };
+		return { hasProjection: true, requested, sqlColumns, includeHidden };
 	}
 
-	return { hasProjection: false, requested: [], sqlColumns: undefined };
+	return {
+		hasProjection: false,
+		requested: [],
+		sqlColumns: undefined,
+		includeHidden,
+	};
 }
 
 export function applyParentProjection(

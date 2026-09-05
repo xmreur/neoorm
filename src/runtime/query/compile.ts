@@ -1023,14 +1023,18 @@ export function normalizeSelectColumns(
 		.map(([key]) => key);
 }
 
-/** Columns returned by default SELECT (omits `.hidden()` unless explicitly selected). */
+/** Columns returned by default SELECT (omits `.hidden()` unless `includeHidden` or explicitly selected). */
 export function columnsForOutput(
 	tableIndex: TableIndex | undefined,
 	table: ManifestTable,
 	select?: readonly string[],
+	includeHidden?: boolean,
 ): ManifestColumn[] {
 	if (select && select.length > 0) {
 		return columnsByTsNames(tableIndex, table, select);
+	}
+	if (includeHidden) {
+		return table.columns;
 	}
 	return table.columns.filter((col) => col.hidden !== true);
 }
@@ -1055,9 +1059,10 @@ export function buildSelectColumns(
 	table: ManifestTable,
 	select?: readonly string[],
 	manifestIndex?: ManifestIndex,
+	includeHidden?: boolean,
 ): string {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const cols = columnsForOutput(tableIndex, table, select);
+	const cols = columnsForOutput(tableIndex, table, select, includeHidden);
 
 	return cols.map((c) => selectExpression(c)).join(", ");
 }
@@ -1066,10 +1071,11 @@ export function buildQualifiedSelectColumns(
 	table: ManifestTable,
 	select?: readonly string[],
 	manifestIndex?: ManifestIndex,
+	includeHidden?: boolean,
 ): string {
 	const ref = tableRef(table);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const cols = columnsForOutput(tableIndex, table, select);
+	const cols = columnsForOutput(tableIndex, table, select, includeHidden);
 
 	return cols.map((c) => `${ref}.${selectExpression(c)}`).join(", ");
 }
@@ -1078,10 +1084,16 @@ export function buildFindByIdQuery(
 	table: ManifestTable,
 	select?: readonly string[],
 	manifestIndex?: ManifestIndex,
+	includeHidden?: boolean,
 ): string {
 	const { sqlName } = requireScalarPrimaryKey(table);
 	const sqlCol = quoteIdentifier(sqlName);
-	const selectCols = buildSelectColumns(table, select, manifestIndex);
+	const selectCols = buildSelectColumns(
+		table,
+		select,
+		manifestIndex,
+		includeHidden,
+	);
 	return `SELECT ${selectCols} FROM ${tableRef(table)} WHERE ${sqlCol} = $1`;
 }
 
@@ -1110,12 +1122,18 @@ export function buildFindManyQuery(
 	manifestIndex?: ManifestIndex,
 	groupBySql?: string,
 	select?: readonly string[],
+	includeHidden?: boolean,
 ): string {
 	const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const selectCols = hasJoins
-		? buildQualifiedSelectColumns(table, select, manifestIndex)
-		: buildSelectColumns(table, select, manifestIndex);
+		? buildQualifiedSelectColumns(
+				table,
+				select,
+				manifestIndex,
+				includeHidden,
+			)
+		: buildSelectColumns(table, select, manifestIndex, includeHidden);
 	let sql = "SELECT ";
 	if (distinctOn && distinctOn.length > 0) {
 		const distinctCols = columnsByTsNames(tableIndex, table, distinctOn)
