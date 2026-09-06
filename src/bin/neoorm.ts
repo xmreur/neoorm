@@ -82,6 +82,136 @@ function printCliError(err: unknown): void {
 const program = new Command();
 
 program.name("neoorm").description("NeoOrm CLI").version(packageJson.version);
+program.enablePositionalOptions();
+
+async function runDbPush(
+	config: Awaited<ReturnType<typeof loadConfig>>,
+	options: { acceptDataLoss?: boolean },
+): Promise<void> {
+	const cwd = process.cwd();
+	const dbSchema =
+		config.datasource.provider === "postgresql"
+			? config.datasource.schema
+			: undefined;
+	const { client, dialect, close } = connectDb(config);
+
+	try {
+		const outDir = resolve(cwd, config.out);
+		const { readSnapshot } = await import("../codegen/generate.js");
+		const manifest = await readSnapshot(outDir);
+		if (!manifest) {
+			console.error("Run neoorm generate first");
+			process.exit(1);
+		}
+		const { appliedStatements, destructiveBlocked } = await dbPush(
+			client,
+			dialect,
+			manifest,
+			{
+				...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+				...(dbSchema ? { schema: dbSchema } : {}),
+			},
+		);
+		for (const warning of dbPushWarnings(destructiveBlocked)) {
+			console.warn(`Warning: ${warning}`);
+		}
+		if (appliedStatements === 0 && destructiveBlocked.length === 0) {
+			console.log("Database schema is up to date");
+		} else {
+			console.log(
+				`Database schema pushed (${appliedStatements} statement(s) applied)`,
+			);
+		}
+	} finally {
+		await close();
+	}
+}
+
+async function runDbPull(
+	config: Awaited<ReturnType<typeof loadConfig>>,
+	options: { output?: string },
+): Promise<void> {
+	const cwd = process.cwd();
+	const dbSchema =
+		config.datasource.provider === "postgresql"
+			? config.datasource.schema
+			: undefined;
+	const { client, dialect, close } = connectDb(config);
+
+	try {
+		const content =
+			config.datasource.provider === "sqlite"
+				? await introspectSqlite(client)
+				: await introspectPostgres(
+						client,
+						dbSchema ? { schema: dbSchema } : {},
+					);
+		const outputPath = resolve(cwd, options.output ?? "schema.pulled.ts");
+		await writeFile(outputPath, content, "utf-8");
+		console.log(`Schema written to ${outputPath}`);
+	} finally {
+		await close();
+	}
+}
+
+function registerDbPushPull(cmd: Command): void {
+	cmd
+		.command("push")
+		.description("Push the current snapshot schema to the database")
+		.option(
+			"--accept-data-loss",
+			"Apply destructive schema changes when pushing to the database",
+		)
+		.action(async (opts: { acceptDataLoss?: boolean }) => {
+			const config = await loadConfig(process.cwd());
+			await runDbPush(config, opts);
+		});
+
+	cmd
+		.command("pull")
+		.description("Introspect the database and write a schema file")
+		.option("-o, --output <file>", "Output file for pull", "schema.pulled.ts")
+		.action(async (opts: { output?: string }) => {
+			const config = await loadConfig(process.cwd());
+			await runDbPull(config, opts);
+		});
+}
+
+async function runGenerateCommand(options: {
+	acceptDataLoss?: boolean;
+}): Promise<void> {
+	const cwd = process.cwd();
+	const config = await loadConfig(cwd);
+	const schemaPath = resolve(cwd, config.schema);
+	const outDir = resolve(cwd, config.out);
+	const dbSchema = config.datasource.schema;
+
+	const { warnings, summary, destructiveBlocked } = await generateFromSchema(
+		schemaPath,
+		outDir,
+		{
+			...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+			...(config.datasource.enum
+				? { enumMode: config.datasource.enum }
+				: {}),
+			...(config.datasource.provider
+				? { provider: config.datasource.provider }
+				: {}),
+			...(config.datasource.url ? { url: config.datasource.url } : {}),
+			...(dbSchema ? { schema: dbSchema } : {}),
+		},
+	);
+
+	for (const line of formatGenerateSummary(summary, outDir)) {
+		console.log(line);
+	}
+	for (const warning of warnings) {
+		console.warn(`Warning: ${warning}`);
+	}
+	if (destructiveBlocked) {
+		process.exit(1);
+	}
+}
 
 function normalizeProvider(
 	input: string,
@@ -199,33 +329,11 @@ program
 		"Include destructive schema changes in generated migrations",
 	)
 	.action(async (options: { acceptDataLoss?: boolean }) => {
-		const cwd = process.cwd();
-		const config = await loadConfig(cwd);
-		const schemaPath = resolve(cwd, config.schema);
-		const outDir = resolve(cwd, config.out);
-		const dbSchema = config.datasource.schema;
-
-		const { warnings, summary } = await generateFromSchema(
-			schemaPath,
-			outDir,
-			{
-				...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
-				...(config.datasource.enum
-					? { enumMode: config.datasource.enum }
-					: {}),
-				...(config.datasource.provider
-					? { provider: config.datasource.provider }
-					: {}),
-				...(config.datasource.url ? { url: config.datasource.url } : {}),
-				...(dbSchema ? { schema: dbSchema } : {}),
-			},
-		);
-
-		for (const line of formatGenerateSummary(summary, outDir)) {
-			console.log(line);
-		}
-		for (const warning of warnings) {
-			console.warn(`Warning: ${warning}`);
+		try {
+			await runGenerateCommand(options);
+		} catch (err) {
+			printCliError(err);
+			process.exit(1);
 		}
 	});
 
@@ -364,7 +472,7 @@ program
 					}
 
 					if (subcommand === "dev") {
-						const { warnings, summary, migrationName, manifest } =
+						const { warnings, summary, migrationName, manifest, destructiveBlocked } =
 							await generateFromSchema(schemaPath, outDir, {
 								...(options.acceptDataLoss
 									? { acceptDataLoss: true }
@@ -405,6 +513,9 @@ program
 									`Applied new migration: ${newlyApplied.join(", ")}`,
 								);
 							}
+						}
+						if (destructiveBlocked) {
+							process.exit(1);
 						}
 					}
 					return;
@@ -453,81 +564,31 @@ program
 		await server.close();
 	});
 
+const dbCommand = program
+	.command("db")
+	.description("Database utilities without the migration ledger");
+registerDbPushPull(dbCommand);
+
 program
-	.description("Database utilities")
-	.argument("<subcommand>", "push | pull")
-	.option("-o, --output <file>", "Output file for pull", "schema.pulled.ts")
+	.command("push", { hidden: true })
+	.description("(deprecated) use neoorm db push")
 	.option(
 		"--accept-data-loss",
 		"Apply destructive schema changes when pushing to the database",
 	)
-	.action(
-		async (
-			subcommand,
-			options: { output?: string; acceptDataLoss?: boolean },
-		) => {
-			const cwd = process.cwd();
-			const config = await loadConfig(cwd);
-			const dbSchema =
-				config.datasource.provider === "postgresql"
-					? config.datasource.schema
-					: undefined;
-			const { client, dialect, close } = connectDb(config);
+	.action(async (opts: { acceptDataLoss?: boolean }) => {
+		const config = await loadConfig(process.cwd());
+		await runDbPush(config, opts);
+	});
 
-			try {
-				if (subcommand === "push") {
-					const outDir = resolve(cwd, config.out);
-					const { readSnapshot } = await import(
-						"../codegen/generate.js"
-					);
-					const manifest = await readSnapshot(outDir);
-					if (!manifest) {
-						console.error("Run neoorm generate first");
-						process.exit(1);
-					}
-					const { appliedStatements, destructiveBlocked } =
-						await dbPush(client, dialect, manifest, {
-							...(options.acceptDataLoss
-								? { acceptDataLoss: true }
-								: {}),
-							...(dbSchema ? { schema: dbSchema } : {}),
-						});
-					for (const warning of dbPushWarnings(destructiveBlocked)) {
-						console.warn(`Warning: ${warning}`);
-					}
-					if (
-						appliedStatements === 0 &&
-						destructiveBlocked.length === 0
-					) {
-						console.log("Database schema is up to date");
-					} else {
-						console.log(
-							`Database schema pushed (${appliedStatements} statement(s) applied)`,
-						);
-					}
-				} else if (subcommand === "pull") {
-					const content =
-						config.datasource.provider === "sqlite"
-							? await introspectSqlite(client)
-							: await introspectPostgres(
-									client,
-									dbSchema ? { schema: dbSchema } : {},
-								);
-					const outputPath = resolve(
-						cwd,
-						options.output ?? "schema.pulled.ts",
-					);
-					await writeFile(outputPath, content, "utf-8");
-					console.log(`Schema written to ${outputPath}`);
-				} else {
-					console.error("Usage: neoorm db push | pull");
-					process.exit(1);
-				}
-			} finally {
-				await close();
-			}
-		},
-	);
+program
+	.command("pull", { hidden: true })
+	.description("(deprecated) use neoorm db pull")
+	.option("-o, --output <file>", "Output file for pull", "schema.pulled.ts")
+	.action(async (opts: { output?: string }) => {
+		const config = await loadConfig(process.cwd());
+		await runDbPull(config, opts);
+	});
 
 program.parseAsync(process.argv).catch((err: unknown) => {
 	printCliError(err);
