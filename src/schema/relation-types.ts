@@ -845,6 +845,38 @@ export type InferFindResult<
 		? InferWithResult<TSchema, TAccessor, W, ApplySelect<TRowPayload, S>>
 		: never;
 
+/** Column + logical filters without relation nesting (breaks self-ref cycles). */
+type ShallowWhereInput<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string = keyof TSchema & string,
+> = {
+	AND?: ShallowWhereInput<TColumns, TSchema, TAccessor>[];
+	OR?: ShallowWhereInput<TColumns, TSchema, TAccessor>[];
+	NOT?: ShallowWhereInput<TColumns, TSchema, TAccessor>;
+} & ColumnWhereInput<TColumns, TSchema>;
+
+type ShallowManyRelationFilter<
+	TSchema extends Record<string, TableDef>,
+	TTargetAccessor extends keyof TSchema & string,
+> = {
+	some?: ShallowWhereInput<
+		TSchema[TTargetAccessor]["_columns"],
+		TSchema,
+		TTargetAccessor
+	>;
+	every?: ShallowWhereInput<
+		TSchema[TTargetAccessor]["_columns"],
+		TSchema,
+		TTargetAccessor
+	>;
+	none?: ShallowWhereInput<
+		TSchema[TTargetAccessor]["_columns"],
+		TSchema,
+		TTargetAccessor
+	>;
+};
+
 export type ManyRelationFilter<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
@@ -868,6 +900,7 @@ export type ManyRelationFilter<
 
 type OutgoingFkRelationWhereEntry<
 	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
 	K extends string,
 > =
@@ -880,22 +913,42 @@ type OutgoingFkRelationWhereEntry<
 				? IsThroughTable<TSchema[Acc]["_columns"]> extends true
 					? never
 					: {
-							[P in FkRelationName<As, K>]?: WhereInput<
-								TSchema[Acc]["_columns"],
+							[P in FkRelationName<As, K>]?: FkTargetMatchesAccessor<
 								TSchema,
-								Acc
-							>;
+								TTarget,
+								TAccessor
+							> extends true
+								? ShallowWhereInput<
+										TSchema[Acc]["_columns"],
+										TSchema,
+										Acc
+									>
+								: WhereInput<
+										TSchema[Acc]["_columns"],
+										TSchema,
+										Acc
+									>;
 						}
 				: never
 			: TTarget extends keyof TSchema & string
 				? IsThroughTable<TSchema[TTarget]["_columns"]> extends true
 					? never
 					: {
-							[P in FkRelationName<As, K>]?: WhereInput<
-								TSchema[TTarget]["_columns"],
+							[P in FkRelationName<As, K>]?: FkTargetMatchesAccessor<
 								TSchema,
-								TTarget
-							>;
+								TTarget,
+								TAccessor
+							> extends true
+								? ShallowWhereInput<
+										TSchema[TTarget]["_columns"],
+										TSchema,
+										TTarget
+									>
+								: WhereInput<
+										TSchema[TTarget]["_columns"],
+										TSchema,
+										TTarget
+									>;
 						}
 				: never
 		: never;
@@ -922,10 +975,15 @@ type InverseRelationWhereEntry<
 							Inv,
 							TSourceAccessor,
 							TUnique
-						>]?: ManyRelationFilter<
-							TSchema,
-							TSourceAccessor
-						>;
+						>]?: [TSourceAccessor] extends [TTargetAccessor]
+							? ShallowManyRelationFilter<
+									TSchema,
+									TSourceAccessor
+								>
+							: ManyRelationFilter<
+									TSchema,
+									TSourceAccessor
+								>;
 					}
 				: [TTarget] extends [TTargetAccessor]
 					? {
@@ -933,10 +991,15 @@ type InverseRelationWhereEntry<
 								Inv,
 								TSourceAccessor,
 								TUnique
-							>]?: ManyRelationFilter<
-								TSchema,
-								TSourceAccessor
-							>;
+							>]?: [TSourceAccessor] extends [TTargetAccessor]
+								? ShallowManyRelationFilter<
+										TSchema,
+										TSourceAccessor
+									>
+								: ManyRelationFilter<
+										TSchema,
+										TSourceAccessor
+									>;
 						}
 					: never
 			: never;
@@ -1044,6 +1107,7 @@ export type RelationWhereMap<
 	{
 		[K in keyof TSchema[TAccessor]["_columns"]]: OutgoingFkRelationWhereEntry<
 			TSchema,
+			TAccessor,
 			TSchema[TAccessor]["_columns"][K],
 			K & string
 		>;
