@@ -178,5 +178,8 @@ describe("formatGenerateSummary", () => {
 		);
 		expect(lines[0]).toContain("No migration written");
 		expect(lines.some((line) => line.includes("Re-run:"))).toBe(true);
+		expect(lines.some((line) => line.includes("Snapshot not updated"))).toBe(
+			true,
+		);
 	});
 });

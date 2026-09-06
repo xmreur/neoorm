@@ -108,7 +108,7 @@ export function formatGenerateSummary(
 	switch (summary.status) {
 		case "unchanged":
 			lines.push(
-				"✓ Schema unchanged — snapshot, client, and migrations are in sync.",
+				"✓ Snapshot matches schema — client regenerated, no migration changes.",
 			);
 			lines.push(`  Regenerated client at ${outDir}/client.ts`);
 			break;
@@ -151,6 +151,9 @@ export function formatGenerateSummary(
 			}
 			lines.push(`  Generated client at ${outDir}/client.ts`);
 			lines.push(`  Generated manifest at ${outDir}/manifest.ts`);
+			lines.push(
+				`  Snapshot not updated at ${outDir}/snapshot.json — re-run with --accept-data-loss to write migration SQL`,
+			);
 			break;
 		default: {
 			const _exhaustive: never = summary.status;

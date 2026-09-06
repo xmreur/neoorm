@@ -274,6 +274,7 @@ export async function writeGeneratedFiles(
 	schemaPath: string,
 	prev: Manifest | null,
 	dialect?: Dialect,
+	options?: { updateSnapshot?: boolean },
 ): Promise<{ migrationName: string | null }> {
 	await mkdir(outDir, { recursive: true });
 	await writeFile(
@@ -296,7 +297,11 @@ export async function writeGeneratedFiles(
 		emitClientTs(schemaImportPath(outDir, schemaPath), NEOORM_PACKAGE),
 		"utf-8",
 	);
-	await writeSnapshot(outDir, manifest);
+
+	const updateSnapshot = options?.updateSnapshot ?? true;
+	if (updateSnapshot) {
+		await writeSnapshot(outDir, manifest);
+	}
 
 	const migrationName = await writeMigration(outDir, migrationSql, {
 		prev,
@@ -399,8 +404,9 @@ async function generateFromSchemaInner(
 
 	const allWarnings = [...warnings];
 
-	const migrationSql =
-		blocked.length > 0 && !(options.acceptDataLoss ?? false) ? [] : sql;
+	const migrationBlocked =
+		blocked.length > 0 && !(options.acceptDataLoss ?? false);
+	const migrationSql = migrationBlocked ? [] : sql;
 
 	const { migrationName } = await writeGeneratedFiles(
 		outDir,
@@ -409,6 +415,7 @@ async function generateFromSchemaInner(
 		schemaPath,
 		prev,
 		dialect,
+		{ updateSnapshot: !migrationBlocked },
 	);
 
 	const summary = summarizeGenerateOutcome({
@@ -421,8 +428,7 @@ async function generateFromSchemaInner(
 		migrationName,
 	});
 
-	const migrationBlocked = summary.status === "migration_blocked";
-	if (migrationBlocked) {
+	if (summary.status === "migration_blocked") {
 		allWarnings.push(...formatDestructiveWarnings(blocked));
 		allWarnings.push(
 			"Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
