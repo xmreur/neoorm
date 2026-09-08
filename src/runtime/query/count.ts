@@ -133,6 +133,7 @@ export async function findUnique(
 		select?: readonly string[] | Record<string, boolean | undefined>;
 		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
+		includeHidden?: boolean;
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
@@ -146,5 +147,8 @@ export async function findUnique(
 		...(args.select !== undefined ? { select: args.select } : {}),
 		...(args.omit !== undefined ? { omit: args.omit } : {}),
 		...(args.with !== undefined ? { with: args.with } : {}),
+		...(args.includeHidden !== undefined
+			? { includeHidden: args.includeHidden }
+			: {}),
 	});
 }
