@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
@@ -7,6 +9,7 @@ import {
 	toCountSelector,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
+import { requireTable } from "./table-index.js";
 
 export function parseAggregateRow(
 	row: Record<string, unknown>,
@@ -59,8 +62,7 @@ export async function aggregateRecords(
 ): Promise<Record<string, unknown>> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const selectors: AggregateSelectors = {};
 	if (args._count !== undefined) {

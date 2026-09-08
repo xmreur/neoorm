@@ -1,5 +1,7 @@
 import { access, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { schemaError } from "../runtime/error-builders.js";
 import {
 	envExampleTemplate,
 	neoormConfigTemplate,
@@ -62,7 +64,8 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 	}
 
 	if (existing.length > 0 && !options.force) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
 			`Scaffold files already exist: ${existing.join(", ")}. Re-run with --force to overwrite.`,
 		);
 	}

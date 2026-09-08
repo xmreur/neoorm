@@ -5,8 +5,9 @@ import {
 	listPendingMigrations,
 } from "../../migrate/runner.js";
 import type { DatabaseClient } from "../driver.js";
+import { SCHEMA_DRIFT_QUERY_CODES, type QueryErrorCodeValue } from "../error-codes.js";
 import type { QueryOperation } from "../errors.js";
-import { NeoOrmQueryError, type QueryErrorContext } from "../errors.js";
+import { createQueryError, NeoOrmQueryError, type QueryErrorContext } from "../errors.js";
 import type { Executor } from "../executor.js";
 import {
 	emptyReturningContext,
@@ -78,11 +79,7 @@ function isSchemaDriftCode(code: string): boolean {
 	if (isSchemaDriftPgCode(code)) {
 		return true;
 	}
-	return (
-		code === "sqlite_no_such_table" ||
-		code === "sqlite_no_such_column" ||
-		code === "sqlite_foreign_key_violation"
-	);
+	return SCHEMA_DRIFT_QUERY_CODES.has(code as QueryErrorCodeValue);
 }
 
 async function enrichQueryError(
@@ -111,9 +108,9 @@ async function throwQueryError(
 		runtime.dialect ?? postgresDialect,
 		runtime.migrationsDir,
 		runtime.schema,
-		context.pgCode ?? context.code,
+		context.code,
 	);
-	throw new NeoOrmQueryError(
+	throw createQueryError(
 		migrationHint ? { ...context, migrationHint } : context,
 		cause,
 	);

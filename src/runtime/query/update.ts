@@ -3,6 +3,9 @@ import {
 	quoteIdentifier,
 	tableRef,
 } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
+import { queryCompileError } from "../error-builders.js";
 import type { Executor } from "../executor.js";
 import {
 	buildSelectColumns,
@@ -36,7 +39,7 @@ import {
 	type ParsedRelationWrite,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
-import { getTableIndex, relationByName } from "./table-index.js";
+import { getTableIndex, relationByName , requireTable } from "./table-index.js";
 import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
@@ -68,8 +71,7 @@ async function runUpdate(
 ): Promise<Record<string, unknown> | null> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const split =
 		args.scalarData !== undefined && args.relationWrites !== undefined
@@ -105,7 +107,7 @@ async function runUpdate(
 	);
 
 	if (!whereSql) {
-		throw new Error("Update requires a where clause");
+		throw queryCompileError("update", "Update requires a where clause", { code: QueryErrorCode.where_required, tableAccessor, tableSqlName: table.sqlName });
 	}
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
@@ -128,7 +130,7 @@ async function runUpdate(
 	);
 
 	if (keys.length === 0 && !needsRelationWrites && exprSets.length === 0) {
-		throw new Error(
+		compileError(
 			"Update requires at least one scalar field or relation write",
 		);
 	}
@@ -236,8 +238,7 @@ export async function updateRecord(
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const split = splitScalarsAndRelationWrites(
 		manifest,
@@ -279,8 +280,7 @@ async function runUpdateMany(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const returnRows = args.returnRows === true;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const split =
 		args.scalarData !== undefined && args.relationWrites !== undefined
@@ -330,7 +330,7 @@ async function runUpdateMany(
 		exprSets.length === 0 &&
 		!needsPostRelationWrites
 	) {
-		throw new Error(
+		compileError(
 			"Update requires at least one scalar field or relation write",
 		);
 	}
@@ -442,8 +442,7 @@ async function runUpdateManyScalar(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const returnRows = args.returnRows === true;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	stripUpdatedAtFromData(table, args.data, tableIndex);
@@ -457,7 +456,7 @@ async function runUpdateManyScalar(
 	const exprSets = updatedAtSetExpressions(table, tableIndex);
 
 	if (keys.length === 0 && exprSets.length === 0) {
-		throw new Error(
+		compileError(
 			"Update requires at least one scalar field or relation write",
 		);
 	}
@@ -517,8 +516,7 @@ async function updateManyInternal(
 	},
 ): Promise<number | Record<string, unknown>[]> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	if (!dataHasRelationKeys(tableIndex, table, args.data)) {
@@ -594,8 +592,7 @@ export async function updateById(
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const where = resolvePkWhere(table, id);
 	return updateRecord(executor, runtime, tableAccessor, {

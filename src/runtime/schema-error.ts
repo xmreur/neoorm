@@ -1,4 +1,5 @@
 import type { Manifest, ManifestTable } from "../dialect/types.js";
+import { SchemaErrorCode } from "./error-codes.js";
 import {
 	NeoOrmDriverError,
 	NeoOrmSchemaError,
@@ -103,6 +104,7 @@ export function enrichMigrationError(
 	}
 
 	const context: SchemaErrorContext = {
+		code: SchemaErrorCode.migration_failed,
 		...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
 		...(tableAccessor ? { tableAccessor } : {}),
 		...(tableSqlName ? { tableSqlName } : {}),
@@ -126,7 +128,7 @@ export function schemaCompileError(
 		{
 			schemaPath,
 			detail,
-			code: "schema_compile_error",
+			code: SchemaErrorCode.schema_compile_error,
 			...(suggestions && suggestions.length > 0 ? { suggestions } : {}),
 		},
 		cause,

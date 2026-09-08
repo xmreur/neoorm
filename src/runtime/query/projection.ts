@@ -1,4 +1,6 @@
 import type { ManifestTable } from "../../dialect/types.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import { columnsForOutput, normalizeSelectColumns } from "./compile.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { primaryKeyTsNames } from "./primary-key.js";
@@ -100,7 +102,10 @@ export function resolveParentProjection(
 	const omit = args?.omit;
 
 	if (select !== undefined && omit !== undefined) {
-		throw new Error("select and omit cannot be used together");
+		compileError("select and omit cannot be used together", {
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+		});
 	}
 
 	const withSpec = args?.with;
@@ -110,12 +115,18 @@ export function resolveParentProjection(
 	if (select !== undefined) {
 		const keys = normalizeSelectColumns(select) ?? [];
 		if (keys.length === 0) {
-			throw new Error("select must include at least one column");
+			compileError("select must include at least one column", {
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			});
 		}
 		validateProjectionColumns(table, keys, "select", tableIndex);
 		const sqlColumns = mergeSqlColumns(keys, extras);
 		if (sqlColumns.length === 0) {
-			throw new Error("select must include at least one column");
+			compileError("select must include at least one column", {
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			});
 		}
 		return {
 			hasProjection: true,
@@ -146,11 +157,17 @@ export function resolveParentProjection(
 			.map((col) => col.tsName)
 			.filter((name) => !omitSet.has(name));
 		if (requested.length === 0 && !hasWithSpec(withSpec)) {
-			throw new Error("omit cannot remove every column");
+			compileError("omit cannot remove every column", {
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			});
 		}
 		const sqlColumns = mergeSqlColumns(requested, extras);
 		if (sqlColumns.length === 0) {
-			throw new Error("omit cannot remove every column");
+			compileError("omit cannot remove every column", {
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			});
 		}
 		return { hasProjection: true, requested, sqlColumns, includeHidden };
 	}

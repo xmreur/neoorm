@@ -9,6 +9,7 @@ import type {
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
+import { compileError } from "../compile-error.js";
 import {
 	buildQualifiedSelectColumns,
 	buildSelectColumns,
@@ -684,7 +685,7 @@ function buildChildAggregationExpr(
 		);
 	}
 
-	throw new Error(
+	compileError(
 		`Unsupported inline relation chain node: ${node.relationName}`,
 	);
 }
@@ -725,12 +726,12 @@ export function buildInlineCountSelectCol(
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	const relation = findRelation(parentTable, relationName, parentTableIndex);
 	if (!relation || relation.cardinality !== "many") {
-		throw new Error(`Cannot inline count for relation: ${relationName}`);
+		compileError(`Cannot inline count for relation: ${relationName}`);
 	}
 
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) {
-		throw new Error(`Unknown target table for relation: ${relationName}`);
+		compileError(`Unknown target table for relation: ${relationName}`);
 	}
 
 	const parentRef = parentPkRef(parentTable);

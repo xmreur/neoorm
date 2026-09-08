@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import {
 	buildCountQuery,
@@ -9,7 +11,7 @@ import {
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findFirst, type WithInput } from "./find.js";
-import { getTableIndex } from "./table-index.js";
+import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 
 function parseCountSelectRow(
@@ -35,18 +37,17 @@ export async function countRecords(
 ): Promise<number | Record<string, number>> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	if (args?.distinct !== undefined && args.select !== undefined) {
-		throw new Error("count cannot combine distinct and select");
+		compileError("count cannot combine distinct and select");
 	}
 
 	let select: Record<string, true> | undefined;
 	if (args?.select !== undefined) {
 		select = normalizeCountMap(args.select);
 		if (Object.keys(select).length === 0) {
-			throw new Error("count select requires at least one field");
+			compileError("count select requires at least one field");
 		}
 	}
 
@@ -98,8 +99,7 @@ export async function existsRecords(
 ): Promise<boolean> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const compiled = compileWhere(
 		manifest,
@@ -136,8 +136,7 @@ export async function findUnique(
 	},
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	assertUniqueWhere(table, args.where, "findUnique", tableIndex);

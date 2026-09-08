@@ -8,6 +8,7 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
+import { QueryErrorCode } from "../error-codes.js";
 import { queryCompileError } from "../error-builders.js";
 import {
 	didYouMean,
@@ -314,7 +315,7 @@ export function requireTable(
 		operation,
 		`Unknown table accessor "${accessor}"`,
 		{
-			code: "unknown_table",
+			code: QueryErrorCode.unknown_table,
 			suggestions,
 		},
 	);
@@ -336,7 +337,7 @@ export function requireTsColumn(
 		operation,
 		`Unknown column "${tsName}" in ${label}`,
 		{
-			code: "unknown_column",
+			code: QueryErrorCode.unknown_column,
 			tableAccessor: table.accessor,
 			tableSqlName: table.sqlName,
 			suggestions: suggestTsColumn(tsName, table, label),
@@ -364,7 +365,7 @@ export function requireRelation(
 		operation,
 		`Unknown relation "${name}" on table "${table.accessor}"`,
 		{
-			code: "unknown_relation",
+			code: QueryErrorCode.unknown_relation,
 			tableAccessor: table.accessor,
 			tableSqlName: table.sqlName,
 			suggestions: suggestRelation(name, table, relationNames),

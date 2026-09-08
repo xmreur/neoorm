@@ -1,4 +1,6 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { schemaError } from "../runtime/error-builders.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { quoteIdentifier as q, tableRef } from "./shared.js";
 import type {
@@ -17,7 +19,8 @@ export const DEFAULT_PG_SCHEMA = "public";
 
 export function validatePgSchemaName(schema: string): string {
 	if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
 			`Invalid PostgreSQL schema name "${schema}". Use an unquoted identifier such as public or tenant_123.`,
 		);
 	}
@@ -372,7 +375,10 @@ function emitDropTableConstraint(
 
 function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {
 	if (!col.fkTarget) {
-		throw new Error(`FK column "${col.sqlName}" is missing fkTarget`);
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			`FK column "${col.sqlName}" is missing fkTarget`,
+		);
 	}
 	const { tableSql: targetTable, columnSql: targetCol } = parseFkTarget(
 		col.fkTarget,

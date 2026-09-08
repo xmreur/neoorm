@@ -1,3 +1,5 @@
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { schemaError } from "../runtime/error-builders.js";
 import { builtinPlugin, citextPlugin } from "./builtin.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
@@ -38,7 +40,8 @@ function indexColumnTypes(plugin: NeoOrmPlugin, allowOverwrite = false): void {
 		if (columnTypeMap().has(columnType.kind) && !allowOverwrite) {
 			const existing = columnTypeMap().get(columnType.kind);
 			if (existing !== columnType) {
-				throw new Error(
+				throw schemaError(
+					SchemaErrorCode.plugin_error,
 					`Duplicate column type kind registered: ${columnType.kind}`,
 				);
 			}
@@ -82,7 +85,8 @@ export function getColumnType(kind: string): ColumnTypePlugin | undefined {
 export function getColumnTypeOrThrow(kind: string): ColumnTypePlugin {
 	const columnType = getColumnType(kind);
 	if (!columnType) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.plugin_error,
 			`Unknown column kind "${kind}". Import the plugin that provides this type (e.g. import "neoorm/plugins/postgis").`,
 		);
 	}

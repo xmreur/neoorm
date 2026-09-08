@@ -4,6 +4,8 @@ import type {
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import { generateUuid, resolveUuidVersion } from "../../utils/uuid.js";
 import {
 	columnBySqlName,
@@ -28,8 +30,13 @@ export function primaryKeyTsNames(
 export function primaryKeySqlName(table: ManifestTable, index = 0): string {
 	const sqlName = table.primaryKey[index];
 	if (!sqlName) {
-		throw new Error(
+		compileError(
 			`Primary key index ${index} not found for table "${table.accessor}"`,
+			{
+				code: QueryErrorCode.missing_primary_key,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			},
 		);
 	}
 	return sqlName;
@@ -50,20 +57,35 @@ export function requireScalarPrimaryKey(
 	sqlName: string;
 } {
 	if (table.primaryKey.length !== 1) {
-		throw new Error(
+		compileError(
 			`Operation requires a single-column primary key on table "${table.accessor}"`,
+			{
+				code: QueryErrorCode.missing_primary_key,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			},
 		);
 	}
 	const sqlName = table.primaryKey[0];
 	if (!sqlName) {
-		throw new Error(
+		compileError(
 			`Primary key column not found for table "${table.accessor}"`,
+			{
+				code: QueryErrorCode.missing_primary_key,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			},
 		);
 	}
 	const col = columnBySqlName(tableIndex, table, sqlName);
 	if (!col) {
-		throw new Error(
+		compileError(
 			`Primary key column not found for table "${table.accessor}"`,
+			{
+				code: QueryErrorCode.missing_primary_key,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			},
 		);
 	}
 	return { tsName: col.tsName, sqlName: col.sqlName };
@@ -77,7 +99,12 @@ export function rowScalarPkValue(
 		const { tsName } = requireScalarPrimaryKey(table);
 		const val = row[tsName];
 		if (val == null) {
-			throw new Error(`Missing primary key "${tsName}" on row`);
+			compileError(`Missing primary key "${tsName}" on row`, {
+				code: QueryErrorCode.missing_primary_key,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+				columnTsName: tsName,
+			});
 		}
 		return String(val);
 	}
@@ -93,8 +120,14 @@ export function resolvePkWhere(
 		const pkTsNames = primaryKeyTsNames(table, tableIndex);
 		for (const tsName of pkTsNames) {
 			if (!(tsName in id)) {
-				throw new Error(
+				compileError(
 					`Missing primary key column "${tsName}" for table "${table.accessor}". The object must include all PK columns: ${pkTsNames.join(", ")}`,
+					{
+						code: QueryErrorCode.missing_primary_key,
+						tableAccessor: table.accessor,
+						tableSqlName: table.sqlName,
+						columnTsName: tsName,
+					},
 				);
 			}
 		}
@@ -102,8 +135,13 @@ export function resolvePkWhere(
 	}
 
 	if (table.primaryKey.length !== 1) {
-		throw new Error(
+		compileError(
 			`Table "${table.accessor}" has a composite primary key. Pass an object with PK columns (${primaryKeyTsNames(table, tableIndex).join(", ")}) instead of a string.`,
+			{
+				code: QueryErrorCode.missing_primary_key,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			},
 		);
 	}
 
@@ -118,7 +156,11 @@ export function rowPkKey(
 ): string {
 	const tsNames = primaryKeyTsNames(table, tableIndex);
 	if (tsNames.length === 0) {
-		throw new Error(`No primary key defined for table "${table.accessor}"`);
+		compileError(`No primary key defined for table "${table.accessor}"`, {
+			code: QueryErrorCode.missing_primary_key,
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+		});
 	}
 	return tsNames.map((name) => String(row[name] ?? "")).join(PK_KEY_SEP);
 }

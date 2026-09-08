@@ -1,3 +1,5 @@
+import { QueryErrorCode } from "../runtime/error-codes.js";
+import { compileError } from "../runtime/compile-error.js";
 import { type SqlFragment, sqlFragment, sqlId } from "./template.js";
 
 type JoinBuilder = {
@@ -19,7 +21,9 @@ function parseQualifiedColumn(col: string): SqlFragment {
 	if (parts.length === 2) {
 		const [left, right] = parts;
 		if (!left || !right) {
-			throw new Error(`Invalid qualified column "${col}"`);
+			compileError(`Invalid qualified column "${col}"`, {
+				code: QueryErrorCode.invalid_args,
+			});
 		}
 		return sqlFragment(`${sqlId(left).text}.${sqlId(right).text}`, []);
 	}

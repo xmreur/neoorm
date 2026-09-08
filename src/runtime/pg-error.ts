@@ -1,4 +1,5 @@
 import type { Manifest, ManifestTable } from "../dialect/types.js";
+import { QueryErrorCode, type QueryErrorCodeValue } from "./error-codes.js";
 import type { QueryErrorContext, QueryOperation } from "./errors.js";
 
 export type PgErrorLike = {
@@ -177,24 +178,24 @@ function suggestionsForPgError(
 	return suggestions;
 }
 
-function errorCodeForPg(err: PgErrorLike): string | undefined {
+function errorCodeForPg(err: PgErrorLike): QueryErrorCodeValue {
 	switch (err.code) {
 		case "23502":
-			return "pg_not_null_violation";
+			return QueryErrorCode.not_null_violation;
 		case "23505":
-			return "pg_unique_violation";
+			return QueryErrorCode.unique_violation;
 		case "23503":
-			return "pg_foreign_key_violation";
+			return QueryErrorCode.foreign_key_violation;
 		case "23514":
-			return "pg_check_violation";
+			return QueryErrorCode.check_violation;
 		case "42P01":
-			return "pg_relation_not_found";
+			return QueryErrorCode.relation_not_found;
 		case "42703":
-			return "pg_column_not_found";
+			return QueryErrorCode.column_not_found;
 		case "22P02":
-			return "pg_invalid_input";
+			return QueryErrorCode.invalid_input;
 		default:
-			return err.code ? `pg_${err.code.toLowerCase()}` : undefined;
+			return QueryErrorCode.driver_error;
 	}
 }
 
@@ -224,6 +225,7 @@ export function enrichPgError(
 		operation: base.operation,
 		phase: "runtime",
 		sql: truncateSql(base.sql),
+		code: errorCodeForPg(err),
 		detail: err.detail
 			? `${headlineForPgCode(err)} (${err.detail})`
 			: headlineForPgCode(err),
@@ -255,11 +257,6 @@ export function enrichPgError(
 		context.constraint = err.constraint;
 	}
 
-	const code = errorCodeForPg(err);
-	if (code !== undefined) {
-		context.code = code;
-	}
-
 	const suggestions = suggestionsForPgError(err, table, columnTsName);
 	if (suggestions.length > 0) {
 		context.suggestions = suggestions;
@@ -284,6 +281,7 @@ export function emptyReturningContext(
 	const context: QueryErrorContext = {
 		operation,
 		phase: "runtime",
+		code: QueryErrorCode.empty_returning,
 		tableAccessor,
 		sql: truncateSql(sql),
 		detail: `${operationLabel} … RETURNING returned no row`,

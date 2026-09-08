@@ -1,6 +1,8 @@
 import type { ColumnBuilder } from "./column.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
 import type { FkBuilder } from "./relation.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { schemaError } from "../runtime/error-builders.js";
 import { registerTable } from "./table-registry.js";
 
 export type ColumnDef = ColumnBuilder<unknown> | FkBuilder | ManyToManyExtra;
@@ -252,7 +254,8 @@ export function table(
 	}
 
 	if (!isColumnMap(first)) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
 			"table() expects a column map as the first argument, or a SQL name followed by a column map",
 		);
 	}

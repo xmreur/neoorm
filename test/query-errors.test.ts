@@ -2,6 +2,7 @@ import { defineSchema, id, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { formatQueryError, NeoOrmQueryError } from "../src/runtime/errors.js";
+import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
 import type { Executor } from "../src/runtime/executor.js";
 import { enrichPgError } from "../src/runtime/pg-error.js";
 import { runCreate } from "../src/runtime/query/create.js";
@@ -73,6 +74,7 @@ describe("query errors", () => {
 
 	it("formats multi-line error messages with table, column, and SQL", () => {
 		const message = formatQueryError({
+			code: QueryErrorCode.driver_error,
 			operation: "insert",
 			tableAccessor: "users",
 			tableSqlName: "users",
@@ -92,6 +94,7 @@ describe("query errors", () => {
 
 	it("formats raw query errors without table context", () => {
 		const message = formatQueryError({
+			code: QueryErrorCode.driver_error,
 			operation: "raw",
 			sql: "SELECT broken",
 		});
@@ -103,6 +106,7 @@ describe("query errors", () => {
 
 	it("formats SQL table targets when accessor is unavailable", () => {
 		const message = formatQueryError({
+			code: QueryErrorCode.driver_error,
 			operation: "select",
 			tableSqlName: "legacy_users",
 			sql: 'SELECT * FROM "legacy_users"',
@@ -115,6 +119,7 @@ describe("query errors", () => {
 
 	it("formats same-name and SQL-only columns", () => {
 		const sameName = formatQueryError({
+			code: QueryErrorCode.driver_error,
 			operation: "update",
 			tableAccessor: "users",
 			columnTsName: "email",
@@ -122,6 +127,7 @@ describe("query errors", () => {
 			sql: 'UPDATE "users" SET "email" = $1',
 		});
 		const sqlOnly = formatQueryError({
+			code: QueryErrorCode.driver_error,
 			operation: "delete",
 			tableAccessor: "users",
 			columnSqlName: "legacy_email",
@@ -135,6 +141,7 @@ describe("query errors", () => {
 
 	it("includes constraint and migration hint together", () => {
 		const message = formatQueryError({
+			code: QueryErrorCode.driver_error,
 			operation: "upsert",
 			tableAccessor: "users",
 			sql: 'INSERT INTO "users" ("email") VALUES ($1)',
@@ -196,8 +203,9 @@ describe("query errors", () => {
 				data: { emailAddress: "a@example.com", name: "Alice" },
 			}),
 		).rejects.toMatchObject({
-			name: "NeoOrmQueryError",
+			name: "SchemaDriftError",
 			cause: pgError,
+			code: QueryErrorCode.relation_not_found,
 			context: {
 				operation: "insert",
 				tableAccessor: "users",

@@ -1,6 +1,6 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { NeoOrmDriverError } from "./errors.js";
-import { buildBeginSql } from "./transaction.js";
+import { assertNoSavepointOptions, buildBeginSql } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
 export type DriverResult<T = Record<string, unknown>> = {
@@ -336,14 +336,7 @@ export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 			options?: TransactionOptions,
 		): Promise<T> {
 			if (state.txDepth > 0) {
-				if (
-					options?.readOnly !== undefined ||
-					options?.isolationLevel !== undefined
-				) {
-					throw new Error(
-						"Transaction options (readOnly, isolationLevel) cannot be used with nested transactions",
-					);
-				}
+				assertNoSavepointOptions(options);
 				const savepointId = ++state.savepointCounter;
 				const name = `neoorm_sp_${savepointId}`;
 				db.exec(`SAVEPOINT ${name}`);
@@ -420,14 +413,7 @@ function createPgTxClient(state: PgTxState): DatabaseClient {
 			fn: (client: DatabaseClient) => Promise<T>,
 			options?: TransactionOptions,
 		): Promise<T> {
-			if (
-				options?.readOnly !== undefined ||
-				options?.isolationLevel !== undefined
-			) {
-				throw new Error(
-					"Transaction options (readOnly, isolationLevel) cannot be used with nested transactions",
-				);
-			}
+			assertNoSavepointOptions(options);
 			const savepointId = ++state.savepointCounter;
 			const name = `neoorm_sp_${savepointId}`;
 			await state.client.query(`SAVEPOINT ${name}`);

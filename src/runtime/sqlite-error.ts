@@ -1,4 +1,5 @@
 import type { Manifest, ManifestTable } from "../dialect/types.js";
+import { QueryErrorCode, type QueryErrorCodeValue } from "./error-codes.js";
 import type { QueryErrorContext } from "./errors.js";
 import { truncateSql } from "./pg-error.js";
 
@@ -101,20 +102,22 @@ function headlineForSqlite(message: string, parsed: ReturnType<typeof parseSqlit
 	}
 }
 
-function errorCodeForSqlite(parsed: ReturnType<typeof parseSqliteConstraint>): string | undefined {
+function errorCodeForSqlite(
+	parsed: ReturnType<typeof parseSqliteConstraint>,
+): QueryErrorCodeValue {
 	switch (parsed.kind) {
 		case "unique":
-			return "sqlite_unique_violation";
+			return QueryErrorCode.unique_violation;
 		case "not_null":
-			return "sqlite_not_null_violation";
+			return QueryErrorCode.not_null_violation;
 		case "foreign_key":
-			return "sqlite_foreign_key_violation";
+			return QueryErrorCode.foreign_key_violation;
 		case "no_such_table":
-			return "sqlite_no_such_table";
+			return QueryErrorCode.relation_not_found;
 		case "no_such_column":
-			return "sqlite_no_such_column";
+			return QueryErrorCode.column_not_found;
 		default:
-			return "sqlite_error";
+			return QueryErrorCode.driver_error;
 	}
 }
 
@@ -213,8 +216,8 @@ export function enrichSqliteError(
 		operation: base.operation,
 		phase: "runtime",
 		sql: truncateSql(base.sql),
+		code,
 		detail: headlineForSqlite(err.message, parsed),
-		...(code !== undefined ? { code } : {}),
 	};
 
 	const tableAccessor = base.tableAccessor ?? table?.accessor;
@@ -238,10 +241,6 @@ export function enrichSqliteError(
 	const suggestions = suggestionsForSqlite(parsed, table, columnTsName);
 	if (suggestions.length > 0) {
 		context.suggestions = suggestions;
-	}
-
-	if (isSchemaDriftSqliteMessage(err.message) && code !== undefined) {
-		context.pgCode = code;
 	}
 
 	return context;

@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindOrCreateQuery,
@@ -11,7 +13,7 @@ import { runCreate } from "./create.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findMany, loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
-import { getTableIndex } from "./table-index.js";
+import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 
 export type FindOrCreateResult = {
@@ -31,8 +33,7 @@ export async function findOrCreateRecord(
 ): Promise<FindOrCreateResult> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const constraint = assertUniqueWhere(
@@ -124,8 +125,7 @@ async function findOrCreateSqlite(
 	createData: Record<string, unknown>,
 ): Promise<FindOrCreateResult> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const loadWith = async (
 		record: Record<string, unknown>,
@@ -169,7 +169,7 @@ async function findOrCreateSqlite(
 				return { record: await loadWith(retryRow), created: false };
 			}
 		}
-		throw new Error("findOrCreate insert failed and record was not found");
+		compileError("findOrCreate insert failed and record was not found");
 	}
 }
 
@@ -187,7 +187,7 @@ export function findOrCreatePk(
 		create: item.create,
 	}).then(({ record }) => {
 		const table = runtime.manifest.tables[tableAccessor];
-		if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+		if (!table) compileError(`Unknown table: ${tableAccessor}`);
 		return rowScalarPkValue(record, table);
 	});
 }

@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import { parseAggregateRow } from "./aggregate.js";
 import {
@@ -46,7 +48,7 @@ export async function groupByRecords(
 
 	const byKeys = normalizeSelectColumns(args.by);
 	if (!byKeys || byKeys.length === 0) {
-		throw new Error("groupBy requires at least one column");
+		compileError("groupBy requires at least one column");
 	}
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);

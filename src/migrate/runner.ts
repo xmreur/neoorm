@@ -16,6 +16,8 @@ import type { Dialect, Manifest } from "../dialect/types.js";
 import { introspectToManifest } from "../introspect/to-manifest.js";
 import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
 import type { DatabaseClient } from "../runtime/driver.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { schemaError } from "../runtime/error-builders.js";
 import { NeoOrmDriverError } from "../runtime/errors.js";
 import {
 	enrichMigrationError,
@@ -222,14 +224,16 @@ export async function migrateReset(
 ): Promise<{ reapplied: string[] }> {
 	if (dialect.name === "sqlite") {
 		if (!options.force) {
-			throw new Error(
+			throw schemaError(
+				SchemaErrorCode.migration_guard,
 				"migrate reset requires --force. This drops all tables and data.",
 			);
 		}
 	} else {
 		const schemaName = resolvePgSchemaName(options.schema);
 		if (!options.force) {
-			throw new Error(
+			throw schemaError(
+				SchemaErrorCode.migration_guard,
 				`migrate reset requires --force. This drops the "${schemaName}" schema and all data.`,
 			);
 		}
@@ -353,7 +357,8 @@ async function readDownSql(
 	try {
 		return await readFile(sqlPath, "utf-8");
 	} catch {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
 			`Migration "${name}" has no down.sql. Re-generate the migration or add down.sql manually.`,
 		);
 	}
@@ -368,7 +373,8 @@ async function readSnapshotBefore(
 		const content = await readFile(snapshotPath, "utf-8");
 		return JSON.parse(content) as Manifest;
 	} catch {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
 			`Migration "${name}" has no snapshot.before.json. Re-generate the migration.`,
 		);
 	}
@@ -403,15 +409,22 @@ export async function migrateDown(
 ): Promise<string[]> {
 	const steps = options?.steps ?? 1;
 	if (steps < 1) {
-		throw new Error("steps must be at least 1");
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			"steps must be at least 1",
+		);
 	}
 
 	const applied = await listAppliedMigrations(client, dialect, options?.schema);
 	if (applied.length === 0) {
-		throw new Error("No applied migrations to roll back");
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			"No applied migrations to roll back",
+		);
 	}
 	if (steps > applied.length) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
 			`Cannot roll back ${steps} migration(s): only ${applied.length} applied`,
 		);
 	}

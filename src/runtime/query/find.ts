@@ -9,6 +9,9 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
+import { queryCompileError } from "../error-builders.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindByIdQuery,
@@ -54,7 +57,7 @@ import {
 	type RelationPlanOptions,
 	withShapeSignature,
 } from "./relation-planner.js";
-import { columnBySqlName, getTableIndex, type ManifestIndex } from "./table-index.js";
+import { columnBySqlName, getTableIndex, type ManifestIndex , requireTable } from "./table-index.js";
 
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
@@ -95,13 +98,13 @@ function validateDistinctOrderBy(
 	if (!distinct || distinct.length === 0) return;
 	const orderKeys = orderBy ? Object.keys(orderBy) : [];
 	if (orderKeys.length < distinct.length) {
-		throw new Error(
+		compileError(
 			"distinct requires orderBy to lead with the same columns",
 		);
 	}
 	for (let i = 0; i < distinct.length; i++) {
 		if (orderKeys[i] !== distinct[i]) {
-			throw new Error(
+			compileError(
 				`distinct requires orderBy to start with: ${distinct.join(", ")}`,
 			);
 		}
@@ -412,7 +415,7 @@ async function loadOneRelation(
 		);
 		const [targetPkTsName] = primaryKeyTsNames(targetTable);
 		if (!targetPkTsName) {
-			throw new Error(
+			compileError(
 				`No primary key defined for table "${targetTable.accessor}"`,
 			);
 		}
@@ -775,7 +778,7 @@ async function executeFindManyWithRelations(
 
 	const distinctOn = normalizeSelectColumns(args.distinct);
 	if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
-		throw new Error(
+		compileError(
 			"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
 		);
 	}
@@ -855,8 +858,7 @@ export async function findMany(
 ): Promise<Record<string, unknown>[]> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const queryCtx = { operation: "select" as const, tableAccessor };
@@ -887,7 +889,7 @@ export async function findMany(
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
 
 	if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
-		throw new Error(
+		compileError(
 			"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
 		);
 	}
@@ -974,8 +976,7 @@ export async function findFirst(
 ): Promise<Record<string, unknown> | null> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const projection = resolveParentProjection(table, args, tableIndex);
@@ -1088,8 +1089,7 @@ export async function findById(
 ): Promise<Record<string, unknown> | null> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const projection = resolveParentProjection(table, args, tableIndex);
