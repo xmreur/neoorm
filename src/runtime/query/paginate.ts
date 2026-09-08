@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import { buildPaginateQuery, compileWhere } from "./compile.js";
 import {
@@ -15,6 +17,7 @@ import {
 	buildPlanExtraSelectCols,
 	planRelationLoad,
 } from "./relation-planner.js";
+import { requireTable } from "./table-index.js";
 
 export type PaginateArgs = {
 	where?: Record<string, unknown>;
@@ -41,11 +44,10 @@ export async function paginateRecords(
 ): Promise<PaginateRuntimeResult> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	if (!Number.isInteger(args.take) || args.take <= 0) {
-		throw new Error("paginate requires take to be a positive integer");
+		compileError("paginate requires take to be a positive integer");
 	}
 
 	const orderSpec = resolveOrderSpec(table, args.orderBy, runtime.tableIndex);

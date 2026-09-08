@@ -4,6 +4,8 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../../dialect/types.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import { serializeColumnValue } from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
@@ -26,7 +28,11 @@ export function resolveOrderSpec(
 	manifestIndex?: ManifestIndex,
 ): OrderKeySpec[] {
 	if (!orderBy || Object.keys(orderBy).length === 0) {
-		throw new Error("paginate requires orderBy");
+		compileError("paginate requires orderBy", {
+			code: QueryErrorCode.invalid_cursor,
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+		});
 	}
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
@@ -54,9 +60,11 @@ export function resolveOrderSpec(
 	}
 
 	if (directions.size > 1) {
-		throw new Error(
-			"paginate orderBy columns must share the same direction",
-		);
+		compileError("paginate orderBy columns must share the same direction", {
+			code: QueryErrorCode.invalid_cursor,
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+		});
 	}
 
 	const { tsName: pkTsName, sqlName: pkSqlName } = requireScalarPrimaryKey(
@@ -67,13 +75,22 @@ export function resolveOrderSpec(
 	if (!specs.some((spec) => spec.tsName === pkTsName)) {
 		const pkCol = columnByTsName(tableIndex, table, pkTsName);
 		if (!pkCol) {
-			throw new Error(
+			compileError(
 				`Primary key column not found for table "${table.accessor}"`,
+				{
+					code: QueryErrorCode.missing_primary_key,
+					tableAccessor: table.accessor,
+					tableSqlName: table.sqlName,
+				},
 			);
 		}
 		const lastSpec = specs.at(-1);
 		if (!lastSpec) {
-			throw new Error("paginate requires orderBy");
+			compileError("paginate requires orderBy", {
+				code: QueryErrorCode.invalid_cursor,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			});
 		}
 		const tieDirection = lastSpec.direction;
 		specs.push({
@@ -124,16 +141,22 @@ export function compileCursorWhere(
 ): { sql: string; params: unknown[] } {
 	for (const key of orderSpec) {
 		if (!(key.tsName in cursor)) {
-			throw new Error(`Cursor missing required field "${key.tsName}"`);
+			compileError(`Cursor missing required field "${key.tsName}"`, {
+				code: QueryErrorCode.invalid_cursor,
+			});
 		}
 		if (cursor[key.tsName] === undefined) {
-			throw new Error(`Cursor field "${key.tsName}" cannot be undefined`);
+			compileError(`Cursor field "${key.tsName}" cannot be undefined`, {
+				code: QueryErrorCode.invalid_cursor,
+			});
 		}
 	}
 
 	const firstSpec = orderSpec[0];
 	if (!firstSpec) {
-		throw new Error("orderSpec must not be empty");
+		compileError("orderSpec must not be empty", {
+			code: QueryErrorCode.invalid_cursor,
+		});
 	}
 	const direction = firstSpec.direction;
 	const afterOperator = direction === "desc" ? "<" : ">";

@@ -1,3 +1,5 @@
+import { QueryErrorCode } from "./error-codes.js";
+import { queryError } from "./error-builders.js";
 import type { TransactionOptions } from "./types.js";
 
 const isolationLevelSql: Record<
@@ -35,8 +37,10 @@ export function assertNoSavepointOptions(options?: TransactionOptions): void {
 		options?.readOnly !== undefined ||
 		options?.isolationLevel !== undefined
 	) {
-		throw new Error(
+		throw queryError(
+			QueryErrorCode.invalid_args,
 			"Transaction options (readOnly, isolationLevel) cannot be used with nested transactions",
+			{ operation: "raw", phase: "runtime" },
 		);
 	}
 }

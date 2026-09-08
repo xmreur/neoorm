@@ -8,6 +8,9 @@ import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
+import { QueryErrorCode } from "./error-codes.js";
+import { queryError, schemaError } from "./error-builders.js";
+import { SchemaErrorCode } from "./error-codes.js";
 import type { DatabaseClient, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
 import {
@@ -323,16 +326,34 @@ function buildClient<
 
 		$connect: transactional
 			? async () => {
-					throw new Error("Cannot connect inside a transaction");
+					throw queryError(
+						QueryErrorCode.invalid_args,
+						"Cannot connect inside a transaction",
+						{ operation: "raw", phase: "runtime" },
+					);
 				}
 			: async () => {
 					if (!runtime.driver) return;
-					await runtime.driver.query("SELECT 1");
+					try {
+						await runtime.driver.query("SELECT 1");
+					} catch (err) {
+						throw queryError(
+							QueryErrorCode.connection_error,
+							"Failed to connect to the database",
+							{ operation: "raw", phase: "runtime", sql: "SELECT 1" },
+							undefined,
+							err,
+						);
+					}
 				},
 
 		$disconnect: transactional
 			? async () => {
-					throw new Error("Cannot disconnect inside a transaction");
+					throw queryError(
+						QueryErrorCode.invalid_args,
+						"Cannot disconnect inside a transaction",
+						{ operation: "raw", phase: "runtime" },
+					);
 				}
 			: disconnect,
 
@@ -438,7 +459,10 @@ export function createNeoOrmClient<
 	const url =
 		options.connectionString ?? process.env["DATABASE_URL"] ?? manifest.url;
 	if (!url) {
-		throw new Error("DATABASE_URL is required");
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			"DATABASE_URL is required",
+		);
 	}
 
 	const pool = new Pool({

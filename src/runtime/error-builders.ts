@@ -1,5 +1,6 @@
+import type { QueryErrorCodeValue, SchemaErrorCodeValue } from "./error-codes.js";
 import {
-	NeoOrmQueryError,
+	createQueryError,
 	NeoOrmSchemaError,
 	type QueryErrorContext,
 	type QueryOperation,
@@ -7,7 +8,7 @@ import {
 } from "./errors.js";
 
 export function schemaError(
-	code: string,
+	code: SchemaErrorCodeValue,
 	detail: string,
 	ctx: Omit<SchemaErrorContext, "detail" | "code"> = {},
 	suggestions?: string[],
@@ -23,7 +24,7 @@ export function schemaError(
 }
 
 export function queryError(
-	code: string,
+	code: QueryErrorCodeValue,
 	detail: string,
 	ctx: Omit<QueryErrorContext, "detail" | "code" | "phase" | "sql"> & {
 		phase?: "compile" | "runtime";
@@ -31,7 +32,7 @@ export function queryError(
 	},
 	suggestions?: string[],
 	cause?: unknown,
-): NeoOrmQueryError {
+) {
 	const context: QueryErrorContext = {
 		operation: ctx.operation,
 		sql: ctx.sql ?? "",
@@ -57,20 +58,20 @@ export function queryError(
 			: {}),
 		...(suggestions && suggestions.length > 0 ? { suggestions } : {}),
 	};
-	return new NeoOrmQueryError(context, cause);
+	return createQueryError(context, cause);
 }
 
 export function queryCompileError(
 	operation: QueryOperation,
 	detail: string,
 	options: {
-		code: string;
+		code: QueryErrorCodeValue;
 		tableAccessor?: string;
 		tableSqlName?: string;
 		columnTsName?: string;
 		suggestions?: string[];
 	},
-): NeoOrmQueryError {
+) {
 	return queryError(
 		options.code,
 		detail,

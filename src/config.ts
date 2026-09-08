@@ -1,3 +1,6 @@
+import { SchemaErrorCode } from "./runtime/error-codes.js";
+import { schemaError } from "./runtime/error-builders.js";
+
 export type NeoOrmConfig = {
 	/** Path to `schema.ts`. */
 	schema: string;
@@ -37,8 +40,9 @@ function isSupportedEnumMode(value: unknown): value is SupportedEnumMode {
 	return SUPPORTED_ENUM_MODES.includes(value as SupportedEnumMode);
 }
 
-function requiredShapeError(): Error {
-	return new Error(
+function requiredShapeError(): never {
+	throw schemaError(
+		SchemaErrorCode.invalid_config,
 		"neoorm.config.ts must export defineConfig({ schema, out, datasource: { provider, url } })",
 	);
 }
@@ -58,7 +62,8 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 	}
 
 	if (!isSupportedProvider(datasource.provider)) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
 			`neoorm.config.ts datasource.provider must be one of: ${SUPPORTED_PROVIDERS.join(", ")}`,
 		);
 	}
@@ -67,7 +72,8 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 		datasource.enum !== undefined &&
 		!isSupportedEnumMode(datasource.enum)
 	) {
-		throw new Error(
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
 			`neoorm.config.ts datasource.enum must be one of: ${SUPPORTED_ENUM_MODES.join(", ")}`,
 		);
 	}
@@ -76,7 +82,10 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 		datasource.schema !== undefined &&
 		typeof datasource.schema !== "string"
 	) {
-		throw new Error("neoorm.config.ts datasource.schema must be a string");
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			"neoorm.config.ts datasource.schema must be a string",
+		);
 	}
 
 	return {

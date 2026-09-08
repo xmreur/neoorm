@@ -1,4 +1,6 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import { QueryErrorCode } from "../runtime/error-codes.js";
+import { compileError } from "../runtime/compile-error.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import { quoteIdentifier as q, tableRef } from "./shared.js";
@@ -315,7 +317,9 @@ const whereOperators: OperatorMap = {
 	startsWith: (col, i) => `${col} LIKE $${i}`,
 	endsWith: (col, i) => `${col} LIKE $${i}`,
 	search: () => {
-		throw new Error("search is not supported on sqlite");
+		compileError("search is not supported on sqlite", {
+			code: QueryErrorCode.unsupported_operation,
+		});
 	},
 	gt: (col, i) => `${col} > $${i}`,
 	gte: (col, i) => `${col} >= $${i}`,
@@ -347,7 +351,9 @@ export const sqliteDialect: Dialect = {
 	whereOperators,
 	ilike: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
 	regex: () => {
-		throw new Error("search is not supported on sqlite");
+		compileError("search is not supported on sqlite", {
+			code: QueryErrorCode.unsupported_operation,
+		});
 	},
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",

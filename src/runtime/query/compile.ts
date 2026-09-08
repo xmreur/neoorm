@@ -15,6 +15,8 @@ import type {
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import { findM2M } from "./manifest-lookup.js";
 import {
 	primaryKeySqlName,
@@ -84,7 +86,7 @@ type StringPatternOp = "contains" | "startsWith" | "endsWith" | "search";
 function parseQueryMode(value: unknown): QueryMode {
 	if (value === undefined || value === "default") return "default";
 	if (value === "insensitive") return "insensitive";
-	throw new Error(`unsupported query mode: ${String(value)}`);
+	compileError(`unsupported query mode: ${String(value)}`);
 }
 
 function isStringPatternOp(op: WhereOperator): op is StringPatternOp {
@@ -114,7 +116,7 @@ function stringFilterSql(
 			return dialect.regex(sqlCol, paramIndex, mode === "insensitive");
 		default: {
 			const _never: never = op;
-			throw new Error(`unsupported string filter: ${_never}`);
+			compileError(`unsupported string filter: ${_never}`);
 		}
 	}
 }
@@ -891,7 +893,7 @@ function arithmeticSql(
 			return `${left} * ${right}`;
 		default: {
 			const _never: never = op;
-			throw new Error(`unsupported atomic update: ${_never}`);
+			compileError(`unsupported atomic update: ${_never}`);
 		}
 	}
 }
@@ -909,7 +911,7 @@ export function parseAtomicUpdate(
 
 	if (opKeys.length === 0) {
 		if (isNumericUpdateKind(col.kind)) {
-			throw new Error(
+			compileError(
 				`update on ${col.tsName} requires increment, decrement, multiply, or set`,
 			);
 		}
@@ -917,26 +919,26 @@ export function parseAtomicUpdate(
 	}
 
 	if (opKeys.length !== keys.length) {
-		throw new Error(
+		compileError(
 			`update on ${col.tsName} cannot mix operators with other keys`,
 		);
 	}
 
 	if (opKeys.length !== 1) {
-		throw new Error(
+		compileError(
 			`update on ${col.tsName} allows only one of increment, decrement, multiply, set`,
 		);
 	}
 
 	const op = opKeys[0];
 	if (op === undefined) {
-		throw new Error(`update on ${col.tsName} requires an operator`);
+		compileError(`update on ${col.tsName} requires an operator`);
 	}
 	if (value[op] === undefined) {
-		throw new Error(`update ${op} on ${col.tsName} requires a value`);
+		compileError(`update ${op} on ${col.tsName} requires a value`);
 	}
 	if (op !== "set" && !isNumericUpdateKind(col.kind)) {
-		throw new Error(
+		compileError(
 			`${op} is not supported on ${col.kind} column ${col.tsName}`,
 		);
 	}
@@ -974,7 +976,7 @@ function buildSetExpression(
 		case "decrement":
 		case "multiply": {
 			if (!col) {
-				throw new Error("atomic update requires a column");
+				compileError("atomic update requires a column");
 			}
 			const left = needsNumericCast(col, dialect)
 				? dialect.castToNumeric(sqlCol)
@@ -986,7 +988,7 @@ function buildSetExpression(
 		}
 		default: {
 			const _never: never = op;
-			throw new Error(`unsupported atomic update: ${_never}`);
+			compileError(`unsupported atomic update: ${_never}`);
 		}
 	}
 }
@@ -1103,7 +1105,7 @@ export function buildFindAllQuery(table: ManifestTable): string {
 
 export function normalizeLimitOffset(value: unknown, label: string): number {
 	if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-		throw new Error(
+		compileError(
 			`${label} must be a non-negative integer, got ${JSON.stringify(value)}`,
 		);
 	}
@@ -1202,11 +1204,11 @@ export function buildCountQuery(
 ): string {
 	if (select !== undefined) {
 		if (distinct) {
-			throw new Error("count cannot combine distinct and select");
+			compileError("count cannot combine distinct and select");
 		}
 		const parts = countSelectParts(table, select, dialect, manifestIndex);
 		if (parts.length === 0) {
-			throw new Error("count select requires at least one field");
+			compileError("count select requires at least one field");
 		}
 		let sql = `SELECT ${parts.join(", ")} FROM ${tableRef(table)}`;
 		if (whereSql) sql += ` ${whereSql}`;
@@ -1288,7 +1290,7 @@ export function toCountSelector(
 	if (value === true) return true;
 	const map = normalizeCountMap(value);
 	if (Object.keys(map).length === 0) {
-		throw new Error("_count requires at least one field");
+		compileError("_count requires at least one field");
 	}
 	return map;
 }
@@ -1359,7 +1361,7 @@ function sqlFnForFieldAgg(key: FieldAggKey): "AVG" | "SUM" | "MIN" | "MAX" {
 			return "MAX";
 		default: {
 			const _never: never = key;
-			throw new Error(`unsupported aggregate: ${_never}`);
+			compileError(`unsupported aggregate: ${_never}`);
 		}
 	}
 }
@@ -1432,7 +1434,7 @@ export function buildAggregateQuery(
 	);
 
 	if (parts.length === 0) {
-		throw new Error("aggregate requires at least one selector");
+		compileError("aggregate requires at least one selector");
 	}
 
 	let sql = `SELECT ${parts.join(", ")} FROM ${tableRef(table)}`;
@@ -1507,7 +1509,7 @@ function requireStarCount(
 	context: string,
 ): void {
 	if (!hasStarCount(selectors)) {
-		throw new Error(
+		compileError(
 			`${context} requires _count: true or _count: { _all: true }`,
 		);
 	}
@@ -1523,7 +1525,7 @@ function requireCountMapField(
 		return;
 	}
 	if (!hasCountField(selectors, field)) {
-		throw new Error(`${context} requires _count: { ${field}: true }`);
+		compileError(`${context} requires _count: { ${field}: true }`);
 	}
 }
 
@@ -1559,7 +1561,7 @@ function requireSelectedFieldAgg(
 	colName: string,
 ): void {
 	if (!selectors[key]?.[colName]) {
-		throw new Error(
+		compileError(
 			`having.${key}.${colName} requires ${key}: { ${colName}: true }`,
 		);
 	}
@@ -1586,7 +1588,7 @@ function compileHavingCompare(
 
 	for (const [op, value] of Object.entries(ops)) {
 		if (!isHavingOperator(op)) {
-			throw new Error(`unsupported having operator: ${op}`);
+			compileError(`unsupported having operator: ${op}`);
 		}
 		switch (op) {
 			case "in":
@@ -1621,7 +1623,7 @@ function compileHavingCompare(
 			}
 			default: {
 				const _never: never = op;
-				throw new Error(`unsupported having operator: ${_never}`);
+				compileError(`unsupported having operator: ${_never}`);
 			}
 		}
 	}
@@ -1680,7 +1682,7 @@ export function compileHaving(
 			key !== "_min" &&
 			key !== "_max"
 		) {
-			throw new Error(`unsupported having key: ${key}`);
+			compileError(`unsupported having key: ${key}`);
 		}
 	}
 
@@ -1707,7 +1709,7 @@ export function compileHaving(
 			pushCompare(countStarExpr(), spec);
 		} else if (typeof spec === "object" && spec !== null) {
 			if (isMixedCountHaving(spec)) {
-				throw new Error(
+				compileError(
 					"having._count cannot mix comparison operators with field keys",
 				);
 			}
@@ -1729,7 +1731,7 @@ export function compileHaving(
 						continue;
 					}
 					if (typeof fieldSpec !== "object" || fieldSpec === null) {
-						throw new Error(
+						compileError(
 							`invalid having._count.${field} predicate`,
 						);
 					}
@@ -1756,7 +1758,7 @@ export function compileHaving(
 				typeof spec !== "number" &&
 				(typeof spec !== "object" || spec === null)
 			) {
-				throw new Error(`invalid having.${key}.${colName} predicate`);
+				compileError(`invalid having.${key}.${colName} predicate`);
 			}
 			const expr = requireFieldAggExpression(
 				key,
@@ -1800,7 +1802,7 @@ export function compileGroupByOrderBy(
 				continue;
 			}
 			if (typeof direction !== "object" || direction === null) {
-				throw new Error(
+				compileError(
 					'orderBy._count must be "asc" or "desc" or a field map',
 				);
 			}
@@ -1827,12 +1829,12 @@ export function compileGroupByOrderBy(
 		) {
 			const key = tsKey;
 			if (typeof direction !== "object" || direction === null) {
-				throw new Error(`orderBy.${key} must be a column map`);
+				compileError(`orderBy.${key} must be a column map`);
 			}
 			for (const [colName, colDir] of Object.entries(direction)) {
 				if (typeof colDir !== "string") continue;
 				if (!selectors[key]?.[colName]) {
-					throw new Error(
+					compileError(
 						`orderBy.${key}.${colName} requires ${key}: { ${colName}: true }`,
 					);
 				}
@@ -1851,7 +1853,7 @@ export function compileGroupByOrderBy(
 
 		if (typeof direction !== "string") continue;
 		if (!bySet.has(tsKey)) {
-			throw new Error(`orderBy column "${tsKey}" is not in groupBy by`);
+			compileError(`orderBy column "${tsKey}" is not in groupBy by`);
 		}
 		const col = requireTsColumn(
 			tableIndex,
@@ -1873,7 +1875,7 @@ export function resolveGroupByColumns(
 	manifestIndex?: ManifestIndex,
 ): ManifestColumn[] {
 	if (byKeys.length === 0) {
-		throw new Error("groupBy requires at least one column");
+		compileError("groupBy requires at least one column");
 	}
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols: ManifestColumn[] = [];
@@ -2090,7 +2092,7 @@ export function buildInsertQuery(
 	returning: InsertReturning = "pk",
 ): string {
 	if (dataKeys.length === 0) {
-		throw new Error("Cannot build INSERT query with no columns");
+		compileError("Cannot build INSERT query with no columns");
 	}
 
 	const orderedKeys = [...dataKeys].sort();
@@ -2141,7 +2143,7 @@ export function buildInsertManyValueRows(
 	manifestIndex?: ManifestIndex,
 ): { valueRows: string[]; values: unknown[] } {
 	if (dataKeys.length === 0) {
-		throw new Error("Cannot build INSERT many value rows with no columns");
+		compileError("Cannot build INSERT many value rows with no columns");
 	}
 
 	const valueRows: string[] = [];
@@ -2153,7 +2155,7 @@ export function buildInsertManyValueRows(
 		for (let i = 0; i < dataKeys.length; i++) {
 			const key = dataKeys[i];
 			if (key === undefined) {
-				throw new Error("dataKeys index out of bounds");
+				compileError("dataKeys index out of bounds");
 			}
 			const col = colByTs(table, key, manifestIndex);
 			const val = row[i];
@@ -2180,7 +2182,7 @@ export function buildInsertManyQuery(
 	dialect: Dialect = postgresDialect,
 ): string {
 	if (dataKeys.length === 0) {
-		throw new Error("Cannot build INSERT many query with no columns");
+		compileError("Cannot build INSERT many query with no columns");
 	}
 
 	const cols = dataKeys.map((k) => {

@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import {
 	buildUpsertQuery,
@@ -10,7 +12,7 @@ import { mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
-import { getTableIndex } from "./table-index.js";
+import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 import {
 	stripUpdatedAtFromData,
@@ -30,8 +32,7 @@ export async function upsertRecord(
 ): Promise<Record<string, unknown>> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const constraint = assertUniqueWhere(

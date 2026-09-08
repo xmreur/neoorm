@@ -1,5 +1,7 @@
 import type { ColumnBuilder, ColumnMeta } from "./column.js";
 import type { TableDef } from "./table.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { schemaError } from "../runtime/error-builders.js";
 import { findOwningTable } from "./table-registry.js";
 
 /** Foreign-key `ON DELETE` action passed to {@link fk}.onDelete. */
@@ -110,7 +112,10 @@ function resolveFkTargetInit(target: unknown): FkTargetInit {
 	if (isColumnBuilder(target)) {
 		return { kind: "column", columnBuilderRef: target };
 	}
-	throw new Error(`Invalid foreign key target: ${String(target)}`);
+	throw schemaError(
+		SchemaErrorCode.invalid_column,
+		`Invalid foreign key target: ${String(target)}`,
+	);
 }
 
 /**
@@ -213,7 +218,8 @@ export function resolveFkAccessorTarget(
 			([, table]) => table === meta.tableRef,
 		)?.[0];
 		if (!accessor) {
-			throw new Error(
+			throw schemaError(
+				SchemaErrorCode.unknown_table_accessor,
 				"Foreign key table reference does not belong to this schema. " +
 					"Pass the table via defineSchema({ users, ... }).",
 			);
@@ -224,7 +230,8 @@ export function resolveFkAccessorTarget(
 	if (meta.columnBuilderRef) {
 		const owner = findOwningTable(meta.columnBuilderRef);
 		if (!owner) {
-			throw new Error(
+			throw schemaError(
+				SchemaErrorCode.invalid_column,
 				"fk() received a column reference that does not belong to any table defined via table().",
 			);
 		}
@@ -232,7 +239,8 @@ export function resolveFkAccessorTarget(
 			([, table]) => table === owner.table,
 		)?.[0];
 		if (!accessor) {
-			throw new Error(
+			throw schemaError(
+				SchemaErrorCode.unknown_table_accessor,
 				"Foreign key column reference does not belong to this schema.",
 			);
 		}

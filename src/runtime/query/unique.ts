@@ -1,4 +1,6 @@
 import type { ManifestTable } from "../../dialect/types.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { queryCompileError } from "../error-builders.js";
 import { primaryKeyTsNames } from "./primary-key.js";
 import {
 	columnBySqlName,
@@ -74,8 +76,14 @@ export function assertUniqueWhere(
 ): UniqueConstraint {
 	const constraint = resolveUniqueConstraint(table, where, tableIndex);
 	if (!constraint) {
-		throw new Error(
+		throw queryCompileError(
+			"update",
 			`${operation} requires a unique \`where\` clause (primary key, @unique column, or composite unique index) for table "${table.accessor}"`,
+			{
+				code: QueryErrorCode.unique_where_invalid,
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			},
 		);
 	}
 	return constraint;

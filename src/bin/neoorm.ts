@@ -26,10 +26,7 @@ import {
 } from "../migrate/runner.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
-import {
-	NeoOrmQueryError,
-	NeoOrmSchemaError,
-} from "../runtime/errors.js";
+import { isNeoOrmError } from "../runtime/errors.js";
 import { openSqliteDatabase } from "../runtime/sqlite-open.js";
 
 type ConnectedDb = {
@@ -60,10 +57,7 @@ function connectDb(
 }
 
 function formatCliError(err: unknown): string {
-	if (
-		err instanceof NeoOrmSchemaError ||
-		err instanceof NeoOrmQueryError
-	) {
+	if (isNeoOrmError(err)) {
 		return err.message;
 	}
 	if (err instanceof Error) {

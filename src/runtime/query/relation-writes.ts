@@ -1,12 +1,14 @@
-import { quoteIdentifier, tableRef } from "../../dialect/postgres.js";
+import { postgresDialect, quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestManyToMany,
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
+import { queryCompileError } from "../error-builders.js";
 import type { Executor } from "../executor.js";
-import { postgresDialect } from "../../dialect/postgres.js";
 import { buildInsertQuery, dataToSqlValues } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import type { WithInput } from "./find.js";
@@ -28,6 +30,7 @@ import {
 	getTableIndex,
 	type ManifestIndex,
 	type TableIndex,
+	requireTable,
 } from "./table-index.js";
 
 const RELATION_WRITE_KEYS = [
@@ -234,7 +237,7 @@ async function insertJunctionRows(
 		(m) => m.throughAccessor === throughAccessor,
 	);
 	if (!m2m) {
-		throw new Error(`Unknown junction table: ${throughAccessor}`);
+		compileError(`Unknown junction table: ${throughAccessor}`);
 	}
 	const parentAccessor =
 		m2m.leftFkColumn === leftFkCol ? m2m.leftAccessor : m2m.rightAccessor;
@@ -296,7 +299,7 @@ function childFkColumnMeta(
 		columnByTsName(tableIndex, targetTable, relation.fkColumn) ??
 		columnBySqlName(tableIndex, targetTable, relation.fkSqlColumn);
 	if (!col) {
-		throw new Error(`FK column not found for relation ${relation.name}`);
+		compileError(`FK column not found for relation ${relation.name}`);
 	}
 	return col;
 }
@@ -347,7 +350,7 @@ async function disconnectInverseMany(
 		getTableIndex(runtime.tableIndex, targetTable.accessor),
 	);
 	if (!fkCol.nullable) {
-		throw new Error(
+		compileError(
 			`Cannot disconnect relation ${relation.name}: FK column is not nullable`,
 		);
 	}
@@ -530,7 +533,7 @@ async function executeToOneWrite(
 			columnByTsName(tableIndex, table, rel.fkColumn) ??
 			columnBySqlName(tableIndex, table, rel.fkSqlColumn);
 		if (fkCol && !fkCol.nullable) {
-			throw new Error(
+			compileError(
 				`Cannot disconnect relation ${relationName}: FK column is not nullable`,
 			);
 		}
@@ -544,7 +547,7 @@ async function executeToOneWrite(
 		});
 		const targetTable = manifest.tables[rel.targetAccessor];
 		if (!targetTable)
-			throw new Error(`Unknown table: ${rel.targetAccessor}`);
+			compileError(`Unknown table: ${rel.targetAccessor}`);
 		scalarData[rel.fkColumn] = rowScalarPkValue(created, targetTable);
 	}
 }
@@ -821,7 +824,7 @@ async function executeInverseOneWrite(
 
 	if ("disconnect" in value) {
 		if (!fkCol.nullable) {
-			throw new Error(
+			compileError(
 				`Cannot disconnect relation ${relationName}: FK column is not nullable`,
 			);
 		}
@@ -855,7 +858,7 @@ async function executeInverseOneWrite(
 		const id = ids[0];
 		if (!id) return;
 		if (ids.length > 1) {
-			throw new Error(
+			compileError(
 				`Cannot connect more than one record to one-to-one relation ${relationName}`,
 			);
 		}
@@ -865,7 +868,7 @@ async function executeInverseOneWrite(
 	if ("create" in value) {
 		const items = normalizeCreateList(value["create"]);
 		if (items.length > 1) {
-			throw new Error(
+			compileError(
 				`Cannot create more than one record for one-to-one relation ${relationName}`,
 			);
 		}
@@ -890,8 +893,7 @@ export async function executeRelationWrites(
 	runCreate: CreateRunner,
 ): Promise<void> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	for (const write of relationWrites) {
 		if (findM2M(manifest, tableAccessor, write.relationName)) {

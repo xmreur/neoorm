@@ -1,5 +1,8 @@
 import { postgresDialect } from "../../dialect/postgres.js";
 import type { Manifest, ManifestTable } from "../../dialect/types.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
+import { queryCompileError } from "../error-builders.js";
 import type { Executor } from "../executor.js";
 import {
 	buildInsertManyQuery,
@@ -27,6 +30,7 @@ import {
 	columnByTsName,
 	getTableIndex,
 	relationByName,
+	requireTable,
 } from "./table-index.js";
 import {
 	applyToOnePreWrites,
@@ -79,8 +83,7 @@ export async function runCreate(
 	},
 ): Promise<Record<string, unknown>> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const split =
 		args.scalarData !== undefined && args.relationWrites !== undefined
@@ -154,7 +157,7 @@ export async function runCreate(
 			values,
 		);
 		if (rowCount === 0) {
-			throw new Error(`Insert failed for table "${tableAccessor}"`);
+			compileError(`Insert failed for table "${tableAccessor}"`);
 		}
 		result = {};
 		for (const tsName of primaryKeyTsNames(table, tableIndex)) {
@@ -181,7 +184,7 @@ export async function runCreate(
 	}
 
 	if (!hasPrimaryKey && relationWrites.length > 0) {
-		throw new Error(
+		compileError(
 			`Cannot perform nested relation writes on table "${table.accessor}" because it has no primary key.`,
 		);
 	}
@@ -224,8 +227,7 @@ export async function createRecord(
 	},
 ): Promise<Record<string, unknown>> {
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const split = splitScalarsAndRelationWrites(
 		manifest,
@@ -331,8 +333,7 @@ function prepareCreateManyRows(
 	if (data.length === 0) return null;
 
 	const { manifest } = runtime;
-	const table = manifest.tables[tableAccessor];
-	if (!table) throw new Error(`Unknown table: ${tableAccessor}`);
+	const table = requireTable(manifest, tableAccessor, "select");
 
 	const scalarRows: Record<string, unknown>[] = [];
 
@@ -350,7 +351,7 @@ function prepareCreateManyRows(
 
 			const rel = relationByName(tableIndex, table, key);
 			if (rel) {
-				throw new Error(
+				compileError(
 					`createMany does not support nested relation writes (field: ${key})`,
 				);
 			}

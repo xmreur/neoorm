@@ -1,3 +1,6 @@
+import { QueryErrorCode } from "../error-codes.js";
+import { compileError } from "../compile-error.js";
+
 const CURSOR_CODEC_VERSION = 1;
 
 type EncodedCursorPayload = {
@@ -32,7 +35,9 @@ export function decodeCursor<
 		const json = Buffer.from(encoded, "base64url").toString("utf-8");
 		parsed = JSON.parse(json);
 	} catch {
-		throw new Error("Invalid cursor encoding");
+		compileError("Invalid cursor encoding", {
+			code: QueryErrorCode.invalid_cursor,
+		});
 	}
 
 	if (
@@ -45,7 +50,9 @@ export function decodeCursor<
 		(parsed as EncodedCursorPayload).c === null ||
 		Array.isArray((parsed as EncodedCursorPayload).c)
 	) {
-		throw new Error("Invalid cursor payload");
+		compileError("Invalid cursor payload", {
+			code: QueryErrorCode.invalid_cursor,
+		});
 	}
 
 	return (parsed as EncodedCursorPayload).c as T;

@@ -79,11 +79,36 @@ export {
 export type { QueryErrorContext, QueryOperation, SchemaErrorContext } from "./runtime/errors.js";
 export type { SchemaValidationIssue } from "./codegen/schema-to-manifest.js";
 export {
+	QueryErrorCode,
+	SchemaErrorCode,
+	type QueryErrorCodeValue,
+	type SchemaErrorCodeValue,
+} from "./runtime/error-codes.js";
+export {
+	CheckViolationError,
+	createQueryError,
+	ForeignKeyViolationError,
 	formatQueryError,
 	formatSchemaError,
+	InvalidInputError,
+	isCheckViolation,
+	isForeignKeyViolation,
+	isInvalidInput,
+	isNeoOrmError,
+	isNotNullViolation,
+	isQueryCompileError,
+	isQueryError,
+	isSchemaDriftError,
+	isSchemaError,
+	isUniqueViolation,
 	NeoOrmDriverError,
+	NeoOrmError,
 	NeoOrmQueryError,
 	NeoOrmSchemaError,
+	NotNullViolationError,
+	QueryCompileError,
+	SchemaDriftError,
+	UniqueViolationError,
 } from "./runtime/errors.js";
 export { decodeCursor, encodeCursor } from "./runtime/query/cursor-codec.js";
 export type { CursorInput, ScalarPkName } from "./schema/relation-types.js";
