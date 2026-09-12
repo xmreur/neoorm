@@ -126,3 +126,20 @@ Raw `db.sql` / `db.execute` are not rewritten — qualify tenant schema yourself
 Reuse an existing `pg` pool with `createNeoOrmClientFromPool(manifest, pool)`, or an existing SQLite handle with `createNeoOrmClientFromSqlite(manifest, database)`. `$disconnect()` does not close a borrowed pool or database — close it yourself when every consumer is done.
 
 Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Queries](queries.md#logging-sql)).
+
+PostgreSQL pool settings (`ssl`, timeouts, `application_name`, size) go on `pool` and are passed through to `pg.Pool`:
+
+```ts
+const db = createNeoOrmClient(manifest, {
+  connectionString: process.env.DATABASE_URL!,
+  pool: {
+    max: 10,
+    connectionTimeoutMillis: 5_000,
+    statement_timeout: 15_000,
+    application_name: "api",
+    ssl: { rejectUnauthorized: true },
+  },
+});
+```
+
+For full `pg.Pool` control (custom host/user, event handlers), construct the pool yourself and pass it to `createNeoOrmClientFromPool`.

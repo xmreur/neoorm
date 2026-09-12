@@ -68,6 +68,7 @@ export type {
 	DefaultWithMap,
 	NeoOrmClient,
 	NeoOrmClientOptions,
+	NeoOrmPoolConfig,
 	PaginateCursor,
 	QueryEvent,
 	QueryHooks,
