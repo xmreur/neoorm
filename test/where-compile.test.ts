@@ -301,6 +301,52 @@ describe("where compilation", () => {
 		expect(impossible).toBeUndefined();
 	});
 
+	it("marks empty in:[] as impossible", () => {
+		const { sql, params, impossible } = compileWhere(
+			manifest,
+			users,
+			{ id: { in: [] } },
+			postgresDialect,
+		);
+		expect(sql).toBe("WHERE 1=0");
+		expect(params).toEqual([]);
+		expect(impossible).toBe(true);
+	});
+
+	it("does not treat OR with empty in:[] as impossible when another branch can match", () => {
+		const { sql, params, impossible } = compileWhere(
+			manifest,
+			users,
+			{ OR: [{ id: { in: [] } }, { name: "Ada" }] },
+			postgresDialect,
+		);
+		expect(sql).toContain("1=0");
+		expect(sql).toContain('"name" = $1');
+		expect(sql).toContain(" OR ");
+		expect(params).toEqual(["Ada"]);
+		expect(impossible).toBeUndefined();
+	});
+
+	it("marks OR as impossible when every branch is empty in:[]", () => {
+		const { impossible } = compileWhere(
+			manifest,
+			users,
+			{ OR: [{ id: { in: [] } }, { email: { in: [] } }] },
+			postgresDialect,
+		);
+		expect(impossible).toBe(true);
+	});
+
+	it("marks AND with empty in:[] as impossible", () => {
+		const { impossible } = compileWhere(
+			manifest,
+			users,
+			{ AND: [{ id: { in: [] } }, { name: "Ada" }] },
+			postgresDialect,
+		);
+		expect(impossible).toBe(true);
+	});
+
 	it("rejects a non-array OR combinator", () => {
 		expect(() =>
 			compileWhere(

@@ -200,7 +200,7 @@ await db.users.findMany({
 });
 ```
 
-Empty `OR: []` matches no rows. Empty `AND: []` matches every row.
+Empty `OR: []` matches no rows. Empty `AND: []` matches every row. Empty `in: []` is false; `{ OR: [{ id: { in: [] } }, { name: "Ada" }] }` still matches the other branch.
 
 ### Relation filters
 

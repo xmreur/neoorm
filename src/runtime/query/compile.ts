@@ -59,7 +59,22 @@ type CompiledNode = {
 	sql: string;
 	params: unknown[];
 	nextParamIndex: number;
+	impossible?: boolean;
 };
+
+function compiledResult(
+	sql: string,
+	params: unknown[],
+	nextParamIndex: number,
+	impossible = false,
+): CompiledNode {
+	return {
+		sql,
+		params,
+		nextParamIndex,
+		...(impossible ? { impossible: true } : {}),
+	};
+}
 
 const PARAMLESS_OPERATORS = new Set<WhereOperator>(["isNull", "isNotNull"]);
 
@@ -193,6 +208,7 @@ function compileColumnCondition(
 	const conditions: string[] = [];
 	const params: unknown[] = [];
 	let nextParamIndex = paramIndex;
+	let impossible = false;
 
 	if (rawValue === null) {
 		conditions.push(dialect.whereOperators.isNull(sqlCol, nextParamIndex));
@@ -268,6 +284,7 @@ function compileColumnCondition(
 		if (Array.isArray(value) && value.length === 0) {
 			if (operator === "in") {
 				conditions.push("1=0");
+				impossible = true;
 			} else if (operator === "notIn") {
 				conditions.push("1=1");
 			}
@@ -297,7 +314,12 @@ function compileColumnCondition(
 		nextParamIndex++;
 	}
 
-	return { sql: conditions.join(" AND "), params, nextParamIndex };
+	return compiledResult(
+		conditions.join(" AND "),
+		params,
+		nextParamIndex,
+		impossible,
+	);
 }
 
 function compileExistsSubquery(existsSql: string, negate: boolean): string {
@@ -357,11 +379,12 @@ function compileRelationCondition(
 		const whereParts = [joinCond];
 		if (nested.sql) whereParts.push(nested.sql);
 		const existsSql = `SELECT 1 FROM ${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
-		return {
-			sql: compileExistsSubquery(existsSql, false),
-			params: nested.params,
-			nextParamIndex: nested.nextParamIndex,
-		};
+		return compiledResult(
+			compileExistsSubquery(existsSql, false),
+			nested.params,
+			nested.nextParamIndex,
+			nested.impossible,
+		);
 	}
 
 	if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
@@ -464,11 +487,12 @@ function compileRelationCondition(
 				? [...joinParts, nested.sql]
 				: joinParts;
 			const existsSql = `SELECT 1 FROM ${fromClause} WHERE ${whereParts.join(" AND ")}`;
-			return {
-				sql: compileExistsSubquery(existsSql, mode === "none"),
-				params: nested.params,
-				nextParamIndex: nested.nextParamIndex,
-			};
+			return compiledResult(
+				compileExistsSubquery(existsSql, mode === "none"),
+				nested.params,
+				nested.nextParamIndex,
+				mode === "some" && nested.impossible,
+			);
 		}
 		case "every": {
 			const everyWhereParts = nested.sql
@@ -520,16 +544,18 @@ function compileLogicalCombinator(
 		});
 	}
 	if (value.length === 0) {
-		return {
-			sql: combinator === "OR" ? "1=0" : "1=1",
-			params: [],
-			nextParamIndex: startParamIndex,
-		};
+		return compiledResult(
+			combinator === "OR" ? "1=0" : "1=1",
+			[],
+			startParamIndex,
+			combinator === "OR",
+		);
 	}
 
 	const parts: string[] = [];
 	const params: unknown[] = [];
 	let paramIndex = startParamIndex;
+	const childImpossible: boolean[] = [];
 	for (const item of value) {
 		if (!isOperatorObject(item)) {
 			compileError(`${combinator} items must be where objects`, {
@@ -548,14 +574,20 @@ function compileLogicalCombinator(
 		parts.push(`(${compiled.sql || "1=1"})`);
 		params.push(...compiled.params);
 		paramIndex = compiled.nextParamIndex;
+		childImpossible.push(Boolean(compiled.impossible));
 	}
 
 	const joiner = combinator === "OR" ? " OR " : " AND ";
-	return {
-		sql: `(${parts.join(joiner)})`,
+	const impossible =
+		combinator === "OR"
+			? childImpossible.every(Boolean)
+			: childImpossible.some(Boolean);
+	return compiledResult(
+		`(${parts.join(joiner)})`,
 		params,
-		nextParamIndex: paramIndex,
-	};
+		paramIndex,
+		impossible,
+	);
 }
 
 function compileWhereNode(
@@ -570,6 +602,7 @@ function compileWhereNode(
 	const conditions: string[] = [];
 	const params: unknown[] = [];
 	let paramIndex = startParamIndex;
+	let impossible = false;
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const relations =
@@ -595,6 +628,7 @@ function compileWhereNode(
 			conditions.push(compiled.sql);
 			params.push(...compiled.params);
 			paramIndex = compiled.nextParamIndex;
+			if (compiled.impossible) impossible = true;
 			continue;
 		}
 
@@ -633,6 +667,7 @@ function compileWhereNode(
 			if (compiled.sql) conditions.push(compiled.sql);
 			params.push(...compiled.params);
 			paramIndex = compiled.nextParamIndex;
+			if (compiled.impossible) impossible = true;
 			continue;
 		}
 
@@ -648,13 +683,15 @@ function compileWhereNode(
 		if (compiled.sql) conditions.push(compiled.sql);
 		params.push(...compiled.params);
 		paramIndex = compiled.nextParamIndex;
+		if (compiled.impossible) impossible = true;
 	}
 
-	return {
-		sql: conditions.join(" AND "),
+	return compiledResult(
+		conditions.join(" AND "),
 		params,
-		nextParamIndex: paramIndex,
-	};
+		paramIndex,
+		impossible,
+	);
 }
 
 export function compileWhere(
@@ -687,11 +724,10 @@ export function compileWhere(
 		columnRef,
 		manifestIndex,
 	);
-	const impossible = isImpossibleWhereSql(result.sql);
 	return {
 		sql: result.sql ? `WHERE ${result.sql}` : "",
 		params: result.params,
-		...(impossible ? { impossible: true } : {}),
+		...(result.impossible ? { impossible: true } : {}),
 	};
 }
 
@@ -957,7 +993,7 @@ export function getCachedDeleteManyQuery(
 
 export function isImpossibleWhereSql(sql: string): boolean {
 	if (!sql) return false;
-	return /\b1\s*=\s*0\b/.test(sql);
+	return /^1\s*=\s*0$/.test(sql.trim());
 }
 
 export function isImpossibleWhere(whereSql: string): boolean {
