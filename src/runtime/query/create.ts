@@ -1,5 +1,4 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import type { Manifest, ManifestTable } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
 import { QueryErrorCode } from "../error-codes.js";
@@ -18,7 +17,6 @@ import {
 	runQueryOne,
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
-import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import {
 	fillMissingPrimaryKeys,
@@ -31,6 +29,7 @@ import {
 	executeRelationWrites,
 	hasPostRelationWrites,
 	type ParsedRelationWrite,
+	relationWritesNeedTransaction,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
 import {
@@ -40,36 +39,6 @@ import {
 	requireTable,
 	requireTsColumn,
 } from "./table-index.js";
-
-function createNeedsTransaction(
-	table: ManifestTable,
-	manifest: Manifest,
-	tableAccessor: string,
-	relationWrites: ParsedRelationWrite[],
-): boolean {
-	if (relationWrites.length === 0) return false;
-	if (hasPostRelationWrites(table, manifest, tableAccessor, relationWrites)) {
-		return true;
-	}
-	for (const write of relationWrites) {
-		const rel = findRelation(table, write.relationName);
-		if (
-			!rel ||
-			rel.cardinality !== "one" ||
-			!tableOwnsFkColumn(table, rel)
-		) {
-			continue;
-		}
-		if (
-			typeof write.value === "object" &&
-			write.value !== null &&
-			"create" in write.value
-		) {
-			return true;
-		}
-	}
-	return false;
-}
 
 export async function runCreate(
 	executor: Executor,
@@ -239,7 +208,7 @@ export async function createRecord(
 		args.data,
 		runtime.tableIndex,
 	);
-	const needsTransaction = createNeedsTransaction(
+	const needsTransaction = relationWritesNeedTransaction(
 		table,
 		manifest,
 		tableAccessor,
