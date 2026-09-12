@@ -13,6 +13,7 @@ import {
 	table,
 	text,
 	timestamps,
+	unique,
 	uuid,
 } from "../src/schema/index.js";
 import { manifestTable } from "./helpers/manifest.js";
@@ -128,6 +129,68 @@ describe("schema DSL 0.6", () => {
 		expect(partial?.whereSql).toBe("\"published\" = 'true'");
 		const createSql = postgresDialect.emitCreateTable(items, { manifest });
 		expect(createSql).toContain("CHECK (price >= 0)");
+	});
+
+	it("emits partial unique extras as CREATE UNIQUE INDEX, not UNIQUE (...)", () => {
+		const schema = defineSchema({
+			users: table(
+				{
+					id: id(),
+					email: text().notNull(),
+					deleted: text().notNull().default("false"),
+				},
+				(t) => [unique(t.email).where({ deleted: "false" })],
+			),
+		});
+		const manifest = schemaToManifest(schema);
+		const users = manifestTable(manifest, "users");
+		const emailUnique = users.indexes.find(
+			(idx) => idx.unique && idx.columns.includes("email"),
+		);
+		expect(emailUnique).toEqual(
+			expect.objectContaining({
+				unique: true,
+				columns: ["email"],
+				whereSql: "\"deleted\" = 'false'",
+			}),
+		);
+
+		const tableSql = postgresDialect.emitCreateTable(users, { manifest });
+		expect(tableSql).not.toMatch(/UNIQUE \(/);
+		expect(tableSql).not.toMatch(/"email" TEXT NOT NULL UNIQUE/);
+
+		expect(emailUnique).toBeDefined();
+		if (!emailUnique) return;
+		const indexSql = postgresDialect.emitCreateIndex(users, emailUnique);
+		expect(indexSql).toBe(
+			`CREATE UNIQUE INDEX "users_email_key" ON "users" ("email") WHERE "deleted" = 'false';`,
+		);
+	});
+
+	it("emits non-partial unique extras as CREATE UNIQUE INDEX", () => {
+		const schema = defineSchema({
+			posts: table(
+				{
+					id: id(),
+					authorId: text().notNull(),
+					title: text().notNull(),
+				},
+				(t) => [unique(t.authorId, t.title)],
+			),
+		});
+		const manifest = schemaToManifest(schema);
+		const posts = manifestTable(manifest, "posts");
+		const composite = posts.indexes.find((idx) => idx.unique);
+		expect(composite?.whereSql).toBeUndefined();
+		expect(composite?.columns).toEqual(["author_id", "title"]);
+		expect(
+			postgresDialect.emitCreateTable(posts, { manifest }),
+		).not.toMatch(/UNIQUE \(/);
+		expect(composite).toBeDefined();
+		if (!composite) return;
+		expect(postgresDialect.emitCreateIndex(posts, composite)).toBe(
+			`CREATE UNIQUE INDEX "posts_author_id_title_key" ON "posts" ("author_id", "title");`,
+		);
 	});
 
 	it("rejects unknown FK target columns when building the manifest", () => {

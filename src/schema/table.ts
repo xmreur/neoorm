@@ -144,9 +144,9 @@ export function index(...columns: readonly string[]): IndexBuilder {
 	return createIndexDef(columns, false);
 }
 
-/** Create a unique composite index on one or more columns. */
-export function unique(...columns: readonly string[]): IndexDef {
-	return { kind: "index", columns, unique: true };
+/** Create a unique index on one or more columns (use in table extras). Supports `.where()` for partial uniques. */
+export function unique(...columns: readonly string[]): IndexBuilder {
+	return createIndexDef(columns, true);
 }
 
 /** Declare a composite primary key (use in table extras). */
