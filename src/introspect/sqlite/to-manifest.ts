@@ -61,13 +61,16 @@ function mapDeleteRule(rule: string): string | undefined {
 	}
 }
 
-function sqliteTypeToKind(declaredType: string): ManifestColumn["kind"] {
+function sqliteTypeToKind(
+	declaredType: string,
+	defaultNow = false,
+): ManifestColumn["kind"] {
 	const t = declaredType.toUpperCase();
 	if (t.includes("INT")) {
 		return "int";
 	}
 	if (t.includes("CHAR") || t.includes("CLOB") || t.includes("TEXT")) {
-		return "text";
+		return defaultNow ? "timestamp" : "text";
 	}
 	if (t.includes("BLOB") || t.includes("BINARY")) {
 		return "bytea";
@@ -97,9 +100,10 @@ function sqliteTypeToKind(declaredType: string): ManifestColumn["kind"] {
 	return "text";
 }
 
-function parseDefaultValue(
-	value: string | null,
-): { defaultValue?: unknown; defaultNow?: boolean } {
+function parseDefaultValue(value: string | null): {
+	defaultValue?: unknown;
+	defaultNow?: boolean;
+} {
 	if (value === null || value === undefined) {
 		return {};
 	}
@@ -190,7 +194,7 @@ async function introspectSqliteTable(
 			};
 		}
 
-		const kind = sqliteTypeToKind(col.type);
+		const kind = sqliteTypeToKind(col.type, defaults.defaultNow);
 
 		const column: ManifestColumn = {
 			tsName,
@@ -220,7 +224,9 @@ async function introspectSqliteTable(
 			)
 		).rows;
 		if (cols.length === 1) {
-			const col = manifestColumns.find((c) => c.sqlName === cols[0]?.name);
+			const col = manifestColumns.find(
+				(c) => c.sqlName === cols[0]?.name,
+			);
 			if (col) {
 				col.unique = true;
 			}
