@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
 import { compileError } from "../compile-error.js";
-import { QueryErrorCode } from "../error-codes.js";
+import { isUniqueViolation } from "../errors.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindOrCreateQuery,
@@ -200,7 +200,10 @@ async function findOrCreateSqlite(
 			true,
 			{ mapped: true, relationsLoaded: Boolean(args.with) },
 		);
-	} catch {
+	} catch (err) {
+		if (!isUniqueViolation(err)) {
+			throw err;
+		}
 		const retry = await findMany(
 			executor,
 			runtime,
