@@ -447,7 +447,11 @@ describe("SQL template cache", () => {
 	it("where clause cache returns same result for identical filters", () => {
 		const runtime = createRuntime();
 		const users = runtime.manifest.tables.users!;
-		const tableIndex = runtime.tableIndex.get("users");
+		const manifestIndex = runtime.tableIndex;
+		if (!manifestIndex) {
+			throw new Error("expected table index");
+		}
+		const tableIndex = manifestIndex.get("users");
 		if (!tableIndex) {
 			throw new Error("expected users table index");
 		}
