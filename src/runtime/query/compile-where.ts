@@ -876,8 +876,13 @@ function collectWhereParams(
 				params.push(...compiled.params);
 				continue;
 			}
-			const col = columnByTsName(tableIndex, table, key);
-			if (!col) continue;
+			const col = requireTsColumn(
+				tableIndex,
+				table,
+				key,
+				"where",
+				"select",
+			);
 			const compiled = compileColumnCondition(
 				col,
 				value,
@@ -1029,8 +1034,13 @@ export function compileOrderBy(
 	const parts: string[] = [];
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
 		if (tsKey === "_count" || typeof direction !== "string") continue;
-		const col = columnByTsName(tableIndex, table, tsKey);
-		if (!col) continue;
+		const col = requireTsColumn(
+			tableIndex,
+			table,
+			tsKey,
+			"orderBy",
+			"select",
+		);
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
 		parts.push(`${prefix}${quoteIdentifier(col.sqlName)} ${dir}`);
 	}
