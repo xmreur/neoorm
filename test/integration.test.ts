@@ -568,6 +568,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		const result = await db.$transaction(async (tx) => {
 			const user = await tx.users.create({
 				data: { email, name: "Tx User" },
+				returnCreated: true,
 			});
 			const post = await tx.posts.create({
 				data: {
@@ -576,6 +577,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 					published: true,
 					author: { connect: { id: user["id"] as string } },
 				},
+				returnCreated: true,
 			});
 			return { user, post };
 		});

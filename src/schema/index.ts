@@ -111,6 +111,8 @@ export type {
 	InferFindResult,
 	InferGroupByResult,
 	InferInsertRow,
+	InferMutationResult,
+	InferPkFields,
 	InferSelectRow,
 	InferWithResult,
 	LogicalWhereInput,
