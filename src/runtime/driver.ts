@@ -23,9 +23,7 @@ export type DatabaseClient = {
 type SqliteStatement = {
 	all(...params: unknown[]): Record<string, unknown>[];
 	get(...params: unknown[]): Record<string, unknown> | undefined;
-	run(
-		...params: unknown[]
-	): {
+	run(...params: unknown[]): {
 		changes: number | bigint;
 		lastInsertRowid: number | bigint;
 	};
@@ -109,9 +107,9 @@ function convertPlaceholders(sql: string): string {
 		if (ch === "$" && next !== undefined && /\d/.test(next)) {
 			out += "?";
 			i++;
-while (i + 1 < sql.length && /\d/.test(sql[i + 1] ?? "")) {
-			i++;
-		}
+			while (i + 1 < sql.length && /\d/.test(sql[i + 1] ?? "")) {
+				i++;
+			}
 			continue;
 		}
 		out += ch;
@@ -252,125 +250,124 @@ async function executeWriteStatements(
 	return { rows: [], rowCount: changes };
 }
 
+const sqliteClients = new WeakMap<SqliteDatabaseLike, DatabaseClient>();
+
 export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
+	const cached = sqliteClients.get(db);
+	if (cached) {
+		return cached;
+	}
+	const client = createSqliteClient(db);
+	sqliteClients.set(db, client);
+	return client;
+}
+
+function createSqliteClient(db: SqliteDatabaseLike): DatabaseClient {
 	db.exec("PRAGMA foreign_keys = ON");
-	const state = { txDepth: 0, savepointCounter: 0 };
+	const state = { savepointCounter: 0 };
 
-	// A single SQLite connection is shared by every query on this client.
-	// Interleaved async transactions would otherwise merge into one physical
-	// transaction: a concurrent caller's `ROLLBACK TO SAVEPOINT` can undo
-	// another transaction's in-flight writes (they execute after the
-	// savepoint), silently corrupting the first transaction. Serializing
-	// top-level transactions through a FIFO gate gives each exclusive access;
-	// nested transactions use savepoints and bypass the queue.
-	let txGate: Promise<unknown> = Promise.resolve();
+	// One SQLite connection is shared by every query and transaction.
+	// A FIFO mutex serializes all outer access so a concurrent findMany/create
+	// cannot join an open BEGIN. Transaction callbacks receive an inner client
+	// that skips the mutex (they already hold it); nested transactions use
+	// savepoints on that inner client.
+	let gate: Promise<unknown> = Promise.resolve();
 
-	const runTopLevelTransaction = async <T>(
-		fn: (client: DatabaseClient) => Promise<T>,
-		options?: TransactionOptions,
-	): Promise<T> => {
-		db.exec(buildSqliteBeginSql(options));
+	function enqueue<T>(work: () => Promise<T>): Promise<T> {
+		const run = gate.then(work, work);
+		gate = run.then(
+			() => undefined,
+			() => undefined,
+		);
+		return run;
+	}
+
+	async function runQuery<T = Record<string, unknown>>(
+		text: string,
+		params: unknown[] = [],
+	): Promise<DriverResult<T>> {
+		const sql = convertPlaceholders(text);
 		try {
-			state.txDepth++;
-			const result = await fn(client);
-			db.exec("COMMIT");
-			return result;
-		} catch (err) {
-			try {
-				db.exec("ROLLBACK");
-			} catch {
-				// e.g. the failed COMMIT already rolled back; never mask err.
-			}
-			throw err;
-		} finally {
-			state.txDepth--;
-		}
-	};
-
-	const client: DatabaseClient = {
-		async query<T = Record<string, unknown>>(
-			text: string,
-			params: unknown[] = [],
-		): Promise<DriverResult<T>> {
-			const sql = convertPlaceholders(text);
-			try {
-				if (params.length > 0) {
-					const stmt = db.prepare(sql);
-					const values = params.map(serializeParam);
-					if (isReadStatement(sql)) {
-						return sqliteRows(stmt.all(...values)) as DriverResult<T>;
-					}
-					if (/\bRETURNING\b/i.test(sql)) {
-						const rows = stmt.all(...values);
-						return sqliteRows(rows) as DriverResult<T>;
-					}
-					const result = stmt.run(...values);
-					return {
-						rows: [],
-						rowCount: Number(result.changes),
-					} as DriverResult<T>;
-				}
-
+			if (params.length > 0) {
+				const stmt = db.prepare(sql);
+				const values = params.map(serializeParam);
 				if (isReadStatement(sql)) {
-					return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
+					return sqliteRows(stmt.all(...values)) as DriverResult<T>;
 				}
-
 				if (/\bRETURNING\b/i.test(sql)) {
-					return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
+					const rows = stmt.all(...values);
+					return sqliteRows(rows) as DriverResult<T>;
 				}
-
-				return (await executeWriteStatements(
-					db,
-					sql,
-				)) as DriverResult<T>;
-			} catch (err) {
-				if (err instanceof NeoOrmDriverError) {
-					throw err;
-				}
-				throw new NeoOrmDriverError(sql, err);
+				const result = stmt.run(...values);
+				return {
+					rows: [],
+					rowCount: Number(result.changes),
+				} as DriverResult<T>;
 			}
-		},
 
-		async transaction<T>(
-			fn: (client: DatabaseClient) => Promise<T>,
-			options?: TransactionOptions,
-		): Promise<T> {
-			if (state.txDepth > 0) {
+			if (isReadStatement(sql)) {
+				return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
+			}
+
+			if (/\bRETURNING\b/i.test(sql)) {
+				return sqliteRows(db.prepare(sql).all()) as DriverResult<T>;
+			}
+
+			return (await executeWriteStatements(db, sql)) as DriverResult<T>;
+		} catch (err) {
+			if (err instanceof NeoOrmDriverError) {
+				throw err;
+			}
+			throw new NeoOrmDriverError(sql, err);
+		}
+	}
+
+	function createTxClient(): DatabaseClient {
+		return {
+			query: runQuery,
+			async transaction<T>(
+				fn: (client: DatabaseClient) => Promise<T>,
+				options?: TransactionOptions,
+			): Promise<T> {
 				assertNoSavepointOptions(options);
-				const savepointId = ++state.savepointCounter;
-				const name = `neoorm_sp_${savepointId}`;
+				const name = `neoorm_sp_${++state.savepointCounter}`;
 				db.exec(`SAVEPOINT ${name}`);
 				try {
-					state.txDepth++;
-					const result = await fn(client);
+					const result = await fn(createTxClient());
 					db.exec(`RELEASE SAVEPOINT ${name}`);
 					return result;
 				} catch (err) {
 					db.exec(`ROLLBACK TO SAVEPOINT ${name}`);
 					db.exec(`RELEASE SAVEPOINT ${name}`);
 					throw err;
-				} finally {
-					state.txDepth--;
 				}
-			}
+			},
+			async close(): Promise<void> {},
+		};
+	}
 
-			const gated = txGate.then(
-				() => runTopLevelTransaction(fn, options),
-				() => runTopLevelTransaction(fn, options),
-			);
-			txGate = gated.then(
-				() => undefined,
-				() => undefined,
-			);
-			return gated;
-		},
-
+	return {
+		query: (text, params = []) => enqueue(() => runQuery(text, params)),
+		transaction: (fn, options) =>
+			enqueue(async () => {
+				db.exec(buildSqliteBeginSql(options));
+				try {
+					const result = await fn(createTxClient());
+					db.exec("COMMIT");
+					return result;
+				} catch (err) {
+					try {
+						db.exec("ROLLBACK");
+					} catch {
+						// e.g. the failed COMMIT already rolled back; never mask err.
+					}
+					throw err;
+				}
+			}),
 		async close(): Promise<void> {
 			db.close();
 		},
 	};
-
-	return client;
 }
 
 function buildSqliteBeginSql(options?: TransactionOptions): string {
@@ -400,7 +397,10 @@ function createPgTxClient(state: PgTxState): DatabaseClient {
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
 			try {
-				const result: QueryResult = await state.client.query(text, params);
+				const result: QueryResult = await state.client.query(
+					text,
+					params,
+				);
 				return {
 					rows: result.rows as T[],
 					rowCount: result.rowCount ?? 0,
