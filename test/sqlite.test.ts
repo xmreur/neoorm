@@ -260,6 +260,22 @@ describe("sqlite runtime", () => {
 		db.close();
 	});
 
+	it("treats % and _ in contains as literals", async () => {
+		const { db } = await setup();
+		const orm = makeOrm(manifest, db);
+		await orm.users.create({
+			data: { email: "wild@x", name: "helloXworld", age: 1 },
+		});
+		await orm.users.create({
+			data: { email: "lit@x", name: "hello%world", age: 1 },
+		});
+		const literalPercent = await orm.users.findMany({
+			where: { name: { contains: "hello%world" } },
+		});
+		expect(literalPercent.map((row) => row["email"])).toEqual(["lit@x"]);
+		db.close();
+	});
+
 	it("loads hasMany, toOne and m2m relations", async () => {
 		const { db } = await setup();
 		const orm = makeOrm(manifest, db);

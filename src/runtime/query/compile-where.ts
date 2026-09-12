@@ -74,6 +74,20 @@ function compiledResult(
 
 const PARAMLESS_OPERATORS = new Set<WhereOperator>(["isNull", "isNotNull"]);
 
+/** Backslash as a SQL string literal for `LIKE … ESCAPE`. */
+const LIKE_ESCAPE_SQL = "ESCAPE '\\'";
+
+function escapeLikePattern(value: string): string {
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/%/g, "\\%")
+		.replace(/_/g, "\\_");
+}
+
+function withLikeEscape(sql: string): string {
+	return `${sql} ${LIKE_ESCAPE_SQL}`;
+}
+
 export function isOperatorObject(
 	value: unknown,
 ): value is Record<string, unknown> {
@@ -88,9 +102,9 @@ export function isOperatorObject(
 const operatorParamTransform: Partial<
 	Record<WhereOperator, (value: unknown) => unknown>
 > = {
-	contains: (v) => `%${String(v)}%`,
-	startsWith: (v) => `${String(v)}%`,
-	endsWith: (v) => `%${String(v)}`,
+	contains: (v) => `%${escapeLikePattern(String(v))}%`,
+	startsWith: (v) => `${escapeLikePattern(String(v))}%`,
+	endsWith: (v) => `%${escapeLikePattern(String(v))}`,
 };
 
 type QueryMode = "default" | "insensitive";
@@ -128,14 +142,16 @@ function stringFilterSql(
 	switch (op) {
 		case "equals":
 			return mode === "insensitive"
-				? dialect.ilike(sqlCol, paramIndex)
+				? withLikeEscape(dialect.ilike(sqlCol, paramIndex))
 				: dialect.whereOperators.equals(sqlCol, paramIndex);
 		case "contains":
 		case "startsWith":
 		case "endsWith":
-			return mode === "insensitive"
-				? dialect.ilike(sqlCol, paramIndex)
-				: dialect.whereOperators[op](sqlCol, paramIndex);
+			return withLikeEscape(
+				mode === "insensitive"
+					? dialect.ilike(sqlCol, paramIndex)
+					: dialect.whereOperators[op](sqlCol, paramIndex),
+			);
 		case "search":
 			return dialect.regex(sqlCol, paramIndex, mode === "insensitive");
 		default: {
@@ -300,7 +316,7 @@ function compileColumnCondition(
 			continue;
 		}
 		const transform = operatorParamTransform[operator];
-		const paramValue =
+		let paramValue: unknown =
 			operator === "in" || operator === "notIn"
 				? Array.isArray(value)
 					? value.map((item) =>
@@ -308,8 +324,11 @@ function compileColumnCondition(
 						)
 					: value
 				: transform
-					? transform(value)
+					? transform(serializeColumnValue(col, value, dialect))
 					: serializeColumnValue(col, value, dialect);
+		if (operator === "equals" && queryMode === "insensitive") {
+			paramValue = escapeLikePattern(String(paramValue));
+		}
 		conditions.push(
 			isStringPatternOp(operator)
 				? stringFilterSql(
