@@ -77,7 +77,7 @@ const posts = await db.posts.findMany({
     <td><strong>📄 Cursor pagination</strong><br/>Keyset-based `paginate` for feeds and infinite scroll. Type-safe cursors, `hasMore` probe, and `encodeCursor`/`decodeCursor` for HTTP APIs.</td>
   </tr>
   <tr>
-    <td><strong>🔗 Relation writes</strong><br/>Nested `connect`, `create`, `disconnect`, `set`, `delete` on to-one, one-to-many, and many-to-many — all in a single query.</td>
+    <td><strong>🔗 Relation writes</strong><br/>Nested `connect`, `create`, `disconnect`, `set`, `delete` on to-one, one-to-many, and many-to-many — multiple SQL statements in one transaction.</td>
     <td><strong>🔁 Transactions</strong><br/>Interactive callbacks, batch steps, savepoints for nested transactions, isolation levels, read-only mode.</td>
   </tr>
   <tr>
