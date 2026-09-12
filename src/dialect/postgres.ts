@@ -460,7 +460,9 @@ function emitAlterColumn(
 
 	if (alter.setCheckExpression !== undefined) {
 		const constraintName = `${table.sqlName}_${alter.sqlName}_check`;
-		stmts.push(emitDropTableConstraint(table, constraintName));
+		stmts.push(
+			`ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${q(constraintName)};`,
+		);
 		if (alter.setCheckExpression !== null) {
 			stmts.push(
 				`ALTER TABLE ${tableName} ADD CONSTRAINT ${q(constraintName)} CHECK (${alter.setCheckExpression});`,
