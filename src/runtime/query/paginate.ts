@@ -1,10 +1,10 @@
 import { postgresDialect } from "../../dialect/postgres.js";
 import { compileError } from "../compile-error.js";
-import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildExistsQuery,
 	buildPaginateQuery,
+	columnsForOutput,
 	compileWhere,
 } from "./compile.js";
 import {
@@ -13,15 +13,23 @@ import {
 	cursorFromRow,
 	flipOrderSpec,
 	mergeWhereWithCursor,
+	type OrderKeySpec,
 	resolveOrderSpec,
 } from "./cursor.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
 import { hydrateAndLoadRelations, type WithInput } from "./find.js";
 import {
+	applyParentProjection,
+	mergeSqlColumns,
+	type ParentProjection,
+	projectFindRows,
+	resolveParentProjection,
+} from "./projection.js";
+import {
 	buildPlanExtraSelectCols,
 	planRelationLoad,
 } from "./relation-planner.js";
-import { requireTable } from "./table-index.js";
+import { getTableIndex, requireTable } from "./table-index.js";
 
 export type PaginateArgs = {
 	where?: Record<string, unknown>;
@@ -29,7 +37,10 @@ export type PaginateArgs = {
 	take: number;
 	after?: Record<string, unknown>;
 	before?: Record<string, unknown>;
+	select?: readonly string[] | Record<string, boolean | undefined>;
+	omit?: readonly string[] | Record<string, boolean | undefined>;
 	with?: Record<string, WithInput>;
+	includeHidden?: boolean;
 };
 
 export type PaginateRuntimeResult = {
@@ -39,6 +50,26 @@ export type PaginateRuntimeResult = {
 	hasMore: boolean;
 	hasPrevious: boolean;
 };
+
+function projectPaginateItems(
+	rows: Record<string, unknown>[],
+	projection: ParentProjection,
+	orderSpec: OrderKeySpec[],
+	defaultOutNames: readonly string[],
+	withSpec: Record<string, WithInput> | undefined,
+): Record<string, unknown>[] {
+	if (projection.hasProjection) {
+		return projectFindRows(rows, projection, withSpec);
+	}
+	const defaultOut = new Set(defaultOutNames);
+	const fetchedHiddenOrder = orderSpec.some(
+		(spec) => !defaultOut.has(spec.tsName),
+	);
+	if (!fetchedHiddenOrder) {
+		return rows;
+	}
+	return applyParentProjection(rows, defaultOutNames, withSpec);
+}
 
 export async function paginateRecords(
 	executor: Executor,
@@ -55,6 +86,18 @@ export async function paginateRecords(
 	}
 
 	const orderSpec = resolveOrderSpec(table, args.orderBy, runtime.tableIndex);
+	const tableIndex = getTableIndex(runtime.tableIndex, table.accessor);
+	const projection = resolveParentProjection(table, args, tableIndex);
+	const defaultOutNames = columnsForOutput(
+		tableIndex,
+		table,
+		undefined,
+		projection.includeHidden,
+	).map((col) => col.tsName);
+	const sqlColumns = mergeSqlColumns(
+		projection.sqlColumns ?? defaultOutNames,
+		orderSpec.map((spec) => spec.tsName),
+	);
 	const { sql: userWhereSql, params: userParams } = compileWhere(
 		manifest,
 		table,
@@ -121,6 +164,8 @@ export async function paginateRecords(
 		extraSelect.cols.length > 0 ? extraSelect.cols : undefined,
 		plan.joins.length > 0 ? plan.joins : undefined,
 		runtime.tableIndex,
+		sqlColumns,
+		projection.includeHidden,
 	);
 
 	const rows = await runQuery(
@@ -193,5 +238,17 @@ export async function paginateRecords(
 	const nextCursor = hasMore ? cursorFromRow(orderSpec, lastItem) : null;
 	const prevCursor = hasPrevious ? cursorFromRow(orderSpec, firstItem) : null;
 
-	return { items: loaded, nextCursor, prevCursor, hasMore, hasPrevious };
+	return {
+		items: projectPaginateItems(
+			loaded,
+			projection,
+			orderSpec,
+			defaultOutNames,
+			args.with,
+		),
+		nextCursor,
+		prevCursor,
+		hasMore,
+		hasPrevious,
+	};
 }

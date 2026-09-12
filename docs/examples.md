@@ -279,6 +279,7 @@ const page = await db.posts.paginate({
   where: { published: true },
   orderBy: { createdAt: "desc" },
   take: 20,
+  omit: { body: true },
   ...(cursor ? { after: cursor } : {}),
 });
 

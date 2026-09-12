@@ -4,6 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findMany } from "../src/runtime/query/find.js";
+import { paginateRecords } from "../src/runtime/query/paginate.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { atIndex } from "./helpers/manifest.js";
 
@@ -303,6 +304,85 @@ describe("with alias leaks and hidden default select", () => {
 		expect(sql).toContain("json_build_object");
 		expect(sql).not.toContain("'secret'");
 		expect(sql).not.toContain('"secret"');
+	});
+
+	it("omits hidden columns from default paginate select", async () => {
+		const executor = createMockExecutor({
+			query: () => [{ id: "user_1", email: "a@b.com", name: "Ada" }],
+		});
+
+		const page = await paginateRecords(executor, runtime, "users", {
+			orderBy: { id: "asc" },
+			take: 10,
+		});
+
+		const sql = atIndex(executor.queries, 0).sql;
+		expect(sql).not.toContain('"password"');
+		expect(page.items[0]).not.toHaveProperty("password");
+	});
+
+	it("includes hidden columns on paginate when includeHidden is true", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					email: "a@b.com",
+					name: "Ada",
+					password: "secret",
+				},
+			],
+		});
+
+		const page = await paginateRecords(executor, runtime, "users", {
+			orderBy: { id: "asc" },
+			take: 10,
+			includeHidden: true,
+		});
+
+		expect(atIndex(executor.queries, 0).sql).toContain('"password"');
+		expect(page.items[0]).toHaveProperty("password", "secret");
+	});
+
+	it("projects paginate items with select and keeps cursor fields", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{ id: "user_1", email: "a@b.com" },
+				{ id: "user_2", email: "b@b.com" },
+			],
+		});
+
+		const page = await paginateRecords(executor, runtime, "users", {
+			orderBy: { id: "asc" },
+			take: 1,
+			select: { email: true },
+		});
+
+		const sql = atIndex(executor.queries, 0).sql;
+		expect(sql).toContain('"email"');
+		expect(sql).toContain('"id"');
+		expect(sql).not.toContain('"password"');
+		expect(sql).not.toContain('"name"');
+		expect(page.items).toEqual([{ email: "a@b.com" }]);
+		expect(page.nextCursor).toEqual({ id: "user_1" });
+	});
+
+	it("drops omitted columns from paginate items", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{ id: "user_1", email: "a@b.com" },
+				{ id: "user_2", email: "b@b.com" },
+			],
+		});
+
+		const page = await paginateRecords(executor, runtime, "users", {
+			orderBy: { id: "asc" },
+			take: 1,
+			omit: { name: true },
+		});
+
+		expect(page.items[0]).toEqual({ id: "user_1", email: "a@b.com" });
+		expect(page.items[0]).not.toHaveProperty("name");
+		expect(page.nextCursor).toEqual({ id: "user_1" });
 	});
 });
 

@@ -5,6 +5,7 @@ import type {
 	WhereInput,
 	WithRelationOptions,
 } from "../src/schema/relation-types.js";
+import type { PaginateArgs } from "../src/schema/types.js";
 
 type Schema = typeof schema._tables;
 
@@ -68,5 +69,22 @@ describe("with autocomplete types", () => {
 			tags: true;
 		};
 		expectTypeOf<ValidWith>().toExtend<PostsWith>();
+	});
+
+	it("types paginate select omit and includeHidden", () => {
+		type PostsPaginate = PaginateArgs<Schema, "posts">;
+		type ValidPaginate = {
+			orderBy: { createdAt: "desc" };
+			take: 20;
+			select: { id: true; title: true };
+			includeHidden: true;
+		};
+		type ValidOmit = {
+			orderBy: { createdAt: "desc" };
+			take: 20;
+			omit: { body: true };
+		};
+		expectTypeOf<ValidPaginate>().toExtend<PostsPaginate>();
+		expectTypeOf<ValidOmit>().toExtend<PostsPaginate>();
 	});
 });

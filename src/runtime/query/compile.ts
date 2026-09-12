@@ -1359,6 +1359,8 @@ export function buildPaginateQuery(
 	extraSelectCols?: string[],
 	joinClauses?: string[],
 	manifestIndex?: ManifestIndex,
+	select?: readonly string[],
+	includeHidden?: boolean,
 ): string {
 	return buildFindManyQuery(
 		table,
@@ -1370,6 +1372,9 @@ export function buildPaginateQuery(
 		extraSelectCols,
 		joinClauses,
 		manifestIndex,
+		undefined,
+		select,
+		includeHidden,
 	);
 }
 

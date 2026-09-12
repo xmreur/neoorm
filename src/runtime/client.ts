@@ -224,7 +224,10 @@ export type TableRepository = {
 		take: number;
 		after?: Record<string, unknown>;
 		before?: Record<string, unknown>;
+		select?: readonly string[] | Record<string, boolean | undefined>;
+		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
+		includeHidden?: boolean;
 	}): Promise<{
 		items: Record<string, unknown>[];
 		nextCursor: Record<string, unknown> | null;
