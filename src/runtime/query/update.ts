@@ -3,9 +3,9 @@ import {
 	quoteIdentifier,
 	tableRef,
 } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildSelectColumns,
@@ -17,7 +17,6 @@ import {
 	isImpossibleWhere,
 	type UpdateReturning,
 } from "./compile.js";
-import { mapRowToTs, mapRowsToTs } from "./map-row.js";
 import { runCreate } from "./create.js";
 import {
 	type QueryRuntime,
@@ -26,9 +25,9 @@ import {
 	runQueryOne,
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
+import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import {
 	primaryKeySqlName,
-	requireScalarPrimaryKey,
 	resolvePkWhere,
 	rowScalarPkValue,
 } from "./primary-key.js";
@@ -39,7 +38,8 @@ import {
 	type ParsedRelationWrite,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
-import { getTableIndex, relationByName , requireTable } from "./table-index.js";
+import { getTableIndex, relationByName, requireTable } from "./table-index.js";
+import { assertUniqueWhere } from "./unique.js";
 import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
@@ -107,7 +107,11 @@ async function runUpdate(
 	);
 
 	if (!whereSql) {
-		throw queryCompileError("update", "Update requires a where clause", { code: QueryErrorCode.where_required, tableAccessor, tableSqlName: table.sqlName });
+		throw queryCompileError("update", "Update requires a where clause", {
+			code: QueryErrorCode.where_required,
+			tableAccessor,
+			tableSqlName: table.sqlName,
+		});
 	}
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
@@ -239,6 +243,12 @@ export async function updateRecord(
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
+	assertUniqueWhere(
+		table,
+		args.where,
+		"update",
+		getTableIndex(runtime.tableIndex, tableAccessor),
+	);
 
 	const split = splitScalarsAndRelationWrites(
 		manifest,

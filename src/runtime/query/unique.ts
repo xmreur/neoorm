@@ -1,18 +1,46 @@
 import type { ManifestTable } from "../../dialect/types.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
+import type { QueryOperation } from "../errors.js";
 import { primaryKeyTsNames } from "./primary-key.js";
 import {
 	columnBySqlName,
 	columnByTsName,
-	getTableIndex,
 	type TableIndex,
 } from "./table-index.js";
+
+export type UniqueWhereOperation =
+	| "findUnique"
+	| "update"
+	| "delete"
+	| "upsert"
+	| "findOrCreate";
 
 export type UniqueConstraint = {
 	sqlColumns: readonly string[];
 	tsKeys: readonly string[];
 };
+
+function uniqueWhereQueryOperation(
+	operation: UniqueWhereOperation,
+): QueryOperation {
+	switch (operation) {
+		case "findUnique":
+			return "select";
+		case "update":
+			return "update";
+		case "delete":
+			return "delete";
+		case "upsert":
+			return "upsert";
+		case "findOrCreate":
+			return "findOrCreate";
+		default: {
+			const _exhaustive: never = operation;
+			return _exhaustive;
+		}
+	}
+}
 
 function whereKeys(where: Record<string, unknown>): string[] {
 	return Object.keys(where).filter((key) => where[key] !== undefined);
@@ -71,13 +99,13 @@ export function resolveUniqueConstraint(
 export function assertUniqueWhere(
 	table: ManifestTable,
 	where: Record<string, unknown>,
-	operation: string,
+	operation: UniqueWhereOperation,
 	tableIndex?: TableIndex,
 ): UniqueConstraint {
 	const constraint = resolveUniqueConstraint(table, where, tableIndex);
 	if (!constraint) {
 		throw queryCompileError(
-			"update",
+			uniqueWhereQueryOperation(operation),
 			`${operation} requires a unique \`where\` clause (primary key, @unique column, or composite unique index) for table "${table.accessor}"`,
 			{
 				code: QueryErrorCode.unique_where_invalid,
