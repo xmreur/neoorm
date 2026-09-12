@@ -388,6 +388,58 @@ describe("eager loading batching", () => {
 		]);
 	});
 
+	it("does not cartesian-join two has-many includes", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("json_agg");
+				expect(sql).toContain("GROUP BY");
+				expect((sql.match(/AS "_hm_/g) ?? []).length).toBe(1);
+				expect(sql).toContain('"_hm_posts"');
+				expect(sql).not.toContain('"_hm_comments"');
+				expect(sql).toContain('"_r_comments"');
+				expect(sql).not.toContain('"_r_posts"');
+				return [
+					{
+						id: "user_1",
+						name: "Alice",
+						__neoorm_posts: [
+							{
+								id: "post_1",
+								title: "Post A",
+								author_id: "user_1",
+							},
+						],
+						__neoorm_comments: [
+							{
+								id: "comment_1",
+								post_id: "post_1",
+								author_id: "user_1",
+								body: "Hi",
+							},
+						],
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: { posts: true, comments: true },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(rows[0]?.posts).toEqual([
+			{ id: "post_1", title: "Post A", authorId: "user_1" },
+		]);
+		expect(rows[0]?.comments).toEqual([
+			{
+				id: "comment_1",
+				postId: "post_1",
+				authorId: "user_1",
+				body: "Hi",
+			},
+		]);
+	});
+
 	it("collapses a linear nested has-many chain into one findMany query", async () => {
 		const executor = createMockExecutor({
 			query: (sql) => {
@@ -454,6 +506,34 @@ describe("eager loading batching", () => {
 		expect(executor.queries[0]?.sql).toContain("GROUP BY");
 		expect(executor.queries[0]?.sql).toContain("LEFT JOIN");
 		expect(rows[0]?._count).toEqual({ posts: 2 });
+	});
+
+	it("does not cartesian-join two _count collections", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("COUNT(");
+				expect(sql).toContain("GROUP BY");
+				expect((sql.match(/AS "_cnt_/g) ?? []).length).toBe(1);
+				expect(sql).toContain('"_cnt_posts"');
+				expect(sql).not.toContain('LEFT JOIN "comments"');
+				expect(sql).toContain("COUNT(*)");
+				return [
+					{
+						id: "user_1",
+						name: "Alice",
+						__neoorm_count_posts: 2,
+						__neoorm_count_comments: 3,
+					},
+				];
+			},
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: { _count: { posts: true, comments: true } },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(rows[0]?._count).toEqual({ posts: 2, comments: 3 });
 	});
 
 	it("orders _count via GROUP BY query when orderBy._count is set", async () => {

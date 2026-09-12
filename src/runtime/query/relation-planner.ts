@@ -319,21 +319,33 @@ function tryBuildCountAggregatePlan(
 		const targetTable = manifest.tables[relation.targetAccessor];
 		if (!targetTable) return undefined;
 
-		const targetAlias = `_cnt_${relationName}`;
-		const fkCol = quoteIdentifier(relation.fkSqlColumn);
-		const parentPkCol = quoteIdentifier(
-			requireScalarPrimaryKey(parentTable).sqlName,
-		);
-		const targetPkCol = quoteIdentifier(
-			targetRelationPkSql(targetTable, relation),
-		);
-
-		joins.push(
-			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
-		);
-		selectCols.push(
-			`${dialect.castToInt(`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol})`)} AS ${quoteIdentifier(inlineCountColumnAlias(relationName))}`,
-		);
+		if (joins.length === 0) {
+			const targetAlias = `_cnt_${relationName}`;
+			const fkCol = quoteIdentifier(relation.fkSqlColumn);
+			const parentPkCol = quoteIdentifier(
+				requireScalarPrimaryKey(parentTable).sqlName,
+			);
+			const targetPkCol = quoteIdentifier(
+				targetRelationPkSql(targetTable, relation),
+			);
+			joins.push(
+				`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
+			);
+			selectCols.push(
+				`${dialect.castToInt(`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol})`)} AS ${quoteIdentifier(inlineCountColumnAlias(relationName))}`,
+			);
+		} else {
+			selectCols.push(
+				buildInlineCountSelectCol(
+					manifest,
+					parentTable,
+					relationName,
+					spec,
+					dialect,
+					manifestIndex,
+				),
+			);
+		}
 		inlineCounts.push({ relationName, spec });
 	}
 
@@ -395,42 +407,43 @@ function tryBuildHasManyAggregatePlan(
 		...groupByExpressionsFromJoinSelectCols(toOneJoins.selectCols),
 	);
 
-	const joins = [...toOneJoins.joins];
-	const selectCols: string[] = [];
+	const joinPlan = chains[0];
+	if (!joinPlan) return undefined;
 
-	for (const { relationName, chain } of chains) {
-		const relation = findRelation(
-			parentTable,
-			relationName,
-			parentTableIndex,
-		);
-		if (!relation) return undefined;
+	const { relationName, chain } = joinPlan;
+	const relation = findRelation(parentTable, relationName, parentTableIndex);
+	if (!relation) return undefined;
 
-		const targetTable = manifest.tables[relation.targetAccessor];
-		if (!targetTable) return undefined;
+	const targetTable = manifest.tables[relation.targetAccessor];
+	if (!targetTable) return undefined;
 
-		const targetAlias = `_hm_${relationName}`;
-		const fkCol = quoteIdentifier(relation.fkSqlColumn);
-		const targetPkCol = quoteIdentifier(
-			targetRelationPkSql(targetTable, relation),
-		);
+	const targetAlias = `_hm_${relationName}`;
+	const fkCol = quoteIdentifier(relation.fkSqlColumn);
+	const targetPkCol = quoteIdentifier(
+		targetRelationPkSql(targetTable, relation),
+	);
 
-		joins.push(
-			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
-		);
+	const joins = [
+		...toOneJoins.joins,
+		`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
+	];
 
-		const rowExpr = buildHasManyRowExpression(
-			chain,
-			targetAlias,
-			dialect,
-			manifestIndex,
-		);
-		selectCols.push(
-			`COALESCE(${dialect.jsonAggExpr(rowExpr)} FILTER (WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL), '[]') AS ${quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
-		);
-	}
+	const rowExpr = buildHasManyRowExpression(
+		chain,
+		targetAlias,
+		dialect,
+		manifestIndex,
+	);
+	const selectCols = [
+		`COALESCE(${dialect.jsonAggExpr(rowExpr)} FILTER (WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL), '[]') AS ${quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
+	];
 
-	return { joins, selectCols, groupByCols, inlineJsonAgg: chains };
+	return {
+		joins,
+		selectCols,
+		groupByCols,
+		inlineJsonAgg: [joinPlan],
+	};
 }
 
 function buildJoinClauses(
@@ -866,19 +879,25 @@ export function planRelationLoad(
 
 	let hasManyAggregate: HasManyAggregatePlan | undefined;
 	const useHasManyAggregate = options?.useHasManyAggregate !== false;
+	const [joinChain, ...correlatedHasMany] = aggregateChains;
 	if (
 		useHasManyAggregate &&
-		aggregateChains.length > 0 &&
+		joinChain &&
 		aggregateChains.length === pendingHasMany.length
 	) {
 		hasManyAggregate = tryBuildHasManyAggregatePlan(
 			manifest,
 			parentTable,
-			aggregateChains,
+			[joinChain],
 			{ joins, selectCols, joinedRelations },
 			dialect,
 			manifestIndex,
 		);
+		if (hasManyAggregate) {
+			inlineJsonAgg.push(...correlatedHasMany);
+		} else {
+			inlineJsonAgg.push(...aggregateChains);
+		}
 	} else {
 		inlineJsonAgg.push(...aggregateChains);
 	}
@@ -928,7 +947,10 @@ export function planRelationLoad(
 			joins: [],
 			joinSelectCols: selectCols,
 			joinedRelations,
-			inlineJsonAgg: hasManyAggregate.inlineJsonAgg,
+			inlineJsonAgg: [
+				...hasManyAggregate.inlineJsonAgg,
+				...inlineJsonAgg,
+			],
 			inlineCounts,
 			batchWith,
 			hasManyAggregate,
@@ -1104,15 +1126,16 @@ export function buildPlanExtraSelectCols(
 		return { cols: [...plan.countAggregate.selectCols], params: [] };
 	}
 
-	if (plan.hasManyAggregate) {
-		return {
-			cols: [...plan.joinSelectCols, ...plan.hasManyAggregate.selectCols],
-			params: [],
-		};
-	}
-
-	const cols = [...plan.joinSelectCols];
+	const joinedJsonAgg = new Set(
+		plan.hasManyAggregate?.inlineJsonAgg.map(
+			(inline) => inline.relationName,
+		) ?? [],
+	);
+	const cols = plan.hasManyAggregate
+		? [...plan.joinSelectCols, ...plan.hasManyAggregate.selectCols]
+		: [...plan.joinSelectCols];
 	for (const inline of plan.inlineJsonAgg) {
+		if (joinedJsonAgg.has(inline.relationName)) continue;
 		cols.push(
 			buildInlineJsonAggSelectCol(
 				parentTable,
@@ -1195,13 +1218,23 @@ export function compileCountOrderBy(
 		const targetTable = manifest.tables[relation.targetAccessor];
 		if (!targetTable) continue;
 
-		const targetAlias = `_cnt_${relationName}`;
-		const targetPkCol = quoteIdentifier(
-			targetRelationPkSql(targetTable, relation),
-		);
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+		const joinedAlias = quoteIdentifier(`_cnt_${relationName}`);
+		const isJoined = plan.countAggregate.joins.some((join) =>
+			join.includes(`AS ${joinedAlias}`),
+		);
+		if (isJoined) {
+			const targetAlias = `_cnt_${relationName}`;
+			const targetPkCol = quoteIdentifier(
+				targetRelationPkSql(targetTable, relation),
+			);
+			parts.push(
+				`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol}) ${dir}`,
+			);
+			continue;
+		}
 		parts.push(
-			`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol}) ${dir}`,
+			`${quoteIdentifier(inlineCountColumnAlias(relationName))} ${dir}`,
 		);
 	}
 
