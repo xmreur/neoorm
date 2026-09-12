@@ -98,6 +98,86 @@ describe("diffManifest", () => {
 		).toBe(true);
 	});
 
+	it("creates unique extras as UNIQUE INDEX so drops match", () => {
+		const withUnique = manifest({
+			posts: table(
+				"posts",
+				"posts",
+				[
+					col("id", "id", {
+						kind: "id",
+						primary: true,
+						nullable: false,
+					}),
+					col("authorId", "author_id", {
+						kind: "fk",
+						nullable: false,
+						fkTarget: "users.id",
+					}),
+					col("title", "title", { kind: "text", nullable: false }),
+				],
+				{
+					indexes: [
+						{
+							name: "author_id_title",
+							sqlName: "posts_author_id_title_key",
+							columns: ["author_id", "title"],
+							unique: true,
+						},
+					],
+				},
+			),
+		});
+		const withoutUnique = manifest({
+			posts: table("posts", "posts", [
+				col("id", "id", {
+					kind: "id",
+					primary: true,
+					nullable: false,
+				}),
+				col("authorId", "author_id", {
+					kind: "fk",
+					nullable: false,
+					fkTarget: "users.id",
+				}),
+				col("title", "title", { kind: "text", nullable: false }),
+			]),
+		});
+
+		const initial = diffManifest(null, withUnique);
+		expect(
+			initial.sql.some((s) =>
+				s.includes(
+					'CREATE UNIQUE INDEX "posts_author_id_title_key" ON "posts" ("author_id", "title")',
+				),
+			),
+		).toBe(true);
+		expect(
+			initial.sql.some(
+				(s) =>
+					s.includes("CREATE TABLE") &&
+					s.includes("UNIQUE ("),
+			),
+		).toBe(false);
+
+		const added = diffManifest(withoutUnique, withUnique);
+		expect(
+			added.sql.some((s) =>
+				s.includes(
+					'CREATE UNIQUE INDEX "posts_author_id_title_key" ON "posts" ("author_id", "title")',
+				),
+			),
+		).toBe(true);
+
+		const dropped = diffManifest(withUnique, withoutUnique);
+		expect(dropped.sql).toContain(
+			'DROP INDEX IF EXISTS "posts_author_id_title_key";',
+		);
+		expect(
+			dropped.sql.some((s) => s.includes("DROP CONSTRAINT")),
+		).toBe(false);
+	});
+
 	it("detects new tables", () => {
 		const prev = manifest({
 			users: table("users", "users", [

@@ -325,13 +325,6 @@ function emitCreateTable(
 		lines.push(`  PRIMARY KEY (${pkCols})`);
 	}
 
-	for (const idx of table.indexes) {
-		if (idx.unique) {
-			const cols = idx.columns.map((c) => q(c)).join(", ");
-			lines.push(`  UNIQUE (${cols})`);
-		}
-	}
-
 	if (inlineForeignKeys) {
 		for (const col of table.columns) {
 			if (col.kind === "fk" && col.fkTarget) {

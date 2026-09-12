@@ -96,7 +96,8 @@ export function columnsEqual(
 		columnSqlType(a, manifest, dialect) ===
 			columnSqlType(b, manifest, dialect) &&
 		(a.kind !== "fk" ||
-			(a.fkTarget === b.fkTarget && onDeleteEqual(a.onDelete, b.onDelete)))
+			(a.fkTarget === b.fkTarget &&
+				onDeleteEqual(a.onDelete, b.onDelete)))
 	);
 }
 
@@ -539,7 +540,8 @@ function stripDestructiveFromDiff(
 	const fkChanges = diff.fkChanges?.filter((change) => !change.drop);
 	const alterColumns = diff.alterColumns?.filter(
 		(alter) =>
-			!alter.setType || !isUnsafeTypeChange(alter, diff.manifest, dialect),
+			!alter.setType ||
+			!isUnsafeTypeChange(alter, diff.manifest, dialect),
 	);
 
 	const stripped: TableDiff = {
@@ -622,9 +624,7 @@ export function buildMigrationSql(
 			}),
 		);
 		for (const index of diff.table.indexes) {
-			if (!index.unique) {
-				sql.push(dialect.emitCreateIndex(diff.table, index));
-			}
+			sql.push(dialect.emitCreateIndex(diff.table, index));
 		}
 		if (!isSqlite) {
 			for (const col of fkColumns(diff.table)) {
@@ -700,13 +700,9 @@ export function diffManifest(
 
 		const tables = Object.values(next.tables);
 		for (const table of tables) {
-			sql.push(
-				dialect.emitCreateTable(table, { manifest: next }),
-			);
+			sql.push(dialect.emitCreateTable(table, { manifest: next }));
 			for (const index of table.indexes) {
-				if (!index.unique) {
-					sql.push(dialect.emitCreateIndex(table, index));
-				}
+				sql.push(dialect.emitCreateIndex(table, index));
 			}
 		}
 
@@ -824,7 +820,13 @@ export function resolveMigrationSql(
 	);
 
 	return {
-		sql: buildMigrationSql(safeDiffs, newExtensions, next, undefined, dialect),
+		sql: buildMigrationSql(
+			safeDiffs,
+			newExtensions,
+			next,
+			undefined,
+			dialect,
+		),
 		blocked: diff.destructive,
 	};
 }

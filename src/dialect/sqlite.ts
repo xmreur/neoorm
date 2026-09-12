@@ -140,13 +140,6 @@ function emitCreateTable(
 		lines.push(`  PRIMARY KEY (${pkCols})`);
 	}
 
-	for (const idx of table.indexes) {
-		if (idx.unique) {
-			const cols = idx.columns.map((c) => q(c)).join(", ");
-			lines.push(`  UNIQUE (${cols})`);
-		}
-	}
-
 	if (inlineForeignKeys) {
 		for (const col of table.columns) {
 			if (col.kind === "fk" && col.fkTarget) {
@@ -242,11 +235,9 @@ function emitRebuildSql(table: ManifestTable, diff: TableDiff): string[] {
 	stmts.push(`ALTER TABLE ${q(newTableName)} RENAME TO ${q(table.sqlName)};`);
 
 	for (const index of table.indexes) {
-		if (!index.unique) {
-			stmts.push(
-				emitCreateIndex({ ...table, sqlName: table.sqlName }, index),
-			);
-		}
+		stmts.push(
+			emitCreateIndex({ ...table, sqlName: table.sqlName }, index),
+		);
 	}
 
 	stmts.push("PRAGMA foreign_keys = ON");
