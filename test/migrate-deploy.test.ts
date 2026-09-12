@@ -9,6 +9,7 @@ import {
 	hashMigrationSql,
 	listAppliedMigrations,
 	migrateDeploy,
+	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
 import type { DatabaseClient, DriverResult } from "../src/runtime/driver.js";
 import { sqliteClient } from "../src/runtime/driver.js";
@@ -237,5 +238,25 @@ describe("migrateDeploy checksums and locking", () => {
 		expect(
 			queries.some((sql) => sql.includes("pg_advisory_xact_lock")),
 		).toBe(true);
+	});
+});
+
+describe("resetDatabaseSchema", () => {
+	it("recreates the schema without GRANT TO PUBLIC", async () => {
+		const queries: string[] = [];
+		const mock: DatabaseClient = {
+			query: async <T = Record<string, unknown>>(text: string) => {
+				queries.push(text);
+				return { rows: [], rowCount: 0 } as DriverResult<T>;
+			},
+			transaction: async (fn) => fn(mock),
+			close: async () => {},
+		};
+
+		await resetDatabaseSchema(mock, postgresDialect);
+		const sql = queries.join("\n");
+		expect(sql).toMatch(/DROP SCHEMA "public" CASCADE/);
+		expect(sql).toMatch(/CREATE SCHEMA "public"/);
+		expect(sql).not.toMatch(/TO PUBLIC/i);
 	});
 });

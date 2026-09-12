@@ -79,6 +79,8 @@ neoorm migrate reset --force [--skip-apply]
 - `--force` — required (safety guard)
 - `--skip-apply` — only drop, don't re-apply
 
+PostgreSQL: the connecting role owns the recreated schema. `PUBLIC` is not granted.
+
 ## `neoorm docs`
 
 Serve the NeoOrm documentation locally in your browser.
