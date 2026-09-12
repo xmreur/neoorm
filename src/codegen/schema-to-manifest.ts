@@ -31,13 +31,14 @@ import {
 	fk,
 	resolveFkAccessorTarget,
 } from "../schema/relation.js";
-import type {
-	ColumnDef,
-	ColumnNaming,
-	IndexDef,
-	IndexWherePredicate,
-	TableDef,
-	TableExtra,
+import {
+	type ColumnDef,
+	type ColumnNaming,
+	findPrimaryKeyColumn,
+	type IndexDef,
+	type IndexWherePredicate,
+	type TableDef,
+	type TableExtra,
 } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 
@@ -118,34 +119,6 @@ function singularize(word: string): string {
 
 function autoJunctionName(leftSql: string, rightSql: string): string {
 	return [leftSql, rightSql].sort().join("_");
-}
-
-function findPrimaryKeyColumn(
-	columns: Record<string, ColumnDef>,
-): string | undefined {
-	for (const [tsName, col] of Object.entries(columns)) {
-		if (
-			typeof col === "object" &&
-			col !== null &&
-			"_meta" in col &&
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(col as any)._meta?.primary === true
-		) {
-			return tsName;
-		}
-	}
-	for (const [tsName, col] of Object.entries(columns)) {
-		if (
-			typeof col === "object" &&
-			col !== null &&
-			"_meta" in col &&
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(col as any)._meta?.kind === "id"
-		) {
-			return tsName;
-		}
-	}
-	return undefined;
 }
 
 function finalizeEnumColumns(

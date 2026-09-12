@@ -11,18 +11,16 @@ const REGISTRY_KEY = Symbol.for("neoorm.pluginRegistry");
 const COLUMN_TYPES_KEY = Symbol.for("neoorm.columnTypeMap");
 const BUILTINS_KEY = Symbol.for("neoorm.builtinsRegistered");
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type GlobalState = Record<PropertyKey, any>;
-
-function globalState(): GlobalState {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return globalThis as any;
+function globalState(): Record<PropertyKey, unknown> {
+	return globalThis as typeof globalThis & Record<PropertyKey, unknown>;
 }
 
 function registry(): NeoOrmPlugin[] {
 	const state = globalState();
 	const existing = state[REGISTRY_KEY];
-	if (existing) return existing;
+	if (Array.isArray(existing)) {
+		return existing as NeoOrmPlugin[];
+	}
 	const created: NeoOrmPlugin[] = [];
 	state[REGISTRY_KEY] = created;
 	return created;
@@ -31,7 +29,9 @@ function registry(): NeoOrmPlugin[] {
 function columnTypeMap(): Map<string, ColumnTypePlugin> {
 	const state = globalState();
 	const existing = state[COLUMN_TYPES_KEY];
-	if (existing) return existing;
+	if (existing instanceof Map) {
+		return existing as Map<string, ColumnTypePlugin>;
+	}
 	const created = new Map<string, ColumnTypePlugin>();
 	state[COLUMN_TYPES_KEY] = created;
 	return created;
