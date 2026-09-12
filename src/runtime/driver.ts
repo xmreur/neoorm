@@ -4,6 +4,7 @@ import {
 	assertNoSavepointOptions,
 	buildBeginSql,
 	buildSqliteBeginSql,
+	rollbackIgnoringFailure,
 } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -471,8 +472,10 @@ function createPgTxClient(state: PgTxState): DatabaseClient {
 				await state.client.query(`RELEASE SAVEPOINT ${name}`);
 				return result;
 			} catch (err) {
-				await state.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
-				await state.client.query(`RELEASE SAVEPOINT ${name}`);
+				await rollbackIgnoringFailure(async () => {
+					await state.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
+					await state.client.query(`RELEASE SAVEPOINT ${name}`);
+				});
 				throw err;
 			}
 		},
@@ -508,7 +511,7 @@ export function pgClient(pool: Pool): DatabaseClient {
 				await client.query("COMMIT");
 				return result;
 			} catch (err) {
-				await client.query("ROLLBACK");
+				await rollbackIgnoringFailure(() => client.query("ROLLBACK"));
 				throw err;
 			} finally {
 				client.release();

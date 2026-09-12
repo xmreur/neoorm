@@ -11,6 +11,7 @@ import {
 	assertNoSavepointOptions,
 	buildBeginSql,
 	buildSavepointName,
+	rollbackIgnoringFailure,
 } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -144,7 +145,7 @@ export function createExecutor(
 				await client.query("COMMIT");
 				return result;
 			} catch (err) {
-				await client.query("ROLLBACK");
+				await rollbackIgnoringFailure(() => client.query("ROLLBACK"));
 				throw err;
 			} finally {
 				client.release();
@@ -181,8 +182,12 @@ function createClientExecutor(
 				await client.query(`RELEASE SAVEPOINT ${savepointName}`);
 				return result;
 			} catch (err) {
-				await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-				await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+				await rollbackIgnoringFailure(async () => {
+					await client.query(
+						`ROLLBACK TO SAVEPOINT ${savepointName}`,
+					);
+					await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+				});
 				throw err;
 			}
 		},
