@@ -3,7 +3,8 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
-import { compileWhere } from "../src/runtime/query/compile.js";
+import { compileWhere, getCachedOrderByClause, orderByShapeKey } from "../src/runtime/query/compile.js";
+import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
@@ -501,5 +502,37 @@ describe("where compilation", () => {
 		expect(sql).toContain('NOT ("_rel"."published" = $1)');
 		expect(sql.match(/"published" = \$1/g)).toHaveLength(1);
 		expect(params).toEqual([true]);
+	});
+});
+
+describe("orderBy compilation", () => {
+	const manifest = blogManifest();
+	const users = manifestTable(manifest, "users");
+	const tableIndex = buildManifestIndex(manifest);
+
+	it("preserves orderBy entry order in the cache key", () => {
+		expect(
+			orderByShapeKey({ email: "asc", createdAt: "desc" }),
+		).toBe("email:ASC|createdAt:DESC");
+		expect(
+			orderByShapeKey({ createdAt: "desc", email: "asc" }),
+		).toBe("createdAt:DESC|email:ASC");
+	});
+
+	it("does not reuse ORDER BY SQL when column order differs", () => {
+		const emailFirst = getCachedOrderByClause(
+			users,
+			{ email: "asc", createdAt: "desc" },
+			undefined,
+			tableIndex,
+		);
+		const createdFirst = getCachedOrderByClause(
+			users,
+			{ createdAt: "desc", email: "asc" },
+			undefined,
+			tableIndex,
+		);
+		expect(emailFirst).toBe('ORDER BY "email" ASC, "created_at" DESC');
+		expect(createdFirst).toBe('ORDER BY "created_at" DESC, "email" ASC');
 	});
 });

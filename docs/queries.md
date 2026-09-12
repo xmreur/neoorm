@@ -258,7 +258,7 @@ await db.posts.findMany({
 
 ### `distinct`
 
-PostgreSQL `DISTINCT ON` — `orderBy` must lead with the same columns:
+PostgreSQL `DISTINCT ON` — `orderBy` must lead with the same columns (key order is the ORDER BY prefix):
 
 ```ts
 await db.users.findMany({

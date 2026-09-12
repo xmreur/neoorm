@@ -951,8 +951,7 @@ export function orderByShapeKey(
 				? `${key}:${direction.toUpperCase()}`
 				: "",
 		)
-		.filter(Boolean)
-		.sort((a, b) => a.localeCompare(b));
+		.filter(Boolean);
 	if (entries.length === 0) return "";
 	const base = entries.join("|");
 	return tableAlias ? `${base}|@${tableAlias}` : base;
