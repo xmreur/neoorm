@@ -219,7 +219,7 @@ function emitRebuildSql(table: ManifestTable, diff: TableDiff): string[] {
 	const newTableName = `__neoorm_${table.sqlName}_new`;
 	const manifest = diff.manifest;
 
-	const stmts: string[] = [];
+	const stmts: string[] = ["PRAGMA foreign_keys = OFF"];
 	stmts.push(
 		emitCreateTable(
 			{ ...table, sqlName: newTableName },
@@ -249,6 +249,7 @@ function emitRebuildSql(table: ManifestTable, diff: TableDiff): string[] {
 		}
 	}
 
+	stmts.push("PRAGMA foreign_keys = ON");
 	return stmts;
 }
 

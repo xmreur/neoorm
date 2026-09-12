@@ -2,8 +2,16 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../codegen/schema-to-manifest.js";
 import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
+import { applySql } from "../migrate/runner.js";
 import { sqliteClient } from "../runtime/driver.js";
-import { defineSchema, id, table, timestamps } from "../schema/index.js";
+import {
+	defineSchema,
+	fk,
+	id,
+	table,
+	text,
+	timestamps,
+} from "../schema/index.js";
 import { resolveColumnSqlType } from "./postgres.js";
 import { sqliteColumnType, sqliteDialect } from "./sqlite.js";
 import type { ManifestColumn } from "./types.js";
@@ -69,5 +77,84 @@ describe("sqlite timestamp column type", () => {
 		expect(createdAt?.kind).toBe("timestamp");
 		expect(createdAt?.defaultNow).toBe(true);
 		db.close();
+	});
+});
+
+describe("sqlite table rebuild", () => {
+	function usersAndPosts() {
+		const schema = defineSchema({
+			users: table({
+				id: id(),
+				name: text(),
+			}),
+			posts: table({
+				id: id(),
+				userId: fk("users").notNull(),
+			}),
+		});
+		const manifest = schemaToManifest(schema);
+		const users = manifest.tables.users;
+		const posts = manifest.tables.posts;
+		if (!users || !posts) {
+			throw new Error("expected users and posts tables");
+		}
+		const nextUsers = {
+			...users,
+			columns: users.columns.map((col) =>
+				col.sqlName === "name" ? { ...col, nullable: false } : col,
+			),
+		};
+		const rebuildSql = sqliteDialect.emitAlterTable(nextUsers, {
+			table: nextUsers,
+			alterColumns: [{ sqlName: "name", setNullable: false }],
+			manifest: {
+				...manifest,
+				tables: { ...manifest.tables, users: nextUsers },
+			},
+		});
+		return { manifest, users, posts, rebuildSql };
+	}
+
+	it("wraps rebuild SQL with PRAGMA foreign_keys OFF/ON", () => {
+		const { rebuildSql } = usersAndPosts();
+		expect(rebuildSql[0]).toMatch(/PRAGMA foreign_keys = OFF/i);
+		expect(rebuildSql.at(-1)).toMatch(/PRAGMA foreign_keys = ON/i);
+		const dropIndex = rebuildSql.findIndex((sql) =>
+			sql.includes('DROP TABLE "users"'),
+		);
+		expect(dropIndex).toBeGreaterThan(0);
+		expect(
+			rebuildSql.some((sql) => sql.includes('RENAME TO "users"')),
+		).toBe(true);
+	});
+
+	it("rebuilds a parent table while children still reference it", async () => {
+		const { manifest, users, posts, rebuildSql } = usersAndPosts();
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await client.query(sqliteDialect.emitCreateTable(users, { manifest }));
+		await client.query(sqliteDialect.emitCreateTable(posts, { manifest }));
+		await client.query(
+			`INSERT INTO "users" ("id", "name") VALUES ($1, $2)`,
+			["user_1", "Ada"],
+		);
+		await client.query(
+			`INSERT INTO "posts" ("id", "user_id") VALUES ($1, $2)`,
+			["post_1", "user_1"],
+		);
+
+		await applySql(client, rebuildSql);
+
+		const usersRows = await client.query<{ id: string; name: string }>(
+			`SELECT "id", "name" FROM "users"`,
+		);
+		expect(usersRows.rows).toEqual([{ id: "user_1", name: "Ada" }]);
+		const postsRows = await client.query<{ id: string; user_id: string }>(
+			`SELECT "id", "user_id" FROM "posts"`,
+		);
+		expect(postsRows.rows).toEqual([{ id: "post_1", user_id: "user_1" }]);
+		const fk = await client.query(`PRAGMA foreign_keys`);
+		expect(fk.rows[0] ? Object.values(fk.rows[0])[0] : undefined).toBe(1);
+		await client.close();
 	});
 });
