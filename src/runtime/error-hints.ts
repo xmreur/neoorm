@@ -182,6 +182,21 @@ export function suggestTsColumn(
 	return suggestions;
 }
 
+export function suggestWhereOperator(
+	input: string,
+	operators: readonly string[],
+): string[] {
+	const suggestions: string[] = [];
+	const matches = didYouMean(input, operators);
+	for (const match of matches) {
+		suggestions.push(`Did you mean "${match}"?`);
+	}
+	if (operators.length > 0) {
+		suggestions.push(`Valid operators: ${formatCandidateList(operators)}`);
+	}
+	return suggestions;
+}
+
 export function accessorFromSchemaSqlName(
 	tables: Record<string, { readonly _tableName: string }>,
 	sqlName: string,

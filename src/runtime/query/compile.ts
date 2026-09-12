@@ -15,8 +15,9 @@ import type {
 import { getColumnType } from "../../plugins/registry.js";
 import type { PluginWhereOperator } from "../../plugins/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
+import { didYouMean, suggestWhereOperator } from "../error-hints.js";
 import { findM2M } from "./manifest-lookup.js";
 import {
 	primaryKeySqlName,
@@ -155,6 +156,31 @@ function parentPkRef(table: ManifestTable): string {
 	return `${tableRef(table)}.${quoteIdentifier(pkSql)}`;
 }
 
+function knownWhereOperatorNames(
+	col: ManifestColumn,
+	dialect: Dialect,
+): string[] {
+	return [
+		...Object.keys(dialect.whereOperators),
+		...Object.keys(pluginWhereOperators(col)),
+	];
+}
+
+function throwUnsupportedWhereOperator(
+	op: string,
+	col: ManifestColumn,
+	operators: readonly string[],
+): never {
+	compileError(
+		`unsupported where operator "${op}" on column "${col.tsName}"`,
+		{
+			code: QueryErrorCode.invalid_args,
+			columnTsName: col.tsName,
+			suggestions: suggestWhereOperator(op, operators),
+		},
+	);
+}
+
 function compileColumnCondition(
 	col: ManifestColumn,
 	rawValue: unknown,
@@ -181,23 +207,42 @@ function compileColumnCondition(
 	}
 
 	const queryMode = parseQueryMode(rawValue.mode);
+	const knownOps = knownWhereOperatorNames(col, dialect);
+	const knownOpSet = new Set(knownOps);
+	const operatorKeys = Object.keys(rawValue).filter((key) => key !== "mode");
+	const knownKeys = operatorKeys.filter((key) => knownOpSet.has(key));
+	const unknownKeys = operatorKeys.filter((key) => !knownOpSet.has(key));
 
-	const hasOperator = Object.keys(rawValue).some(
-		(k) => k in dialect.whereOperators || k in spatialOps,
-	);
-
-	if (!hasOperator) {
+	if (knownKeys.length === 0) {
+		if (operatorKeys.length > 0) {
+			const jsonColumn = col.kind === "json" || col.kind === "jsonb";
+			const typo = unknownKeys.find(
+				(key) => didYouMean(key, knownOps).length > 0,
+			);
+			if (typo || !jsonColumn) {
+				const badOp = typo ?? unknownKeys[0];
+				if (badOp) {
+					throwUnsupportedWhereOperator(badOp, col, knownOps);
+				}
+			}
+		}
 		conditions.push(dialect.whereOperators.equals(sqlCol, nextParamIndex));
 		params.push(rawValue);
 		nextParamIndex++;
 		return { sql: conditions.join(" AND "), params, nextParamIndex };
 	}
 
+	if (unknownKeys[0]) {
+		throwUnsupportedWhereOperator(unknownKeys[0], col, knownOps);
+	}
+
 	for (const [op, value] of Object.entries(rawValue)) {
 		if (op === "mode") continue;
 		if (op in spatialOps) {
 			const operator = spatialOps[op];
-			if (!operator) continue;
+			if (!operator) {
+				throwUnsupportedWhereOperator(op, col, knownOps);
+			}
 			const compiled = operator.compile(
 				sqlCol,
 				value,
@@ -210,7 +255,9 @@ function compileColumnCondition(
 			continue;
 		}
 
-		if (!(op in dialect.whereOperators)) continue;
+		if (!(op in dialect.whereOperators)) {
+			throwUnsupportedWhereOperator(op, col, knownOps);
+		}
 		const operator = op as WhereOperator;
 		if (PARAMLESS_OPERATORS.has(operator)) {
 			conditions.push(
@@ -273,11 +320,16 @@ function compileRelationCondition(
 	}
 
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
-	const targetTableIndex = getTableIndex(manifestIndex, targetTable.accessor);
 
 	if (relation.cardinality === "one") {
 		if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
-			return { sql: "", params: [], nextParamIndex: paramIndex };
+			compileError(
+				`Relation filter "${relation.name}" must be a where object`,
+				{
+					tableAccessor: parentTable.accessor,
+					tableSqlName: parentTable.sqlName,
+				},
+			);
 		}
 
 		const relAlias = "_rel";
@@ -313,19 +365,59 @@ function compileRelationCondition(
 	}
 
 	if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
-		return { sql: "", params: [], nextParamIndex: paramIndex };
+		compileError(
+			`Relation filter "${relation.name}" must be an object with some, every, or none`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
 	}
 
-	const mode = (["some", "every", "none"] as const).find(
-		(k) => k in rawValue,
-	);
+	const relationModes = ["some", "every", "none"] as const;
+	const modes = relationModes.filter((key) => key in rawValue);
+	if (modes.length !== 1) {
+		const hintKey = Object.keys(rawValue)[0] ?? "some";
+		compileError(
+			`Relation filter "${relation.name}" requires exactly one of some, every, or none`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+				suggestions: suggestWhereOperator(hintKey, relationModes),
+			},
+		);
+	}
+	const mode = modes[0];
 	if (!mode) {
-		return { sql: "", params: [], nextParamIndex: paramIndex };
+		compileError(
+			`Relation filter "${relation.name}" requires exactly one of some, every, or none`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
+	}
+	const extraKeys = Object.keys(rawValue).filter((key) => key !== mode);
+	if (extraKeys[0]) {
+		compileError(
+			`unsupported relation filter "${extraKeys[0]}" on "${relation.name}"`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+				suggestions: suggestWhereOperator(extraKeys[0], relationModes),
+			},
+		);
 	}
 
 	const nestedWhere = rawValue[mode];
-	if (!isOperatorObject(nestedWhere) && nestedWhere !== undefined) {
-		return { sql: "", params: [], nextParamIndex: paramIndex };
+	if (nestedWhere !== undefined && !isOperatorObject(nestedWhere)) {
+		compileError(
+			`Relation filter "${relation.name}.${mode}" must be a where object`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
 	}
 
 	const relAlias = "_rel";
@@ -541,8 +633,7 @@ function compileWhereNode(
 			continue;
 		}
 
-		const col = columnByTsName(tableIndex, table, key);
-		if (!col) continue;
+		const col = requireTsColumn(tableIndex, table, key, "where", "select");
 
 		const compiled = compileColumnCondition(
 			col,

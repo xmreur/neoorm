@@ -61,7 +61,8 @@ Codes are **dialect-agnostic** — the same `unique_violation` code is used for 
 | `empty_returning` | — | 500 | INSERT … RETURNING returned no row |
 | `connection_error` | — | 503 | `$connect` failed |
 | `unknown_table` | `QueryCompileError` | 400 | Bad table accessor |
-| `unknown_column` | `QueryCompileError` | 400 | Bad column in select/omit/groupBy |
+| `unknown_column` | `QueryCompileError` | 400 | Bad column in where/select/omit/groupBy |
+| `invalid_args` | `QueryCompileError` | 400 | Unsupported where/having operator |
 | `unique_where_invalid` | `QueryCompileError` | 400 | update/delete where not unique |
 | `where_required` | `QueryCompileError` | 400 | update/delete missing where |
 

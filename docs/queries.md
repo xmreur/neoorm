@@ -162,6 +162,8 @@ await db.posts.findFirst({
 });
 ```
 
+Unknown column names and operators fail at compile time (`unknown_column`, with “did you mean” hints). JSON columns may still use a plain object as equality (`{ metadata: { featured: true } }`).
+
 | Type | Operators |
 |------|-----------|
 | String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `in`, `notIn`, `mode` |
