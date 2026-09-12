@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
-import { runCreate } from "../src/runtime/query/create.js";
+import { createManyRecords, runCreate } from "../src/runtime/query/create.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import {
 	applyToOnePreWrites,
@@ -102,6 +102,40 @@ describe("relation-writes", () => {
 		expect(relationWrites[0]?.value).toEqual({
 			delete: [{ id: "comment_1" }],
 		});
+	});
+
+	it("rejects unknown keys in create data", () => {
+		const table = manifestTable(manifest, "users");
+		expect(() =>
+			splitScalarsAndRelationWrites(manifest, "users", table, {
+				emial: "a@b.com",
+			}),
+		).toThrow(/Unknown column "emial" in data/);
+		try {
+			splitScalarsAndRelationWrites(manifest, "users", table, {
+				emial: "a@b.com",
+			});
+		} catch (err) {
+			expect((err as { code: string }).code).toBe("unknown_column");
+		}
+	});
+
+	it("rejects a relation field that is not a nested write", () => {
+		const table = manifestTable(manifest, "posts");
+		expect(() =>
+			splitScalarsAndRelationWrites(manifest, "posts", table, {
+				title: "Hello",
+				author: "user_1",
+			}),
+		).toThrow(/Relation "author" requires a nested write object/);
+	});
+
+	it("rejects unknown keys in createMany", async () => {
+		await expect(
+			createManyRecords(createMockExecutor(), runtime, "users", {
+				data: [{ email: "a@b.com", emial: "typo" }],
+			}),
+		).rejects.toThrow(/Unknown column "emial" in data/);
 	});
 
 	it("hasPostRelationWrites is true for delete-only payload", () => {

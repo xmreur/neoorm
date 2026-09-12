@@ -8,6 +8,7 @@ import type {
 import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
+import type { QueryOperation } from "../errors.js";
 import type { Executor } from "../executor.js";
 import { buildInsertQuery, dataToSqlValues } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
@@ -32,6 +33,7 @@ import {
 	type ManifestIndex,
 	type TableIndex,
 	requireTable,
+	requireTsColumn,
 } from "./table-index.js";
 
 const RELATION_WRITE_KEYS = [
@@ -160,6 +162,7 @@ export function splitScalarsAndRelationWrites(
 	table: ManifestTable,
 	data: Record<string, unknown>,
 	manifestIndex?: ManifestIndex,
+	operation: QueryOperation = "insert",
 ): SplitDataResult {
 	const tableIndex = getTableIndex(manifestIndex, tableAccessor);
 	const scalarData: Record<string, unknown> = {};
@@ -172,12 +175,23 @@ export function splitScalarsAndRelationWrites(
 			continue;
 		}
 
-		if (
-			isRelationField(manifest, tableAccessor, table, key, tableIndex) &&
-			isRelationWriteObject(value)
-		) {
+		if (isRelationField(manifest, tableAccessor, table, key, tableIndex)) {
+			if (!isRelationWriteObject(value)) {
+				compileError(
+					`Relation "${key}" requires a nested write object`,
+					{
+						code: QueryErrorCode.invalid_nested_write,
+						operation,
+						tableAccessor: table.accessor,
+						tableSqlName: table.sqlName,
+					},
+				);
+			}
 			relationWrites.push({ relationName: key, value });
+			continue;
 		}
+
+		requireTsColumn(tableIndex, table, key, "data", operation);
 	}
 
 	return { scalarData, relationWrites };

@@ -86,7 +86,7 @@ If you see `Foreign key references unknown table accessor "server_members"`, che
 
 ## Queries: use TypeScript column names
 
-Filters, `select`, `omit`, `orderBy`, and `groupBy` use **TypeScript property names** from your schema, not SQL `snake_case` names.
+Filters, `select`, `omit`, `orderBy`, `groupBy`, and `create`/`update` `data` use **TypeScript property names** from your schema, not SQL `snake_case` names. Unknown keys fail at compile time (`unknown_column`).
 
 ```ts
 // Wrong
