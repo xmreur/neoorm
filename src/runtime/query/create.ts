@@ -146,7 +146,7 @@ export async function runCreate(
 			insertSql,
 			values,
 		);
-		result = mapRowToTs(tableIndex, table, row);
+		result = { ...scalarData, ...mapRowToTs(tableIndex, table, row) };
 	}
 
 	if (!hasPrimaryKey && relationWrites.length > 0) {
