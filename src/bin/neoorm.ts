@@ -10,6 +10,10 @@ import {
 	generateFromSchema,
 } from "../codegen/generate.js";
 import { loadConfig } from "../config.js";
+import {
+	isPostgresProvider,
+	isSqliteProvider,
+} from "../datasource-provider.js";
 import { postgresDialect } from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect } from "../dialect/types.js";
@@ -38,7 +42,7 @@ type ConnectedDb = {
 function connectDb(
 	config: Awaited<ReturnType<typeof loadConfig>>,
 ): ConnectedDb {
-	if (config.datasource.provider === "sqlite") {
+	if (isSqliteProvider(config.datasource.provider)) {
 		const db = openSqliteDatabase(config.datasource.url);
 		const client = sqliteClient(db);
 		return {
@@ -83,10 +87,9 @@ async function runDbPush(
 	options: { acceptDataLoss?: boolean },
 ): Promise<void> {
 	const cwd = process.cwd();
-	const dbSchema =
-		config.datasource.provider === "postgresql"
-			? config.datasource.schema
-			: undefined;
+	const dbSchema = isPostgresProvider(config.datasource.provider)
+		? config.datasource.schema
+		: undefined;
 	const { client, dialect, close } = connectDb(config);
 
 	try {
@@ -131,20 +134,18 @@ async function runDbPull(
 	options: { output?: string },
 ): Promise<void> {
 	const cwd = process.cwd();
-	const dbSchema =
-		config.datasource.provider === "postgresql"
-			? config.datasource.schema
-			: undefined;
+	const dbSchema = isPostgresProvider(config.datasource.provider)
+		? config.datasource.schema
+		: undefined;
 	const { client, close } = connectDb(config);
 
 	try {
-		const content =
-			config.datasource.provider === "sqlite"
-				? await introspectSqlite(client)
-				: await introspectPostgres(
-						client,
-						dbSchema ? { schema: dbSchema } : {},
-					);
+		const content = isSqliteProvider(config.datasource.provider)
+			? await introspectSqlite(client)
+			: await introspectPostgres(
+					client,
+					dbSchema ? { schema: dbSchema } : {},
+				);
 		const outputPath = resolve(cwd, options.output ?? "schema.pulled.ts");
 		await writeFile(outputPath, content, "utf-8");
 		console.log(`Schema written to ${outputPath}`);
@@ -256,7 +257,10 @@ program
 	.option("--force", "Overwrite existing scaffold files")
 	.option("--schema <path>", "Schema file path", "./schema.ts")
 	.option("--out <dir>", "Generated output directory", "./neoorm")
-	.option("--provider <provider>", "Database provider (postgresql|sqlite)")
+	.option(
+		"--provider <provider>",
+		"Database provider (postgresql|postgres|sqlite)",
+	)
 	.option("--database-url <url>", "Database URL / file path")
 	.action(
 		async (options: {
@@ -368,10 +372,9 @@ program
 			const config = await loadConfig(cwd);
 			const outDir = resolve(cwd, config.out);
 			const migrationsDir = join(outDir, "migrations");
-			const dbSchema =
-				config.datasource.provider === "postgresql"
-					? config.datasource.schema
-					: undefined;
+			const dbSchema = isPostgresProvider(config.datasource.provider)
+				? config.datasource.schema
+				: undefined;
 			const { client, dialect, close } = connectDb(config);
 
 			try {
@@ -403,7 +406,7 @@ program
 						},
 					);
 					console.log(
-						config.datasource.provider === "sqlite"
+						isSqliteProvider(config.datasource.provider)
 							? "✓ Database reset (all tables dropped and recreated)"
 							: `✓ Database schema reset (${dbSchema ?? "public"} schema dropped and recreated)`,
 					);

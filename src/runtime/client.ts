@@ -1,5 +1,9 @@
 import { Pool, type PoolConfig } from "pg";
 import {
+	type DatabaseProvider,
+	isSqliteProvider,
+} from "../datasource-provider.js";
+import {
 	applySchemaToManifest,
 	postgresDialect,
 	resolvePgSchemaName,
@@ -72,8 +76,8 @@ import type {
 export type NeoOrmClientOptions = {
 	/** PostgreSQL connection string. Falls back to `DATABASE_URL`. */
 	connectionString?: string;
-	/** Database provider. Inferred from manifest when omitted. */
-	provider?: "postgres" | "sqlite";
+	/** Database provider. `"postgres"` is accepted as an alias of `"postgresql"`. Inferred from manifest when omitted. */
+	provider?: DatabaseProvider;
 	/** SQLite database handle (Bun or Node 22.5+). */
 	db?: SqliteDatabaseLike;
 	/** SQLite file path when `db` is not provided. */
@@ -527,8 +531,8 @@ export function createNeoOrmClient<
 			: (connectionStringOrOptions ?? {});
 
 	if (
-		options.provider === "sqlite" ||
-		manifest.provider === "sqlite" ||
+		isSqliteProvider(options.provider) ||
+		isSqliteProvider(manifest.provider) ||
 		options.db !== undefined ||
 		options.databasePath !== undefined
 	) {

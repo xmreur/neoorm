@@ -32,6 +32,7 @@ export {
 } from "./codegen/schema-to-manifest.js";
 export type { NeoOrmConfig } from "./config.js";
 export { defineConfig, loadConfig } from "./config.js";
+export type { DatabaseProvider } from "./datasource-provider.js";
 export { postgresDialect } from "./dialect/postgres.js";
 export type {
 	Manifest,

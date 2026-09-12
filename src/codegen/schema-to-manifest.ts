@@ -1,3 +1,7 @@
+import {
+	type DatabaseProvider,
+	isSqliteProvider,
+} from "../datasource-provider.js";
 import { parseFkTarget } from "../dialect/fk.js";
 import { resolveIndexSqlName } from "../dialect/postgres.js";
 import type {
@@ -51,7 +55,7 @@ export type SchemaValidationIssue = {
 /** Options for {@link schemaToManifest}. */
 export type SchemaToManifestOptions = {
 	enumMode?: "check" | "union" | "native";
-	provider?: "postgresql" | "sqlite";
+	provider?: DatabaseProvider;
 	url?: string;
 };
 
@@ -256,7 +260,7 @@ function compileIndexWhere(
 	where: IndexWherePredicate,
 	columns: Record<string, ColumnDef>,
 	columnNaming: ColumnNaming,
-	provider?: "postgresql" | "sqlite",
+	provider?: DatabaseProvider,
 ): string {
 	const parts: string[] = [];
 	for (const [tsName, value] of Object.entries(where)) {
@@ -267,7 +271,7 @@ function compileIndexWhere(
 			parts.push(`${quoted} IS NULL`);
 		} else if (typeof value === "boolean") {
 			parts.push(
-				provider === "sqlite"
+				isSqliteProvider(provider)
 					? `${quoted} = ${value ? 1 : 0}`
 					: `${quoted} = ${value}`,
 			);
@@ -378,7 +382,7 @@ function extrasToManifest(
 	columns: Record<string, ColumnDef>,
 	tableSqlName: string,
 	columnNaming: ColumnNaming,
-	provider?: "postgresql" | "sqlite",
+	provider?: DatabaseProvider,
 ): { indexes: ManifestIndex[]; primaryKey: string[] } {
 	const indexes: ManifestIndex[] = [];
 	let primaryKey: string[] = [];

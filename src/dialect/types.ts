@@ -1,3 +1,5 @@
+import type { DatabaseProvider } from "../datasource-provider.js";
+
 export type CoreColumnKind =
 	| "id"
 	| "text"
@@ -83,7 +85,7 @@ export type ManifestTable = {
 
 export type Manifest = {
 	version: 1;
-	provider?: "postgresql" | "sqlite";
+	provider?: DatabaseProvider;
 	url?: string;
 	tables: Record<string, ManifestTable>;
 	manyToMany: ManifestManyToMany[];

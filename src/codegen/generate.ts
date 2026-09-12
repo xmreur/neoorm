@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	type DatabaseProvider,
+	isSqliteProvider,
+} from "../datasource-provider.js";
 import { applySchemaToManifest, postgresDialect } from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
@@ -25,10 +29,8 @@ import {
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
 
-function dialectForProvider(
-	provider: "postgresql" | "sqlite" | undefined,
-): Dialect {
-	return provider === "sqlite" ? sqliteDialect : postgresDialect;
+function dialectForProvider(provider: DatabaseProvider | undefined): Dialect {
+	return isSqliteProvider(provider) ? sqliteDialect : postgresDialect;
 }
 
 async function resolvePluginRegistry(): Promise<NeoOrmPlugin[]> {
@@ -324,7 +326,7 @@ export type GenerateResult = {
 export type GenerateOptions = {
 	acceptDataLoss?: boolean;
 	enumMode?: "check" | "union" | "native";
-	provider?: "postgresql" | "sqlite";
+	provider?: DatabaseProvider;
 	schema?: string;
 	url?: string;
 };

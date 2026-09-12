@@ -26,7 +26,7 @@ CLI commands load `.env` from the project directory before evaluating this file,
 |-----|------|---------|-------------|
 | `schema` | `string` | required | Path to the schema file |
 | `out` | `string` | required | Output directory for generated files |
-| `datasource.provider` | `"postgresql" \| "sqlite"` | required | Database provider |
+| `datasource.provider` | `"postgresql" \| "postgres" \| "sqlite"` | required | Database provider. `"postgres"` is an alias of `"postgresql"`. |
 | `datasource.url` | `string` | required | Connection string (PostgreSQL) or database file path / `:memory:` (SQLite) |
 | `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite: not applicable) |
 | `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
