@@ -31,6 +31,7 @@ import {
 	getTableIndex,
 	relationByName,
 	requireTable,
+	requireTsColumn,
 } from "./table-index.js";
 import {
 	applyToOnePreWrites,
@@ -355,6 +356,8 @@ function prepareCreateManyRows(
 					`createMany does not support nested relation writes (field: ${key})`,
 				);
 			}
+
+			requireTsColumn(tableIndex, table, key, "data", "insert");
 		}
 
 		fillMissingPrimaryKeys(table, scalarData, tableIndex);

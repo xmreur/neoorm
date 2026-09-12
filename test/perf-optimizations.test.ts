@@ -480,7 +480,7 @@ describe("create transaction elision", () => {
 		});
 
 		await createRecord(executor, runtime, "users", {
-			data: { email: "a@test.com", name: "Alice" },
+			data: { name: "Alice" },
 		});
 
 		expect(executor.transaction).not.toHaveBeenCalled();
@@ -496,7 +496,7 @@ describe("insert/update returning optimizations", () => {
 		});
 
 		await createRecord(executor, runtime, "users", {
-			data: { email: "a@test.com", name: "Alice" },
+			data: { name: "Alice" },
 			returnCreated: true,
 		});
 

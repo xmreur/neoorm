@@ -54,6 +54,8 @@ const users = await db.users.createManyAndReturn({
 });
 ```
 
+Unknown keys in `data` fail at compile time (`unknown_column`), same as `where`.
+
 ## Update
 
 Singular `update` requires a unique `where` (primary key, `@unique` column, or composite unique index), same as `findUnique`. Use `updateMany` when the filter can match multiple rows.

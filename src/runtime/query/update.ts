@@ -85,6 +85,7 @@ async function runUpdate(
 					table,
 					args.data,
 					runtime.tableIndex,
+					"update",
 				);
 	const { scalarData, relationWrites } = split;
 
@@ -256,6 +257,7 @@ export async function updateRecord(
 		table,
 		args.data,
 		runtime.tableIndex,
+		"update",
 	);
 	const needsTransaction = hasPostRelationWrites(
 		table,
@@ -304,6 +306,7 @@ async function runUpdateMany(
 					table,
 					args.data,
 					runtime.tableIndex,
+					"update",
 				);
 	const { scalarData, relationWrites } = split;
 
@@ -539,6 +542,7 @@ async function updateManyInternal(
 		table,
 		args.data,
 		runtime.tableIndex,
+		"update",
 	);
 	const needsTransaction = hasPostRelationWrites(
 		table,
