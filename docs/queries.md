@@ -35,7 +35,20 @@ Unique `where` (`findUnique`, `upsert`, `findOrCreate`, singular `update`/`delet
 ## Create
 
 ```ts
-const user = await db.users.create({ data: { email: "a@b.com" } });
+const created = await db.users.create({ data: { email: "a@b.com" } });
+created.id; // primary key is always returned
+
+// Pass returnCreated: true to get the full row (defaults, timestamps, …)
+const user = await db.users.create({
+  data: { email: "a@b.com" },
+  returnCreated: true,
+});
+
+// `with` also returns the full row (plus relations)
+const post = await db.posts.create({
+  data: { title: "Hello", body: "…", authorId: user.id },
+  with: { author: true },
+});
 
 // Bulk insert (returns count)
 const count = await db.users.createMany({
@@ -63,10 +76,17 @@ Unknown keys in `data` fail at compile time (`unknown_column`), same as `where`.
 Singular `update` requires a unique `where` (primary key, `@unique` column, or composite unique index), same as `findUnique`. Use `updateMany` when the filter can match multiple rows.
 
 ```ts
-// Single record
+// Returns {} on success, null if no row matched
+const updated = await db.users.update({
+  where: { id: userId },
+  data: { email: "new@b.com" },
+});
+
+// Pass returnUpdated: true to get the updated row back
 const user = await db.users.update({
   where: { id: userId },
   data: { email: "new@b.com" },
+  returnUpdated: true,
 });
 
 // By ID (scalar PK — string; composite PK — object)

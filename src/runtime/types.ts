@@ -19,6 +19,8 @@ import type {
 	InferCountResult,
 	InferFindResult,
 	InferGroupByResult,
+	InferMutationResult,
+	InferPkFields,
 	InferSelectRow,
 	InferWithResult,
 	OmitInput,
@@ -141,24 +143,30 @@ export type CreateArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = Omit<CreateArgs<TSchema, TAccessor>, "with"> & {
+	TReturnCreated extends boolean | undefined = boolean | undefined,
+> = Omit<CreateArgs<TSchema, TAccessor>, "with" | "returnCreated"> & {
 	with?: TWith;
+	returnCreated?: TReturnCreated;
 };
 
 export type UpdateArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = Omit<UpdateArgs<TSchema, TAccessor>, "with"> & {
+	TReturnUpdated extends boolean | undefined = boolean | undefined,
+> = Omit<UpdateArgs<TSchema, TAccessor>, "with" | "returnUpdated"> & {
 	with?: TWith;
+	returnUpdated?: TReturnUpdated;
 };
 
 export type DeleteArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = Omit<DeleteArgs<TSchema, TAccessor>, "with"> & {
+	TReturnDeleted extends boolean | undefined = boolean | undefined,
+> = Omit<DeleteArgs<TSchema, TAccessor>, "with" | "returnDeleted"> & {
 	with?: TWith;
+	returnDeleted?: TReturnDeleted;
 };
 
 export type PaginateArgsWith<
@@ -347,9 +355,21 @@ export type TypedTableRepository<
 		TRowPayload,
 		IncludeHiddenFlag<IH>
 	> | null>;
-	create<W extends TWith | undefined = undefined>(
-		args: CreateArgsWith<TSchema, TAccessor, W>,
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload>>;
+	create<
+		W extends TWith | undefined = undefined,
+		const RC extends boolean | undefined = undefined,
+	>(
+		args: CreateArgsWith<TSchema, TAccessor, W, RC>,
+	): Promise<
+		InferMutationResult<
+			TSchema,
+			TAccessor,
+			W,
+			RC,
+			TRowPayload,
+			InferPkFields<TSchema[TAccessor]["_columns"], TRowPayload>
+		>
+	>;
 	createMany(args: CreateManyArgs<TSchema, TAccessor>): Promise<number>;
 	createManyAndReturn(
 		args: CreateManyAndReturnArgs<TSchema, TAccessor>,
@@ -383,14 +403,27 @@ export type TypedTableRepository<
 			>
 		>
 	>;
-	update<W extends TWith | undefined = undefined>(
-		args: UpdateArgsWith<TSchema, TAccessor, W>,
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
+	update<
+		W extends TWith | undefined = undefined,
+		const RU extends boolean | undefined = undefined,
+	>(
+		args: UpdateArgsWith<TSchema, TAccessor, W, RU>,
+	): Promise<InferMutationResult<
+		TSchema,
+		TAccessor,
+		W,
+		RU,
+		TRowPayload,
+		Record<never, never>
+	> | null>;
 	updateMany(args: UpdateManyArgs<TSchema, TAccessor>): Promise<number>;
 	updateManyAndReturn(
 		args: UpdateManyAndReturnArgs<TSchema, TAccessor>,
 	): Promise<TRowPayload[]>;
-	updateById<W extends TWith | undefined = undefined>(
+	updateById<
+		W extends TWith | undefined = undefined,
+		const RU extends boolean | undefined = undefined,
+	>(
 		id: string | Record<string, unknown>,
 		args: {
 			data: UpdateInput<
@@ -399,11 +432,29 @@ export type TypedTableRepository<
 				TAccessor
 			>;
 			with?: W;
+			returnUpdated?: RU;
 		},
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
-	delete<W extends TWith | undefined = undefined>(
-		args: DeleteArgsWith<TSchema, TAccessor, W>,
-	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload> | null>;
+	): Promise<InferMutationResult<
+		TSchema,
+		TAccessor,
+		W,
+		RU,
+		TRowPayload,
+		Record<never, never>
+	> | null>;
+	delete<
+		W extends TWith | undefined = undefined,
+		const RD extends boolean | undefined = undefined,
+	>(
+		args: DeleteArgsWith<TSchema, TAccessor, W, RD>,
+	): Promise<InferMutationResult<
+		TSchema,
+		TAccessor,
+		W,
+		RD,
+		TRowPayload,
+		Record<never, never>
+	> | null>;
 	deleteMany(args?: DeleteManyArgs<TSchema, TAccessor>): Promise<number>;
 	deleteManyAndReturn(
 		args?: DeleteManyAndReturnArgs<TSchema, TAccessor>,
@@ -423,7 +474,7 @@ export type TypedTableRepository<
 	): Promise<InferGroupByResult<TArgs, TRowPayload>[]>;
 	deleteById(
 		id: string | Record<string, unknown>,
-	): Promise<TRowPayload | null>;
+	): Promise<Record<never, never> | null>;
 	paginate<
 		TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 		W extends TWith | undefined = undefined,

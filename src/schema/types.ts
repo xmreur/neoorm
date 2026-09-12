@@ -8,6 +8,7 @@ import type {
 	CursorInput,
 	InferInsertRow,
 	InferSelectRow,
+	InferWithResult,
 	OmitInput,
 	OrderByInput,
 	OrderDirection,
@@ -151,6 +152,32 @@ export type CreateArgs<
 	with?: WithInputMap<TSchema, TAccessor>;
 	returnCreated?: boolean;
 };
+
+/** Primary-key fields from a row payload (empty object when the table has no PK). */
+export type InferPkFields<
+	TColumns extends Record<string, ColumnDef>,
+	TRow extends Record<string, unknown>,
+> = [ScalarPkName<TColumns>] extends [never]
+	? Record<never, never>
+	: Expand<Pick<TRow, ScalarPkName<TColumns> & keyof TRow>>;
+
+/**
+ * Create/update/delete result: full row when `with` or the matching
+ * `returnCreated` / `returnUpdated` / `returnDeleted` flag is set; otherwise
+ * `TMinimal` (PK fields for create, `{}` for update/delete).
+ */
+export type InferMutationResult<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	W,
+	TReturn extends boolean | undefined,
+	TRowPayload extends Record<string, unknown>,
+	TMinimal extends Record<string, unknown>,
+> = [W] extends [undefined]
+	? TReturn extends true
+		? TRowPayload
+		: TMinimal
+	: InferWithResult<TSchema, TAccessor, W, TRowPayload>;
 
 export type CreateManyInput<
 	TColumns extends Record<string, ColumnDef>,

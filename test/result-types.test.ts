@@ -5,6 +5,8 @@ import type {
 	InferCountResult,
 	InferFindResult,
 	InferGroupByResult,
+	InferMutationResult,
+	InferPkFields,
 	InferWithResult,
 } from "../src/schema/types.js";
 
@@ -272,5 +274,65 @@ describe("count and aggregate return types", () => {
 			_count: { _all: number; authorId: number };
 			_avg: { views: number | null };
 		}>();
+	});
+});
+
+describe("mutation return types", () => {
+	it("create without returnCreated is primary-key fields", () => {
+		expectTypeOf<
+			InferMutationResult<
+				typeof schema._tables,
+				"users",
+				undefined,
+				undefined,
+				UserRow,
+				InferPkFields<
+					(typeof schema._tables)["users"]["_columns"],
+					UserRow
+				>
+			>
+		>().toEqualTypeOf<{ id: string }>();
+	});
+
+	it("create with returnCreated is the full row", () => {
+		expectTypeOf<
+			InferMutationResult<
+				typeof schema._tables,
+				"users",
+				undefined,
+				true,
+				UserRow,
+				InferPkFields<
+					(typeof schema._tables)["users"]["_columns"],
+					UserRow
+				>
+			>
+		>().toEqualTypeOf<UserRow>();
+	});
+
+	it("delete without returnDeleted is an empty object", () => {
+		expectTypeOf<
+			InferMutationResult<
+				typeof schema._tables,
+				"users",
+				undefined,
+				undefined,
+				UserRow,
+				Record<never, never>
+			>
+		>().toEqualTypeOf<Record<never, never>>();
+	});
+
+	it("delete with with is the full row plus relations", () => {
+		type Result = InferMutationResult<
+			typeof schema._tables,
+			"posts",
+			{ author: true },
+			undefined,
+			PostRow,
+			Record<never, never>
+		>;
+		expectTypeOf<Result>().toHaveProperty("title");
+		expectTypeOf<Result>().toHaveProperty("author");
 	});
 });
