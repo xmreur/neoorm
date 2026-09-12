@@ -210,3 +210,46 @@ describe("sqlite placeholders", () => {
 		await client.close();
 	});
 });
+
+describe("sqlite readOnly transactions", () => {
+	it("rejects writes inside readOnly and allows them afterward", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await client.query(
+			"CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)",
+		);
+
+		await expect(
+			client.transaction(
+				async (tx) => {
+					await tx.query("INSERT INTO t (v) VALUES ($1)", ["nope"]);
+				},
+				{ readOnly: true },
+			),
+		).rejects.toThrow(/readonly/i);
+
+		await client.query("INSERT INTO t (v) VALUES ($1)", ["ok"]);
+		const rows = await client.query<{ v: string }>("SELECT v FROM t");
+		expect(rows.rows.map((row) => row.v)).toEqual(["ok"]);
+		await client.close();
+	});
+
+	it("allows reads in a readOnly transaction", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await client.query(
+			"CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)",
+		);
+		await client.query("INSERT INTO t (v) VALUES ($1)", ["kept"]);
+
+		const value = await client.transaction(
+			async (tx) => {
+				const result = await tx.query<{ v: string }>("SELECT v FROM t");
+				return result.rows[0]?.v;
+			},
+			{ readOnly: true },
+		);
+		expect(value).toBe("kept");
+		await client.close();
+	});
+});
