@@ -135,6 +135,27 @@ describe("eager loading batching", () => {
 		});
 	});
 
+	it("applies take/skip per parent on batched has-many IN", async () => {
+		const executor = createMockExecutor({
+			query: () => [],
+		});
+
+		const parentRows: Record<string, unknown>[] = [
+			{ id: "post_1", title: "Post A" },
+			{ id: "post_2", title: "Post B" },
+		];
+
+		await loadRelations(executor, runtime, posts, parentRows, {
+			comments: { take: 1, orderBy: { body: "asc" } },
+		});
+
+		const commentsQuery = atIndex(executor.queries, 0);
+		expect(commentsQuery.sql).toContain("ROW_NUMBER()");
+		expect(commentsQuery.sql).toContain("PARTITION BY");
+		expect(commentsQuery.sql).not.toMatch(/\bLIMIT 1\b/);
+		expect(commentsQuery.params).toEqual(["post_1", "post_2"]);
+	});
+
 	it("resolves to-one relation via LEFT JOIN in findMany (zero batch queries)", async () => {
 		const executor = createMockExecutor({
 			query: (sql) => {

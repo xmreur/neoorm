@@ -30,9 +30,9 @@ import {
 	columnsByTsNames,
 	getOrSetSqlCache,
 	getTableIndex,
-	requireTsColumn,
 	type ManifestIndex,
 	reorderKeyValues,
+	requireTsColumn,
 	sortedKeysCacheKey,
 	type TableIndex,
 } from "./table-index.js";
@@ -97,7 +97,12 @@ const operatorParamTransform: Partial<
 
 type QueryMode = "default" | "insensitive";
 
-type StringPatternOp = "equals" | "contains" | "startsWith" | "endsWith" | "search";
+type StringPatternOp =
+	| "equals"
+	| "contains"
+	| "startsWith"
+	| "endsWith"
+	| "search";
 
 function parseQueryMode(value: unknown): QueryMode {
 	if (value === undefined || value === "default") return "default";
@@ -1231,11 +1236,13 @@ export function buildSelectColumns(
 	select?: readonly string[],
 	manifestIndex?: ManifestIndex,
 	includeHidden?: boolean,
+	tableAlias?: string,
 ): string {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols = columnsForOutput(tableIndex, table, select, includeHidden);
+	const prefix = tableAlias ? `${quoteIdentifier(tableAlias)}.` : "";
 
-	return cols.map((c) => selectExpression(c)).join(", ");
+	return cols.map((c) => `${prefix}${selectExpression(c)}`).join(", ");
 }
 
 export function buildQualifiedSelectColumns(
@@ -2049,9 +2056,7 @@ export function resolveGroupByColumns(
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols: ManifestColumn[] = [];
 	for (const key of byKeys) {
-		cols.push(
-			requireTsColumn(tableIndex, table, key, "groupBy", "select"),
-		);
+		cols.push(requireTsColumn(tableIndex, table, key, "groupBy", "select"));
 	}
 	return cols;
 }
