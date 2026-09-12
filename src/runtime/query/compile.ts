@@ -274,6 +274,7 @@ function compileColumnCondition(
 				value,
 				col,
 				nextParamIndex,
+				dialect,
 			);
 			conditions.push(compiled.sql);
 			params.push(...compiled.params);
