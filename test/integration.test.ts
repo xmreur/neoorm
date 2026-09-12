@@ -77,7 +77,11 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		>(manifest, pool);
 
 		const user = await db.users.create({
-			data: { email: "test@example.com", name: "Test User" },
+			data: {
+				email: "test@example.com",
+				name: "Test User",
+				password: "secret",
+			},
 		});
 
 		const users = await db.users.findMany();
@@ -96,7 +100,11 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		>(manifest, pool);
 
 		const author = await db.users.create({
-			data: { email: "author@example.com", name: "Author" },
+			data: {
+				email: "author@example.com",
+				name: "Author",
+				password: "secret",
+			},
 		});
 
 		const post = await db.posts.create({
@@ -163,6 +171,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `rel-writes-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -229,6 +238,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `delete-comment-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -292,6 +302,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `update-many-m2m-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -356,6 +367,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `delete-tag-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -404,6 +416,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `disconnect-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -437,8 +450,16 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		const count = await db.users.createMany({
 			data: [
-				{ email: `bulk-1-${Date.now()}@example.com`, name: "Bulk One" },
-				{ email: `bulk-2-${Date.now()}@example.com`, name: "Bulk Two" },
+				{
+					email: `bulk-1-${Date.now()}@example.com`,
+					name: "Bulk One",
+					password: "secret",
+				},
+				{
+					email: `bulk-2-${Date.now()}@example.com`,
+					name: "Bulk Two",
+					password: "secret",
+				},
 			],
 		});
 		expect(count).toBe(2);
@@ -455,8 +476,16 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		const ts = Date.now();
 		const rows = await db.users.createManyAndReturn({
 			data: [
-				{ email: `return-1-${ts}@example.com`, name: "Return One" },
-				{ email: `return-2-${ts}@example.com`, name: "Return Two" },
+				{
+					email: `return-1-${ts}@example.com`,
+					name: "Return One",
+					password: "secret",
+				},
+				{
+					email: `return-2-${ts}@example.com`,
+					name: "Return Two",
+					password: "secret",
+				},
 			],
 		});
 
@@ -475,19 +504,25 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		>(manifest, pool);
 
 		const email = `skip-dup-${Date.now()}@example.com`;
-		await db.users.create({ data: { email, name: "First" } });
+		await db.users.create({
+			data: { email, name: "First", password: "secret" },
+		});
 
 		const count = await db.users.createMany({
 			data: [
-				{ email, name: "Again" },
-				{ email: `skip-new-${Date.now()}@example.com`, name: "Second" },
+				{ email, name: "Again", password: "secret" },
+				{
+					email: `skip-new-${Date.now()}@example.com`,
+					name: "Second",
+					password: "secret",
+				},
 			],
 			skipDuplicates: true,
 		});
 		expect(count).toBe(1);
 
 		const returned = await db.users.createManyAndReturn({
-			data: [{ email, name: "Third" }],
+			data: [{ email, name: "Third", password: "secret" }],
 			skipDuplicates: true,
 		});
 		expect(returned).toEqual([]);
@@ -504,8 +539,16 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		const ts = Date.now();
 		const created = await db.users.createManyAndReturn({
 			data: [
-				{ email: `ret-upd-1-${ts}@example.com`, name: "One" },
-				{ email: `ret-upd-2-${ts}@example.com`, name: "Two" },
+				{
+					email: `ret-upd-1-${ts}@example.com`,
+					name: "One",
+					password: "secret",
+				},
+				{
+					email: `ret-upd-2-${ts}@example.com`,
+					name: "Two",
+					password: "secret",
+				},
 			],
 		});
 		expect(created).toHaveLength(2);
@@ -532,7 +575,11 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		>(manifest, pool);
 
 		const user = await db.users.create({
-			data: { email: "mutate@example.com", name: "Before" },
+			data: {
+				email: "mutate@example.com",
+				name: "Before",
+				password: "secret",
+			},
 		});
 
 		const updated = await db.users.update({
@@ -567,7 +614,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		const result = await db.$transaction(async (tx) => {
 			const user = await tx.users.create({
-				data: { email, name: "Tx User" },
+				data: { email, name: "Tx User", password: "secret" },
 				returnCreated: true,
 			});
 			const post = await tx.posts.create({
@@ -601,7 +648,9 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		await expect(
 			db.$transaction(async (tx) => {
-				await tx.users.create({ data: { email, name: "Tx User" } });
+				await tx.users.create({
+					data: { email, name: "Tx User", password: "secret" },
+				});
 				throw new Error("abort");
 			}),
 		).rejects.toThrow("abort");
@@ -625,6 +674,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 						data: {
 							email: `readonly-${Date.now()}@example.com`,
 							name: "Nope",
+							password: "secret",
 						},
 					});
 				},
@@ -646,13 +696,17 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		await db.$transaction(async (tx) => {
 			await tx.users.create({
-				data: { email: outerEmail, name: "Outer" },
+				data: { email: outerEmail, name: "Outer", password: "secret" },
 			});
 
 			await expect(
 				tx.$transaction(async (nested) => {
 					await nested.users.create({
-						data: { email: innerEmail, name: "Inner" },
+						data: {
+							email: innerEmail,
+							name: "Inner",
+							password: "secret",
+						},
 					});
 					throw new Error("nested abort");
 				}),
@@ -679,6 +733,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `paginate-${Date.now()}@example.com`,
 				name: "Pager",
+				password: "secret",
 			},
 		});
 
@@ -754,6 +809,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `updated-at-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -820,6 +876,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `count-with-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -854,6 +911,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `aggregate-${Date.now()}@example.com`,
 				name: "Author",
+				password: "secret",
 			},
 		});
 
@@ -889,12 +947,14 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: {
 				email: `groupby-a-${Date.now()}@example.com`,
 				name: "Author A",
+				password: "secret",
 			},
 		});
 		const authorB = await db.users.create({
 			data: {
 				email: `groupby-b-${Date.now()}@example.com`,
 				name: "Author B",
+				password: "secret",
 			},
 		});
 

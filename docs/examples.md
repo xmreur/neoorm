@@ -11,6 +11,7 @@ A small CMS-style schema used throughout these examples:
 ```ts
 import {
   bool,
+  decimal,
   defineSchema,
   enumType,
   fk,
@@ -37,6 +38,7 @@ export const schema = defineSchema({
     id: id(),
     userId: fk("users").notNull().unique().onDelete("cascade"),
     bio: text(),
+    avatarUrl: text(),
   }),
 
   posts: table({
@@ -48,6 +50,7 @@ export const schema = defineSchema({
     views: int().notNull().default(0),
     status: enumType(["draft", "published", "archived"]).notNull().default("draft"),
     metadata: jsonb<Record<string, unknown>>(),
+    price: decimal({ precision: 10, scale: 2 }),
     ...timestamps(),
     tags: many("tags"),
   }),
@@ -79,7 +82,7 @@ import { db } from "./neoorm/client.js";
 ```ts
 // Create
 const user = await db.users.create({
-  data: { email: "alice@example.com", name: "Alice" },
+  data: { email: "alice@example.com", name: "Alice", password: "secret" },
 });
 
 // Create and return full row
@@ -304,17 +307,25 @@ const stats = await db.posts.aggregate({
 Batch steps (single transaction):
 
 ```ts
+let authorId!: string;
 const [author, post] = await db.$transaction([
-  (tx) =>
-    tx.users.create({
-      data: { email: "author@example.com", name: "Author" },
-    }),
+  async (tx) => {
+    const created = await tx.users.create({
+      data: {
+        email: "author@example.com",
+        name: "Author",
+        password: "secret",
+      },
+    });
+    authorId = created.id;
+    return created;
+  },
   (tx) =>
     tx.posts.create({
       data: {
         title: "Transactional post",
         body: "...",
-        author: { connect: { id: "user_1" } },
+        author: { connect: { id: authorId } },
       },
     }),
 ]);
@@ -325,7 +336,7 @@ Interactive callback with rollback:
 ```ts
 await db.$transaction(async (tx) => {
   const user = await tx.users.create({
-    data: { email: "x@y.z", name: "Temp" },
+    data: { email: "x@y.z", name: "Temp", password: "secret" },
   });
   await tx.posts.create({
     data: {
@@ -342,10 +353,14 @@ Nested savepoints:
 
 ```ts
 await db.$transaction(async (tx) => {
-  await tx.users.create({ data: { email: "outer@x.y", name: "Outer" } });
+  await tx.users.create({
+    data: { email: "outer@x.y", name: "Outer", password: "secret" },
+  });
 
   await tx.$transaction(async (nested) => {
-    await nested.users.create({ data: { email: "inner@x.y", name: "Inner" } });
+    await nested.users.create({
+      data: { email: "inner@x.y", name: "Inner", password: "secret" },
+    });
     throw new Error("roll back inner only");
   }).catch(() => undefined);
 });

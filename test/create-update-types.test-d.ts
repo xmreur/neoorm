@@ -84,7 +84,11 @@ expectPostsCreate({
 
 const validUserMinimal: UsersCreate = {
 	email: "test@example.com",
+	password: "secret",
 };
+
+// @ts-expect-error -- password is required
+const _missingPassword: UsersCreate = { email: "test@example.com" };
 
 expectPostsUpdate({
 	title: "Updated",
@@ -147,3 +151,4 @@ expectPostsCreate({ title: "NeoORM", authorId: "user_1" });
 expectUsersUpdate({ profile: { create: [{ bio: "bad" }] } });
 
 void validUserMinimal;
+void _missingPassword;
