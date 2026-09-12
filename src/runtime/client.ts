@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import {
 	applySchemaToManifest,
 	postgresDialect,
@@ -96,11 +96,40 @@ export type NeoOrmClientOptions = {
 	 * Use this for slow-query logs.
 	 */
 	afterQuery?: QueryHooks["afterQuery"];
-	pool?: {
-		max?: number;
-		idleTimeoutMillis?: number;
-	};
+	/**
+	 * PostgreSQL pool settings passed to `pg.Pool`.
+	 * Connection identity stays on {@link NeoOrmClientOptions.connectionString}
+	 * (or `DATABASE_URL` / the manifest URL).
+	 */
+	pool?: NeoOrmPoolConfig;
 };
+
+/**
+ * Typed subset of `pg.PoolConfig` for {@link NeoOrmClientOptions.pool}.
+ * Host/user/password/`connectionString` are omitted so the client URL remains
+ * the single connection source.
+ */
+export type NeoOrmPoolConfig = Pick<
+	PoolConfig,
+	| "max"
+	| "min"
+	| "idleTimeoutMillis"
+	| "connectionTimeoutMillis"
+	| "maxLifetimeSeconds"
+	| "maxUses"
+	| "allowExitOnIdle"
+	| "ssl"
+	| "sslnegotiation"
+	| "enableChannelBinding"
+	| "statement_timeout"
+	| "query_timeout"
+	| "lock_timeout"
+	| "idle_in_transaction_session_timeout"
+	| "application_name"
+	| "fallback_application_name"
+	| "keepAlive"
+	| "keepAliveInitialDelayMillis"
+>;
 
 function pickExecutorOptions(
 	options:
@@ -118,6 +147,17 @@ function pickExecutorOptions(
 	if (options.beforeQuery) next.beforeQuery = options.beforeQuery;
 	if (options.afterQuery) next.afterQuery = options.afterQuery;
 	return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function toPgPoolConfig(
+	connectionString: string,
+	pool?: NeoOrmPoolConfig,
+): PoolConfig {
+	return {
+		connectionString,
+		max: 20,
+		...pool,
+	};
 }
 
 /**
@@ -529,11 +569,7 @@ export function createNeoOrmClient<
 		);
 	}
 
-	const pool = new Pool({
-		connectionString: url,
-		max: options.pool?.max ?? 20,
-		...options.pool,
-	});
+	const pool = new Pool(toPgPoolConfig(url, options.pool));
 	const schema = resolvePgSchemaName(options.schema);
 	const executor = createExecutor(pool, pickExecutorOptions(options));
 	const appliedManifest = applySchemaToManifest(manifest, schema);
