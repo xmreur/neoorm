@@ -216,6 +216,7 @@ Unknown column names and operators fail at compile time (`unknown_column`, with 
 | String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `in`, `notIn`, `mode` |
 | Numeric / Date | `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn` |
 | JSON | `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, `path` |
+| PostGIS (`geometry`, `geography`, `point`) | `intersects`, `within`, `dWithin` |
 | All nullable | `isNull`, `isNotNull` |
 
 `contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode.

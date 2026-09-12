@@ -114,7 +114,23 @@ export type WhereOperators<T> = T extends string
 type ColumnKindOf<TCol extends ColumnDef> =
 	TCol extends ColumnBuilder<unknown, infer M> ? M["kind"] : never;
 
-type InferColumnWhereOperators<
+/**
+ * Plugins augment this map with `{ [columnKind]: operator bag }`.
+ * Those keys are merged into `ColumnWhereInput` for columns of that kind.
+ */
+// biome-ignore lint/suspicious/noEmptyInterface: declaration merging target for plugins
+export interface PluginColumnWhereOperators {}
+
+type PluginWhereForColumn<TCol extends ColumnDef> = [
+	ColumnKindOf<TCol>,
+] extends [never]
+	? unknown
+	: [ColumnKindOf<TCol>] extends [keyof PluginColumnWhereOperators]
+		? PluginColumnWhereOperators[ColumnKindOf<TCol> &
+				keyof PluginColumnWhereOperators]
+		: unknown;
+
+type CoreColumnWhereOperators<
 	TCol extends ColumnDef,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
 > =
@@ -127,6 +143,11 @@ type InferColumnWhereOperators<
 				: TCol extends FkBuilder
 					? WhereOperators<InferColumnValue<TCol, TSchema>>
 					: WhereOperators<InferColumnValue<TCol, TSchema>>;
+
+type InferColumnWhereOperators<
+	TCol extends ColumnDef,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = CoreColumnWhereOperators<TCol, TSchema> & PluginWhereForColumn<TCol>;
 
 export type ColumnWhereInput<
 	TColumns extends Record<string, ColumnDef>,
