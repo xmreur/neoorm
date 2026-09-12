@@ -1,4 +1,3 @@
-import type { DatabaseClient } from "../runtime/driver.js";
 import { pgStorageSqlType, resolvePgSchemaName } from "../dialect/postgres.js";
 import type {
 	Manifest,
@@ -11,6 +10,7 @@ import {
 	findIntrospectColumnType,
 	getPluginRegistry,
 } from "../plugins/registry.js";
+import type { DatabaseClient } from "../runtime/driver.js";
 import { toCamelCase } from "../utils/case.js";
 import {
 	queryColumns,
@@ -41,6 +41,30 @@ function isSerialColumn(
 		columnDefault.includes("nextval(") ||
 		columnDefault.toLowerCase().includes("generated")
 	);
+}
+
+function isTextLikeIdKind(kind: ManifestColumn["kind"]): boolean {
+	return kind === "text" || kind === "citext";
+}
+
+/** Map a Postgres information_schema column to a manifest kind. */
+export function resolvePgColumnKind(
+	col: {
+		column_name: string;
+		data_type: string;
+		udt_name: string;
+		column_default: string | null;
+	},
+	enumTypes: Record<string, string[]> = {},
+): ManifestColumn["kind"] {
+	if (isSerialColumn(col.data_type, col.column_default)) {
+		return "serial";
+	}
+	const kind = pgTypeToKind(col.data_type, col.udt_name, enumTypes);
+	if (col.column_name === "id" && isTextLikeIdKind(kind)) {
+		return "id";
+	}
+	return kind;
 }
 
 function pgTypeToKind(
@@ -224,11 +248,7 @@ async function introspectTable(
 		const nullable = col.is_nullable === "YES";
 		const uniqueConstraintName = uniqueMap.get(col.column_name);
 		const defaults = parseDefaultValue(
-			fk
-				? "fk"
-				: isSerialColumn(col.data_type, col.column_default)
-					? "serial"
-					: pgTypeToKind(col.data_type, col.udt_name, enumTypes),
+			fk ? "fk" : resolvePgColumnKind(col, enumTypes),
 			col.column_default,
 		);
 
@@ -253,13 +273,7 @@ async function introspectTable(
 			};
 		}
 
-		const kind = isSerialColumn(col.data_type, col.column_default)
-			? "serial"
-			: col.column_name === "id" && col.udt_name === "uuid"
-				? "uuid"
-				: col.column_name === "id"
-					? "id"
-					: pgTypeToKind(col.data_type, col.udt_name, enumTypes);
+		const kind = resolvePgColumnKind(col, enumTypes);
 
 		const column: ManifestColumn = {
 			tsName,

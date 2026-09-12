@@ -1,7 +1,10 @@
-import type { DatabaseClient } from "../runtime/driver.js";
 import { resolvePgSchemaName } from "../dialect/postgres.js";
-import type { Manifest, ManifestColumn, ManifestTable } from "../dialect/types.js";
-import { findIntrospectColumnType } from "../plugins/registry.js";
+import type {
+	Manifest,
+	ManifestColumn,
+	ManifestTable,
+} from "../dialect/types.js";
+import type { DatabaseClient } from "../runtime/driver.js";
 import type { ColumnNaming } from "../schema/table.js";
 import {
 	escapeTsString,
@@ -11,6 +14,7 @@ import {
 } from "../utils/case.js";
 import { queryColumns, queryForeignKeys, queryTables } from "./queries.js";
 import { introspectSqliteToManifest } from "./sqlite/to-manifest.js";
+import { resolvePgColumnKind } from "./to-manifest.js";
 
 function inferFkAs(tsName: string): string {
 	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
@@ -53,7 +57,9 @@ export async function introspectPostgres(
 	const sqlToAccessor = new Map<string, string>();
 	for (const { table_name } of tables) {
 		const accessor = sanitizeTsIdentifier(
-			toCamelCase(table_name.endsWith("s") ? table_name : `${table_name}s`),
+			toCamelCase(
+				table_name.endsWith("s") ? table_name : `${table_name}s`,
+			),
 		);
 		sqlToAccessor.set(table_name, accessor);
 	}
@@ -83,9 +89,7 @@ export async function introspectPostgres(
 			if (fk) {
 				const targetAccessor =
 					sqlToAccessor.get(fk.foreign_table_name) ??
-					sanitizeTsIdentifier(
-						toCamelCase(fk.foreign_table_name),
-					);
+					sanitizeTsIdentifier(toCamelCase(fk.foreign_table_name));
 				const targetColumn = sanitizeTsIdentifier(
 					toCamelCase(fk.foreign_column_name),
 				);
@@ -106,73 +110,57 @@ export async function introspectPostgres(
 					columnNaming,
 				);
 				blockLines.push(`${def},`);
-			} else if (col.column_name === "id" && col.udt_name === "uuid") {
-				const version = col.column_default?.includes("gen_random_uuid")
-					? 4
-					: 7;
-				const def =
-					version === 4
-						? `    id: uuid({ version: 4 }).primary(),`
-						: `    id: uuid().primary(),`;
-				blockLines.push(def);
-			} else if (col.column_name === "id") {
-				blockLines.push(`    id: id(),`);
 			} else {
-				const pluginType = findIntrospectColumnType(
-					col.data_type,
-					col.udt_name,
-				);
-				if (pluginType) {
-					if (
-						pluginType.kind === "geometry" ||
-						pluginType.kind === "geography" ||
-						pluginType.kind === "point"
-					) {
-						needsPostgisSideEffect = true;
-						pluginColumnImports.add(
-							pluginType.kind === "geography"
-								? "geography"
-								: pluginType.kind === "point"
-									? "point"
-									: "geometry",
-						);
-					}
-					let def = `    ${tsName}: ${pluginType.kind}()`;
-					if (pluginType.kind === "uuid") {
-						const version = col.column_default?.includes(
-							"gen_random_uuid",
-						)
-							? 4
-							: 7;
-						def =
-							version === 4
-								? `    ${tsName}: uuid({ version: 4 })`
-								: `    ${tsName}: uuid()`;
-					}
-					if (col.is_nullable === "NO") def += `.notNull()`;
-					if (col.column_default?.includes("now()"))
-						def += `.defaultNow()`;
-					def = appendMapModifier(
-						def,
-						tsName,
-						col.column_name,
-						columnNaming,
-					);
-					blockLines.push(`${def},`);
-				} else {
-					const kind = pgTypeToKind(col.data_type);
-					let def = `    ${tsName}: ${kind}()`;
-					if (col.is_nullable === "NO") def += `.notNull()`;
-					if (col.column_default?.includes("now()"))
-						def += `.defaultNow()`;
-					def = appendMapModifier(
-						def,
-						tsName,
-						col.column_name,
-						columnNaming,
-					);
-					blockLines.push(`${def},`);
+				const kind = resolvePgColumnKind(col);
+				if (kind === "id") {
+					blockLines.push(`    id: id(),`);
+					continue;
 				}
+
+				if (
+					kind === "geometry" ||
+					kind === "geography" ||
+					kind === "point"
+				) {
+					needsPostgisSideEffect = true;
+					pluginColumnImports.add(
+						kind === "geography"
+							? "geography"
+							: kind === "point"
+								? "point"
+								: "geometry",
+					);
+				}
+
+				let def: string;
+				if (kind === "uuid") {
+					const version = col.column_default?.includes(
+						"gen_random_uuid",
+					)
+						? 4
+						: 7;
+					const call =
+						version === 4 ? `uuid({ version: 4 })` : `uuid()`;
+					def = `    ${tsName}: ${call}`;
+				} else {
+					def = `    ${tsName}: ${kind}()`;
+				}
+
+				if (col.column_name === "id") {
+					def += ".primary()";
+				} else if (kind !== "serial" && col.is_nullable === "NO") {
+					def += `.notNull()`;
+				}
+				if (col.column_default?.includes("now()")) {
+					def += `.defaultNow()`;
+				}
+				def = appendMapModifier(
+					def,
+					tsName,
+					col.column_name,
+					columnNaming,
+				);
+				blockLines.push(`${def},`);
 			}
 		}
 
@@ -188,6 +176,8 @@ export async function introspectPostgres(
 		`  text,`,
 		`  bool,`,
 		`  int,`,
+		`  bigint,`,
+		`  serial,`,
 		`  timestamp,`,
 		`  uuid,`,
 		`  fk,`,
@@ -316,7 +306,9 @@ function sqliteColumnDef(
 	return `${def},`;
 }
 
-export async function introspectSqlite(client: DatabaseClient): Promise<string> {
+export async function introspectSqlite(
+	client: DatabaseClient,
+): Promise<string> {
 	const manifest = await introspectSqliteToManifest(client);
 
 	const tableBlocks: string[] = [];
@@ -340,7 +332,9 @@ export async function introspectSqlite(client: DatabaseClient): Promise<string> 
 		if (table.primaryKey.length > 1) {
 			extras.push(
 				`    primaryKey(${table.primaryKey
-					.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+					.map(
+						(sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`,
+					)
 					.join(", ")}),`,
 			);
 		}
@@ -405,21 +399,4 @@ function appendMapModifier(
 		return def;
 	}
 	return `${def}.map("${escapeTsString(sqlName)}")`;
-}
-
-function pgTypeToKind(dataType: string): string {
-	switch (dataType) {
-		case "boolean":
-			return "bool";
-		case "integer":
-		case "smallint":
-			return "int";
-		case "bigint":
-			return "bigint";
-		case "timestamp with time zone":
-		case "timestamp without time zone":
-			return "timestamp";
-		default:
-			return "text";
-	}
 }
