@@ -351,13 +351,9 @@ export async function resetDatabaseSchema(
 
 	const schemaName = resolvePgSchemaName(schema);
 	const schemaSql = dialect.quoteIdentifier(schemaName);
-	const grantSql =
-		schemaName === DEFAULT_PG_SCHEMA
-			? `\n    GRANT ALL ON SCHEMA ${schemaSql} TO PUBLIC;`
-			: "";
 	await client.query(`
     DROP SCHEMA ${schemaSql} CASCADE;
-    CREATE SCHEMA ${schemaSql};${grantSql}
+    CREATE SCHEMA ${schemaSql};
   `);
 }
 

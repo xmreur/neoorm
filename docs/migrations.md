@@ -58,6 +58,8 @@ neoorm migrate reset --force
 
 Drops the `public` schema (PostgreSQL) or all tables (SQLite) and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop without re-applying.
 
+PostgreSQL reset recreates the schema owned by the connecting role. It does not `GRANT ALL ON SCHEMA … TO PUBLIC`.
+
 ## Rollback
 
 `down.sql` and `snapshot.before.json` are written automatically when `neoorm generate` or `neoorm migrate dev` creates a migration. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration.
