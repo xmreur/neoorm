@@ -2,7 +2,11 @@ import { postgresDialect } from "../../dialect/postgres.js";
 import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
-import { buildPaginateQuery, compileWhere } from "./compile.js";
+import {
+	buildExistsQuery,
+	buildPaginateQuery,
+	compileWhere,
+} from "./compile.js";
 import {
 	compileCursorWhere,
 	compileOrderByFromSpec,
@@ -148,14 +152,48 @@ export async function paginateRecords(
 		};
 	}
 
-	const hasMore = backward || extra;
-	const hasPrevious = args.after !== undefined || (backward && extra);
 	const firstItem = loaded[0];
 	const lastItem = loaded[loaded.length - 1];
-	const nextCursor =
-		hasMore && lastItem ? cursorFromRow(orderSpec, lastItem) : null;
-	const prevCursor =
-		hasPrevious && firstItem ? cursorFromRow(orderSpec, firstItem) : null;
+	if (!firstItem || !lastItem) {
+		return {
+			items: loaded,
+			nextCursor: null,
+			prevCursor: null,
+			hasMore: false,
+			hasPrevious: false,
+		};
+	}
+
+	const hasPrevious = backward ? extra : args.after !== undefined;
+	let hasMore = extra;
+	if (backward) {
+		const lastCursor = cursorFromRow(orderSpec, lastItem);
+		const cursorWhere = compileCursorWhere(
+			orderSpec,
+			lastCursor,
+			userParams.length + 1,
+			dialect,
+			"after",
+		);
+		const merged = mergeWhereWithCursor(
+			userWhereSql,
+			userParams,
+			cursorWhere,
+		);
+		const probeRows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "select", tableAccessor },
+			buildExistsQuery(table, merged.sql),
+			merged.params,
+		);
+		hasMore = probeRows.length > 0;
+	}
+
+	const nextCursor = hasMore ? cursorFromRow(orderSpec, lastItem) : null;
+	const prevCursor = hasPrevious
+		? cursorFromRow(orderSpec, firstItem)
+		: null;
 
 	return { items: loaded, nextCursor, prevCursor, hasMore, hasPrevious };
 }

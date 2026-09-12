@@ -411,7 +411,7 @@ for (;;) {
 ```
 
 - `orderBy` is required; scalar `id` is appended automatically when omitted.
-- `take` is the page size; `hasMore` / `hasPrevious` use a `take + 1` probe row (plus whether `after` / `before` was passed).
+- `take` is the page size; `hasMore` / `hasPrevious` use a `take + 1` probe in the query direction. A `before` page also probes once forward so `hasMore` is not assumed true. After an `after` page, `hasPrevious` is true because `after` was passed.
 - `after` is a typed cursor (`nextCursor` from the previous page). `before` walks the other way (`prevCursor`).
 - `after` and `before` can be combined as exclusive window bounds; pass both on every windowed call.
 - For HTTP APIs, encode cursors with `encodeCursor` / `decodeCursor` from `neoorm`.
