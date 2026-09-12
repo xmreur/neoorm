@@ -18,6 +18,8 @@ export default defineConfig({
 });
 ```
 
+CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. Variables already present in the environment are not overwritten. The generated client does not load `.env` at query time — use your runtime or a loader such as `node --env-file=.env`.
+
 ## Options
 
 | Key | Type | Default | Description |

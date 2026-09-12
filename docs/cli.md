@@ -1,5 +1,7 @@
 # CLI reference
 
+Commands that read `neoorm.config.ts` load `.env` from the current working directory first. Existing environment variables take precedence.
+
 ## `neoorm init`
 
 Scaffold a new NeoOrm project.
