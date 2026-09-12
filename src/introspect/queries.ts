@@ -10,6 +10,7 @@ export type ColumnRow = {
 	udt_name: string;
 	is_nullable: string;
 	column_default: string | null;
+	character_maximum_length: number | null;
 };
 
 export type FkRow = {
@@ -63,7 +64,8 @@ export async function queryColumns(
 ): Promise<ColumnRow[]> {
 	const result = await client.query<ColumnRow>(
 		`
-    SELECT column_name, data_type, udt_name, is_nullable, column_default
+    SELECT column_name, data_type, udt_name, is_nullable, column_default,
+           character_maximum_length
     FROM information_schema.columns
     WHERE table_schema = $1 AND table_name = $2
     ORDER BY ordinal_position

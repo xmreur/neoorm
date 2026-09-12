@@ -30,6 +30,12 @@ export type ColumnMeta = {
 	typeOptions?: Record<string, unknown> | undefined;
 	mapName?: string | undefined;
 	checkExpression?: string | undefined;
+	checkMin?: number | bigint | string | undefined;
+	checkMax?: number | bigint | string | undefined;
+	checkPositive?: boolean | undefined;
+	checkMinLength?: number | undefined;
+	checkMaxLength?: number | undefined;
+	checkNotEmpty?: boolean | undefined;
 };
 
 type UpdatedAtMeta = { updatedAt: true };
@@ -136,83 +142,92 @@ export interface TimestampColumnBuilder<
 	updatedAt(): TimestampColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
 }
 
-export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
+type ColumnExtrasFactory<
+	TValue,
+	TMeta extends ColumnMeta,
+	TExtra,
+> = (
+	rebuild: (nextMeta: TMeta) => ColumnBuilder<TValue, TMeta> & TExtra,
 	meta: TMeta,
-): ColumnBuilder<TValue, TMeta> {
-	const builder: ColumnBuilder<TValue, TMeta> = {
+) => TExtra;
+
+/** Text column builder with length constraint helpers. */
+export type TextColumnBuilder<
+	TValue,
+	TMeta extends ColumnMeta = ColumnMeta,
+> = ColumnBuilder<TValue, TMeta> & {
+	/** Limit string length (`VARCHAR(n)` on Postgres; CHECK on SQLite). */
+	maxLength(n: number): TextColumnBuilder<TValue, TMeta>;
+	/** Require minimum string length via CHECK. */
+	minLength(n: number): TextColumnBuilder<TValue, TMeta>;
+	/** Reject empty strings via CHECK (`char_length > 0`). */
+	notEmpty(): TextColumnBuilder<TValue, TMeta>;
+};
+
+/** Numeric column builder with min/max/positive constraint helpers. */
+export type NumericColumnBuilder<
+	TValue,
+	TMeta extends ColumnMeta = ColumnMeta,
+> = ColumnBuilder<TValue, TMeta> & {
+	/** Require values >= n via CHECK. */
+	min(n: number | bigint | string): NumericColumnBuilder<TValue, TMeta>;
+	/** Require values <= n via CHECK. */
+	max(n: number | bigint | string): NumericColumnBuilder<TValue, TMeta>;
+	/** Require values > 0 via CHECK. */
+	positive(): NumericColumnBuilder<TValue, TMeta>;
+};
+
+export function createColumnBuilder<
+	TValue,
+	TMeta extends ColumnMeta,
+	TExtra = Record<string, never>,
+>(
+	meta: TMeta,
+	createExtras?: ColumnExtrasFactory<TValue, TMeta, TExtra>,
+): ColumnBuilder<TValue, TMeta> & TExtra {
+	const rebuild = (
+		nextMeta: TMeta,
+	): ColumnBuilder<TValue, TMeta> & TExtra =>
+		createColumnBuilder(nextMeta, createExtras);
+
+	const builder = {
 		_type: undefined as unknown as TValue,
 		_meta: meta,
 		notNull() {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "nullable"> & { nullable: false }
-			>({ ...meta, nullable: false } as Omit<TMeta, "nullable"> & {
-				nullable: false;
-			});
+			return rebuild({ ...meta, nullable: false } as TMeta);
 		},
 		unique() {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "unique"> & { unique: true }
-			>({ ...meta, unique: true } as Omit<TMeta, "unique"> & {
-				unique: true;
-			});
+			return rebuild({ ...meta, unique: true } as TMeta);
 		},
 		index() {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "index"> & { index: true }
-			>({ ...meta, index: true } as Omit<TMeta, "index"> & {
-				index: true;
-			});
+			return rebuild({ ...meta, index: true } as TMeta);
 		},
 		hidden() {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "hidden"> & { hidden: true }
-			>({ ...meta, hidden: true } as Omit<TMeta, "hidden"> & {
-				hidden: true;
-			});
+			return rebuild({ ...meta, hidden: true } as TMeta);
 		},
 		default(value: TValue) {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
-			>({ ...meta, defaultValue: value } as Omit<
-				TMeta,
-				"defaultValue"
-			> & { defaultValue: TValue });
+			return rebuild({ ...meta, defaultValue: value } as TMeta);
 		},
 		primary() {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "primary"> & { primary: true }
-			>({ ...meta, primary: true, nullable: false } as Omit<
-				TMeta,
-				"primary"
-			> & {
-				primary: true;
-			});
+			return rebuild({
+				...meta,
+				primary: true,
+				nullable: false,
+			} as TMeta);
 		},
 		map(name: string) {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "mapName"> & { mapName: string }
-			>({ ...meta, mapName: name } as Omit<TMeta, "mapName"> & {
-				mapName: string;
-			});
+			return rebuild({ ...meta, mapName: name } as TMeta);
 		},
 		check(expression: string) {
-			return createColumnBuilder<
-				TValue,
-				Omit<TMeta, "checkExpression"> & { checkExpression: string }
-			>({ ...meta, checkExpression: expression } as Omit<
-				TMeta,
-				"checkExpression"
-			> & { checkExpression: string });
+			return rebuild({ ...meta, checkExpression: expression } as TMeta);
 		},
-	};
-	return builder;
+	} as ColumnBuilder<TValue, TMeta>;
+
+	const extras = createExtras
+		? createExtras(rebuild, meta)
+		: ({} as TExtra);
+
+	return { ...builder, ...extras } as ColumnBuilder<TValue, TMeta> & TExtra;
 }
 
 export function createTimestampColumnBuilder<TValue, TMeta extends ColumnMeta>(

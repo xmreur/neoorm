@@ -60,10 +60,11 @@ const blogDb: MockDb = {
 			},
 			{
 				column_name: "email",
-				data_type: "text",
-				udt_name: "text",
+				data_type: "character varying",
+				udt_name: "varchar",
 				is_nullable: "NO",
 				column_default: null,
+				character_maximum_length: 255,
 			},
 		],
 		posts: [
@@ -210,7 +211,7 @@ describe("introspectPostgres extras", () => {
 	it("emits indexes, composite uniques, composite PKs, onDelete, uniques, checks, and defaults", async () => {
 		const schema = await introspectPostgres(pgClient(mockPool(blogDb)));
 
-		expect(schema).toContain("email: text().notNull().unique()");
+		expect(schema).toContain("email: text({ maxLength: 255 }).notNull().unique()");
 		expect(schema).toContain(
 			'authorId: fk("users").notNull().onDelete("cascade")',
 		);

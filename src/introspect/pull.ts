@@ -189,6 +189,15 @@ function emitScalarBuilder(
 		return "decimal()";
 	}
 
+	if (col.kind === "text") {
+		usedBuilders.add("text");
+		const maxLength = col.typeOptions?.maxLength;
+		if (typeof maxLength === "number") {
+			return `text({ maxLength: ${maxLength} })`;
+		}
+		return "text()";
+	}
+
 	usedBuilders.add(col.kind);
 	return `${col.kind}()`;
 }

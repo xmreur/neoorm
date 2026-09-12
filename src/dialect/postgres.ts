@@ -113,7 +113,11 @@ export function resolveColumnSqlType(
 	return getColumnTypeOrThrow(col.kind).columnType(col);
 }
 
-export function pgStorageSqlType(dataType: string, udtName: string): string {
+export function pgStorageSqlType(
+	dataType: string,
+	udtName: string,
+	characterMaximumLength?: number | null,
+): string {
 	if (udtName === "uuid") {
 		return "UUID";
 	}
@@ -129,8 +133,15 @@ export function pgStorageSqlType(dataType: string, udtName: string): string {
 			return "TIMESTAMPTZ";
 		case "timestamp without time zone":
 			return "TIMESTAMP";
-		case "text":
 		case "character varying":
+			if (
+				characterMaximumLength !== undefined &&
+				characterMaximumLength !== null
+			) {
+				return `VARCHAR(${characterMaximumLength})`;
+			}
+			return "TEXT";
+		case "text":
 			return "TEXT";
 		case "json":
 			return "JSON";
@@ -260,8 +271,43 @@ export function typeCastUsing(
 	return undefined;
 }
 
+function parseVarcharLength(type: string): number | undefined {
+	const match = /^VARCHAR\((\d+)\)$/i.exec(type.trim());
+	return match ? Number(match[1]) : undefined;
+}
+
+function normalizeSqlType(type: string): string {
+	return type.trim().toUpperCase();
+}
+
+/** Whether Postgres can alter a column type without explicit USING and without data-loss risk. */
 export function canAutoCastType(fromType: string, toType: string): boolean {
-	return typeCastUsing("x", fromType, toType) !== undefined;
+	const from = normalizeSqlType(fromType);
+	const to = normalizeSqlType(toType);
+	if (from === to) {
+		return true;
+	}
+	if (typeCastUsing("x", fromType, toType) !== undefined) {
+		return true;
+	}
+
+	const fromLen = parseVarcharLength(from);
+	const toLen = parseVarcharLength(to);
+
+	if (fromLen !== undefined && to === "TEXT") {
+		return true;
+	}
+	if (fromLen !== undefined && toLen !== undefined && toLen >= fromLen) {
+		return true;
+	}
+	if (from === "TEXT" && toLen !== undefined) {
+		return false;
+	}
+	if (fromLen !== undefined && toLen !== undefined && toLen < fromLen) {
+		return false;
+	}
+
+	return false;
 }
 
 export function resolveIndexSqlName(

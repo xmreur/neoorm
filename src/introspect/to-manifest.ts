@@ -342,7 +342,11 @@ async function introspectTable(
 				unique: uniqueConstraintName !== undefined,
 				primary: pkSet.has(col.column_name),
 				defaultNow: defaults.defaultNow,
-				storageSqlType: pgStorageSqlType(col.data_type, col.udt_name),
+				storageSqlType: pgStorageSqlType(
+					col.data_type,
+					col.udt_name,
+					col.character_maximum_length,
+				),
 				...(defaults.defaultValue !== undefined
 					? { defaultValue: defaults.defaultValue }
 					: {}),
@@ -363,13 +367,27 @@ async function introspectTable(
 			unique: uniqueConstraintName !== undefined,
 			primary: pkSet.has(col.column_name),
 			defaultNow: defaults.defaultNow,
-			storageSqlType: pgStorageSqlType(col.data_type, col.udt_name),
+			storageSqlType: pgStorageSqlType(
+				col.data_type,
+				col.udt_name,
+				col.character_maximum_length,
+			),
 			...(defaults.defaultValue !== undefined
 				? { defaultValue: defaults.defaultValue }
 				: {}),
 			...(uniqueConstraintName ? { uniqueConstraintName } : {}),
 			...(kind === "serial" ? { generated: true } : {}),
 		};
+
+		if (
+			kind === "text" &&
+			col.character_maximum_length !== null &&
+			col.character_maximum_length !== undefined
+		) {
+			column.typeOptions = {
+				maxLength: col.character_maximum_length,
+			};
+		}
 
 		if (
 			kind === "uuid" &&

@@ -46,6 +46,7 @@ import {
 } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import { singularize } from "../utils/inflect.js";
+import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
 
 export type SchemaValidationIssue = {
 	code: string;
@@ -278,6 +279,7 @@ function columnToManifest(
 	columnNaming: ColumnNaming,
 	tables: Record<string, TableDef>,
 	defaultColumnNaming: ColumnNaming,
+	provider?: DatabaseProvider,
 ): ManifestColumn {
 	if (isFkBuilder(col)) {
 		const meta = col._meta;
@@ -359,8 +361,9 @@ function columnToManifest(
 	if (meta.hidden === true) {
 		result.hidden = true;
 	}
-	if (meta.checkExpression) {
-		result.checkExpression = meta.checkExpression;
+	const compiledCheck = compileColumnCheckConstraints(result, meta, provider);
+	if (compiledCheck !== undefined) {
+		result.checkExpression = compiledCheck;
 	}
 	return result;
 }
@@ -546,6 +549,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 					columnNaming,
 					tables,
 					defaultColumnNaming,
+					provider,
 				),
 			);
 
