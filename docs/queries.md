@@ -180,13 +180,17 @@ Unknown column names and operators fail at compile time (`unknown_column`, with 
 | JSON | `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, `path` |
 | All nullable | `isNull`, `isNotNull` |
 
-`contains`, `startsWith`, and `endsWith` compile to `LIKE`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode.
+`contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode.
 
 `search` is POSIX regex (`~`, or `~*` with `mode: "insensitive"`). It is PostgreSQL-only; SQLite throws.
 
 ```ts
 await db.posts.findMany({
   where: { title: { contains: "orm", mode: "insensitive" } },
+});
+
+await db.users.findMany({
+  where: { email: { equals: "Ada@Example.com", mode: "insensitive" } },
 });
 
 await db.posts.findMany({

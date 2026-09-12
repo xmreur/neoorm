@@ -97,7 +97,7 @@ const operatorParamTransform: Partial<
 
 type QueryMode = "default" | "insensitive";
 
-type StringPatternOp = "contains" | "startsWith" | "endsWith" | "search";
+type StringPatternOp = "equals" | "contains" | "startsWith" | "endsWith" | "search";
 
 function parseQueryMode(value: unknown): QueryMode {
 	if (value === undefined || value === "default") return "default";
@@ -107,6 +107,7 @@ function parseQueryMode(value: unknown): QueryMode {
 
 function isStringPatternOp(op: WhereOperator): op is StringPatternOp {
 	return (
+		op === "equals" ||
 		op === "contains" ||
 		op === "startsWith" ||
 		op === "endsWith" ||
@@ -122,6 +123,10 @@ function stringFilterSql(
 	dialect: Dialect,
 ): string {
 	switch (op) {
+		case "equals":
+			return mode === "insensitive"
+				? dialect.ilike(sqlCol, paramIndex)
+				: dialect.whereOperators.equals(sqlCol, paramIndex);
 		case "contains":
 		case "startsWith":
 		case "endsWith":
