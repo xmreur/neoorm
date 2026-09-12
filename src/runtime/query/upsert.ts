@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildUpsertQuery,
@@ -8,9 +8,9 @@ import {
 	dataToUpdateAssignments,
 	upsertAtomicValues,
 } from "./compile.js";
-import { mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
+import { mapRowToTs } from "./map-row.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
@@ -35,14 +35,14 @@ export async function upsertRecord(
 	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	const constraint = assertUniqueWhere(
+	const { constraint, where: uniqueWhere } = assertUniqueWhere(
 		table,
 		args.where,
 		"upsert",
 		tableIndex,
 	);
 
-	const createData = { ...args.create, ...args.where };
+	const createData = { ...args.create, ...uniqueWhere };
 	fillMissingPrimaryKeys(table, createData, tableIndex);
 
 	const { keys: insertKeys, values: insertValues } = dataToSqlValues(

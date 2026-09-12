@@ -42,7 +42,6 @@ export type {
 	ManyToManyExtra,
 } from "./many-to-many.js";
 export { many, manyToMany } from "./many-to-many.js";
-export { clearTableRegistry } from "./table-registry.js";
 export type {
 	FkBuilder,
 	FkMeta,
@@ -77,6 +76,7 @@ export type {
 	TableOptions,
 } from "./table.js";
 export { index, primaryKey, table, unique } from "./table.js";
+export { clearTableRegistry } from "./table-registry.js";
 export type {
 	AggregateArgs,
 	ApplyOmit,
@@ -105,6 +105,7 @@ export type {
 	GroupByArgs,
 	GroupByHaving,
 	GroupByOrderBy,
+	HiddenKeys,
 	InferAggregateResult,
 	InferCountResult,
 	InferFindResult,
@@ -130,10 +131,10 @@ export type {
 	ScalarSetOp,
 	SchemaTables,
 	SelectInput,
-	HiddenKeys,
+	StripCapable,
 	StripOmitKeys,
 	StripResult,
-	StripCapable,
+	UniqueWhere,
 	UpdateArgs,
 	UpdateInput,
 	UpdateManyAndReturnArgs,

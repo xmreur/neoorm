@@ -30,6 +30,8 @@ await db.users.findFirst({
 const user = await db.users.findUnique({ where: { slug: "hello" } });
 ```
 
+Unique `where` (`findUnique`, `upsert`, `findOrCreate`, singular `update`/`delete`) is scalar equality per unique field — `{ email: "a@b.com" }`, not a filter. `{ equals: value }` is accepted and unwrapped to the scalar. Other operators (`contains`, `in`, `mode: "insensitive"`) throw `unique_where_invalid`.
+
 ## Create
 
 ```ts

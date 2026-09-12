@@ -244,7 +244,7 @@ export async function updateRecord(
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
-	assertUniqueWhere(
+	const { where } = assertUniqueWhere(
 		table,
 		args.where,
 		"update",
@@ -266,7 +266,7 @@ export async function updateRecord(
 		split.relationWrites,
 	);
 
-	const runArgs = { ...args, ...split };
+	const runArgs = { ...args, ...split, where };
 
 	if (executor.inTransaction || !needsTransaction) {
 		return runUpdate(executor, runtime, tableAccessor, runArgs);

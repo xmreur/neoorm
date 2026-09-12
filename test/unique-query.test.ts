@@ -75,7 +75,7 @@ describe("findUnique / count / upsert SQL", () => {
 	});
 
 	it("builds upsert query on unique email", () => {
-		const constraint = assertUniqueWhere(
+		const { constraint } = assertUniqueWhere(
 			users,
 			{ email: "a@b.c" },
 			"upsert",
