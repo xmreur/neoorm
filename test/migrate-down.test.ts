@@ -108,6 +108,32 @@ describe("buildDownSql", () => {
 		expect(down.some((s) => s.includes('CREATE TABLE "posts"'))).toBe(true);
 	});
 
+	it("drops child tables before parents", () => {
+		const next = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+			]),
+			posts: table("posts", "posts", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("authorId", "author_id", {
+					kind: "fk",
+					nullable: false,
+					fkTarget: "users.id",
+				}),
+			]),
+		});
+
+		const down = buildDownSql(null, next);
+		const usersDrop = down.findIndex((s) =>
+			s.includes('DROP TABLE "users"'),
+		);
+		const postsDrop = down.findIndex((s) =>
+			s.includes('DROP TABLE "posts"'),
+		);
+		expect(postsDrop).toBeGreaterThanOrEqual(0);
+		expect(usersDrop).toBeGreaterThan(postsDrop);
+	});
+
 	it("drops all objects for an initial migration", () => {
 		const next = manifest({
 			users: table("users", "users", [

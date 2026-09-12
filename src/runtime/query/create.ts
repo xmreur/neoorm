@@ -20,7 +20,6 @@ import { loadRelations, type WithInput } from "./find.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import {
 	fillMissingPrimaryKeys,
-	primaryKeyTsNames,
 	rowScalarPkValue,
 	scalarPkAvailable,
 } from "./primary-key.js";
@@ -131,12 +130,7 @@ export async function runCreate(
 		if (rowCount === 0) {
 			compileError(`Insert failed for table "${tableAccessor}"`);
 		}
-		result = {};
-		for (const tsName of primaryKeyTsNames(table, tableIndex)) {
-			if (tsName in scalarData) {
-				result[tsName] = scalarData[tsName];
-			}
-		}
+		result = { ...scalarData };
 	} else {
 		const insertSql = getCachedInsertQuery(
 			tableIndex,

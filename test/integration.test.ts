@@ -518,7 +518,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		expect(updated[0]?.["name"]).toBe("Updated");
 
 		const deleted = await db.users.deleteManyAndReturn({
-			where: { email: { contains: `ret-upd-${ts}` } },
+			where: { email: { contains: `${ts}@example.com` } },
 		});
 		expect(deleted).toHaveLength(2);
 	});

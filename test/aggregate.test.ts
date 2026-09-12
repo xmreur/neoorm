@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { NeoOrmQueryError } from "../src/runtime/errors.js";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { NeoOrmQueryError } from "../src/runtime/errors.js";
 import { parseAggregateRow } from "../src/runtime/query/aggregate.js";
 import { buildAggregateQuery } from "../src/runtime/query/compile.js";
 import { manifestTable } from "./helpers/manifest.js";
@@ -54,5 +54,14 @@ describe("aggregate SQL", () => {
 				{ _count: { _all: true, authorId: true } },
 			),
 		).toEqual({ _count: { _all: 9, authorId: 7 } });
+	});
+
+	it("coerces Postgres numeric AVG/SUM strings to numbers", () => {
+		expect(
+			parseAggregateRow(
+				{ _avg_views: "10.0000000000000000", _sum_views: "20" },
+				{ _avg: { views: true }, _sum: { views: true } },
+			),
+		).toEqual({ _avg: { views: 10 }, _sum: { views: 20 } });
 	});
 });

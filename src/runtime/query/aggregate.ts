@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
@@ -10,6 +10,16 @@ import {
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { requireTable } from "./table-index.js";
+
+function coerceAggregateNumber(value: unknown): unknown {
+	if (value === null || value === undefined) return null;
+	if (typeof value === "number" || typeof value === "bigint") return value;
+	if (typeof value === "string" && value.trim() !== "") {
+		const n = Number(value);
+		if (Number.isFinite(n)) return n;
+	}
+	return value;
+}
 
 export function parseAggregateRow(
 	row: Record<string, unknown>,
@@ -37,7 +47,9 @@ export function parseAggregateRow(
 		if (!fieldMap) continue;
 		const bucket: Record<string, unknown> = {};
 		for (const colName of Object.keys(fieldMap)) {
-			bucket[colName] = row[`${key}_${colName}`] ?? null;
+			bucket[colName] = coerceAggregateNumber(
+				row[`${key}_${colName}`] ?? null,
+			);
 		}
 		if (Object.keys(bucket).length > 0) {
 			result[key] = bucket;

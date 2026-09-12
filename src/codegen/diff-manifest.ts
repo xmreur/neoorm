@@ -1,3 +1,4 @@
+import { parseFkTarget } from "../dialect/fk.js";
 import {
 	canAutoCastType,
 	DEFAULT_PG_SCHEMA,
@@ -113,6 +114,32 @@ function fkColumns(
 	return table.columns.filter(isFkColumn);
 }
 
+function orderTablesByForeignKeys(
+	tables: ManifestTable[],
+	mode: "parentsFirst" | "childrenFirst",
+): ManifestTable[] {
+	const bySql = new Map(tables.map((table) => [table.sqlName, table]));
+	const visiting = new Set<string>();
+	const done = new Set<string>();
+	const ordered: ManifestTable[] = [];
+
+	function visit(table: ManifestTable): void {
+		if (done.has(table.sqlName)) return;
+		if (visiting.has(table.sqlName)) return;
+		visiting.add(table.sqlName);
+		for (const col of fkColumns(table)) {
+			const parent = bySql.get(parseFkTarget(col.fkTarget).tableSql);
+			if (parent) visit(parent);
+		}
+		visiting.delete(table.sqlName);
+		done.add(table.sqlName);
+		ordered.push(table);
+	}
+
+	for (const table of tables) visit(table);
+	return mode === "childrenFirst" ? ordered.reverse() : ordered;
+}
+
 function emitCreatedTablesSql(
 	tables: ManifestTable[],
 	dialect: Dialect,
@@ -120,6 +147,7 @@ function emitCreatedTablesSql(
 ): string[] {
 	const isSqlite = dialect.name === "sqlite";
 	const sql: string[] = [];
+	tables = orderTablesByForeignKeys(tables, "parentsFirst");
 
 	for (const table of tables) {
 		sql.push(
@@ -642,8 +670,11 @@ export function buildMigrationSql(
 		sql.push(...dialect.emitAlterTable(diff.table, diff));
 	}
 
-	for (const diff of dropDiffs) {
-		sql.push(dialect.emitDropTable(diff.table));
+	for (const table of orderTablesByForeignKeys(
+		dropDiffs.map((diff) => diff.table),
+		"childrenFirst",
+	)) {
+		sql.push(dialect.emitDropTable(table));
 	}
 
 	sql.push(
