@@ -234,3 +234,65 @@ export default {
 		);
 	});
 });
+
+function restoreEnv(key: string, previous: string | undefined): void {
+	if (previous === undefined) {
+		delete process.env[key];
+	} else {
+		process.env[key] = previous;
+	}
+}
+
+const ENV_CONFIG = configSource(`{
+    provider: "postgresql",
+    url: process.env.DATABASE_URL ?? "postgresql://fallback/db",
+  }`);
+
+describe("loadConfig .env", () => {
+	it("uses DATABASE_URL from cwd .env when unset", async () => {
+		const previous = process.env.DATABASE_URL;
+		delete process.env.DATABASE_URL;
+		try {
+			await withConfigFile(ENV_CONFIG, async (dir) => {
+				await writeFile(
+					join(dir, ".env"),
+					"DATABASE_URL=postgresql://from-env/db\n",
+				);
+				const config = await loadConfig(dir);
+				expect(config.datasource.url).toBe("postgresql://from-env/db");
+			});
+		} finally {
+			restoreEnv("DATABASE_URL", previous);
+		}
+	});
+
+	it("does not overwrite DATABASE_URL already set in the environment", async () => {
+		const previous = process.env.DATABASE_URL;
+		process.env.DATABASE_URL = "postgresql://from-shell/db";
+		try {
+			await withConfigFile(ENV_CONFIG, async (dir) => {
+				await writeFile(
+					join(dir, ".env"),
+					"DATABASE_URL=postgresql://from-env/db\n",
+				);
+				const config = await loadConfig(dir);
+				expect(config.datasource.url).toBe("postgresql://from-shell/db");
+			});
+		} finally {
+			restoreEnv("DATABASE_URL", previous);
+		}
+	});
+
+	it("still loads when .env is missing", async () => {
+		const previous = process.env.DATABASE_URL;
+		delete process.env.DATABASE_URL;
+		try {
+			await withConfigFile(ENV_CONFIG, async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.datasource.url).toBe("postgresql://fallback/db");
+			});
+		} finally {
+			restoreEnv("DATABASE_URL", previous);
+		}
+	});
+});

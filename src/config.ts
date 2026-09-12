@@ -1,5 +1,8 @@
-import { SchemaErrorCode } from "./runtime/error-codes.js";
+import { join } from "node:path";
 import { schemaError } from "./runtime/error-builders.js";
+import { SchemaErrorCode } from "./runtime/error-codes.js";
+import { loadDotEnv } from "./utils/dotenv.js";
+import { importTsModule } from "./utils/load-ts.js";
 
 export type NeoOrmConfig = {
 	/** Path to `schema.ts`. */
@@ -53,7 +56,11 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 	}
 
 	const { schema, out, datasource } = config;
-	if (!isNonEmptyString(schema) || !isNonEmptyString(out) || !isRecord(datasource)) {
+	if (
+		!isNonEmptyString(schema) ||
+		!isNonEmptyString(out) ||
+		!isRecord(datasource)
+	) {
 		throw requiredShapeError();
 	}
 
@@ -94,7 +101,9 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 		datasource: {
 			provider: datasource.provider,
 			url: datasource.url,
-			...(datasource.schema !== undefined ? { schema: datasource.schema } : {}),
+			...(datasource.schema !== undefined
+				? { schema: datasource.schema }
+				: {}),
 			...(datasource.enum !== undefined ? { enum: datasource.enum } : {}),
 		},
 	};
@@ -108,11 +117,13 @@ export function defineConfig(config: NeoOrmConfig): NeoOrmConfig {
 /**
  * Load and validate `neoorm.config.ts` from a project directory.
  *
+ * Loads `cwd/.env` first (without overwriting existing environment variables)
+ * so `process.env.DATABASE_URL` is available when the config module evaluates.
+ *
  * @param cwd - Project root containing `neoorm.config.ts`.
  */
 export async function loadConfig(cwd: string): Promise<NeoOrmConfig> {
-	const { join } = await import("node:path");
-	const { importTsModule } = await import("./utils/load-ts.js");
+	await loadDotEnv(cwd);
 
 	const configPath = join(cwd, "neoorm.config.ts");
 	const mod = await importTsModule(configPath);
