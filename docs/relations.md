@@ -12,6 +12,8 @@
 
 `connect`, `set`, `disconnect`, and `delete` identify related rows by the **target table's scalar primary key** (`{ id: ... }` when the PK is `id`, `{ userId: ... }` when it is `userId`). Composite-PK connect is not supported.
 
+A relation field must be a **pure write bag**: every key is one of those operations. Mixing a write op with extra fields (`{ create: { name: "A" }, foo: 1 }`), passing a scalar, or passing `{}` throws `invalid_nested_write` — the parent row is not written.
+
 ## Examples
 
 ### To-one on update
