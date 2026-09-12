@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildBeginSql, buildSqliteBeginSql } from "./transaction.js";
+import { QueryErrorCode } from "./error-codes.js";
+import {
+	assertNoSavepointOptions,
+	buildBeginSql,
+	buildSqliteBeginSql,
+} from "./transaction.js";
 
 describe("buildBeginSql", () => {
 	it("emits Postgres READ ONLY and isolation clauses", () => {
@@ -32,5 +37,29 @@ describe("buildSqliteBeginSql", () => {
 		expect(buildSqliteBeginSql({ isolationLevel: "ReadCommitted" })).toBe(
 			"BEGIN",
 		);
+	});
+});
+
+describe("assertNoSavepointOptions", () => {
+	it("allows omitted or empty options", () => {
+		expect(() => assertNoSavepointOptions()).not.toThrow();
+		expect(() => assertNoSavepointOptions({})).not.toThrow();
+	});
+
+	it("rejects readOnly and isolationLevel", () => {
+		expect(() => assertNoSavepointOptions({ readOnly: true })).toThrow(
+			/cannot be used with nested transactions/,
+		);
+		expect(() =>
+			assertNoSavepointOptions({ isolationLevel: "Serializable" }),
+		).toThrow(/cannot be used with nested transactions/);
+		try {
+			assertNoSavepointOptions({ readOnly: false });
+			expect.unreachable();
+		} catch (err) {
+			expect(err).toMatchObject({
+				code: QueryErrorCode.invalid_args,
+			});
+		}
 	});
 });

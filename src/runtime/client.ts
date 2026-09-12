@@ -407,10 +407,6 @@ function buildClient<
 				return results as T;
 			};
 
-			if (transactional) {
-				return executor.transaction(runWithExecutor);
-			}
-
 			return executor.transaction(runWithExecutor, txOptions);
 		},
 	} as TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;

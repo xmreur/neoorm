@@ -49,7 +49,7 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Nested `create` calls inside a transaction do not start a separate transaction. `readOnly` and `isolationLevel` apply only to the outermost `BEGIN`.
+Nested `$transaction` uses a savepoint on the same connection, not a new `BEGIN`. `readOnly` and `isolationLevel` are only valid on the outermost `$transaction`; passing them on a nested call throws.
 
 ### SQLite
 
