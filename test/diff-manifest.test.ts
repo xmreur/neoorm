@@ -586,6 +586,40 @@ describe("resolveMigrationSql", () => {
 		expect(allowed.sql.some((s) => s.includes("DROP COLUMN"))).toBe(true);
 		expect(allowed.blocked).toEqual([]);
 	});
+
+	it("drops check constraints with IF EXISTS when adding .check() later", () => {
+		const prev = manifest({
+			items: table("items", "items", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("price", "price", { kind: "int", nullable: false }),
+			]),
+		});
+		const next = manifest({
+			items: table("items", "items", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("price", "price", {
+					kind: "int",
+					nullable: false,
+					checkExpression: "price >= 0",
+				}),
+			]),
+		});
+
+		const { sql } = diffManifest(prev, next);
+		expect(sql).toContain(
+			'ALTER TABLE "items" DROP CONSTRAINT IF EXISTS "items_price_check";',
+		);
+		expect(sql).toContain(
+			'ALTER TABLE "items" ADD CONSTRAINT "items_price_check" CHECK (price >= 0);',
+		);
+		expect(
+			sql.some(
+				(statement) =>
+					statement.includes('DROP CONSTRAINT "items_price_check"') &&
+					!statement.includes("IF EXISTS"),
+			),
+		).toBe(false);
+	});
 });
 
 describe("columnsEqual", () => {
