@@ -52,9 +52,7 @@ export type StripCapablePayload<
 			| readonly (keyof TRow & string)[]
 			| Partial<Record<keyof TRow & string, true>>
 			| undefined = undefined,
-	>(
-		omit?: O,
-	): Omit<TRow, THidden | StripSelectKeys<O>>;
+	>(omit?: O): Omit<TRow, THidden | StripSelectKeys<O>>;
 };
 
 /** Cursor fields derived from row payload types (matches generated models at runtime). */
@@ -133,10 +131,7 @@ export type FindOrCreateArgsWith<
 	TWith,
 	TSelect = undefined,
 	TOmit = undefined,
-> = Omit<
-	FindOrCreateArgs<TSchema, TAccessor>,
-	"with" | "select" | "omit"
-> & {
+> = Omit<FindOrCreateArgs<TSchema, TAccessor>, "with" | "select" | "omit"> & {
 	with?: TWith;
 	select?: TSelect;
 	omit?: TOmit;
@@ -445,6 +440,10 @@ export type TypedNeoOrmClient<
 		params: unknown[];
 	}): Promise<Record<string, unknown>[]>;
 	$connect(): Promise<void>;
+	/**
+	 * Close the database connection this client created.
+	 * No-op when created with `createNeoOrmClientFromPool` — the caller still owns the pool.
+	 */
 	$disconnect(): Promise<void>;
 	$transaction<T>(
 		fn: (
