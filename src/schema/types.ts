@@ -76,12 +76,12 @@ export type {
 } from "./relation-types.js";
 
 export type RelationWriteInput = {
-	/** Connect an existing related record by primary key. */
-	connect?: { id: string };
+	/** Connect an existing related record by its scalar primary key. */
+	connect?: Record<string, unknown>;
 	connectOrCreate?: ConnectOrCreateItem<Record<string, ColumnDef>>[];
-	disconnect?: true | { id: string } | { id: string }[];
-	delete?: true | { id: string } | { id: string }[];
-	set?: { id: string }[];
+	disconnect?: true | Record<string, unknown> | Record<string, unknown>[];
+	delete?: true | Record<string, unknown> | Record<string, unknown>[];
+	set?: Record<string, unknown>[];
 	create?: Record<string, unknown> | Record<string, unknown>[];
 };
 

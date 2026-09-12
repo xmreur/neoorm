@@ -46,7 +46,8 @@ export type ScalarPrimaryKeyOperation =
 	| "findById"
 	| "updateById"
 	| "deleteById"
-	| "cursorPaginate";
+	| "cursorPaginate"
+	| "connect";
 
 export function requireScalarPrimaryKey(
 	table: ManifestTable,
@@ -57,8 +58,9 @@ export function requireScalarPrimaryKey(
 	sqlName: string;
 } {
 	if (table.primaryKey.length !== 1) {
+		const label = operation ?? "Operation";
 		compileError(
-			`Operation requires a single-column primary key on table "${table.accessor}"`,
+			`${label} requires a single-column primary key on table "${table.accessor}"`,
 			{
 				code: QueryErrorCode.missing_primary_key,
 				tableAccessor: table.accessor,

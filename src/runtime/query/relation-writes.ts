@@ -21,6 +21,7 @@ import {
 import {
 	fillMissingPrimaryKeys,
 	primaryKeySqlName,
+	requireScalarPrimaryKey,
 	rowScalarPkValue,
 	targetRelationPkSql,
 } from "./primary-key.js";
@@ -83,18 +84,66 @@ function isRelationField(
 	return findM2M(manifest, tableAccessor, key) !== undefined;
 }
 
-function normalizeIdList(value: unknown): string[] {
-	if (!value) return [];
+function connectPkError(
+	table: ManifestTable,
+	pkTsName: string,
+	detail: string,
+): never {
+	compileError(detail, {
+		code: QueryErrorCode.missing_primary_key,
+		tableAccessor: table.accessor,
+		tableSqlName: table.sqlName,
+		columnTsName: pkTsName,
+	});
+}
+
+function readConnectPk(
+	item: unknown,
+	pkTsName: string,
+	table: ManifestTable,
+): string {
+	if (!item || typeof item !== "object" || Array.isArray(item)) {
+		connectPkError(
+			table,
+			pkTsName,
+			`Relation connect requires { ${pkTsName}: ... } for table "${table.accessor}"`,
+		);
+	}
+	const id = (item as Record<string, unknown>)[pkTsName];
+	if (id == null) {
+		connectPkError(
+			table,
+			pkTsName,
+			`Relation connect requires primary key "${pkTsName}" for table "${table.accessor}"`,
+		);
+	}
+	return String(id);
+}
+
+function normalizeIdList(
+	value: unknown,
+	pkTsName: string,
+	table: ManifestTable,
+): string[] {
+	if (value == null || value === false) return [];
 	if (Array.isArray(value)) {
-		return value
-			.map((item) => (item as { id?: string }).id)
-			.filter((id): id is string => id != null);
+		return value.map((item) => readConnectPk(item, pkTsName, table));
 	}
-	if (typeof value === "object" && "id" in value) {
-		const id = (value as { id?: string }).id;
-		return id != null ? [id] : [];
-	}
-	return [];
+	return [readConnectPk(value, pkTsName, table)];
+}
+
+function normalizeConnectIds(
+	runtime: QueryRuntime,
+	targetAccessor: string,
+	value: unknown,
+): string[] {
+	const table = requireTable(runtime.manifest, targetAccessor, "select");
+	const { tsName } = requireScalarPrimaryKey(
+		table,
+		"connect",
+		getTableIndex(runtime.tableIndex, targetAccessor),
+	);
+	return normalizeIdList(value, tsName, table);
 }
 
 function normalizeCreateList(value: unknown): Record<string, unknown>[] {
@@ -523,8 +572,27 @@ async function executeToOneWrite(
 	if (!rel || rel.cardinality !== "one") return;
 
 	if ("connect" in value) {
-		const connect = value["connect"] as { id: string };
-		scalarData[rel.fkColumn] = connect.id;
+		const ids = normalizeConnectIds(
+			runtime,
+			rel.targetAccessor,
+			value.connect,
+		);
+		const id = ids[0];
+		if (id === undefined) {
+			compileError(
+				`Relation connect requires a primary key for table "${rel.targetAccessor}"`,
+				{
+					code: QueryErrorCode.missing_primary_key,
+					tableAccessor: rel.targetAccessor,
+				},
+			);
+		}
+		if (ids.length > 1) {
+			compileError(
+				`Cannot connect more than one record to to-one relation ${relationName}`,
+			);
+		}
+		scalarData[rel.fkColumn] = id;
 		return;
 	}
 
@@ -605,7 +673,7 @@ async function executeM2MWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeIdList(del);
+			const ids = normalizeConnectIds(runtime, targetAccessor, del);
 			await deleteM2MRelated(
 				executor,
 				runtime,
@@ -628,7 +696,11 @@ async function executeM2MWrite(
 				parentId,
 			);
 		} else {
-			const ids = normalizeIdList(disconnect);
+			const ids = normalizeConnectIds(
+				runtime,
+				targetAccessor,
+				disconnect,
+			);
 			await deleteJunctionRows(
 				executor,
 				runtime,
@@ -641,7 +713,7 @@ async function executeM2MWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeIdList(value["set"]);
+		const ids = normalizeConnectIds(runtime, targetAccessor, value["set"]);
 		await deleteJunctionRows(
 			executor,
 			runtime,
@@ -663,7 +735,11 @@ async function executeM2MWrite(
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeIdList(value["connect"]);
+		const ids = normalizeConnectIds(
+			runtime,
+			targetAccessor,
+			value["connect"],
+		);
 		if (ids.length > 0) {
 			await insertM2MLinks(
 				executor,
@@ -730,7 +806,7 @@ async function executeInverseManyWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeIdList(del);
+			const ids = normalizeConnectIds(runtime, rel.targetAccessor, del);
 			await deleteInverseManyChildren(
 				executor,
 				runtime,
@@ -752,19 +828,31 @@ async function executeInverseManyWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeIdList(disconnect);
+			const ids = normalizeConnectIds(
+				runtime,
+				rel.targetAccessor,
+				disconnect,
+			);
 			await disconnectInverseMany(executor, runtime, rel, parentId, ids);
 		}
 	}
 
 	if ("set" in value) {
-		const ids = normalizeIdList(value["set"]);
+		const ids = normalizeConnectIds(
+			runtime,
+			rel.targetAccessor,
+			value["set"],
+		);
 		await setInverseMany(executor, runtime, rel, parentId, ids);
 		return;
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeIdList(value["connect"]);
+		const ids = normalizeConnectIds(
+			runtime,
+			rel.targetAccessor,
+			value["connect"],
+		);
 		await connectInverseMany(executor, runtime, rel, parentId, ids);
 	}
 
@@ -811,7 +899,7 @@ async function executeInverseOneWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeIdList(del);
+			const ids = normalizeConnectIds(runtime, rel.targetAccessor, del);
 			await deleteInverseManyChildren(
 				executor,
 				runtime,
@@ -838,7 +926,11 @@ async function executeInverseOneWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeIdList(value["set"]);
+		const ids = normalizeConnectIds(
+			runtime,
+			rel.targetAccessor,
+			value["set"],
+		);
 		const id = ids[0];
 		if (id) {
 			await disconnectInverseMany(
@@ -854,7 +946,11 @@ async function executeInverseOneWrite(
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeIdList(value["connect"]);
+		const ids = normalizeConnectIds(
+			runtime,
+			rel.targetAccessor,
+			value["connect"],
+		);
 		const id = ids[0];
 		if (!id) return;
 		if (ids.length > 1) {
