@@ -253,4 +253,95 @@ describe("where compilation", () => {
 			),
 		).toThrow("search is not supported on sqlite");
 	});
+
+	it("compiles empty OR as false", () => {
+		const { sql, params, impossible } = compileWhere(
+			manifest,
+			posts,
+			{ OR: [] },
+			postgresDialect,
+		);
+		expect(sql).toBe("WHERE 1=0");
+		expect(params).toEqual([]);
+		expect(impossible).toBe(true);
+	});
+
+	it("compiles empty AND as true", () => {
+		const { sql, params, impossible } = compileWhere(
+			manifest,
+			posts,
+			{ AND: [] },
+			postgresDialect,
+		);
+		expect(sql).toBe("WHERE 1=1");
+		expect(params).toEqual([]);
+		expect(impossible).toBeUndefined();
+	});
+
+	it("ANDs empty OR with sibling filters so the clause matches nothing", () => {
+		const { sql, impossible } = compileWhere(
+			manifest,
+			posts,
+			{ published: true, OR: [] },
+			postgresDialect,
+		);
+		expect(sql).toContain('"published" = $1');
+		expect(sql).toContain("1=0");
+		expect(impossible).toBe(true);
+	});
+
+	it("treats an empty nested where object as true", () => {
+		const { sql, impossible } = compileWhere(
+			manifest,
+			posts,
+			{ OR: [{}] },
+			postgresDialect,
+		);
+		expect(sql).toBe("WHERE ((1=1))");
+		expect(impossible).toBeUndefined();
+	});
+
+	it("rejects a non-array OR combinator", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ OR: { published: true } },
+				postgresDialect,
+			),
+		).toThrow("OR must be an array of where objects");
+	});
+
+	it("rejects a non-array AND combinator", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ AND: { published: true } },
+				postgresDialect,
+			),
+		).toThrow("AND must be an array of where objects");
+	});
+
+	it("rejects invalid OR items", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ OR: [null] },
+				postgresDialect,
+			),
+		).toThrow("OR items must be where objects");
+	});
+
+	it("rejects a non-object NOT combinator", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ NOT: true },
+				postgresDialect,
+			),
+		).toThrow("NOT must be a where object");
+	});
 });
