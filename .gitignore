@@ -6,4 +6,8 @@ examples/blog/neoorm/
 examples/blog/neoorm-test-out/
 ignore/
 benchmarks/
-test/
+test/fixtures/
+test/.tmp/
+test/.adl-probe/
+test/.schema-error-migrations/
+test/**/neoorm/
