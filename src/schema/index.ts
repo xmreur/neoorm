@@ -124,6 +124,7 @@ export type {
 	OrderDirection,
 	PaginateArgs,
 	PaginateResult,
+	PluginColumnWhereOperators,
 	QueryMode,
 	RelationAccessors,
 	RelationCountInput,

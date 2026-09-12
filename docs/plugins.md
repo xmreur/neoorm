@@ -32,7 +32,7 @@ places: table({
 
 `srid` requires a whitelisted `subtype`. PostGIS typmod is `geometry(Point,4326)`, not `geometry(4326)`. Use `subtype: "Geometry"` to fix SRID without constraining the type. Allowed subtypes include `Point`, `LineString`, `Polygon`, `MultiPolygon`, `GeometryCollection`, and `Geometry`, optionally with `Z`, `M`, or `ZM` (e.g. `PointZ`).
 
-Spatial `where` operators: `intersects`, `within`, `dWithin`.
+Spatial `where` operators: `intersects`, `within`, `dWithin`. Importing `neoorm/plugins/postgis` merges those keys into `WhereInput` for spatial columns.
 
 ## Citext
 
@@ -47,3 +47,13 @@ users: table({
 ## Custom plugins
 
 See the plugin registry source for `ColumnTypePlugin` and `NeoOrmPlugin` interfaces.
+
+To type `where` operators, augment `PluginColumnWhereOperators` on `neoorm/schema` with your column kind:
+
+```ts
+declare module "neoorm/schema" {
+  interface PluginColumnWhereOperators {
+    myKind: { overlaps?: string };
+  }
+}
+```

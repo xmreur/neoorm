@@ -41,6 +41,7 @@ function expectPostsWhere(value: PostsWhere): void {
 expectPostsWhere({
 	status: "published",
 	price: { gte: "9.99" },
+	authorId: { in: ["user_1", "user_2"] },
 });
 
 // @ts-expect-error -- decimal columns do not support string contains
