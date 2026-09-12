@@ -118,3 +118,38 @@ describe("sqliteClient connection sharing", () => {
 		await client.close();
 	});
 });
+
+describe("sqlite placeholders", () => {
+	it("reuses $1 instead of consuming a second bound value", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		const result = await client.query<{ a: string; b: string }>(
+			"SELECT $1 AS a, $1 AS b",
+			["hello"],
+		);
+		expect(result.rows[0]).toEqual({ a: "hello", b: "hello" });
+		await client.close();
+	});
+
+	it("maps $N to the Nth param regardless of appearance order", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		const result = await client.query<{ a: string; b: string }>(
+			"SELECT $2 AS a, $1 AS b",
+			["first", "second"],
+		);
+		expect(result.rows[0]).toEqual({ a: "second", b: "first" });
+		await client.close();
+	});
+
+	it("does not rewrite $N inside strings or comments", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		const result = await client.query<{ lit: string; a: string }>(
+			"SELECT '$1' AS lit, $1 AS a -- $2\n",
+			["hello"],
+		);
+		expect(result.rows[0]).toEqual({ lit: "$1", a: "hello" });
+		await client.close();
+	});
+});
