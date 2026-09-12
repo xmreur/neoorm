@@ -1,13 +1,20 @@
-import type { Dialect, Manifest } from "../../dialect/types.js";
 import { postgresDialect } from "../../dialect/postgres.js";
+import type { Dialect, Manifest } from "../../dialect/types.js";
 import {
 	getAppliedMigrations,
 	listPendingMigrations,
 } from "../../migrate/runner.js";
 import type { DatabaseClient } from "../driver.js";
-import { SCHEMA_DRIFT_QUERY_CODES, type QueryErrorCodeValue } from "../error-codes.js";
+import {
+	type QueryErrorCodeValue,
+	SCHEMA_DRIFT_QUERY_CODES,
+} from "../error-codes.js";
 import type { QueryOperation } from "../errors.js";
-import { createQueryError, NeoOrmQueryError, type QueryErrorContext } from "../errors.js";
+import {
+	createQueryError,
+	NeoOrmQueryError,
+	type QueryErrorContext,
+} from "../errors.js";
 import type { Executor } from "../executor.js";
 import {
 	emptyReturningContext,
@@ -89,11 +96,11 @@ async function enrichQueryError(
 	err: unknown,
 ): Promise<QueryErrorContext> {
 	const base = queryBaseContext(ctx, sql);
-	if (isPgError(err)) {
-		return enrichPgError(err, runtime.manifest, base);
-	}
 	if (isSqliteError(err)) {
 		return enrichSqliteError(err, runtime.manifest, base);
+	}
+	if (isPgError(err)) {
+		return enrichPgError(err, runtime.manifest, base);
 	}
 	throw err;
 }

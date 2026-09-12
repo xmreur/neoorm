@@ -13,12 +13,11 @@ export type PgErrorLike = {
 };
 
 export function isPgError(err: unknown): err is PgErrorLike {
-	return (
-		typeof err === "object" &&
-		err !== null &&
-		"code" in err &&
-		typeof (err as PgErrorLike).code === "string"
-	);
+	if (typeof err !== "object" || err === null || !("code" in err)) {
+		return false;
+	}
+	const code = (err as PgErrorLike).code;
+	return typeof code === "string" && /^[0-9A-Z]{5}$/i.test(code);
 }
 
 export function truncateSql(sql: string, maxLen = 240): string {
@@ -103,7 +102,9 @@ function suggestionsForPgError(
 				suggestions.push(
 					`Provide "${columnTsName}" in create/update input`,
 				);
-				const col = table?.columns.find((c) => c.tsName === columnTsName);
+				const col = table?.columns.find(
+					(c) => c.tsName === columnTsName,
+				);
 				if (col?.kind === "fk") {
 					suggestions.push(
 						"Connect the related record first, or set the FK column directly",
@@ -168,7 +169,9 @@ function suggestionsForPgError(
 				"The value type does not match the column type in the database",
 			);
 			if (columnTsName) {
-				suggestions.push(`Check the value passed for "${columnTsName}"`);
+				suggestions.push(
+					`Check the value passed for "${columnTsName}"`,
+				);
 			}
 			break;
 		default:

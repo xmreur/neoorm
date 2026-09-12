@@ -6,13 +6,14 @@ import {
 	isNeoOrmError,
 	isQueryCompileError,
 	isUniqueViolation,
+	NeoOrmDriverError,
 	QueryCompileError,
 	UniqueViolationError,
 } from "./errors.js";
-import { enrichPgError } from "./pg-error.js";
-import { enrichSqliteError } from "./sqlite-error.js";
-import { assertUniqueWhere } from "./query/unique.js";
+import { enrichPgError, isPgError } from "./pg-error.js";
 import { requireTable } from "./query/table-index.js";
+import { assertUniqueWhere } from "./query/unique.js";
+import { enrichSqliteError, isSqliteError } from "./sqlite-error.js";
 
 describe("createQueryError", () => {
 	it("returns UniqueViolationError for unique_violation code", () => {
@@ -71,6 +72,15 @@ describe("SQLite error enrichment", () => {
 		expect(context.code).toBe(QueryErrorCode.unique_violation);
 		const err = createQueryError(context);
 		expect(isUniqueViolation(err)).toBe(true);
+	});
+
+	it("does not treat NeoOrmDriverError as a Postgres error", () => {
+		const err = new NeoOrmDriverError(
+			"INSERT INTO users",
+			new Error("UNIQUE constraint failed: users.email"),
+		);
+		expect(isPgError(err)).toBe(false);
+		expect(isSqliteError(err)).toBe(true);
 	});
 });
 
