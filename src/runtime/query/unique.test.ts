@@ -100,6 +100,24 @@ describe("resolveUniqueConstraint", () => {
 		});
 	});
 
+	it("does not treat a partial unique index as a findUnique target", () => {
+		const table: ManifestTable = {
+			...postsTable(),
+			columns: postsTable().columns.map((col) =>
+				col.tsName === "slug" ? { ...col, unique: false } : col,
+			),
+			indexes: [
+				{
+					name: "email",
+					columns: ["slug"],
+					unique: true,
+					whereSql: '"published" = true',
+				},
+			],
+		};
+		expect(resolveUniqueConstraint(table, { slug: "hello" })).toBeNull();
+	});
+
 	it("rejects a non-unique filter", () => {
 		expect(resolveUniqueConstraint(table, { published: true })).toBeNull();
 	});

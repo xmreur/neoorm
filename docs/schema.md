@@ -170,15 +170,18 @@ posts: table(
 ),
 ```
 
-Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`.
+Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`. `unique()` and `index()` both support `.where()` for partial indexes.
 
 ### Partial indexes
 
 ```ts
-(t) => [index(t.title).where({ published: true })],
+(t) => [
+  index(t.title).where({ published: true }),
+  unique(t.email).where({ deleted: false }),
+],
 ```
 
-Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite).
+Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are not usable as `findUnique` / `upsert` targets.
 
 ## Many-to-many
 

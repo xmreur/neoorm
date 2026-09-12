@@ -173,7 +173,7 @@ export function resolveUniqueConstraint(
 	}
 
 	for (const index of table.indexes) {
-		if (!index.unique) continue;
+		if (!index.unique || index.whereSql) continue;
 
 		const indexTsNames = index.columns
 			.map(

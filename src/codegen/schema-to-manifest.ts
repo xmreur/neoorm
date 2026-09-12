@@ -475,6 +475,7 @@ function isUniqueColumn(table: ManifestTable, fkSqlColumn: string): boolean {
 	return table.indexes.some(
 		(idx) =>
 			idx.unique &&
+			!idx.whereSql &&
 			idx.columns.length === 1 &&
 			idx.columns[0] === fkSqlColumn,
 	);
