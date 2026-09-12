@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline/promises";
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import { Pool } from "pg";
 import packageJson from "../../package.json" with { type: "json" };
@@ -16,13 +16,13 @@ import type { Dialect } from "../dialect/types.js";
 import { formatInitNextSteps, runInit } from "../init/scaffold.js";
 import { introspectPostgres, introspectSqlite } from "../introspect/pull.js";
 import {
-	dbPush,
 	dbPushWarnings,
 	formatMigrateStatus,
 	migrateDeploy,
 	migrateDown,
 	migrateReset,
 	migrateStatus,
+	pushCurrentSchema,
 } from "../migrate/runner.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
@@ -91,21 +91,26 @@ async function runDbPush(
 
 	try {
 		const outDir = resolve(cwd, config.out);
-		const { readSnapshot } = await import("../codegen/generate.js");
-		const manifest = await readSnapshot(outDir);
-		if (!manifest) {
-			console.error("Run neoorm generate first");
-			process.exit(1);
-		}
-		const { appliedStatements, destructiveBlocked } = await dbPush(
-			client,
-			dialect,
-			manifest,
-			{
+		const schemaPath = resolve(cwd, config.schema);
+		const { appliedStatements, destructiveBlocked, warnings } =
+			await pushCurrentSchema(client, dialect, {
+				schemaPath,
+				outDir,
 				...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+				...(config.datasource.enum
+					? { enumMode: config.datasource.enum }
+					: {}),
+				...(config.datasource.provider
+					? { provider: config.datasource.provider }
+					: {}),
+				...(config.datasource.url
+					? { url: config.datasource.url }
+					: {}),
 				...(dbSchema ? { schema: dbSchema } : {}),
-			},
-		);
+			});
+		for (const warning of warnings) {
+			console.warn(`Warning: ${warning}`);
+		}
 		for (const warning of dbPushWarnings(destructiveBlocked)) {
 			console.warn(`Warning: ${warning}`);
 		}
@@ -130,7 +135,7 @@ async function runDbPull(
 		config.datasource.provider === "postgresql"
 			? config.datasource.schema
 			: undefined;
-	const { client, dialect, close } = connectDb(config);
+	const { client, close } = connectDb(config);
 
 	try {
 		const content =
@@ -149,9 +154,8 @@ async function runDbPull(
 }
 
 function registerDbPushPull(cmd: Command): void {
-	cmd
-		.command("push")
-		.description("Push the current snapshot schema to the database")
+	cmd.command("push")
+		.description("Push the current schema.ts to the database")
 		.option(
 			"--accept-data-loss",
 			"Apply destructive schema changes when pushing to the database",
@@ -161,10 +165,13 @@ function registerDbPushPull(cmd: Command): void {
 			await runDbPush(config, opts);
 		});
 
-	cmd
-		.command("pull")
+	cmd.command("pull")
 		.description("Introspect the database and write a schema file")
-		.option("-o, --output <file>", "Output file for pull", "schema.pulled.ts")
+		.option(
+			"-o, --output <file>",
+			"Output file for pull",
+			"schema.pulled.ts",
+		)
 		.action(async (opts: { output?: string }) => {
 			const config = await loadConfig(process.cwd());
 			await runDbPull(config, opts);
@@ -207,11 +214,10 @@ async function runGenerateCommand(options: {
 	}
 }
 
-function normalizeProvider(
-	input: string,
-): "postgresql" | "sqlite" | null {
+function normalizeProvider(input: string): "postgresql" | "sqlite" | null {
 	const v = input.trim().toLowerCase();
-	if (v === "postgresql" || v === "postgres" || v === "pg") return "postgresql";
+	if (v === "postgresql" || v === "postgres" || v === "pg")
+		return "postgresql";
 	if (v === "sqlite") return "sqlite";
 	return null;
 }
@@ -424,11 +430,16 @@ program
 						console.error("--steps must be a positive integer");
 						process.exit(1);
 					}
-					const reverted = await migrateDown(client, dialect, migrationsDir, {
-						steps,
-						outDir,
-						...(dbSchema ? { schema: dbSchema } : {}),
-					});
+					const reverted = await migrateDown(
+						client,
+						dialect,
+						migrationsDir,
+						{
+							steps,
+							outDir,
+							...(dbSchema ? { schema: dbSchema } : {}),
+						},
+					);
 					if (reverted.length === 0) {
 						console.log("No migrations rolled back");
 					} else {
@@ -444,7 +455,9 @@ program
 
 				if (subcommand === "deploy" || subcommand === "dev") {
 					const schemaPath = resolve(cwd, config.schema);
-					const { readSnapshot } = await import("../codegen/generate.js");
+					const { readSnapshot } = await import(
+						"../codegen/generate.js"
+					);
 					const snapshotManifest = await readSnapshot(outDir);
 					const applied = await migrateDeploy(
 						client,
@@ -453,7 +466,9 @@ program
 						{
 							...(dbSchema ? { schema: dbSchema } : {}),
 							schemaPath,
-							...(snapshotManifest ? { manifest: snapshotManifest } : {}),
+							...(snapshotManifest
+								? { manifest: snapshotManifest }
+								: {}),
 						},
 					);
 					if (applied.length === 0) {
@@ -466,22 +481,27 @@ program
 					}
 
 					if (subcommand === "dev") {
-						const { warnings, summary, migrationName, manifest, destructiveBlocked } =
-							await generateFromSchema(schemaPath, outDir, {
-								...(options.acceptDataLoss
-									? { acceptDataLoss: true }
-									: {}),
-								...(config.datasource.enum
-									? { enumMode: config.datasource.enum }
-									: {}),
-								...(config.datasource.provider
-									? { provider: config.datasource.provider }
-									: {}),
-								...(config.datasource.url
-									? { url: config.datasource.url }
-									: {}),
-								...(dbSchema ? { schema: dbSchema } : {}),
-							});
+						const {
+							warnings,
+							summary,
+							migrationName,
+							manifest,
+							destructiveBlocked,
+						} = await generateFromSchema(schemaPath, outDir, {
+							...(options.acceptDataLoss
+								? { acceptDataLoss: true }
+								: {}),
+							...(config.datasource.enum
+								? { enumMode: config.datasource.enum }
+								: {}),
+							...(config.datasource.provider
+								? { provider: config.datasource.provider }
+								: {}),
+							...(config.datasource.url
+								? { url: config.datasource.url }
+								: {}),
+							...(dbSchema ? { schema: dbSchema } : {}),
+						});
 						for (const line of formatGenerateSummary(
 							summary,
 							outDir,

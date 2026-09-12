@@ -11,7 +11,7 @@
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
 | `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite) and re-apply migrations (local dev) |
-| `neoorm db push` | Push the current snapshot schema to the database |
+| `neoorm db push` | Push the current `schema.ts` to the database (no migration file) |
 | `neoorm db pull` | Introspect the database into a schema file |
 
 ## Generate outcomes
@@ -73,6 +73,6 @@ Legacy migrations without `down.sql` cannot be rolled back — re-generate the m
 
 Migration folders are not deleted on rollback (same as Prisma). Re-run `neoorm migrate deploy` to re-apply rolled-back migrations.
 
-After rollback, `schema.ts` may still describe a newer schema than the restored snapshot; `neoorm migrate dev` may generate a new forward migration. `db push` and `migrate down` are independent — push ignores the migration ledger.
+After rollback, `schema.ts` may still describe a newer schema than the restored snapshot; `neoorm migrate dev` may generate a new forward migration. `db push` and `migrate down` are independent — push ignores the migration ledger. `db push` compiles `schema.ts` (not `snapshot.json`) and updates `snapshot.json` after a successful push so a later `generate` does not emit DDL already applied to the database.
 
 For a full wipe during local development, use `neoorm migrate reset --force` instead.

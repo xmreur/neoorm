@@ -94,7 +94,7 @@ The sidebar includes a search box with live results across all documentation pag
 
 ## `neoorm db push`
 
-Push the current snapshot schema to the database without going through the migration ledger.
+Push the current `schema.ts` to the database without going through the migration ledger. You do not need to run `generate` first — push compiles the schema file you just saved. After a successful push, `snapshot.json` is updated so later `generate` does not emit the same DDL again.
 
 ```
 neoorm db push

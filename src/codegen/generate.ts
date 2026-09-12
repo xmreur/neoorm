@@ -2,15 +2,14 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applySchemaToManifest } from "../dialect/postgres.js";
-import { postgresDialect } from "../dialect/postgres.js";
+import { applySchemaToManifest, postgresDialect } from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
-import type { ColumnDef, ColumnNaming } from "../schema/table.js";
-import { NeoOrmSchemaError } from "../runtime/errors.js";
 import { schemaError } from "../runtime/error-builders.js";
+import { NeoOrmSchemaError } from "../runtime/errors.js";
 import { schemaCompileError } from "../runtime/schema-error.js";
+import type { ColumnDef, ColumnNaming } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import {
 	buildDownSql,
@@ -330,6 +329,66 @@ export type GenerateOptions = {
 	url?: string;
 };
 
+export type CompileSchemaOptions = Omit<GenerateOptions, "acceptDataLoss">;
+
+/**
+ * Load `schema.ts` and compile it to a validated manifest.
+ * Does not read or write `snapshot.json`.
+ */
+export async function compileSchemaToManifest(
+	schemaPath: string,
+	options: CompileSchemaOptions = {},
+): Promise<{ manifest: Manifest; warnings: string[] }> {
+	try {
+		return await compileSchemaToManifestInner(schemaPath, options);
+	} catch (err) {
+		if (err instanceof NeoOrmSchemaError) {
+			throw err;
+		}
+		throw schemaCompileError(
+			schemaPath,
+			err instanceof Error ? err.message : String(err),
+			err,
+		);
+	}
+}
+
+async function compileSchemaToManifestInner(
+	schemaPath: string,
+	options: CompileSchemaOptions,
+): Promise<{ manifest: Manifest; warnings: string[] }> {
+	const { schemaToManifest, validateManifest } = await import(
+		"./schema-to-manifest.js"
+	);
+
+	const { schema, plugins } = await loadSchemaModule(schemaPath);
+	const schemaManifest = schemaToManifest(schema, plugins, {
+		...(options.enumMode ? { enumMode: options.enumMode } : {}),
+		...(options.provider ? { provider: options.provider } : {}),
+		...(options.url ? { url: options.url } : {}),
+	});
+	const manifest = applySchemaToManifest(schemaManifest, options.schema);
+	const warnings = collectRedundantMapWarnings(schema);
+
+	const errors = validateManifest(manifest);
+	if (errors.length > 0) {
+		const detail = errors
+			.map((error, index) => `  ${index + 1}. ${error.message}`)
+			.join("\n");
+		const suggestions = [
+			...new Set(errors.flatMap((error) => error.suggestions ?? [])),
+		];
+		throw schemaCompileError(
+			schemaPath,
+			`Schema validation failed:\n${detail}`,
+			undefined,
+			suggestions,
+		);
+	}
+
+	return { manifest, warnings };
+}
+
 /**
  * Generate client, models, and migration SQL from a schema file.
  *
@@ -360,34 +419,10 @@ async function generateFromSchemaInner(
 	outDir: string,
 	options: GenerateOptions = {},
 ): Promise<GenerateResult> {
-	const { schemaToManifest, validateManifest } = await import(
-		"./schema-to-manifest.js"
+	const { manifest, warnings } = await compileSchemaToManifest(
+		schemaPath,
+		options,
 	);
-
-	const { schema, plugins } = await loadSchemaModule(schemaPath);
-	const schemaManifest = schemaToManifest(schema, plugins, {
-		...(options.enumMode ? { enumMode: options.enumMode } : {}),
-		...(options.provider ? { provider: options.provider } : {}),
-		...(options.url ? { url: options.url } : {}),
-	});
-	const manifest = applySchemaToManifest(schemaManifest, options.schema);
-	const warnings = collectRedundantMapWarnings(schema);
-
-	const errors = validateManifest(manifest);
-	if (errors.length > 0) {
-		const detail = errors
-			.map((error, index) => `  ${index + 1}. ${error.message}`)
-			.join("\n");
-		const suggestions = [
-			...new Set(errors.flatMap((error) => error.suggestions ?? [])),
-		];
-		throw schemaCompileError(
-			schemaPath,
-			`Schema validation failed:\n${detail}`,
-			undefined,
-			suggestions,
-		);
-	}
 
 	const prev = await readSnapshot(outDir);
 	const schemaChanged =
