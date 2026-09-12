@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { pgClient } from "../src/runtime/driver.js";
 import { describe, expect, it, vi } from "vitest";
-import { introspectToManifest } from "../src/introspect/to-manifest.js";
+import { introspectToManifest, resolvePgColumnKind } from "../src/introspect/to-manifest.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 type QueryCall = {
@@ -299,5 +299,64 @@ describe("introspectToManifest", () => {
 		const scopedCalls = pool.queries.filter((call) => call.params.length > 0);
 		expect(scopedCalls.length).toBeGreaterThan(0);
 		expect(scopedCalls.every((call) => call.params[0] === "tenant_a")).toBe(true);
+	});
+});
+
+describe("resolvePgColumnKind", () => {
+	it("emits id only for TEXT-like columns named id", () => {
+		expect(
+			resolvePgColumnKind({
+				column_name: "id",
+				data_type: "text",
+				udt_name: "text",
+				column_default: null,
+			}),
+		).toBe("id");
+		expect(
+			resolvePgColumnKind({
+				column_name: "id",
+				data_type: "character varying",
+				udt_name: "varchar",
+				column_default: null,
+			}),
+		).toBe("id");
+	});
+
+	it("does not map integer, serial, or bigint columns named id to id()", () => {
+		expect(
+			resolvePgColumnKind({
+				column_name: "id",
+				data_type: "integer",
+				udt_name: "int4",
+				column_default: "nextval('items_id_seq'::regclass)",
+			}),
+		).toBe("serial");
+		expect(
+			resolvePgColumnKind({
+				column_name: "id",
+				data_type: "integer",
+				udt_name: "int4",
+				column_default: null,
+			}),
+		).toBe("int");
+		expect(
+			resolvePgColumnKind({
+				column_name: "id",
+				data_type: "bigint",
+				udt_name: "int8",
+				column_default: null,
+			}),
+		).toBe("bigint");
+	});
+
+	it("keeps uuid columns named id as uuid", () => {
+		expect(
+			resolvePgColumnKind({
+				column_name: "id",
+				data_type: "uuid",
+				udt_name: "uuid",
+				column_default: "gen_random_uuid()",
+			}),
+		).toBe("uuid");
 	});
 });
