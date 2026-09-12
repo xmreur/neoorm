@@ -426,6 +426,9 @@ function buildClient<
 /**
  * Create a typed NeoOrm client from a compiled manifest.
  *
+ * `$disconnect()` ends the `pg` pool this function creates. Pass an existing
+ * pool to {@link createNeoOrmClientFromPool} if other code must keep using it.
+ *
  * @param manifest - Manifest emitted by `neoorm generate`.
  * @param connectionStringOrOptions - PostgreSQL URL or connection options.
  */
@@ -513,8 +516,15 @@ export function createNeoOrmClient<
 	);
 }
 
+async function noopDisconnect(): Promise<void> {
+	return;
+}
+
 /**
  * Create a typed NeoOrm client from an existing `pg` connection pool.
+ *
+ * `$disconnect()` does not call `pool.end()`. The caller owns the pool and
+ * must close it.
  *
  * @param manifest - Manifest emitted by `neoorm generate`.
  * @param pool - Node `pg` Pool instance.
@@ -560,9 +570,7 @@ export function createNeoOrmClientFromPool<
 	return buildClient<TTables, TIncludes, TRowPayloads>(
 		executor,
 		runtime,
-		async () => {
-			await pool.end();
-		},
+		noopDisconnect,
 	);
 }
 
