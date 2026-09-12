@@ -30,6 +30,19 @@ function parseQualifiedColumn(col: string): SqlFragment {
 	return sqlId(col);
 }
 
+function sqlOrderDirection(direction: string): "ASC" | "DESC" {
+	switch (direction.toLowerCase()) {
+		case "asc":
+			return "ASC";
+		case "desc":
+			return "DESC";
+		default:
+			compileError('orderBy direction must be "asc" or "desc"', {
+				code: QueryErrorCode.invalid_args,
+			});
+	}
+}
+
 /**
  * Fluent SQL builder for select/join/group/order.
  * No WHERE, LIMIT, or bound params — interpolate `.compile()` into `db.sql`
@@ -65,7 +78,7 @@ export const sqlBuilder = {
 				return builder;
 			},
 			orderBy(column, direction = "asc") {
-				orderClause = `ORDER BY ${parseQualifiedColumn(column).text} ${direction.toUpperCase()}`;
+				orderClause = `ORDER BY ${parseQualifiedColumn(column).text} ${sqlOrderDirection(direction)}`;
 				return builder;
 			},
 			compile() {
