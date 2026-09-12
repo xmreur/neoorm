@@ -14,11 +14,13 @@ export {
 	resolveMigrationSql,
 } from "./codegen/diff-manifest.js";
 export type {
+	CompileSchemaOptions,
 	GenerateResult,
 	GenerateStatus,
 	GenerateSummary,
 } from "./codegen/generate.js";
 export {
+	compileSchemaToManifest,
 	formatGenerateSummary,
 	generateFromSchema,
 	summarizeGenerateOutcome,
@@ -44,6 +46,7 @@ export type {
 	DbPushResult,
 	MigrationRecord,
 	MigrationStatus,
+	PushCurrentSchemaOptions,
 } from "./migrate/runner.js";
 export {
 	applySql,
@@ -56,6 +59,7 @@ export {
 	migrateDown,
 	migrateReset,
 	migrateStatus,
+	pushCurrentSchema,
 	resetDatabaseSchema,
 	revertMigration,
 } from "./migrate/runner.js";

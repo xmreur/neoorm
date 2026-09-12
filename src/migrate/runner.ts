@@ -6,7 +6,8 @@ import {
 	formatDestructiveWarnings,
 	resolveMigrationSql,
 } from "../codegen/diff-manifest.js";
-import { writeSnapshot } from "../codegen/generate.js";
+import type { CompileSchemaOptions } from "../codegen/generate.js";
+import { compileSchemaToManifest, writeSnapshot } from "../codegen/generate.js";
 import {
 	applySchemaToManifest,
 	DEFAULT_PG_SCHEMA,
@@ -656,6 +657,12 @@ export type DbPushOptions = {
 	schemaPath?: string;
 };
 
+export type PushCurrentSchemaOptions = CompileSchemaOptions & {
+	schemaPath: string;
+	outDir: string;
+	acceptDataLoss?: boolean;
+};
+
 type DestructiveChange = import("../dialect/types.js").DestructiveChange;
 
 /** Push schema changes directly to the database without creating a migration file. */
@@ -698,6 +705,32 @@ export async function dbPush(
 		appliedStatements: sql.length,
 		destructiveBlocked: blocked,
 	};
+}
+
+/**
+ * Compile `schema.ts` and push it to the database.
+ * Updates `snapshot.json` when no destructive changes were skipped, so a later
+ * `generate` does not emit DDL that is already in the database.
+ */
+export async function pushCurrentSchema(
+	client: DatabaseClient,
+	dialect: Dialect,
+	options: PushCurrentSchemaOptions,
+): Promise<DbPushResult & { warnings: string[] }> {
+	const { schemaPath, outDir, acceptDataLoss, ...compileOptions } = options;
+	const { manifest, warnings } = await compileSchemaToManifest(
+		schemaPath,
+		compileOptions,
+	);
+	const result = await dbPush(client, dialect, manifest, {
+		...(acceptDataLoss ? { acceptDataLoss: true } : {}),
+		...(compileOptions.schema ? { schema: compileOptions.schema } : {}),
+		schemaPath,
+	});
+	if (result.destructiveBlocked.length === 0) {
+		await writeSnapshot(outDir, manifest);
+	}
+	return { ...result, warnings };
 }
 
 export function dbPushWarnings(blocked: DestructiveChange[]): string[] {
