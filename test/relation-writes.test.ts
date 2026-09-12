@@ -297,9 +297,57 @@ describe("relation-writes", () => {
 			q.sql.startsWith("DELETE"),
 		);
 		expect(deleteQuery?.sql).toContain("posts_tags");
-		expect(
-			executor.queries.filter((q) => q.sql.includes("INSERT")).length,
-		).toBe(2);
+		const inserts = executor.queries.filter((q) =>
+			q.sql.includes("INSERT"),
+		);
+		expect(inserts).toHaveLength(1);
+		expect(inserts[0]?.sql).toContain("ON CONFLICT DO NOTHING");
+		expect(inserts[0]?.sql).toContain("VALUES ($1, $2), ($3, $4)");
+		expect(inserts[0]?.params).toEqual([
+			"post_1",
+			"tag_1",
+			"post_1",
+			"tag_2",
+		]);
+	});
+
+	it("executeRelationWrites connects M2M links in one insert", async () => {
+		const executor = createMockExecutor();
+
+		await executeRelationWrites(
+			executor,
+			runtime,
+			"posts",
+			"post_1",
+			[
+				{
+					relationName: "tags",
+					value: {
+						connect: [
+							{ id: "tag_1" },
+							{ id: "tag_2" },
+							{ id: "tag_1" },
+						],
+					},
+				},
+			],
+			runCreate,
+		);
+
+		expect(executor.queries.some((q) => q.sql.startsWith("SELECT"))).toBe(
+			false,
+		);
+		const inserts = executor.queries.filter((q) =>
+			q.sql.includes("INSERT"),
+		);
+		expect(inserts).toHaveLength(1);
+		expect(inserts[0]?.sql).toContain("ON CONFLICT DO NOTHING");
+		expect(inserts[0]?.params).toEqual([
+			"post_1",
+			"tag_1",
+			"post_1",
+			"tag_2",
+		]);
 	});
 
 	it("executeRelationWrites creates nested inverse rows", async () => {
