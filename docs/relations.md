@@ -1,6 +1,6 @@
 # Relation writes
 
-`create` and `update` accept nested relation writes alongside scalar fields. Relation-only updates are supported (no scalar `SET` required).
+`create` and `update` accept nested relation writes alongside scalar fields. Relation-only updates are supported (no scalar `SET` required). Nested to-one `create` on `update` (and `create`) runs in the same transaction as the parent row so a failed parent write does not leave an orphan.
 
 ## Supported operations
 

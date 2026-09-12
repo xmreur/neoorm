@@ -1,24 +1,24 @@
-import { postgresDialect, quoteIdentifier, tableRef } from "../../dialect/postgres.js";
+import {
+	postgresDialect,
+	quoteIdentifier,
+	tableRef,
+} from "../../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestManyToMany,
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { QueryOperation } from "../errors.js";
 import type { Executor } from "../executor.js";
 import { buildInsertQuery, dataToSqlValues } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import type { WithInput } from "./find.js";
 import { findOrCreatePk } from "./find-or-create.js";
-import {
-	findM2M,
-	findRelation,
-	tableOwnsFkColumn,
-} from "./manifest-lookup.js";
+import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import {
 	fillMissingPrimaryKeys,
 	primaryKeySqlName,
@@ -31,9 +31,9 @@ import {
 	columnByTsName,
 	getTableIndex,
 	type ManifestIndex,
-	type TableIndex,
 	requireTable,
 	requireTsColumn,
+	type TableIndex,
 } from "./table-index.js";
 
 const RELATION_WRITE_KEYS = [
@@ -72,7 +72,9 @@ function isRelationWriteObject(
 		return false;
 	const keys = Object.keys(value);
 	if (keys.length === 0) return false;
-	return keys.every((k) => (RELATION_WRITE_KEYS as readonly string[]).includes(k));
+	return keys.every((k) =>
+		(RELATION_WRITE_KEYS as readonly string[]).includes(k),
+	);
 }
 
 function isRelationField(
@@ -208,7 +210,12 @@ export async function resolveConnectOrCreate(
 ): Promise<string[]> {
 	const ids: string[] = [];
 	for (const item of items) {
-		const id = await findOrCreatePk(executor, runtime, targetAccessor, item);
+		const id = await findOrCreatePk(
+			executor,
+			runtime,
+			targetAccessor,
+			item,
+		);
 		ids.push(id);
 	}
 	return ids;
@@ -227,7 +234,10 @@ async function insertM2MLinks(
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return;
 
-	const throughIndex = getTableIndex(runtime.tableIndex, throughTable.accessor);
+	const throughIndex = getTableIndex(
+		runtime.tableIndex,
+		throughTable.accessor,
+	);
 	const isLeft = m2m.leftAccessor === parentAccessor;
 	const leftCol = columnBySqlName(
 		throughIndex,
@@ -326,7 +336,10 @@ async function deleteJunctionRows(
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return;
 
-	const throughIndex = getTableIndex(runtime.tableIndex, throughTable.accessor);
+	const throughIndex = getTableIndex(
+		runtime.tableIndex,
+		throughTable.accessor,
+	);
 	const isLeft = m2m.leftAccessor === parentAccessor;
 	const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 	const otherFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
@@ -504,7 +517,10 @@ async function listM2MLinkedIds(
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return [];
 
-	const throughIndex = getTableIndex(runtime.tableIndex, throughTable.accessor);
+	const throughIndex = getTableIndex(
+		runtime.tableIndex,
+		throughTable.accessor,
+	);
 	const isLeft = m2m.leftAccessor === parentAccessor;
 	const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 	const otherFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
@@ -628,8 +644,7 @@ async function executeToOneWrite(
 			data: value["create"] as Record<string, unknown>,
 		});
 		const targetTable = manifest.tables[rel.targetAccessor];
-		if (!targetTable)
-			compileError(`Unknown table: ${rel.targetAccessor}`);
+		if (!targetTable) compileError(`Unknown table: ${rel.targetAccessor}`);
 		scalarData[rel.fkColumn] = rowScalarPkValue(created, targetTable);
 	}
 }
@@ -1060,6 +1075,36 @@ export function hasPostRelationWrites(
 		if (rel?.cardinality === "one" && !tableOwnsFkColumn(table, rel))
 			return true;
 		if (findM2M(manifest, tableAccessor, write.relationName)) return true;
+	}
+	return false;
+}
+
+export function relationWritesNeedTransaction(
+	table: ManifestTable,
+	manifest: Manifest,
+	tableAccessor: string,
+	relationWrites: ParsedRelationWrite[],
+): boolean {
+	if (relationWrites.length === 0) return false;
+	if (hasPostRelationWrites(table, manifest, tableAccessor, relationWrites)) {
+		return true;
+	}
+	for (const write of relationWrites) {
+		const rel = findRelation(table, write.relationName);
+		if (
+			!rel ||
+			rel.cardinality !== "one" ||
+			!tableOwnsFkColumn(table, rel)
+		) {
+			continue;
+		}
+		if (
+			typeof write.value === "object" &&
+			write.value !== null &&
+			"create" in write.value
+		) {
+			return true;
+		}
 	}
 	return false;
 }

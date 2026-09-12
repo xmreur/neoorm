@@ -36,6 +36,7 @@ import {
 	executeRelationWrites,
 	hasPostRelationWrites,
 	type ParsedRelationWrite,
+	relationWritesNeedTransaction,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
 import { getTableIndex, relationByName, requireTable } from "./table-index.js";
@@ -259,7 +260,7 @@ export async function updateRecord(
 		runtime.tableIndex,
 		"update",
 	);
-	const needsTransaction = hasPostRelationWrites(
+	const needsTransaction = relationWritesNeedTransaction(
 		table,
 		manifest,
 		tableAccessor,
@@ -544,7 +545,7 @@ async function updateManyInternal(
 		runtime.tableIndex,
 		"update",
 	);
-	const needsTransaction = hasPostRelationWrites(
+	const needsTransaction = relationWritesNeedTransaction(
 		table,
 		manifest,
 		tableAccessor,
