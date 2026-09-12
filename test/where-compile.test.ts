@@ -4,8 +4,10 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import {
+	compileOrderBy,
 	compileWhere,
 	getCachedOrderByClause,
+	getCachedWhereClause,
 	orderByShapeKey,
 } from "../src/runtime/query/compile.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
@@ -19,6 +21,7 @@ describe("where compilation", () => {
 	const manifest = blogManifest();
 	const users = manifestTable(manifest, "users");
 	const posts = manifestTable(manifest, "posts");
+	const tableIndex = buildManifestIndex(manifest);
 
 	it("compiles OR of two conditions", () => {
 		const { sql, params } = compileWhere(
@@ -478,6 +481,27 @@ describe("where compilation", () => {
 		}
 	});
 
+	it("rejects unknown where columns when collecting cached params", () => {
+		getCachedWhereClause(
+			manifest,
+			users,
+			{ email: "a@b.c" },
+			postgresDialect,
+			1,
+			tableIndex,
+		);
+		expect(() =>
+			getCachedWhereClause(
+				manifest,
+				users,
+				{ emial: "a@b.c" },
+				postgresDialect,
+				1,
+				tableIndex,
+			),
+		).toThrow(/Unknown column "emial" in where/);
+	});
+
 	it("rejects a misspelled where operator", () => {
 		try {
 			compileWhere(
@@ -604,5 +628,22 @@ describe("orderBy compilation", () => {
 		);
 		expect(emailFirst).toBe('ORDER BY "email" ASC, "created_at" DESC');
 		expect(createdFirst).toBe('ORDER BY "created_at" DESC, "email" ASC');
+	});
+
+	it("rejects an unknown orderBy column instead of dropping it", () => {
+		expect(() => compileOrderBy(users, { emial: "asc" })).toThrow(
+			/Unknown column "emial" in orderBy/,
+		);
+		expect(() =>
+			compileOrderBy(users, { email: "asc", emial: "desc" }),
+		).toThrow(/Unknown column "emial" in orderBy/);
+		expect(() =>
+			getCachedOrderByClause(
+				users,
+				{ emial: "asc" },
+				undefined,
+				tableIndex,
+			),
+		).toThrow(/Unknown column "emial" in orderBy/);
 	});
 });
