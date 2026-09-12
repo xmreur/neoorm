@@ -88,7 +88,11 @@ function parseMarkdownSections(markdown: string): MarkdownSection[] {
 			continue;
 		}
 
-		if (currentHeading === undefined && sections.length === 0 && !line.match(/^#\s+/)) {
+		if (
+			currentHeading === undefined &&
+			sections.length === 0 &&
+			!line.match(/^#\s+/)
+		) {
 			intro.push(line);
 			continue;
 		}
@@ -102,7 +106,9 @@ function parseMarkdownSections(markdown: string): MarkdownSection[] {
 		flush();
 	}
 
-	return sections.filter((section) => section.body.length > 0 || section.heading);
+	return sections.filter(
+		(section) => section.body.length > 0 || section.heading,
+	);
 }
 
 function buildRecord(
@@ -125,9 +131,7 @@ function buildRecord(
 	return {
 		slug: page.slug,
 		title: page.title,
-		...(heading
-			? { heading, anchor: slugifyHeading(heading) }
-			: {}),
+		...(heading ? { heading, anchor: slugifyHeading(heading) } : {}),
 		excerpt: excerptFromText(excerptSource),
 		text,
 	};

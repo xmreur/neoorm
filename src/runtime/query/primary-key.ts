@@ -4,9 +4,9 @@ import type {
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
-import { QueryErrorCode } from "../error-codes.js";
-import { compileError } from "../compile-error.js";
 import { generateUuid, resolveUuidVersion } from "../../utils/uuid.js";
+import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import {
 	columnBySqlName,
 	columnByTsName,
@@ -20,10 +20,7 @@ export function primaryKeyTsNames(
 	tableIndex?: TableIndex,
 ): string[] {
 	return table.primaryKey
-		.map(
-			(sqlName) =>
-				columnBySqlName(tableIndex, table, sqlName)?.tsName,
-		)
+		.map((sqlName) => columnBySqlName(tableIndex, table, sqlName)?.tsName)
 		.filter((name): name is string => name !== undefined);
 }
 

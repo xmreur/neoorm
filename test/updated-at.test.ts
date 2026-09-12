@@ -1,4 +1,3 @@
-import { createColumnBuilder } from "../src/schema/column.js";
 import { defineSchema, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
@@ -7,11 +6,12 @@ import {
 	buildUpdateQuery,
 	buildUpsertQuery,
 } from "../src/runtime/query/compile.js";
+import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
 } from "../src/runtime/query/updated-at.js";
-import { buildManifestIndex } from "../src/runtime/query/table-index.js";
+import { createColumnBuilder } from "../src/schema/column.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
@@ -70,7 +70,17 @@ describe("updatedAt", () => {
 	it("rejects updatedAt on non-temporal columns", () => {
 		const invalid = defineSchema({
 			items: table({
-				name: createColumnBuilder<string | null, { kind: "text"; nullable: true; unique: false; primary: false; defaultNow: false; updatedAt: true }>({
+				name: createColumnBuilder<
+					string | null,
+					{
+						kind: "text";
+						nullable: true;
+						unique: false;
+						primary: false;
+						defaultNow: false;
+						updatedAt: true;
+					}
+				>({
 					kind: "text",
 					nullable: true,
 					unique: false,

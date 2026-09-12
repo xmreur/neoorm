@@ -6,11 +6,11 @@ import type {
 import type {
 	InferInsertRow,
 	InferSelectRow,
+	RelationAccessors,
 	RelationCreateMap,
 	RelationUpdateMap,
 	WhereInput,
 } from "../src/schema/types.js";
-import type { RelationAccessors } from "../src/schema/types.js";
 
 const users = table({
 	id: id(),
@@ -89,7 +89,9 @@ const whereShapeOk: {
 void whereShapeOk;
 
 // m2m relations accept connect/disconnect/set/delete/create writes.
-declare const createShape: NonNullable<RelationCreateMap<S, "servers">["members"]>;
+declare const createShape: NonNullable<
+	RelationCreateMap<S, "servers">["members"]
+>;
 const createShapeOk: {
 	connect?: unknown;
 	disconnect?: unknown;

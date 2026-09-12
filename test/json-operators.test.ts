@@ -233,7 +233,12 @@ describe("json where operators (sqlite runtime)", () => {
 		);
 
 		async function ids(where: Record<string, unknown>) {
-			const compiled = compileWhere(manifest, posts, where, sqliteDialect);
+			const compiled = compileWhere(
+				manifest,
+				posts,
+				where,
+				sqliteDialect,
+			);
 			const result = await client.query<{ id: string }>(
 				`SELECT id FROM posts ${compiled.sql}`,
 				compiled.params,
@@ -241,9 +246,9 @@ describe("json where operators (sqlite runtime)", () => {
 			return result.rows.map((row) => row.id).sort();
 		}
 
-		expect(await ids({ metadata: { jsonContains: { featured: true } } })).toEqual(
-			["1"],
-		);
+		expect(
+			await ids({ metadata: { jsonContains: { featured: true } } }),
+		).toEqual(["1"]);
 		expect(await ids({ metadata: { hasKey: "tags" } })).toEqual(["3"]);
 		expect(
 			await ids({ metadata: { hasAnyKeys: ["tags", "missing"] } }),

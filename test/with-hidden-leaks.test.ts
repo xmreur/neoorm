@@ -135,9 +135,7 @@ describe("with alias leaks and hidden default select", () => {
 
 	it("omits hidden columns from default root select", async () => {
 		const executor = createMockExecutor({
-			query: () => [
-				{ id: "user_1", email: "a@b.com", name: "Ada" },
-			],
+			query: () => [{ id: "user_1", email: "a@b.com", name: "Ada" }],
 		});
 
 		const rows = await findMany(executor, runtime, "users");
@@ -212,10 +210,12 @@ describe("with alias leaks and hidden default select", () => {
 			with: { author: { includeHidden: true } },
 		});
 
-		expect(atIndex(executor.queries, 0).sql).toContain('"__author__password"');
-		expect(
-			(rows[0]?.author as Record<string, unknown>)?.password,
-		).toBe("hash");
+		expect(atIndex(executor.queries, 0).sql).toContain(
+			'"__author__password"',
+		);
+		expect((rows[0]?.author as Record<string, unknown>)?.password).toBe(
+			"hash",
+		);
 	});
 
 	it("fetches hidden columns when explicitly selected on root", async () => {
@@ -257,10 +257,12 @@ describe("with alias leaks and hidden default select", () => {
 			},
 		});
 
-		expect(atIndex(executor.queries, 0).sql).toContain('"__author__password"');
-		expect(
-			(rows[0]?.author as Record<string, unknown>)?.password,
-		).toBe("hash");
+		expect(atIndex(executor.queries, 0).sql).toContain(
+			'"__author__password"',
+		);
+		expect((rows[0]?.author as Record<string, unknown>)?.password).toBe(
+			"hash",
+		);
 	});
 
 	it("omit of another column does not re-include hidden columns", async () => {

@@ -110,7 +110,10 @@ describe("column naming strategies", () => {
 				{
 					id: id(),
 					emailAddress: text().notNull().map("email"),
-					authorId: fk("users.id").as("author").inverse("posts").map("author_ref"),
+					authorId: fk("users.id")
+						.as("author")
+						.inverse("posts")
+						.map("author_ref"),
 				},
 				{ columnNaming: "camelCase" },
 			),

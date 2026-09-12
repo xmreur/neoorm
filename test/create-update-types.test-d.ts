@@ -124,11 +124,20 @@ expectPostsUpdate({ author: { disconnect: true } });
 // @ts-expect-error -- disconnect not allowed on non-nullable profile user FK
 expectProfilesUpdate({ user: { disconnect: true } });
 
-// @ts-expect-error -- unknown scalar field
-expectPostsCreate({ title: "NeoORM", body: "FK-first relations.", authorId: "user_1", typoTitle: "nope" });
+expectPostsCreate({
+	title: "NeoORM",
+	body: "FK-first relations.",
+	authorId: "user_1",
+	// @ts-expect-error -- unknown scalar field
+	typoTitle: "nope",
+});
 
-// @ts-expect-error -- unknown relation key
-expectPostsCreate({ title: "NeoORM", body: "FK-first relations.", authors: { connect: { id: "user_1" } } });
+expectPostsCreate({
+	title: "NeoORM",
+	body: "FK-first relations.",
+	// @ts-expect-error -- unknown relation key
+	authors: { connect: { id: "user_1" } },
+});
 
 // @ts-expect-error -- missing required scalar body
 expectPostsCreate({ title: "NeoORM", authorId: "user_1" });

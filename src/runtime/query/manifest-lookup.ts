@@ -4,11 +4,7 @@ import type {
 	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
-import {
-	relationByName,
-	type TableIndex,
-	tableOwnsFk,
-} from "./table-index.js";
+import { relationByName, type TableIndex, tableOwnsFk } from "./table-index.js";
 
 export function findM2M(
 	manifest: Manifest,

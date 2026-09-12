@@ -4,15 +4,15 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../../dialect/types.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import { serializeColumnValue } from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
 	columnByTsName,
 	getTableIndex,
-	requireTsColumn,
 	type ManifestIndex,
+	requireTsColumn,
 } from "./table-index.js";
 
 export type OrderKeySpec = {

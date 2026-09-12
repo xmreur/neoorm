@@ -64,10 +64,7 @@ function operationTarget(context: QueryErrorContext): string {
 	return "query";
 }
 
-function appendSuggestions(
-	lines: string[],
-	suggestions?: string[],
-): void {
+function appendSuggestions(lines: string[], suggestions?: string[]): void {
 	if (!suggestions || suggestions.length === 0) return;
 	lines.push("");
 	lines.push("  Suggestions:");
@@ -223,7 +220,11 @@ export class QueryCompileError extends NeoOrmQueryError {
 export class UniqueViolationError extends NeoOrmQueryError {
 	constructor(context: QueryErrorContext, cause?: unknown) {
 		super(
-			{ ...context, code: QueryErrorCode.unique_violation, phase: "runtime" },
+			{
+				...context,
+				code: QueryErrorCode.unique_violation,
+				phase: "runtime",
+			},
 			cause,
 		);
 		this.name = "UniqueViolationError";
@@ -264,7 +265,11 @@ export class NotNullViolationError extends NeoOrmQueryError {
 export class CheckViolationError extends NeoOrmQueryError {
 	constructor(context: QueryErrorContext, cause?: unknown) {
 		super(
-			{ ...context, code: QueryErrorCode.check_violation, phase: "runtime" },
+			{
+				...context,
+				code: QueryErrorCode.check_violation,
+				phase: "runtime",
+			},
 			cause,
 		);
 		this.name = "CheckViolationError";
@@ -275,7 +280,11 @@ export class CheckViolationError extends NeoOrmQueryError {
 export class InvalidInputError extends NeoOrmQueryError {
 	constructor(context: QueryErrorContext, cause?: unknown) {
 		super(
-			{ ...context, code: QueryErrorCode.invalid_input, phase: "runtime" },
+			{
+				...context,
+				code: QueryErrorCode.invalid_input,
+				phase: "runtime",
+			},
 			cause,
 		);
 		this.name = "InvalidInputError";
@@ -337,8 +346,7 @@ export class NeoOrmDriverError extends NeoOrmError {
 	readonly code = QueryErrorCode.driver_error;
 
 	constructor(statement: string, cause: unknown) {
-		const detail =
-			cause instanceof Error ? cause.message : String(cause);
+		const detail = cause instanceof Error ? cause.message : String(cause);
 		super(detail, cause);
 		this.name = "NeoOrmDriverError";
 		this.statement = statement;

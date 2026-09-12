@@ -91,7 +91,10 @@ describe("migrateDeploy checksums and locking", () => {
 		const db = new DatabaseSync(":memory:");
 		const client = sqliteClient(db);
 		await migrateDeploy(client, sqliteDialect, migrationsDir);
-		await writeFile(sqlPath, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);\n");
+		await writeFile(
+			sqlPath,
+			"CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);\n",
+		);
 
 		await expect(
 			migrateDeploy(client, sqliteDialect, migrationsDir),
@@ -100,7 +103,9 @@ describe("migrateDeploy checksums and locking", () => {
 			expect((err as NeoOrmSchemaError).code).toBe(
 				SchemaErrorCode.migration_guard,
 			);
-			expect((err as NeoOrmSchemaError).message).toMatch(/checksum mismatch/);
+			expect((err as NeoOrmSchemaError).message).toMatch(
+				/checksum mismatch/,
+			);
 			return true;
 		});
 		await client.close();
@@ -118,7 +123,10 @@ describe("migrateDeploy checksums and locking", () => {
 		const db = new DatabaseSync(":memory:");
 		const client = sqliteClient(db);
 		await migrateDeploy(client, sqliteDialect, migrationsDir);
-		await writeFile(sqlPath, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);\n");
+		await writeFile(
+			sqlPath,
+			"CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT);\n",
+		);
 		await writeMigration(
 			migrationsDir,
 			"20200102_next",

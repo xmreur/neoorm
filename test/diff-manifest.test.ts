@@ -7,12 +7,12 @@ import {
 	resolveMigrationSql,
 } from "../src/codegen/diff-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
 import type {
 	Manifest,
 	ManifestColumn,
 	ManifestTable,
 } from "../src/dialect/types.js";
-import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { manifestTable, manifestTableFromRecord } from "./helpers/manifest.js";
 
 function col(
@@ -156,9 +156,7 @@ describe("diffManifest", () => {
 		).toBe(true);
 		expect(
 			initial.sql.some(
-				(s) =>
-					s.includes("CREATE TABLE") &&
-					s.includes("UNIQUE ("),
+				(s) => s.includes("CREATE TABLE") && s.includes("UNIQUE ("),
 			),
 		).toBe(false);
 
@@ -175,9 +173,9 @@ describe("diffManifest", () => {
 		expect(dropped.sql).toContain(
 			'DROP INDEX IF EXISTS "posts_author_id_title_key";',
 		);
-		expect(
-			dropped.sql.some((s) => s.includes("DROP CONSTRAINT")),
-		).toBe(false);
+		expect(dropped.sql.some((s) => s.includes("DROP CONSTRAINT"))).toBe(
+			false,
+		);
 	});
 
 	it("creates all tables before adding foreign keys", () => {
@@ -211,8 +209,7 @@ describe("diffManifest", () => {
 			s.includes('CREATE TABLE "users"'),
 		);
 		const addFk = initial.sql.findIndex(
-			(s) =>
-				s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
+			(s) => s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
 		);
 		expect(createPosts).toBeGreaterThanOrEqual(0);
 		expect(createUsers).toBeGreaterThanOrEqual(0);
@@ -225,13 +222,14 @@ describe("diffManifest", () => {
 		);
 
 		const sqliteInitial = diffManifest(null, postsThenUsers, sqliteDialect);
-		const sqliteCreatePosts = sqliteInitial.sql.find(
-			(s) => s.includes('CREATE TABLE "posts"'),
+		const sqliteCreatePosts = sqliteInitial.sql.find((s) =>
+			s.includes('CREATE TABLE "posts"'),
 		);
 		expect(sqliteCreatePosts).toContain("FOREIGN KEY");
 		expect(
 			sqliteInitial.sql.some(
-				(s) => s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
+				(s) =>
+					s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
 			),
 		).toBe(false);
 
@@ -259,8 +257,7 @@ describe("diffManifest", () => {
 			s.includes('CREATE TABLE "users"'),
 		);
 		const incAddFk = incremental.sql.findIndex(
-			(s) =>
-				s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
+			(s) => s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
 		);
 		expect(incAddFk).toBeGreaterThan(incCreatePosts);
 		expect(incAddFk).toBeGreaterThan(incCreateUsers);
@@ -707,7 +704,10 @@ describe("diffManifest", () => {
 				col("id", "id", { kind: "id", primary: true, nullable: false }),
 			]),
 		});
-		const next = manifest({ users: manifestTableFromRecord(prev.tables, "users") }, ["postgis"]);
+		const next = manifest(
+			{ users: manifestTableFromRecord(prev.tables, "users") },
+			["postgis"],
+		);
 
 		const { sql } = diffManifest(prev, next);
 		expect(

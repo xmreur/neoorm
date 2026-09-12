@@ -12,8 +12,8 @@ import {
 	writeSnapshot,
 } from "../src/codegen/generate.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest.js";
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
 import { dbPush, pushCurrentSchema } from "../src/migrate/runner.js";
@@ -63,11 +63,18 @@ describe.skipIf(!databaseUrl)("db push integration", () => {
 			true,
 		);
 
-		const second = await dbPush(pgClient(pool), postgresDialect, manifestV2);
+		const second = await dbPush(
+			pgClient(pool),
+			postgresDialect,
+			manifestV2,
+		);
 		expect(second.appliedStatements).toBeGreaterThan(0);
 
 		const liveAfter = await introspectToManifest(pgClient(pool));
-		const users = manifestTableFromRecord(liveAfter.tables, "pushTestUsers");
+		const users = manifestTableFromRecord(
+			liveAfter.tables,
+			"pushTestUsers",
+		);
 		expect(users.columns.some((c) => c.sqlName === "nickname")).toBe(true);
 	});
 });
@@ -121,7 +128,9 @@ describe("db push uses schema.ts", () => {
 			),
 		).toBe(true);
 		expect(
-			snapshot?.tables.users?.columns.some((col) => col.sqlName === "email"),
+			snapshot?.tables.users?.columns.some(
+				(col) => col.sqlName === "email",
+			),
 		).toBe(false);
 		expect(hashManifest(compiled.manifest)).not.toBe(
 			hashManifest(snapshot!),
@@ -167,12 +176,14 @@ describe("db push uses schema.ts", () => {
 
 		const snapshot = await readSnapshot(outDir);
 		expect(
-			snapshot?.tables.users?.columns.some((col) => col.sqlName === "email"),
+			snapshot?.tables.users?.columns.some(
+				(col) => col.sqlName === "email",
+			),
 		).toBe(true);
 
-		expect(await readdir(join(outDir, "migrations")).catch(() => [])).toEqual(
-			[],
-		);
+		expect(
+			await readdir(join(outDir, "migrations")).catch(() => []),
+		).toEqual([]);
 
 		db.close();
 		await rm(workDir, { recursive: true, force: true });

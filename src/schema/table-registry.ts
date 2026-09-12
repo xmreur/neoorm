@@ -12,8 +12,14 @@ type TableRegistryEntry = {
 };
 
 function registry(): TableRegistryEntry[] {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return ((globalThis as any)[REGISTRY_KEY] ??= []);
+	const g = globalThis as Record<PropertyKey, unknown>;
+	const existing = g[REGISTRY_KEY];
+	if (Array.isArray(existing)) {
+		return existing as TableRegistryEntry[];
+	}
+	const created: TableRegistryEntry[] = [];
+	g[REGISTRY_KEY] = created;
+	return created;
 }
 
 export function registerTable(

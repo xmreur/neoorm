@@ -19,8 +19,8 @@ import {
 } from "../src/runtime/query/primary-key.js";
 import { executeRelationWrites } from "../src/runtime/query/relation-writes.js";
 import { updateById } from "../src/runtime/query/update.js";
-import { createMockExecutor } from "./helpers/mock-executor.js";
 import { manifestTable } from "./helpers/manifest.js";
+import { createMockExecutor } from "./helpers/mock-executor.js";
 
 const mappedPkSchema = defineSchema({
 	users: table({

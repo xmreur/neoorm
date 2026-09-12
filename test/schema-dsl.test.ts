@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import {
+	schemaToManifest,
+	validateManifest,
+} from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
-import { schemaToManifest, validateManifest } from "../src/codegen/schema-to-manifest.js";
 import {
 	defineSchema,
 	fk,
@@ -116,11 +119,13 @@ describe("schema DSL 0.6", () => {
 		});
 		const manifest = schemaToManifest(schema);
 		const items = manifestTable(manifest, "items");
-		expect(items.columns.find((c) => c.tsName === "price")?.checkExpression).toBe(
-			"price >= 0",
+		expect(
+			items.columns.find((c) => c.tsName === "price")?.checkExpression,
+		).toBe("price >= 0");
+		const partial = items.indexes.find((idx) =>
+			idx.columns.includes("price"),
 		);
-		const partial = items.indexes.find((idx) => idx.columns.includes("price"));
-		expect(partial?.whereSql).toBe('"published" = \'true\'');
+		expect(partial?.whereSql).toBe("\"published\" = 'true'");
 		const createSql = postgresDialect.emitCreateTable(items, { manifest });
 		expect(createSql).toContain("CHECK (price >= 0)");
 	});
@@ -145,12 +150,12 @@ describe("schema DSL 0.6", () => {
 		});
 		const manifest = schemaToManifest(schema);
 		const users = manifestTable(manifest, "users");
-		expect(users.columns.find((c) => c.tsName === "createdAt")?.defaultNow).toBe(
-			true,
-		);
-		expect(users.columns.find((c) => c.tsName === "updatedAt")?.updatedAt).toBe(
-			true,
-		);
+		expect(
+			users.columns.find((c) => c.tsName === "createdAt")?.defaultNow,
+		).toBe(true);
+		expect(
+			users.columns.find((c) => c.tsName === "updatedAt")?.updatedAt,
+		).toBe(true);
 	});
 
 	it("infers a composite primary key from multiple .primary() columns", () => {

@@ -1,7 +1,7 @@
+import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import type { ColumnBuilder, ColumnMeta } from "./column.js";
 import type { TableDef } from "./table.js";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
-import { schemaError } from "../runtime/error-builders.js";
 import { findOwningTable } from "./table-registry.js";
 
 /** Foreign-key `ON DELETE` action passed to {@link fk}.onDelete. */

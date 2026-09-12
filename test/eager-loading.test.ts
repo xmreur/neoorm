@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { findFirst, findMany, loadRelations } from "../src/runtime/query/find.js";
+import {
+	findFirst,
+	findMany,
+	loadRelations,
+} from "../src/runtime/query/find.js";
 import { atIndex, manifestTable } from "./helpers/manifest.js";
 
 const eagerLoadingSchema = defineSchema({

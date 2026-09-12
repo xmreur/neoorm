@@ -1,5 +1,8 @@
 import type { ManifestTable } from "../../dialect/types.js";
-import { mapRowToTs as mapRowCore, mapRowsToTs as mapRowsCore } from "./compile.js";
+import {
+	mapRowToTs as mapRowCore,
+	mapRowsToTs as mapRowsCore,
+} from "./compile.js";
 import { attachStripToRows } from "./strip.js";
 import type { TableIndex } from "./table-index.js";
 

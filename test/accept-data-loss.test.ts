@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
@@ -33,7 +40,11 @@ async function writeSchema(
 	return schemaPath;
 }
 
-const workBaseDir = join(import.meta.dirname, "fixtures", "accept-data-loss-work");
+const workBaseDir = join(
+	import.meta.dirname,
+	"fixtures",
+	"accept-data-loss-work",
+);
 
 async function createWorkDir(): Promise<string> {
 	await mkdir(workBaseDir, { recursive: true });
@@ -44,13 +55,21 @@ describe("accept-data-loss generate flow", () => {
 	it("keeps snapshot unchanged when destructive migration is blocked", async () => {
 		const workDir = await createWorkDir();
 		const outDir = join(workDir, "neoorm");
-		const schemaV1Path = await writeSchema(workDir, SCHEMA_V1, "schema-v1.ts");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			SCHEMA_V1,
+			"schema-v1.ts",
+		);
 
 		await generateFromSchema(schemaV1Path, outDir);
 		const snapshotAfterV1 = await readSnapshot(outDir);
 		expect(snapshotAfterV1?.tables.archives).toBeDefined();
 
-		const schemaV2Path = await writeSchema(workDir, SCHEMA_V2, "schema-v2.ts");
+		const schemaV2Path = await writeSchema(
+			workDir,
+			SCHEMA_V2,
+			"schema-v2.ts",
+		);
 		const blocked = await generateFromSchema(schemaV2Path, outDir);
 		expect(blocked.destructiveBlocked).toBe(true);
 		expect(blocked.summary.status).toBe("migration_blocked");
@@ -73,10 +92,18 @@ describe("accept-data-loss generate flow", () => {
 	it("writes destructive migration and updates snapshot with acceptDataLoss", async () => {
 		const workDir = await createWorkDir();
 		const outDir = join(workDir, "neoorm");
-		const schemaV1Path = await writeSchema(workDir, SCHEMA_V1, "schema-v1.ts");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			SCHEMA_V1,
+			"schema-v1.ts",
+		);
 
 		await generateFromSchema(schemaV1Path, outDir);
-		const schemaV2Path = await writeSchema(workDir, SCHEMA_V2, "schema-v2.ts");
+		const schemaV2Path = await writeSchema(
+			workDir,
+			SCHEMA_V2,
+			"schema-v2.ts",
+		);
 
 		const accepted = await generateFromSchema(schemaV2Path, outDir, {
 			acceptDataLoss: true,
@@ -109,10 +136,18 @@ describe("accept-data-loss generate flow", () => {
 	it("still produces destructive migration after a blocked generate", async () => {
 		const workDir = await createWorkDir();
 		const outDir = join(workDir, "neoorm");
-		const schemaV1Path = await writeSchema(workDir, SCHEMA_V1, "schema-v1.ts");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			SCHEMA_V1,
+			"schema-v1.ts",
+		);
 
 		await generateFromSchema(schemaV1Path, outDir);
-		const schemaV2Path = await writeSchema(workDir, SCHEMA_V2, "schema-v2.ts");
+		const schemaV2Path = await writeSchema(
+			workDir,
+			SCHEMA_V2,
+			"schema-v2.ts",
+		);
 
 		const blocked = await generateFromSchema(schemaV2Path, outDir);
 		expect(blocked.destructiveBlocked).toBe(true);
@@ -187,8 +222,7 @@ describe("CLI --accept-data-loss parsing", () => {
 		let pushAcceptDataLoss: boolean | undefined;
 		let generateAcceptDataLoss: boolean | undefined;
 
-		db
-			.command("push")
+		db.command("push")
 			.option("--accept-data-loss", "Apply destructive schema changes")
 			.action((options: { acceptDataLoss?: boolean }) => {
 				pushAcceptDataLoss = options.acceptDataLoss;

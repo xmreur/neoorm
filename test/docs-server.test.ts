@@ -1,7 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { createRequestHandler } from "../src/docs/server.js";
-import { loadDocsPages, hydratePageTitles } from "../src/docs/pages.js";
+import { describe, expect, it } from "vitest";
+import { hydratePageTitles, loadDocsPages } from "../src/docs/pages.js";
 import { resolveDocsDir } from "../src/docs/resolve-docs-dir.js";
 import {
 	buildSearchIndex,
@@ -9,6 +8,7 @@ import {
 	rankSearchResults,
 	slugifyHeading,
 } from "../src/docs/search.js";
+import { createRequestHandler } from "../src/docs/server.js";
 
 describe("docs server", () => {
 	it("finds the bundled docs directory", async () => {
@@ -66,7 +66,8 @@ More text.
 		expect(
 			index.some(
 				(record) =>
-					record.slug === "schema" && record.heading === "Foreign keys",
+					record.slug === "schema" &&
+					record.heading === "Foreign keys",
 			),
 		).toBe(true);
 	});
@@ -113,7 +114,9 @@ More text.
 		};
 
 		await handler(
-			{ url: "/search-index.json" } as import("node:http").IncomingMessage,
+			{
+				url: "/search-index.json",
+			} as import("node:http").IncomingMessage,
 			res as unknown as import("node:http").ServerResponse,
 		);
 

@@ -61,9 +61,7 @@ function hasDocstringBeforeExport(source: string, exportName: string): boolean {
 		new RegExp(
 			`/\\*\\*[\\s\\S]*?\\*/\\s*export async function ${exportName}\\b`,
 		),
-		new RegExp(
-			`/\\*\\*[\\s\\S]*?\\*/\\s*export const ${exportName}\\s*=`,
-		),
+		new RegExp(`/\\*\\*[\\s\\S]*?\\*/\\s*export const ${exportName}\\s*=`),
 	];
 	return patterns.some((pattern) => pattern.test(source));
 }

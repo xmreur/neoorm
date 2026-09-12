@@ -15,9 +15,7 @@ export type SchemaDef<TTables extends Record<string, TableDef>> = {
 	readonly _extensions?: readonly string[];
 } & TTables;
 
-function findPrimaryKeyColumn(
-	table: TableDef,
-): string | undefined {
+function findPrimaryKeyColumn(table: TableDef): string | undefined {
 	for (const [tsName, col] of Object.entries(table._columns)) {
 		if (
 			typeof col === "object" &&
@@ -46,7 +44,9 @@ function findPrimaryKeyColumn(
 function assignTableAccessor(table: TableDef, accessor: string): void {
 	const sqlName = table._tableName || accessor;
 	const pkColumnName = findPrimaryKeyColumn(table);
-	const targetRef = pkColumnName ? `${sqlName}.${pkColumnName}` : `${sqlName}.`;
+	const targetRef = pkColumnName
+		? `${sqlName}.${pkColumnName}`
+		: `${sqlName}.`;
 
 	Object.assign(table, {
 		_tableName: sqlName,

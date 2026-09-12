@@ -1,13 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { emitModelsTs } from "../src/codegen/emit-models.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import {
-	defineSchema,
-	fk,
-	serial,
-	table,
-	uuid,
-} from "../src/schema/index.js";
+import { defineSchema, fk, serial, table, uuid } from "../src/schema/index.js";
 import type { CreateInput, InferSelectRow } from "../src/schema/types.js";
 
 const schema = defineSchema({
@@ -40,11 +34,17 @@ describe("foreign key TypeScript types", () => {
 	});
 
 	it("accepts a number for an integer FK on create", () => {
-		expectTypeOf<NonNullable<OrderCreate["itemId"]>>().toEqualTypeOf<number>();
-		expectTypeOf<NonNullable<OrderCreate["userId"]>>().toEqualTypeOf<string>();
+		expectTypeOf<
+			NonNullable<OrderCreate["itemId"]>
+		>().toEqualTypeOf<number>();
+		expectTypeOf<
+			NonNullable<OrderCreate["userId"]>
+		>().toEqualTypeOf<string>();
 		expectTypeOf<NonNullable<OrderRow["itemId"]>>().toEqualTypeOf<number>();
 		expectTypeOf<NonNullable<OrderRow["userId"]>>().toEqualTypeOf<string>();
-		expectTypeOf<OrderRow["optionalItemId"]>().toEqualTypeOf<number | null>();
+		expectTypeOf<OrderRow["optionalItemId"]>().toEqualTypeOf<
+			number | null
+		>();
 
 		const data: OrderCreate = { itemId: 1, userId: "u" };
 		void data;

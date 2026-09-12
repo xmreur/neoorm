@@ -23,7 +23,11 @@ function renderNavItems(nav: DocsPage[], activeSlug?: string): string {
 		.join("\n");
 }
 
-function renderSidebar(nav: DocsPage[], version: string, activeSlug?: string): string {
+function renderSidebar(
+	nav: DocsPage[],
+	version: string,
+	activeSlug?: string,
+): string {
 	return `<aside class="sidebar">
       <div class="brand">
         <a href="/">NeoOrm</a>
@@ -95,10 +99,7 @@ export async function renderDocsPage(
 	);
 }
 
-export function renderDocsIndex(
-	nav: DocsPage[],
-	version: string,
-): string {
+export function renderDocsIndex(nav: DocsPage[], version: string): string {
 	const cards = nav
 		.map(
 			(page) => `<a class="card" href="/docs/${page.slug}">

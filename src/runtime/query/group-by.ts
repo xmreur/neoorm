@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import { parseAggregateRow } from "./aggregate.js";
 import {
@@ -14,8 +14,8 @@ import {
 	type OrderByInput,
 	toCountSelector,
 } from "./compile.js";
-import { mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
+import { mapRowToTs } from "./map-row.js";
 import { getTableIndex, requireTable, requireTsColumn } from "./table-index.js";
 
 export async function groupByRecords(

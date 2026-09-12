@@ -243,9 +243,7 @@ const timestampType: ColumnTypePlugin = {
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
 		if (value instanceof Date) return value;
-		return dialect?.name === "sqlite"
-			? new Date(value as string)
-			: value;
+		return dialect?.name === "sqlite" ? new Date(value as string) : value;
 	},
 	deserializeValue(_col, dbValue) {
 		if (dbValue === null || dbValue === undefined) return dbValue;
@@ -614,7 +612,10 @@ export function bool(): ColumnBuilder<boolean | null> {
 }
 
 /** `INTEGER` column. */
-export function int(): ColumnBuilder<number | null, ColumnMeta & { kind: "int" }> {
+export function int(): ColumnBuilder<
+	number | null,
+	ColumnMeta & { kind: "int" }
+> {
 	return intType.createBuilder() as ColumnBuilder<
 		number | null,
 		ColumnMeta & { kind: "int" }

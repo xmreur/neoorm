@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { defineSchema, fk, id, table } from "../src/schema/index.js";
+import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
 import {
 	didYouMean,
 	suggestSchemaTableAccessor,
@@ -13,10 +13,10 @@ import {
 	NeoOrmQueryError,
 	NeoOrmSchemaError,
 } from "../src/runtime/errors.js";
-import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
 import { enrichPgError } from "../src/runtime/pg-error.js";
-import { enrichSqliteError } from "../src/runtime/sqlite-error.js";
 import { requireTsColumn } from "../src/runtime/query/table-index.js";
+import { enrichSqliteError } from "../src/runtime/sqlite-error.js";
+import { defineSchema, fk, id, table } from "../src/schema/index.js";
 
 function blogManifest() {
 	return schemaToManifest(schema);
@@ -55,9 +55,9 @@ describe("runtime errors", () => {
 	});
 
 	it("ranks didYouMean candidates", () => {
-		expect(didYouMean("server_members", ["serverMembers", "users"])[0]).toBe(
-			"serverMembers",
-		);
+		expect(
+			didYouMean("server_members", ["serverMembers", "users"])[0],
+		).toBe("serverMembers");
 		expect(didYouMean("avatar_url", ["avatarUrl", "email"])[0]).toBe(
 			"avatarUrl",
 		);
@@ -68,7 +68,10 @@ describe("runtime errors", () => {
 			serverMembers: { _tableName: "server_members" },
 			users: { _tableName: "users" },
 		};
-		const suggestions = suggestSchemaTableAccessor("server_members", tables);
+		const suggestions = suggestSchemaTableAccessor(
+			"server_members",
+			tables,
+		);
 		expect(suggestions.some((s) => s.includes("serverMembers"))).toBe(true);
 	});
 
@@ -108,9 +111,11 @@ describe("runtime errors", () => {
 			const queryErr = err as NeoOrmQueryError;
 			expect(queryErr.context.phase).toBe("compile");
 			expect(queryErr.context.code).toBe("unknown_column");
-			expect(queryErr.context.suggestions?.some((s) => s.includes("createdAt"))).toBe(
-				true,
-			);
+			expect(
+				queryErr.context.suggestions?.some((s) =>
+					s.includes("createdAt"),
+				),
+			).toBe(true);
 			expect(queryErr.message).toContain("createdAt");
 		}
 	});
@@ -128,10 +133,15 @@ describe("runtime errors", () => {
 			{
 				code: "23502",
 				column: "user_id",
-				message: 'null value in column "user_id" violates not-null constraint',
+				message:
+					'null value in column "user_id" violates not-null constraint',
 			},
 			manifest,
-			{ operation: "insert", tableAccessor: "profiles", sql: "INSERT ..." },
+			{
+				operation: "insert",
+				tableAccessor: "profiles",
+				sql: "INSERT ...",
+			},
 		);
 		expect(context.code).toBe(QueryErrorCode.not_null_violation);
 		expect(context.columnTsName).toBe("userId");
@@ -144,10 +154,15 @@ describe("runtime errors", () => {
 			{
 				code: "23503",
 				constraint: "profiles_user_id_fkey",
-				message: "insert or update on table violates foreign key constraint",
+				message:
+					"insert or update on table violates foreign key constraint",
 			},
 			manifest,
-			{ operation: "insert", tableAccessor: "profiles", sql: "INSERT ..." },
+			{
+				operation: "insert",
+				tableAccessor: "profiles",
+				sql: "INSERT ...",
+			},
 		);
 		expect(context.code).toBe(QueryErrorCode.foreign_key_violation);
 		expect(context.suggestions?.some((s) => s.includes("parent row"))).toBe(
@@ -172,11 +187,15 @@ describe("runtime errors", () => {
 		const context = enrichSqliteError(
 			{ message: "no such column: avatar_url" },
 			manifest,
-			{ operation: "select", tableAccessor: "profiles", sql: "SELECT ..." },
+			{
+				operation: "select",
+				tableAccessor: "profiles",
+				sql: "SELECT ...",
+			},
 		);
 		expect(context.code).toBe(QueryErrorCode.column_not_found);
-		expect(context.suggestions?.some((s) => s.includes("migrate deploy"))).toBe(
-			true,
-		);
+		expect(
+			context.suggestions?.some((s) => s.includes("migrate deploy")),
+		).toBe(true);
 	});
 });

@@ -86,7 +86,9 @@ describe("enumType column", () => {
 			"\"status\" posts_status NOT NULL DEFAULT 'draft'",
 		);
 
-		const enumSql = emitCreateEnumTypes(defined(manifest.enumTypes, "enumTypes"));
+		const enumSql = emitCreateEnumTypes(
+			defined(manifest.enumTypes, "enumTypes"),
+		);
 		expect(enumSql[0]).toBe(
 			"CREATE TYPE \"posts_status\" AS ENUM ('draft', 'published');",
 		);

@@ -4,8 +4,8 @@ import { normalizeSelectColumns } from "./compile.js";
 import type { ColumnPickArg } from "./projection.js";
 import {
 	getTableIndex,
-	requireTsColumn,
 	type ManifestIndex,
+	requireTsColumn,
 	type TableIndex,
 } from "./table-index.js";
 
@@ -64,8 +64,15 @@ function stripRow(
 				continue;
 			}
 
-			const targetIndex = getTableIndex(manifestIndex, relation.targetAccessor);
-			const targetKeys = resolveStripKeys(targetTable, undefined, targetIndex);
+			const targetIndex = getTableIndex(
+				manifestIndex,
+				relation.targetAccessor,
+			);
+			const targetKeys = resolveStripKeys(
+				targetTable,
+				undefined,
+				targetIndex,
+			);
 
 			if (Array.isArray(value)) {
 				result[key] = value.map((item) =>
@@ -201,11 +208,5 @@ export function stripRecords<
 		) as T;
 	}
 
-	return stripRow(
-		manifest,
-		table,
-		rows,
-		keysToStrip,
-		manifestIndex,
-	) as T;
+	return stripRow(manifest, table, rows, keysToStrip, manifestIndex) as T;
 }

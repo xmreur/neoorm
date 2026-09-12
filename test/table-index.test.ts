@@ -5,8 +5,8 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import {
 	buildManifestIndex,
 	CappedMap,
-	columnByTsName,
 	columnBySqlName,
+	columnByTsName,
 	effectiveRelationByName,
 	getOrSetSqlCache,
 	relationByName,
@@ -45,9 +45,9 @@ describe("table index lookups", () => {
 		expect(columnBySqlName(usersIndex, usersTable, "name")?.tsName).toBe(
 			"name",
 		);
-		expect(relationByName(usersIndex, usersTable, "posts")?.targetAccessor).toBe(
-			"posts",
-		);
+		expect(
+			relationByName(usersIndex, usersTable, "posts")?.targetAccessor,
+		).toBe("posts");
 		expect(
 			effectiveRelationByName(usersIndex, manifest, usersTable, "posts")
 				?.targetAccessor,
@@ -55,20 +55,22 @@ describe("table index lookups", () => {
 	});
 
 	it("returns undefined for missing keys", () => {
-		expect(columnByTsName(usersIndex, usersTable, "missing")).toBeUndefined();
+		expect(
+			columnByTsName(usersIndex, usersTable, "missing"),
+		).toBeUndefined();
 	});
 
 	it("falls back to array scan when index is absent", () => {
 		expect(columnByTsName(undefined, postsTable, "title")?.sqlName).toBe(
 			"title",
 		);
-		expect(relationByName(undefined, postsTable, "author")?.name).toBe("author");
+		expect(relationByName(undefined, postsTable, "author")?.name).toBe(
+			"author",
+		);
 	});
 
 	it("caches updatedAt columns and expressions on index", () => {
-		const blogIndex = buildManifestIndex(
-			schemaToManifest(blogSchema),
-		);
+		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
 		const postsIndex = blogIndex.get("posts")!;
 		const tagsIndex = blogIndex.get("tags")!;
 
@@ -84,9 +86,7 @@ describe("table index lookups", () => {
 		expect(usersIndex.insertSqlByKeys).toBeInstanceOf(Map);
 		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
 
-		const blogIndex = buildManifestIndex(
-			schemaToManifest(blogSchema),
-		);
+		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
 		const postsIndex = blogIndex.get("posts")!;
 		expect(postsIndex.needsRowRename).toBe(true);
 		expect(postsIndex.renameColumns.length).toBeGreaterThan(0);
@@ -117,9 +117,13 @@ describe("table index lookups", () => {
 				() => `SELECT ${i}`,
 			);
 		}
-		expect(tableIndex.findManySqlBySignature.size).toBeLessThanOrEqual(1000);
+		expect(tableIndex.findManySqlBySignature.size).toBeLessThanOrEqual(
+			1000,
+		);
 		// recent entries survive, the oldest are evicted
-		expect(tableIndex.findManySqlBySignature.get("key-1499")).toBe("SELECT 1499");
+		expect(tableIndex.findManySqlBySignature.get("key-1499")).toBe(
+			"SELECT 1499",
+		);
 		expect(tableIndex.findManySqlBySignature.has("key-0")).toBe(false);
 	});
 });

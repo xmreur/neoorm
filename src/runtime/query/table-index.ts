@@ -8,8 +8,8 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
 import {
 	didYouMean,
 	formatCandidateList,
@@ -311,14 +311,10 @@ export function requireTable(
 		`Valid table accessors: ${formatCandidateList(accessors)}`,
 	];
 
-	throw queryCompileError(
-		operation,
-		`Unknown table accessor "${accessor}"`,
-		{
-			code: QueryErrorCode.unknown_table,
-			suggestions,
-		},
-	);
+	throw queryCompileError(operation, `Unknown table accessor "${accessor}"`, {
+		code: QueryErrorCode.unknown_table,
+		suggestions,
+	});
 }
 
 export function requireTsColumn(

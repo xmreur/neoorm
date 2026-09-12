@@ -178,9 +178,7 @@ const blogDb: MockDb = {
 		],
 	},
 	uniques: {
-		users: [
-			{ column_name: "email", constraint_name: "users_email_key" },
-		],
+		users: [{ column_name: "email", constraint_name: "users_email_key" }],
 		posts: [
 			{
 				column_name: "author_id",
@@ -212,18 +210,22 @@ describe("introspectPostgres extras", () => {
 	it("emits indexes, composite uniques, composite PKs, onDelete, uniques, checks, and defaults", async () => {
 		const schema = await introspectPostgres(pgClient(mockPool(blogDb)));
 
-		expect(schema).toContain('email: text().notNull().unique()');
+		expect(schema).toContain("email: text().notNull().unique()");
 		expect(schema).toContain(
 			'authorId: fk("users").notNull().onDelete("cascade")',
 		);
 		expect(schema).toContain("views: int().notNull().default(0)");
 		expect(schema).toContain('score: int().notNull().check("score >= 0")');
-		expect(schema).toContain("createdAt: timestamp().notNull().defaultNow()");
+		expect(schema).toContain(
+			"createdAt: timestamp().notNull().defaultNow()",
+		);
 		expect(schema).toContain("unique(t.authorId, t.title)");
 		expect(schema).toContain("index(t.views)");
 		expect(schema).not.toContain("unique(t.email)");
 		expect(schema).toContain("primaryKey(t.postId, t.tagId)");
-		expect(schema).toContain('postId: fk("posts").notNull().onDelete("restrict")');
+		expect(schema).toContain(
+			'postId: fk("posts").notNull().onDelete("restrict")',
+		);
 		expect(schema).toContain("id: serial().primary()");
 		expect(schema).toContain("id: uuid().primary()");
 	});

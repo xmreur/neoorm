@@ -1,8 +1,8 @@
 import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import type { Executor } from "../src/runtime/executor.js";
 import { NeoOrmQueryError } from "../src/runtime/errors.js";
+import type { Executor } from "../src/runtime/executor.js";
 import { findUnique } from "../src/runtime/query/count.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findById, findFirst, findMany } from "../src/runtime/query/find.js";

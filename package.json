@@ -79,6 +79,8 @@
 		"build": "bunx tsc -p tsconfig.build.json",
 		"typecheck": "bunx tsc -p tsconfig.json --noEmit",
 		"dev": "bunx tsc -w -p tsconfig.build.json",
+		"lint": "biome check .",
+		"format": "biome format --write .",
 		"test": "bunx vitest run",
 		"prepublishOnly": "bun run build && bun run test"
 	},

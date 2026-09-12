@@ -1,11 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { dbPush } from "../src/migrate/runner.js";
-import { defineSchema, int, table, text } from "../src/schema/index.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
+import { dbPush } from "../src/migrate/runner.js";
 import { createNeoOrmClientFromSqlite } from "../src/runtime/client.js";
-import { sqliteClient, type SqliteDatabaseLike } from "../src/runtime/driver.js";
+import {
+	type SqliteDatabaseLike,
+	sqliteClient,
+} from "../src/runtime/driver.js";
+import { defineSchema, int, table, text } from "../src/schema/index.js";
 
 const schema = defineSchema({
 	items: table({
