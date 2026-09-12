@@ -119,6 +119,8 @@ postTags: table("post_tags", {
 }),
 ```
 
+Multiple `.primary()` columns infer a composite key. `primaryKey(t.colA, t.colB)` in extras is optional when you want to name the key without marking every column.
+
 ### Self-relations
 
 ```ts

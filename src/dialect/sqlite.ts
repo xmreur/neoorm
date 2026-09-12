@@ -3,7 +3,11 @@ import { compileError } from "../runtime/compile-error.js";
 import { QueryErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
-import { quoteIdentifier as q, tableRef } from "./shared.js";
+import {
+	isSolePrimaryKeyColumn,
+	quoteIdentifier as q,
+	tableRef,
+} from "./shared.js";
 import type {
 	ColumnAlter,
 	CreateTableOptions,
@@ -95,7 +99,7 @@ function columnDef(
 	const sqlType = sqliteColumnType(col, manifest);
 	const parts: string[] = [];
 
-	if (col.primary && table.primaryKey.length <= 1) {
+	if (isSolePrimaryKeyColumn(col, table)) {
 		if (col.kind === "serial") {
 			parts.push(q(col.sqlName), "INTEGER PRIMARY KEY AUTOINCREMENT");
 		} else {
