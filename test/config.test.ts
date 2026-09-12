@@ -47,6 +47,19 @@ describe("config validation", () => {
 		);
 	});
 
+	it("accepts postgres as an alias of postgresql", async () => {
+		await withConfigFile(
+			configSource(`{
+    provider: "postgres",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  }`),
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.datasource.provider).toBe("postgres");
+			},
+		);
+	});
+
 	it("loads multiple configs without re-registering tsx", async () => {
 		const firstConfig = configSource(`{
     provider: "postgresql",

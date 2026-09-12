@@ -1,4 +1,9 @@
 import { join } from "node:path";
+import {
+	DATABASE_PROVIDERS,
+	type DatabaseProvider,
+	isDatabaseProvider,
+} from "./datasource-provider.js";
 import { schemaError } from "./runtime/error-builders.js";
 import { SchemaErrorCode } from "./runtime/error-codes.js";
 import { loadDotEnv } from "./utils/dotenv.js";
@@ -10,8 +15,8 @@ export type NeoOrmConfig = {
 	/** Output directory for generated client and migrations. */
 	out: string;
 	datasource: {
-		/** Database provider. */
-		provider: "postgresql" | "sqlite";
+		/** Database provider. `"postgres"` is accepted as an alias of `"postgresql"`. */
+		provider: DatabaseProvider;
 		/** Connection URL or SQLite file path. */
 		url: string;
 		/** PostgreSQL schema name. */
@@ -21,10 +26,8 @@ export type NeoOrmConfig = {
 	};
 };
 
-const SUPPORTED_PROVIDERS = ["postgresql", "sqlite"] as const;
 const SUPPORTED_ENUM_MODES = ["check", "union", "native"] as const;
 
-type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
 type SupportedEnumMode = (typeof SUPPORTED_ENUM_MODES)[number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -33,10 +36,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.length > 0;
-}
-
-function isSupportedProvider(value: unknown): value is SupportedProvider {
-	return SUPPORTED_PROVIDERS.includes(value as SupportedProvider);
 }
 
 function isSupportedEnumMode(value: unknown): value is SupportedEnumMode {
@@ -68,10 +67,10 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 		throw requiredShapeError();
 	}
 
-	if (!isSupportedProvider(datasource.provider)) {
+	if (!isDatabaseProvider(datasource.provider)) {
 		throw schemaError(
 			SchemaErrorCode.invalid_config,
-			`neoorm.config.ts datasource.provider must be one of: ${SUPPORTED_PROVIDERS.join(", ")}`,
+			`neoorm.config.ts datasource.provider must be one of: ${DATABASE_PROVIDERS.join(", ")}`,
 		);
 	}
 

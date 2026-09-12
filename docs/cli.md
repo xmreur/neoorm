@@ -13,7 +13,7 @@ neoorm init [options]
 Creates `neoorm.config.ts`, `schema.ts`, and `.env.example` only — no codegen or migrations. Run `neoorm migrate dev` afterwards to generate the client and first migration.
 
 Options:
-- `--provider <provider>` — `postgresql` (default) or `sqlite`. If omitted and running interactively, prompts to choose.
+- `--provider <provider>` — `postgresql` (default) or `sqlite`. `postgres` and `pg` are aliases of `postgresql`. If omitted and running interactively, prompts to choose.
 - `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite)
 - `--schema <path>` — schema file path (default: `./schema.ts`)
 - `--out <dir>` — generated output directory (default: `./neoorm`)
