@@ -41,6 +41,26 @@ describe("createQueryError", () => {
 	});
 });
 
+describe("isPgError", () => {
+	it("accepts Postgres SQLSTATE codes", () => {
+		expect(isPgError({ code: "23505" })).toBe(true);
+		expect(isPgError({ code: "42P01" })).toBe(true);
+	});
+
+	it("rejects NeoOrmDriverError.code and SQLite ERR_ codes", () => {
+		expect(isPgError({ code: "driver_error" })).toBe(false);
+		expect(isPgError({ code: "ERR_SQLITE_ERROR" })).toBe(false);
+		expect(
+			isPgError(
+				new NeoOrmDriverError(
+					"INSERT INTO users",
+					new Error("UNIQUE constraint failed: users.email"),
+				),
+			),
+		).toBe(false);
+	});
+});
+
 describe("PG error enrichment", () => {
 	it("maps unique violation to shared code and subclass", () => {
 		const context = enrichPgError(
