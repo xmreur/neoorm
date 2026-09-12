@@ -1,11 +1,17 @@
 import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
-import type { ColumnBuilder } from "./column.js";
+import type { ColumnBuilder, ColumnMeta } from "./column.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
 import type { FkBuilder } from "./relation.js";
 import { registerTable } from "./table-registry.js";
 
 export type ColumnDef = ColumnBuilder<unknown> | FkBuilder | ManyToManyExtra;
+
+/** Runtime `_meta` on scalar and FK column builders (`many()` has none). */
+export function getColumnMeta(col: ColumnDef): ColumnMeta | undefined {
+	if (!("_meta" in col)) return undefined;
+	return col._meta;
+}
 
 /**
  * Keys of a table's columns object that are real scalar/FK columns, excluding
@@ -172,6 +178,26 @@ function resolveExtras<TColumns extends Record<string, ColumnDef>>(
 	return config.extras ? config.extras(refs) : [];
 }
 
+function configColumnNaming(
+	config:
+		| ((t: ColumnRefs<Record<string, ColumnDef>>) => readonly TableExtra[])
+		| TableOptions<Record<string, ColumnDef>>
+		| Record<string, ColumnDef>
+		| undefined,
+): ColumnNaming | undefined {
+	if (
+		typeof config !== "object" ||
+		config === null ||
+		Array.isArray(config)
+	) {
+		return undefined;
+	}
+	if (!("columnNaming" in config)) return undefined;
+	const naming = config.columnNaming;
+	if (naming === "snakeCase" || naming === "camelCase") return naming;
+	return undefined;
+}
+
 function buildTableDef<
 	TName extends string,
 	TColumns extends Record<string, ColumnDef>,
@@ -241,23 +267,21 @@ export function table<
 ): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
 	TableColumns<TName, TColumns>;
 export function table(
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	first: any,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	second?: any,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	third?: any,
+	first: string | Record<string, ColumnDef>,
+	second?:
+		| Record<string, ColumnDef>
+		| ((t: ColumnRefs<Record<string, ColumnDef>>) => readonly TableExtra[])
+		| TableOptions<Record<string, ColumnDef>>,
+	third?:
+		| ((t: ColumnRefs<Record<string, ColumnDef>>) => readonly TableExtra[])
+		| TableOptions<Record<string, ColumnDef>>,
 ): TableDef & TableColumns<string, Record<string, ColumnDef>> {
 	if (typeof first === "string" && isColumnMap(second)) {
 		const refs = Object.fromEntries(
 			Object.keys(second).map((k) => [k, k]),
 		) as ColumnRefs<Record<string, ColumnDef>>;
 		const extras = resolveExtras(refs, third);
-		const columnNaming =
-			typeof third === "object" && third !== null && !Array.isArray(third)
-				? third.columnNaming
-				: undefined;
-		return buildTableDef(first, second, extras, columnNaming);
+		return buildTableDef(first, second, extras, configColumnNaming(third));
 	}
 
 	if (!isColumnMap(first)) {
@@ -271,37 +295,17 @@ export function table(
 		Object.keys(first).map((k) => [k, k]),
 	) as ColumnRefs<Record<string, ColumnDef>>;
 	const extras = resolveExtras(refs, second);
-	const columnNaming =
-		typeof second === "object" && second !== null && !Array.isArray(second)
-			? second.columnNaming
-			: undefined;
-	return buildTableDef("", first, extras, columnNaming);
+	return buildTableDef("", first, extras, configColumnNaming(second));
 }
 
-function findPrimaryKeyColumn(
+export function findPrimaryKeyColumn(
 	columns: Record<string, ColumnDef>,
 ): string | undefined {
 	for (const [tsName, col] of Object.entries(columns)) {
-		if (
-			typeof col === "object" &&
-			col !== null &&
-			"_meta" in col &&
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(col as any)._meta?.primary === true
-		) {
-			return tsName;
-		}
+		if (getColumnMeta(col)?.primary === true) return tsName;
 	}
 	for (const [tsName, col] of Object.entries(columns)) {
-		if (
-			typeof col === "object" &&
-			col !== null &&
-			"_meta" in col &&
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(col as any)._meta?.kind === "id"
-		) {
-			return tsName;
-		}
+		if (getColumnMeta(col)?.kind === "id") return tsName;
 	}
 	return undefined;
 }
