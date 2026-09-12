@@ -244,6 +244,30 @@ describe("where compilation", () => {
 		expect(insensitive.params).toEqual(["%orm%"]);
 	});
 
+	it("compiles equals with mode insensitive as ILIKE", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ email: { equals: "Ada@Example.com", mode: "insensitive" } },
+			postgresDialect,
+		);
+		expect(sql).toContain("ILIKE");
+		expect(sql).not.toContain('"email" = $');
+		expect(params).toEqual(["Ada@Example.com"]);
+	});
+
+	it("compiles sqlite equals with mode insensitive as LOWER LIKE", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ email: { equals: "Ada@Example.com", mode: "insensitive" } },
+			sqliteDialect,
+		);
+		expect(sql).toContain("LOWER(");
+		expect(sql).toContain("LIKE LOWER(");
+		expect(params).toEqual(["Ada@Example.com"]);
+	});
+
 	it("throws when compiling search on sqlite", () => {
 		expect(() =>
 			compileWhere(
