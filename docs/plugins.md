@@ -30,6 +30,8 @@ places: table({
 }),
 ```
 
+`srid` requires a whitelisted `subtype`. PostGIS typmod is `geometry(Point,4326)`, not `geometry(4326)`. Use `subtype: "Geometry"` to fix SRID without constraining the type. Allowed subtypes include `Point`, `LineString`, `Polygon`, `MultiPolygon`, `GeometryCollection`, and `Geometry`, optionally with `Z`, `M`, or `ZM` (e.g. `PointZ`).
+
 Spatial `where` operators: `intersects`, `within`, `dWithin`.
 
 ## Citext
