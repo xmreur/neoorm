@@ -4,7 +4,6 @@ import { isUniqueViolation } from "../errors.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindOrCreateQuery,
-	compileWhere,
 	dataToSqlValues,
 	FIND_OR_CREATE_FLAG,
 } from "./compile.js";
@@ -119,21 +118,10 @@ export async function findOrCreateRecord(
 		dialect,
 	);
 
-	const { sql: whereSql, params: whereParams } = compileWhere(
-		manifest,
-		table,
-		uniqueWhere,
-		dialect,
-		insertValues.length + 1,
-		runtime.tableIndex,
-	);
-	const fallbackWhereBody = whereSql.replace(/^WHERE\s+/i, "");
-
 	const findOrCreateSql = buildFindOrCreateQuery(
 		table,
 		insertKeys,
 		constraint.sqlColumns,
-		fallbackWhereBody,
 		runtime.tableIndex,
 		projection.hasProjection ? projection.sqlColumns : undefined,
 		projection.includeHidden,
@@ -144,7 +132,7 @@ export async function findOrCreateRecord(
 		runtime,
 		{ operation: "findOrCreate", tableAccessor },
 		findOrCreateSql,
-		[...insertValues, ...whereParams],
+		insertValues,
 	);
 
 	const created = row[FIND_OR_CREATE_FLAG] === true;
