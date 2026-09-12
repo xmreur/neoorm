@@ -317,14 +317,19 @@ export async function exampleMutations() {
 }
 
 export async function exampleTransactions() {
+	let authorId!: string;
 	const [author, post] = await db.$transaction([
-		(tx) =>
-			tx.users.create({
+		async (tx) => {
+			const created = await tx.users.create({
 				data: {
 					email: "author@transaction.example",
 					name: "Tx Author",
+					password: "secret",
 				},
-			}),
+			});
+			authorId = created.id;
+			return created;
+		},
 		(tx) =>
 			tx.posts.create({
 				data: {
@@ -334,7 +339,7 @@ export async function exampleTransactions() {
 					status: "published",
 					price: "4.99",
 					metadata: { source: "transaction" },
-					author: { connect: { id: "user_1" } },
+					author: { connect: { id: authorId } },
 				},
 			}),
 	]);
@@ -345,6 +350,7 @@ export async function exampleTransactions() {
 				data: {
 					email: "rollback@transaction.example",
 					name: "Rollback",
+					password: "secret",
 				},
 			});
 
@@ -355,7 +361,7 @@ export async function exampleTransactions() {
 					published: false,
 					status: "draft",
 					metadata: { rollback: true },
-					author: { connect: { id: user["id"] as string } },
+					author: { connect: { id: user.id } },
 				},
 			});
 
@@ -368,6 +374,7 @@ export async function exampleTransactions() {
 			data: {
 				email: "savepoint-outer@transaction.example",
 				name: "Savepoint Outer",
+				password: "secret",
 			},
 		});
 
@@ -377,6 +384,7 @@ export async function exampleTransactions() {
 					data: {
 						email: "savepoint-inner@transaction.example",
 						name: "Savepoint Inner",
+						password: "secret",
 					},
 				});
 				throw new Error("intentional nested rollback");

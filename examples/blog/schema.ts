@@ -10,7 +10,6 @@ import {
 	many,
 	table,
 	text,
-	timestamp,
 	timestamps,
 	uuid,
 } from "neoorm/schema";
@@ -20,6 +19,7 @@ export const schema = defineSchema({
 		id: uuid().primary(),
 		email: text().notNull().unique(),
 		name: text(),
+		password: text().notNull().hidden(),
 		...timestamps(),
 	}),
 
