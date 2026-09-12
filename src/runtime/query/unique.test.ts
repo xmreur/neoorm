@@ -4,11 +4,14 @@ import type { ManifestColumn, ManifestTable } from "../../dialect/types.js";
 import { QueryErrorCode } from "../error-codes.js";
 import { QueryCompileError } from "../errors.js";
 import type { Executor } from "../executor.js";
+import { FIND_OR_CREATE_FLAG } from "./compile.js";
 import { deleteRecord } from "./delete.js";
 import type { QueryRuntime } from "./execute.js";
+import { findOrCreateRecord } from "./find-or-create.js";
 import { buildManifestIndex } from "./table-index.js";
 import { assertUniqueWhere, resolveUniqueConstraint } from "./unique.js";
 import { updateRecord } from "./update.js";
+import { upsertRecord } from "./upsert.js";
 
 function column(
 	tsName: string,
@@ -116,7 +119,87 @@ describe("assertUniqueWhere", () => {
 			expect(compileErr.context.operation).toBe("delete");
 		}
 	});
+
+	it("unwraps { equals } operator objects to scalars", () => {
+		expect(
+			assertUniqueWhere(table, { slug: { equals: "hello" } }, "upsert"),
+		).toEqual({
+			constraint: { sqlColumns: ["slug"], tsKeys: ["slug"] },
+			where: { slug: "hello" },
+		});
+	});
+
+	it("unwraps { equals, mode: default }", () => {
+		expect(
+			assertUniqueWhere(
+				table,
+				{ slug: { equals: "hello", mode: "default" } },
+				"findUnique",
+			).where,
+		).toEqual({ slug: "hello" });
+	});
+
+	it("keeps JSON-shaped objects that are not operators", () => {
+		expect(
+			assertUniqueWhere(table, { slug: { featured: true } }, "findUnique")
+				.where,
+		).toEqual({ slug: { featured: true } });
+	});
+
+	it("rejects contains operators on unique where", () => {
+		try {
+			assertUniqueWhere(table, { slug: { contains: "hel" } }, "upsert");
+			expect.unreachable();
+		} catch (err) {
+			expect(err).toBeInstanceOf(QueryCompileError);
+			const compileErr = err as QueryCompileError;
+			expect(compileErr.code).toBe(QueryErrorCode.unique_where_invalid);
+			expect(compileErr.message).toContain("scalar equality");
+			expect(compileErr.context.operation).toBe("upsert");
+			expect(compileErr.context.columnTsName).toBe("slug");
+		}
+	});
+
+	it("rejects mode: insensitive on unique where", () => {
+		expect(() =>
+			assertUniqueWhere(
+				table,
+				{ slug: { equals: "hello", mode: "insensitive" } },
+				"findOrCreate",
+			),
+		).toThrow(QueryCompileError);
+	});
 });
+
+function capturingExecutor(): {
+	executor: Executor;
+	params: unknown[];
+} {
+	const captured: { params: unknown[] } = { params: [] };
+	const executor: Executor = {
+		query: async () => [],
+		queryOne: async <T = Record<string, unknown>>(
+			_sql: string,
+			params?: unknown[],
+		) => {
+			captured.params.splice(
+				0,
+				captured.params.length,
+				...(params ?? []),
+			);
+			return {
+				id: "post_1",
+				published: false,
+				slug: "hello",
+				author_id: null,
+				[FIND_OR_CREATE_FLAG]: true,
+			} as T;
+		},
+		execute: async () => ({ rows: [], rowCount: 0 }),
+		transaction: async (fn) => fn(executor),
+	};
+	return { executor, params: captured.params };
+}
 
 describe("singular update/delete unique where", () => {
 	it("update rejects a non-unique where without querying", async () => {
@@ -159,5 +242,42 @@ describe("singular update/delete unique where", () => {
 		});
 		expect(result).toBeNull();
 		expect(executed).toBe(true);
+	});
+});
+
+describe("upsert/findOrCreate unique where scalars", () => {
+	it("upsert merges unwrapped unique where into INSERT values", async () => {
+		const { executor, params } = capturingExecutor();
+		await upsertRecord(executor, postsRuntime(), "posts", {
+			where: { slug: { equals: "hello" } },
+			create: { published: false },
+			update: { published: true },
+		});
+		expect(params).toContain("hello");
+		expect(
+			params.some(
+				(value) =>
+					typeof value === "object" &&
+					value !== null &&
+					Object.hasOwn(value, "equals"),
+			),
+		).toBe(false);
+	});
+
+	it("findOrCreate merges unwrapped unique where into INSERT values", async () => {
+		const { executor, params } = capturingExecutor();
+		await findOrCreateRecord(executor, postsRuntime(), "posts", {
+			where: { slug: { equals: "hello" } },
+			create: { published: false },
+		});
+		expect(params).toContain("hello");
+		expect(
+			params.some(
+				(value) =>
+					typeof value === "object" &&
+					value !== null &&
+					Object.hasOwn(value, "equals"),
+			),
+		).toBe(false);
 	});
 });

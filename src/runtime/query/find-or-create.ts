@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindOrCreateQuery,
@@ -8,16 +8,16 @@ import {
 	dataToSqlValues,
 	FIND_OR_CREATE_FLAG,
 } from "./compile.js";
-import { mapRowToTs } from "./map-row.js";
 import { runCreate } from "./create.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
 import { findMany, loadRelations, type WithInput } from "./find.js";
+import { mapRowToTs } from "./map-row.js";
+import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import {
+	type ParentProjectionArgs,
 	projectFindRow,
 	resolveParentProjection,
-	type ParentProjectionArgs,
 } from "./projection.js";
-import { fillMissingPrimaryKeys, rowScalarPkValue } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
 
@@ -59,9 +59,7 @@ async function finalizeFindOrCreateRecord(
 ): Promise<FindOrCreateResult> {
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const projection = resolveParentProjection(table, args, tableIndex);
-	let record = options.mapped
-		? row
-		: mapRowToTs(tableIndex, table, row);
+	let record = options.mapped ? row : mapRowToTs(tableIndex, table, row);
 
 	if (args.with && !options.relationsLoaded) {
 		const [withLoaded] = await loadRelations(
@@ -92,14 +90,15 @@ export async function findOrCreateRecord(
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const projection = resolveParentProjection(table, args, tableIndex);
-	const constraint = assertUniqueWhere(
+	const { constraint, where: uniqueWhere } = assertUniqueWhere(
 		table,
 		args.where,
 		"findOrCreate",
 		tableIndex,
 	);
 
-	const createData = { ...args.create, ...args.where };
+	const lookupArgs: FindOrCreateArgs = { ...args, where: uniqueWhere };
+	const createData = { ...args.create, ...uniqueWhere };
 	fillMissingPrimaryKeys(table, createData, tableIndex);
 
 	if (dialect.name === "sqlite") {
@@ -107,7 +106,7 @@ export async function findOrCreateRecord(
 			executor,
 			runtime,
 			tableAccessor,
-			args,
+			lookupArgs,
 			createData,
 		);
 	}
@@ -123,7 +122,7 @@ export async function findOrCreateRecord(
 	const { sql: whereSql, params: whereParams } = compileWhere(
 		manifest,
 		table,
-		args.where,
+		uniqueWhere,
 		dialect,
 		insertValues.length + 1,
 		runtime.tableIndex,

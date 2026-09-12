@@ -21,6 +21,100 @@ export type UniqueConstraint = {
 	tsKeys: readonly string[];
 };
 
+export type AssertedUniqueWhere = {
+	constraint: UniqueConstraint;
+	where: Record<string, unknown>;
+};
+
+const UNIQUE_WHERE_OPERATOR_KEYS = new Set([
+	"equals",
+	"contains",
+	"startsWith",
+	"endsWith",
+	"search",
+	"gt",
+	"gte",
+	"lt",
+	"lte",
+	"in",
+	"notIn",
+	"isNull",
+	"isNotNull",
+	"mode",
+	"jsonContains",
+	"hasKey",
+	"hasAnyKeys",
+	"hasAllKeys",
+	"path",
+]);
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		!(value instanceof Date)
+	);
+}
+
+function uniqueWhereFieldError(
+	operation: UniqueWhereOperation,
+	table: ManifestTable,
+	field: string,
+): never {
+	throw queryCompileError(
+		uniqueWhereQueryOperation(operation),
+		`${operation} unique where field "${field}" must be a scalar equality`,
+		{
+			code: QueryErrorCode.unique_where_invalid,
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+			columnTsName: field,
+		},
+	);
+}
+
+function unwrapUniqueWhereValue(
+	value: unknown,
+	field: string,
+	operation: UniqueWhereOperation,
+	table: ManifestTable,
+): unknown {
+	if (!isPlainObject(value)) return value;
+
+	const operatorKeys = Object.keys(value).filter((key) =>
+		UNIQUE_WHERE_OPERATOR_KEYS.has(key),
+	);
+	if (operatorKeys.length === 0) return value;
+
+	const disallowed = operatorKeys.filter(
+		(key) => key !== "equals" && key !== "mode",
+	);
+	const mode = value.mode;
+	if (
+		disallowed.length > 0 ||
+		!Object.hasOwn(value, "equals") ||
+		(mode !== undefined && mode !== "default")
+	) {
+		uniqueWhereFieldError(operation, table, field);
+	}
+	return value.equals;
+}
+
+/** Unwrap `{ equals }` operator objects; reject other unique-where operators. */
+export function unwrapUniqueWhere(
+	where: Record<string, unknown>,
+	operation: UniqueWhereOperation,
+	table: ManifestTable,
+): Record<string, unknown> {
+	const unwrapped: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(where)) {
+		if (value === undefined) continue;
+		unwrapped[key] = unwrapUniqueWhereValue(value, key, operation, table);
+	}
+	return unwrapped;
+}
+
 function uniqueWhereQueryOperation(
 	operation: UniqueWhereOperation,
 ): QueryOperation {
@@ -101,8 +195,9 @@ export function assertUniqueWhere(
 	where: Record<string, unknown>,
 	operation: UniqueWhereOperation,
 	tableIndex?: TableIndex,
-): UniqueConstraint {
-	const constraint = resolveUniqueConstraint(table, where, tableIndex);
+): AssertedUniqueWhere {
+	const scalarWhere = unwrapUniqueWhere(where, operation, table);
+	const constraint = resolveUniqueConstraint(table, scalarWhere, tableIndex);
 	if (!constraint) {
 		throw queryCompileError(
 			uniqueWhereQueryOperation(operation),
@@ -114,5 +209,5 @@ export function assertUniqueWhere(
 			},
 		);
 	}
-	return constraint;
+	return { constraint, where: scalarWhere };
 }

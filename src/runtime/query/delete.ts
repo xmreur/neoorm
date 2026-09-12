@@ -36,7 +36,7 @@ export async function deleteRecord(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "delete");
-	assertUniqueWhere(
+	const { where } = assertUniqueWhere(
 		table,
 		args.where,
 		"delete",
@@ -46,7 +46,7 @@ export async function deleteRecord(
 	const { sql: whereSql, params } = compileWhere(
 		manifest,
 		table,
-		args.where,
+		where,
 		dialect,
 		1,
 		runtime.tableIndex,

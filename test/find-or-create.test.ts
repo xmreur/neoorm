@@ -15,7 +15,7 @@ describe("findOrCreate SQL", () => {
 	const tags = manifestTable(manifest, "tags");
 
 	it("builds CTE with ON CONFLICT DO NOTHING and created flag", () => {
-		const constraint = assertUniqueWhere(
+		const { constraint } = assertUniqueWhere(
 			tags,
 			{ slug: "orm" },
 			"findOrCreate",

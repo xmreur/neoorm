@@ -49,11 +49,11 @@ export type {
 	ConnectInput,
 	ConnectOrCreateItem,
 	CursorInput,
+	HiddenKeys,
 	InferFindResult,
 	InferInsertRow,
 	InferSelectRow,
 	InferWithResult,
-	HiddenKeys,
 	LogicalWhereInput,
 	ManyRelationFilter,
 	OmitInput,
@@ -66,9 +66,9 @@ export type {
 	RelationWhereMap,
 	ScalarPkName,
 	SelectInput,
+	StripCapable,
 	StripOmitKeys,
 	StripResult,
-	StripCapable,
 	WhereInput,
 	WithInclude,
 	WithInputMap,
@@ -213,11 +213,19 @@ export type UpdateInput<
 	} & RelationUpdateMap<TSchema, TAccessor>
 >;
 
+/** Scalar equality per unique field — not a filter `WhereInput`. */
+export type UniqueWhere<
+	TColumns extends Record<string, ColumnDef>,
+	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
+> = Expand<{
+	[K in ScalarColumnKeys<TColumns>]?: InferColumnValue<TColumns[K], TSchema>;
+}>;
+
 export type UpdateArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
 	data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
 	returnUpdated?: boolean;
@@ -240,7 +248,7 @@ export type DeleteArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
 	with?: WithInputMap<TSchema, TAccessor>;
 	returnDeleted?: boolean;
 };
@@ -261,7 +269,7 @@ export type FindUniqueArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
 	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
@@ -442,7 +450,7 @@ export type UpsertArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
 	create: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	update: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
@@ -452,7 +460,7 @@ export type FindOrCreateArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
 	create: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
 	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;

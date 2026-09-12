@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildCountQuery,
@@ -140,10 +140,15 @@ export async function findUnique(
 	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	assertUniqueWhere(table, args.where, "findUnique", tableIndex);
+	const { where } = assertUniqueWhere(
+		table,
+		args.where,
+		"findUnique",
+		tableIndex,
+	);
 
 	return findFirst(executor, runtime, tableAccessor, {
-		where: args.where,
+		where,
 		...(args.select !== undefined ? { select: args.select } : {}),
 		...(args.omit !== undefined ? { omit: args.omit } : {}),
 		...(args.with !== undefined ? { with: args.with } : {}),
