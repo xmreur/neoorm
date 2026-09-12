@@ -198,6 +198,8 @@ await db.users.findMany({
 });
 ```
 
+Empty `OR: []` matches no rows. Empty `AND: []` matches every row.
+
 ### Relation filters
 
 ```ts

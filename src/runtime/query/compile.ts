@@ -399,6 +399,70 @@ function compileRelationCondition(
 	};
 }
 
+function combinatorTableContext(table: ManifestTable): {
+	tableAccessor: string;
+	tableSqlName: string;
+} {
+	return {
+		tableAccessor: table.accessor,
+		tableSqlName: table.sqlName,
+	};
+}
+
+function compileLogicalCombinator(
+	combinator: "AND" | "OR",
+	value: unknown,
+	manifest: Manifest,
+	table: ManifestTable,
+	dialect: Dialect,
+	startParamIndex: number,
+	columnRef: (col: ManifestColumn) => string,
+	manifestIndex?: ManifestIndex,
+): CompiledNode {
+	if (!Array.isArray(value)) {
+		compileError(`${combinator} must be an array of where objects`, {
+			...combinatorTableContext(table),
+		});
+	}
+	if (value.length === 0) {
+		return {
+			sql: combinator === "OR" ? "1=0" : "1=1",
+			params: [],
+			nextParamIndex: startParamIndex,
+		};
+	}
+
+	const parts: string[] = [];
+	const params: unknown[] = [];
+	let paramIndex = startParamIndex;
+	for (const item of value) {
+		if (!isOperatorObject(item)) {
+			compileError(`${combinator} items must be where objects`, {
+				...combinatorTableContext(table),
+			});
+		}
+		const compiled = compileWhereNode(
+			manifest,
+			table,
+			item,
+			dialect,
+			paramIndex,
+			columnRef,
+			manifestIndex,
+		);
+		parts.push(`(${compiled.sql || "1=1"})`);
+		params.push(...compiled.params);
+		paramIndex = compiled.nextParamIndex;
+	}
+
+	const joiner = combinator === "OR" ? " OR " : " AND ";
+	return {
+		sql: `(${parts.join(joiner)})`,
+		params,
+		nextParamIndex: paramIndex,
+	};
+}
+
 function compileWhereNode(
 	manifest: Manifest,
 	table: ManifestTable,
@@ -420,51 +484,31 @@ function compileWhereNode(
 		);
 
 	for (const [key, value] of Object.entries(where)) {
-		if (key === "AND" && Array.isArray(value)) {
-			const parts: string[] = [];
-			for (const item of value) {
-				if (!item || typeof item !== "object" || Array.isArray(item))
-					continue;
-				const compiled = compileWhereNode(
-					manifest,
-					table,
-					item as Record<string, unknown>,
-					dialect,
-					paramIndex,
-					columnRef,
-					manifestIndex,
-				);
-				if (compiled.sql) parts.push(`(${compiled.sql})`);
-				params.push(...compiled.params);
-				paramIndex = compiled.nextParamIndex;
-			}
-			if (parts.length > 0) conditions.push(`(${parts.join(" AND ")})`);
+		if (value === undefined) continue;
+
+		if (key === "AND" || key === "OR") {
+			const compiled = compileLogicalCombinator(
+				key,
+				value,
+				manifest,
+				table,
+				dialect,
+				paramIndex,
+				columnRef,
+				manifestIndex,
+			);
+			conditions.push(compiled.sql);
+			params.push(...compiled.params);
+			paramIndex = compiled.nextParamIndex;
 			continue;
 		}
 
-		if (key === "OR" && Array.isArray(value)) {
-			const parts: string[] = [];
-			for (const item of value) {
-				if (!item || typeof item !== "object" || Array.isArray(item))
-					continue;
-				const compiled = compileWhereNode(
-					manifest,
-					table,
-					item as Record<string, unknown>,
-					dialect,
-					paramIndex,
-					columnRef,
-					manifestIndex,
-				);
-				if (compiled.sql) parts.push(`(${compiled.sql})`);
-				params.push(...compiled.params);
-				paramIndex = compiled.nextParamIndex;
+		if (key === "NOT") {
+			if (!isOperatorObject(value)) {
+				compileError("NOT must be a where object", {
+					...combinatorTableContext(table),
+				});
 			}
-			if (parts.length > 0) conditions.push(`(${parts.join(" OR ")})`);
-			continue;
-		}
-
-		if (key === "NOT" && isOperatorObject(value)) {
 			const compiled = compileWhereNode(
 				manifest,
 				table,
@@ -474,7 +518,7 @@ function compileWhereNode(
 				columnRef,
 				manifestIndex,
 			);
-			if (compiled.sql) conditions.push(`NOT (${compiled.sql})`);
+			conditions.push(`NOT (${compiled.sql || "1=1"})`);
 			params.push(...compiled.params);
 			paramIndex = compiled.nextParamIndex;
 			continue;
@@ -557,35 +601,26 @@ export function compileWhere(
 	};
 }
 
+function logicalShapeKey(combinator: "AND" | "OR", value: unknown[]): string {
+	if (value.length === 0) return `${combinator}:empty`;
+	return `${combinator}:${value
+		.filter(
+			(item): item is Record<string, unknown> =>
+				!!item && typeof item === "object" && !Array.isArray(item),
+		)
+		.map((item) => whereShapeKey(item) || "{}")
+		.join(",")}`;
+}
+
 export function whereShapeKey(where: Record<string, unknown>): string {
 	const parts: string[] = [];
 	for (const [key, value] of Object.entries(where)) {
 		if (key === "AND" && Array.isArray(value)) {
-			parts.push(
-				`AND:${value
-					.filter(
-						(item): item is Record<string, unknown> =>
-							!!item &&
-							typeof item === "object" &&
-							!Array.isArray(item),
-					)
-					.map((item) => whereShapeKey(item))
-					.join(",")}`,
-			);
+			parts.push(logicalShapeKey("AND", value));
 			continue;
 		}
 		if (key === "OR" && Array.isArray(value)) {
-			parts.push(
-				`OR:${value
-					.filter(
-						(item): item is Record<string, unknown> =>
-							!!item &&
-							typeof item === "object" &&
-							!Array.isArray(item),
-					)
-					.map((item) => whereShapeKey(item))
-					.join(",")}`,
-			);
+			parts.push(logicalShapeKey("OR", value));
 			continue;
 		}
 		if (key === "NOT" && isOperatorObject(value)) {
