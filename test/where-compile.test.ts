@@ -344,4 +344,76 @@ describe("where compilation", () => {
 			),
 		).toThrow("NOT must be a where object");
 	});
+
+	it("rejects an unknown where column", () => {
+		expect(() =>
+			compileWhere(manifest, users, { emial: "a" }, postgresDialect),
+		).toThrow(/Unknown column "emial" in where/);
+		try {
+			compileWhere(manifest, users, { emial: "a" }, postgresDialect);
+		} catch (err) {
+			expect((err as { code: string }).code).toBe("unknown_column");
+			expect((err as { context: { suggestions?: string[] } }).context.suggestions).toEqual(
+				expect.arrayContaining([expect.stringContaining("email")]),
+			);
+		}
+	});
+
+	it("rejects a misspelled where operator", () => {
+		try {
+			compileWhere(
+				manifest,
+				posts,
+				{ status: { equls: "published" } },
+				postgresDialect,
+			);
+			expect.unreachable();
+		} catch (err) {
+			expect((err as { message: string }).message).toMatch(
+				/unsupported where operator "equls"/,
+			);
+			expect((err as { code: string }).code).toBe("invalid_args");
+			expect(
+				(err as { context: { suggestions?: string[] } }).context
+					.suggestions,
+			).toEqual(
+				expect.arrayContaining([
+					expect.stringContaining("equals"),
+				]),
+			);
+		}
+	});
+
+	it("rejects an unknown operator mixed with a valid one", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { contains: "ORM", equls: "x" } },
+				postgresDialect,
+			),
+		).toThrow(/unsupported where operator "equls"/);
+	});
+
+	it("still treats a JSON object as equality when keys are not operators", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ metadata: { featured: true } },
+			postgresDialect,
+		);
+		expect(sql).toContain('"metadata" = $1');
+		expect(params).toEqual([{ featured: true }]);
+	});
+
+	it("rejects a to-many relation filter without some/every/none", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				users,
+				{ posts: { published: true } },
+				postgresDialect,
+			),
+		).toThrow(/requires exactly one of some, every, or none/);
+	});
 });
