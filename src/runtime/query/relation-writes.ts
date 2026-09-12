@@ -14,8 +14,12 @@ import { queryCompileError } from "../error-builders.js";
 import { QueryErrorCode } from "../error-codes.js";
 import type { QueryOperation } from "../errors.js";
 import type { Executor } from "../executor.js";
-import { buildInsertQuery, dataToSqlValues } from "./compile.js";
-import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
+import {
+	buildInsertManyQuery,
+	buildInsertManyValueRows,
+	dataToSqlValues,
+} from "./compile.js";
+import { type QueryRuntime, runQuery } from "./execute.js";
 import type { WithInput } from "./find.js";
 import { findOrCreatePk } from "./find-or-create.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
@@ -272,49 +276,76 @@ async function insertM2MLinks(
 	);
 	if (!leftCol || !rightCol) return;
 
-	for (const otherId of otherIds) {
+	const uniqueOtherIds = [...new Set(otherIds)];
+	if (uniqueOtherIds.length === 0) return;
+
+	const now = new Date();
+	const scalarRows: Record<string, unknown>[] = [];
+	for (const otherId of uniqueOtherIds) {
 		const leftId = isLeft ? parentId : otherId;
 		const rightId = isLeft ? otherId : parentId;
-
-		const existing = await runQueryOne(
-			executor,
-			runtime,
-			{ operation: "select", tableAccessor: throughTable.accessor },
-			`SELECT 1 FROM ${tableRef(throughTable)} WHERE ${quoteIdentifier(leftCol.sqlName)} = $1 AND ${quoteIdentifier(rightCol.sqlName)} = $2 LIMIT 1`,
-			[leftId, rightId],
-		);
-		if (existing) continue;
-
 		const data: Record<string, unknown> = {
 			[leftCol.tsName]: leftId,
 			[rightCol.tsName]: rightId,
 		};
-
 		for (const col of throughTable.columns) {
 			if (col.tsName in data) continue;
 			if (col.defaultNow) {
-				data[col.tsName] = new Date();
+				data[col.tsName] = now;
 			}
 		}
-
 		fillMissingPrimaryKeys(throughTable, data, throughIndex);
+		scalarRows.push(data);
+	}
 
-		const { keys, values } = dataToSqlValues(
+	const keySet = new Set<string>();
+	for (const row of scalarRows) {
+		const { keys } = dataToSqlValues(
 			throughTable,
-			data,
+			row,
 			undefined,
 			runtime.tableIndex,
 			dialect,
 		);
-		const sql = buildInsertQuery(throughTable, keys, runtime.tableIndex);
-		await runQuery(
-			executor,
-			runtime,
-			{ operation: "insert", tableAccessor: throughTable.accessor },
-			sql,
-			values,
-		);
+		for (const key of keys) keySet.add(key);
 	}
+	const dataKeys = throughTable.columns
+		.filter((col) => keySet.has(col.tsName))
+		.map((col) => col.tsName);
+	if (dataKeys.length === 0) return;
+
+	const rowValues = scalarRows.map((row) => {
+		const { keys, values } = dataToSqlValues(
+			throughTable,
+			row,
+			undefined,
+			runtime.tableIndex,
+			dialect,
+		);
+		const valueByKey = new Map(keys.map((key, i) => [key, values[i]]));
+		return dataKeys.map((key) => valueByKey.get(key));
+	});
+	const { valueRows, values } = buildInsertManyValueRows(
+		throughTable,
+		dataKeys,
+		rowValues,
+		runtime.tableIndex,
+	);
+	const sql = buildInsertManyQuery(
+		throughTable,
+		dataKeys,
+		valueRows,
+		runtime.tableIndex,
+		true,
+		dialect,
+	);
+	await runQuery(
+		executor,
+		runtime,
+		{ operation: "insert", tableAccessor: throughTable.accessor },
+		sql,
+		values,
+	);
 }
 
 async function insertJunctionRows(
