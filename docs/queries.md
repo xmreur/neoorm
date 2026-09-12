@@ -186,6 +186,8 @@ Unknown column names and operators fail at compile time (`unknown_column`, with 
 
 `search` is POSIX regex (`~`, or `~*` with `mode: "insensitive"`). It is PostgreSQL-only; SQLite throws.
 
+JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path).
+
 ```ts
 await db.posts.findMany({
   where: { title: { contains: "orm", mode: "insensitive" } },
@@ -249,7 +251,7 @@ Relation filters compile to SQL `EXISTS` subqueries, so they work with `findMany
 ### JSON and decimal filters
 
 ```ts
-// jsonb — partial / subset match (@> containment)
+// jsonb — partial / subset match (`@>` on PostgreSQL, `json_patch` on SQLite)
 await db.posts.findMany({
   where: { metadata: { jsonContains: { featured: true } } },
 });

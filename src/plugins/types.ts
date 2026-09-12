@@ -15,6 +15,7 @@ export type PluginWhereOperator = {
 		value: unknown,
 		col: ManifestColumn,
 		startParamIndex: number,
+		dialect: Dialect,
 	) => PluginWhereCompileResult;
 };
 

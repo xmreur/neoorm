@@ -100,6 +100,6 @@ bunx neoorm migrate reset --force
 | `datasource.schema` | multi-schema | not applicable |
 | `enum: "native"` | `CREATE TYPE ... AS ENUM` | not applicable (TEXT + CHECK) |
 | transaction options (`readOnly`, `isolationLevel`) | full | outer `BEGIN` only; nested transactions use savepoints |
-| JSON operators | `@>`, `?`, path ops | implemented with `json_each` / `json_object` |
+| JSON operators | `@>`, `?`, `#>` | `json_patch` / `json_each` / `json_extract` |
 
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, upsert, `findOrCreate`, savepoint-based nested transactions — behaves identically.
