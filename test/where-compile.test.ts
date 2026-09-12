@@ -416,4 +416,44 @@ describe("where compilation", () => {
 			),
 		).toThrow(/requires exactly one of some, every, or none/);
 	});
+
+	it("compiles some as EXISTS of matching related rows", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { some: { published: true } } },
+			postgresDialect,
+		);
+		expect(sql).toContain("EXISTS");
+		expect(sql).not.toContain("NOT EXISTS");
+		expect(sql).toContain('"published" = $1');
+		expect(sql).not.toContain("NOT (");
+		expect(params).toEqual([true]);
+	});
+
+	it("compiles none as NOT EXISTS of matching related rows", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { none: { published: true } } },
+			postgresDialect,
+		);
+		expect(sql).toContain("NOT EXISTS");
+		expect(sql).toContain('"published" = $1');
+		expect(sql).not.toContain("NOT (");
+		expect(params).toEqual([true]);
+	});
+
+	it("compiles every as NOT EXISTS of related rows that fail the nested filter", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { every: { published: true } } },
+			postgresDialect,
+		);
+		expect(sql).toContain("NOT EXISTS");
+		expect(sql).toContain('NOT ("_rel"."published" = $1)');
+		expect(sql.match(/"published" = \$1/g)).toHaveLength(1);
+		expect(params).toEqual([true]);
+	});
 });
