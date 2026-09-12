@@ -201,13 +201,19 @@ export type TransactionIsolationLevel =
 	| "RepeatableRead"
 	| "Serializable";
 
-/** Options for `$transaction`. */
+/**
+ * Options for the outermost `$transaction`.
+ * Nested `$transaction` (savepoints) reject `isolationLevel` and `readOnly`.
+ */
 export type TransactionOptions = {
 	isolationLevel?: TransactionIsolationLevel;
 	readOnly?: boolean;
 };
 
-/** Client scoped to a single database transaction. */
+/**
+ * Client scoped to a single database transaction.
+ * Nested `$transaction` uses savepoints and does not accept isolation/readOnly.
+ */
 export type TransactionClient<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<
@@ -218,7 +224,23 @@ export type TransactionClient<
 		keyof TTables & string,
 		Record<string, unknown>
 	> = DefaultRowPayloadMap<TTables>,
-> = TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>;
+> = Omit<
+	TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>,
+	"$transaction"
+> & {
+	$transaction<T>(
+		fn: (
+			tx: TransactionClient<TTables, TIncludes, TRowPayloads>,
+		) => Promise<T>,
+	): Promise<T>;
+	$transaction<T extends readonly unknown[]>(
+		steps: {
+			[K in keyof T]: (
+				tx: TransactionClient<TTables, TIncludes, TRowPayloads>,
+			) => Promise<T[K]>;
+		} & readonly unknown[],
+	): Promise<T>;
+};
 
 /**
  * Typed repository for one table accessor on a generated client.
