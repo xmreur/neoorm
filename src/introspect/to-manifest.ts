@@ -12,7 +12,9 @@ import {
 } from "../plugins/registry.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { toCamelCase } from "../utils/case.js";
+import type { CheckConstraintRow, UniqueConstraintRow } from "./queries.js";
 import {
+	queryCheckConstraints,
 	queryColumns,
 	queryEnumTypes,
 	queryForeignKeys,
@@ -220,26 +222,105 @@ function filterConstraintBackedIndexes(
 	});
 }
 
+function singleColumnUniqueMap(
+	uniqueRows: UniqueConstraintRow[],
+): Map<string, string> {
+	const columnsByConstraint = new Map<string, string[]>();
+	for (const row of uniqueRows) {
+		const columns = columnsByConstraint.get(row.constraint_name) ?? [];
+		columns.push(row.column_name);
+		columnsByConstraint.set(row.constraint_name, columns);
+	}
+
+	const uniqueMap = new Map<string, string>();
+	for (const [constraintName, columns] of columnsByConstraint) {
+		if (columns.length !== 1) {
+			continue;
+		}
+		const columnName = columns[0];
+		if (!columnName) {
+			continue;
+		}
+		uniqueMap.set(columnName, constraintName);
+	}
+	return uniqueMap;
+}
+
+function unwrapOuterParens(expression: string): string {
+	let current = expression.trim();
+	while (current.startsWith("(") && current.endsWith(")")) {
+		let depth = 0;
+		let wrapsAll = true;
+		for (let i = 0; i < current.length; i++) {
+			const ch = current[i];
+			if (ch === "(") {
+				depth += 1;
+			} else if (ch === ")") {
+				depth -= 1;
+				if (depth === 0 && i !== current.length - 1) {
+					wrapsAll = false;
+					break;
+				}
+			}
+		}
+		if (!wrapsAll || depth !== 0) {
+			break;
+		}
+		current = current.slice(1, -1).trim();
+	}
+	return current;
+}
+
+function parseCheckDefinition(definition: string): string | undefined {
+	const match = definition.trim().match(/^CHECK\s*\((.*)\)\s*$/is);
+	if (!match?.[1]) {
+		return undefined;
+	}
+	const expression = unwrapOuterParens(match[1]);
+	return expression.length > 0 ? expression : undefined;
+}
+
+function applyCheckConstraints(
+	columns: ManifestColumn[],
+	checkRows: CheckConstraintRow[],
+): void {
+	const bySqlName = new Map(columns.map((col) => [col.sqlName, col]));
+	for (const row of checkRows) {
+		if (Number(row.column_count) !== 1 || !row.column_name) {
+			continue;
+		}
+		const expression = parseCheckDefinition(row.definition);
+		if (!expression) {
+			continue;
+		}
+		const column = bySqlName.get(row.column_name);
+		if (!column || column.kind === "enum") {
+			continue;
+		}
+		column.checkExpression = column.checkExpression
+			? `(${column.checkExpression}) AND (${expression})`
+			: expression;
+	}
+}
+
 async function introspectTable(
 	client: DatabaseClient,
 	tableName: string,
 	enumTypes: Record<string, string[]>,
 	schema: string,
 ): Promise<ManifestTable> {
-	const [columns, fks, indexRows, uniqueRows, primaryKey] = await Promise.all(
-		[
+	const [columns, fks, indexRows, uniqueRows, primaryKey, checkRows] =
+		await Promise.all([
 			queryColumns(client, tableName, schema),
 			queryForeignKeys(client, tableName, schema),
 			queryIndexes(client, tableName, schema),
 			queryUniqueConstraints(client, tableName, schema),
 			queryPrimaryKeyColumns(client, tableName, schema),
-		],
-	);
+			queryCheckConstraints(client, tableName, schema),
+		]);
 
 	const fkMap = new Map(fks.map((fk) => [fk.column_name, fk]));
-	const uniqueMap = new Map(
-		uniqueRows.map((row) => [row.column_name, row.constraint_name]),
-	);
+	const uniqueMap = singleColumnUniqueMap(uniqueRows);
 	const pkSet = new Set(primaryKey);
 
 	const manifestColumns: ManifestColumn[] = columns.map((col) => {
@@ -311,6 +392,8 @@ async function introspectTable(
 
 		return column;
 	});
+
+	applyCheckConstraints(manifestColumns, checkRows);
 
 	return {
 		accessor: tableAccessor(tableName),

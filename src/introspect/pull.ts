@@ -1,4 +1,3 @@
-import { resolvePgSchemaName } from "../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestColumn,
@@ -9,12 +8,10 @@ import type { ColumnNaming } from "../schema/table.js";
 import {
 	escapeTsString,
 	resolveSqlColumnName,
-	sanitizeTsIdentifier,
 	toCamelCase,
 } from "../utils/case.js";
-import { queryColumns, queryForeignKeys, queryTables } from "./queries.js";
 import { introspectSqliteToManifest } from "./sqlite/to-manifest.js";
-import { resolvePgColumnKind } from "./to-manifest.js";
+import { introspectToManifest } from "./to-manifest.js";
 
 function inferFkAs(tsName: string): string {
 	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
@@ -40,150 +37,79 @@ function tableHeader(accessor: string, sqlName: string): string {
 	return `  ${accessor}: table("${escapeTsString(sqlName)}", {`;
 }
 
-function tableFooter(columnNaming: ColumnNaming): string {
-	if (columnNaming === "camelCase") {
-		return `  }, { columnNaming: "camelCase" }),`;
-	}
-	return `  }),`;
-}
+const POSTGIS_KINDS = new Set(["geometry", "geography", "point"]);
+
+const SCHEMA_IMPORT_ORDER = [
+	"defineSchema",
+	"table",
+	"id",
+	"text",
+	"bool",
+	"int",
+	"bigint",
+	"serial",
+	"timestamp",
+	"uuid",
+	"decimal",
+	"json",
+	"jsonb",
+	"bytea",
+	"citext",
+	"enumType",
+	"textArray",
+	"intArray",
+	"fk",
+	"index",
+	"unique",
+	"primaryKey",
+] as const;
 
 export async function introspectPostgres(
 	client: DatabaseClient,
 	options: { schema?: string } = {},
 ): Promise<string> {
-	const schema = resolvePgSchemaName(options.schema);
-	const tables = await queryTables(client, schema);
+	const manifest = await introspectToManifest(client, options);
+	return emitPostgresSchema(manifest);
+}
 
-	const sqlToAccessor = new Map<string, string>();
-	for (const { table_name } of tables) {
-		const accessor = sanitizeTsIdentifier(
-			toCamelCase(
-				table_name.endsWith("s") ? table_name : `${table_name}s`,
-			),
-		);
-		sqlToAccessor.set(table_name, accessor);
-	}
-
-	const pluginImports = new Set<string>();
+function emitPostgresSchema(manifest: Manifest): string {
+	const usedBuilders = new Set<string>(["defineSchema", "table"]);
 	const pluginColumnImports = new Set<string>();
 	let needsPostgisSideEffect = false;
-
 	const tableBlocks: string[] = [];
 
-	for (const { table_name } of tables) {
-		const cols = await queryColumns(client, table_name, schema);
-		const fks = await queryForeignKeys(client, table_name, schema);
-
-		const fkMap = new Map(fks.map((r) => [r.column_name, r]));
+	for (const table of Object.values(manifest.tables)) {
 		const columnNaming = inferColumnNaming(
-			cols.map((col) => col.column_name),
+			table.columns.map((col) => col.sqlName),
 		);
+		const tsNameBySql = new Map(
+			table.columns.map((col) => [col.sqlName, col.tsName]),
+		);
+		const blockLines: string[] = [
+			tableHeader(table.accessor, table.sqlName),
+		];
 
-		const accessor = sqlToAccessor.get(table_name) ?? table_name;
-		const blockLines: string[] = [tableHeader(accessor, table_name)];
-
-		for (const col of cols) {
-			const tsName = sanitizeTsIdentifier(toCamelCase(col.column_name));
-			const fk = fkMap.get(col.column_name);
-
-			if (fk) {
-				const targetAccessor =
-					sqlToAccessor.get(fk.foreign_table_name) ??
-					sanitizeTsIdentifier(toCamelCase(fk.foreign_table_name));
-				const targetColumn = sanitizeTsIdentifier(
-					toCamelCase(fk.foreign_column_name),
-				);
-				const targetRef =
-					targetColumn === "id"
-						? targetAccessor
-						: `${targetAccessor}.${targetColumn}`;
-				const relName = inferFkAs(tsName);
-				let def = `    ${tsName}: fk("${escapeTsString(targetRef)}")`;
-				if (relName !== inferFkAs(tsName)) {
-					def += `.as("${escapeTsString(relName)}")`;
-				}
-				if (col.is_nullable === "NO") def += `.notNull()`;
-				def = appendMapModifier(
-					def,
-					tsName,
-					col.column_name,
-					columnNaming,
-				);
-				blockLines.push(`${def},`);
-			} else {
-				const kind = resolvePgColumnKind(col);
-				if (kind === "id") {
-					blockLines.push(`    id: id(),`);
-					continue;
-				}
-
-				if (
-					kind === "geometry" ||
-					kind === "geography" ||
-					kind === "point"
-				) {
-					needsPostgisSideEffect = true;
-					pluginColumnImports.add(
-						kind === "geography"
-							? "geography"
-							: kind === "point"
-								? "point"
-								: "geometry",
-					);
-				}
-
-				let def: string;
-				if (kind === "uuid") {
-					const version = col.column_default?.includes(
-						"gen_random_uuid",
-					)
-						? 4
-						: 7;
-					const call =
-						version === 4 ? `uuid({ version: 4 })` : `uuid()`;
-					def = `    ${tsName}: ${call}`;
-				} else {
-					def = `    ${tsName}: ${kind}()`;
-				}
-
-				if (col.column_name === "id") {
-					def += ".primary()";
-				} else if (kind !== "serial" && col.is_nullable === "NO") {
-					def += `.notNull()`;
-				}
-				if (col.column_default?.includes("now()")) {
-					def += `.defaultNow()`;
-				}
-				def = appendMapModifier(
-					def,
-					tsName,
-					col.column_name,
-					columnNaming,
-				);
-				blockLines.push(`${def},`);
+		for (const col of table.columns) {
+			if (POSTGIS_KINDS.has(col.kind)) {
+				needsPostgisSideEffect = true;
+				pluginColumnImports.add(col.kind);
 			}
+			blockLines.push(
+				`    ${emitPostgresColumn(col, table, manifest, columnNaming, usedBuilders)},`,
+			);
 		}
 
-		blockLines.push(tableFooter(columnNaming));
+		const extras = emitTableExtras(table, tsNameBySql, usedBuilders);
+		blockLines.push(tableClose(columnNaming, extras));
 		tableBlocks.push(blockLines.join("\n"));
 	}
 
+	const schemaImports = SCHEMA_IMPORT_ORDER.filter((name) =>
+		usedBuilders.has(name),
+	);
 	const lines: string[] = [
 		`import {`,
-		`  defineSchema,`,
-		`  table,`,
-		`  id,`,
-		`  text,`,
-		`  bool,`,
-		`  int,`,
-		`  bigint,`,
-		`  serial,`,
-		`  timestamp,`,
-		`  uuid,`,
-		`  fk,`,
-		`  index,`,
-		`  unique,`,
-		`  primaryKey,`,
+		...schemaImports.map((name) => `  ${name},`),
 		`} from "neoorm/schema";`,
 	];
 
@@ -197,15 +123,216 @@ export async function introspectPostgres(
 		);
 	}
 
-	for (const pluginImport of pluginImports) {
-		lines.push(pluginImport);
-	}
-
 	lines.push(``, `export const schema = defineSchema({`);
 	lines.push(...tableBlocks);
 	lines.push(`});`, ``);
 
 	return lines.join("\n");
+}
+
+function emitPostgresColumn(
+	col: ManifestColumn,
+	table: ManifestTable,
+	manifest: Manifest,
+	columnNaming: ColumnNaming,
+	usedBuilders: Set<string>,
+): string {
+	if (col.kind === "fk") {
+		usedBuilders.add("fk");
+		let def = `${col.tsName}: ${emitFkBuilder(col, table, manifest)}`;
+		def += emitColumnModifiers(col, table, { skipNotNullIfPrimary: true });
+		return appendMapModifier(def, col.tsName, col.sqlName, columnNaming);
+	}
+
+	if (col.kind === "id") {
+		usedBuilders.add("id");
+		let def = `${col.tsName}: id()`;
+		def += emitColumnModifiers(col, table, {
+			skipPrimary: true,
+			skipNotNull: true,
+		});
+		return appendMapModifier(def, col.tsName, col.sqlName, columnNaming);
+	}
+
+	const call = emitScalarBuilder(col, usedBuilders);
+	let def = `${col.tsName}: ${call}`;
+	def += emitColumnModifiers(col, table, {
+		skipNotNullIfPrimary: true,
+		skipNotNull: col.kind === "serial",
+	});
+	return appendMapModifier(def, col.tsName, col.sqlName, columnNaming);
+}
+
+function emitScalarBuilder(
+	col: ManifestColumn,
+	usedBuilders: Set<string>,
+): string {
+	if (col.kind === "uuid") {
+		usedBuilders.add("uuid");
+		return col.typeOptions?.version === 4
+			? "uuid({ version: 4 })"
+			: "uuid()";
+	}
+
+	if (col.kind === "enum") {
+		usedBuilders.add("enumType");
+		const values =
+			(col.typeOptions?.values as readonly string[] | undefined) ?? [];
+		const quoted = values.map((value) => `"${escapeTsString(value)}"`);
+		const nativeName =
+			col.typeOptions?.nativeTypeName ?? col.typeOptions?.name;
+		const nameArg =
+			typeof nativeName === "string"
+				? `, { name: "${escapeTsString(nativeName)}" }`
+				: "";
+		return `enumType([${quoted.join(", ")}]${nameArg})`;
+	}
+
+	if (col.kind === "decimal") {
+		usedBuilders.add("decimal");
+		const precision = col.typeOptions?.precision;
+		const scale = col.typeOptions?.scale;
+		if (typeof precision === "number" && typeof scale === "number") {
+			return `decimal({ precision: ${precision}, scale: ${scale} })`;
+		}
+		if (typeof precision === "number") {
+			return `decimal({ precision: ${precision} })`;
+		}
+		return "decimal()";
+	}
+
+	usedBuilders.add(col.kind);
+	return `${col.kind}()`;
+}
+
+function emitFkBuilder(
+	col: ManifestColumn,
+	table: ManifestTable,
+	manifest: Manifest,
+): string {
+	const targetRef = resolveFkAccessorTarget(col, manifest);
+	const relName = inferFkAs(col.tsName);
+	let def = `fk("${escapeTsString(targetRef)}")`;
+	if (col.fkAs && col.fkAs !== relName) {
+		def += `.as("${escapeTsString(col.fkAs)}")`;
+	}
+	const defaultInverse = col.unique
+		? singularize(table.accessor)
+		: table.accessor;
+	if (col.fkInverse && col.fkInverse !== defaultInverse) {
+		def += `.inverse("${escapeTsString(col.fkInverse)}")`;
+	}
+	return def;
+}
+
+function emitColumnModifiers(
+	col: ManifestColumn,
+	table: ManifestTable,
+	options: {
+		skipPrimary?: boolean;
+		skipNotNull?: boolean;
+		skipNotNullIfPrimary?: boolean;
+	} = {},
+): string {
+	let def = "";
+	const solePrimary =
+		col.primary && table.primaryKey.length === 1 && col.kind !== "id";
+	if (!options.skipPrimary && solePrimary) {
+		def += ".primary()";
+	}
+	const skipNotNull =
+		options.skipNotNull || (options.skipNotNullIfPrimary && solePrimary);
+	if (!skipNotNull && !col.nullable) {
+		def += ".notNull()";
+	}
+	if (col.unique) {
+		def += ".unique()";
+	}
+	if (col.onDelete && col.onDelete !== "no action") {
+		def += `.onDelete("${escapeTsString(col.onDelete)}")`;
+	}
+	if (col.defaultNow) {
+		def += ".defaultNow()";
+	} else if (col.defaultValue !== undefined) {
+		def += `.default(${formatTsValue(col.kind, col.defaultValue)})`;
+	}
+	if (col.checkExpression) {
+		def += `.check("${escapeTsString(col.checkExpression)}")`;
+	}
+	return def;
+}
+
+function formatTsValue(kind: string, value: unknown): string {
+	if (kind === "bigint") {
+		const raw =
+			typeof value === "bigint" ? value.toString() : String(value);
+		if (/^-?\d+$/.test(raw)) {
+			return `${raw}n`;
+		}
+	}
+	if (kind === "json" || kind === "jsonb") {
+		return JSON.stringify(value);
+	}
+	if (typeof value === "string") {
+		return `"${escapeTsString(value)}"`;
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+	if (value === null) {
+		return "null";
+	}
+	if (typeof value === "bigint") {
+		return `${value}n`;
+	}
+	return JSON.stringify(value);
+}
+
+function emitTableExtras(
+	table: ManifestTable,
+	tsNameBySql: Map<string, string>,
+	usedBuilders?: Set<string>,
+): string[] {
+	const extras: string[] = [];
+	for (const index of table.indexes) {
+		const builder = index.unique ? "unique" : "index";
+		usedBuilders?.add(builder);
+		const cols = index.columns
+			.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+			.join(", ");
+		extras.push(`    ${builder}(${cols}),`);
+	}
+	if (table.primaryKey.length > 1) {
+		usedBuilders?.add("primaryKey");
+		extras.push(
+			`    primaryKey(${table.primaryKey
+				.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+				.join(", ")}),`,
+		);
+	}
+	return extras;
+}
+
+function tableClose(columnNaming: ColumnNaming, extras: string[]): string {
+	if (extras.length === 0) {
+		if (columnNaming === "camelCase") {
+			return `  }, { columnNaming: "camelCase" }),`;
+		}
+		return `  }),`;
+	}
+
+	const extrasBlock = extras.join("\n");
+	if (columnNaming === "camelCase") {
+		return `  }, {
+    columnNaming: "camelCase",
+    extras: (t) => [
+${extrasBlock}
+    ],
+  }),`;
+	}
+	return `  }, (t) => [
+${extrasBlock}
+  ]),`;
 }
 
 function sqliteColumnBuilder(col: ManifestColumn): string {
@@ -321,23 +448,7 @@ export async function introspectSqlite(
 			lines.push(`    ${sqliteColumnDef(col, table, manifest)}`);
 		}
 
-		const extras: string[] = [];
-		for (const index of table.indexes) {
-			const builder = index.unique ? "unique" : "index";
-			const cols = index.columns
-				.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
-				.join(", ");
-			extras.push(`    ${builder}(${cols}),`);
-		}
-		if (table.primaryKey.length > 1) {
-			extras.push(
-				`    primaryKey(${table.primaryKey
-					.map(
-						(sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`,
-					)
-					.join(", ")}),`,
-			);
-		}
+		const extras = emitTableExtras(table, tsNameBySql);
 
 		if (extras.length > 0) {
 			lines.push(
