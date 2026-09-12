@@ -1,8 +1,8 @@
+import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import type { ColumnBuilder } from "./column.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
 import type { FkBuilder } from "./relation.js";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
-import { schemaError } from "../runtime/error-builders.js";
 import { registerTable } from "./table-registry.js";
 
 export type ColumnDef = ColumnBuilder<unknown> | FkBuilder | ManyToManyExtra;
@@ -26,9 +26,10 @@ export type AttachOwner<
 	C extends ColumnDef,
 	TName extends string,
 	TCol extends string,
-> = C extends ColumnBuilder<infer V, infer M>
-	? ColumnBuilder<V, M & OwnedColumn<TName, TCol>>
-	: C;
+> =
+	C extends ColumnBuilder<infer V, infer M>
+		? ColumnBuilder<V, M & OwnedColumn<TName, TCol>>
+		: C;
 
 type TableColumnKeys<TColumns extends Record<string, ColumnDef>> = {
 	[K in keyof TColumns]: K extends
@@ -47,7 +48,11 @@ export type TableColumns<
 	TName extends string,
 	TColumns extends Record<string, ColumnDef>,
 > = {
-	[K in TableColumnKeys<TColumns>]: AttachOwner<TColumns[K], TName, K & string>;
+	[K in TableColumnKeys<TColumns>]: AttachOwner<
+		TColumns[K],
+		TName,
+		K & string
+	>;
 };
 
 /** Name of the primary-key column (falls back to an `id` column). */
@@ -185,7 +190,11 @@ function buildTableDef<
 		_extras: extras,
 		_targetRef: pkColumnName ? `${sqlName}.${pkColumnName}` : `${sqlName}.`,
 		...(columnNaming ? { _columnNaming: columnNaming } : {}),
-	} as unknown as TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
+	} as unknown as TableDef<
+		TName,
+		TColumns,
+		`${TName}.${PkColumnName<TColumns>}`
+	> &
 		TableColumns<TName, TColumns>;
 
 	registerTable(def, columns as unknown as Record<string, unknown>);
@@ -213,9 +222,7 @@ function buildTableDef<
  * }),
  * ```
  */
-export function table<
-	TColumns extends Record<string, ColumnDef>,
->(
+export function table<TColumns extends Record<string, ColumnDef>>(
 	columns: TColumns,
 	config?:
 		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])

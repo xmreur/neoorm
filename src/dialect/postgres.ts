@@ -2,7 +2,11 @@ import { getColumnTypeOrThrow } from "../plugins/registry.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
-import { quoteIdentifier as q, tableRef } from "./shared.js";
+import {
+	isSolePrimaryKeyColumn,
+	quoteIdentifier as q,
+	tableRef,
+} from "./shared.js";
 import type {
 	ColumnAlter,
 	CreateTableOptions,
@@ -152,10 +156,14 @@ export function pgStorageSqlType(dataType: string, udtName: string): string {
 	}
 }
 
-function columnDef(col: ManifestColumn, manifest?: Manifest): string {
+function columnDef(
+	col: ManifestColumn,
+	table: ManifestTable,
+	manifest?: Manifest,
+): string {
 	const parts = [q(col.sqlName), columnType(col, manifest)];
 
-	if (col.primary) {
+	if (isSolePrimaryKeyColumn(col, table)) {
 		parts.push("PRIMARY KEY");
 	} else {
 		if (!col.nullable) parts.push("NOT NULL");
@@ -309,7 +317,7 @@ function emitCreateTable(
 	const lines: string[] = [];
 
 	for (const col of table.columns) {
-		lines.push(`  ${columnDef(col, manifest)}`);
+		lines.push(`  ${columnDef(col, table, manifest)}`);
 	}
 
 	if (table.primaryKey.length > 1) {
@@ -498,7 +506,7 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 	if (diff.addColumns) {
 		for (const col of diff.addColumns) {
 			stmts.push(
-				`ALTER TABLE ${tableRef(table)} ADD COLUMN ${columnDef(col, manifest)};`,
+				`ALTER TABLE ${tableRef(table)} ADD COLUMN ${columnDef(col, table, manifest)};`,
 			);
 		}
 	}

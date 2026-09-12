@@ -14,19 +14,6 @@ import {
 	getPluginRegistry,
 } from "../plugins/registry.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
-import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
-import type { ColumnBuilder } from "../schema/column.js";
-import type { SchemaDef } from "../schema/define-schema.js";
-import { fk, type FkBuilder, resolveFkAccessorTarget } from "../schema/relation.js";
-import type { ManyToManyExtra } from "../schema/many-to-many.js";
-import type {
-	ColumnDef,
-	ColumnNaming,
-	IndexDef,
-	IndexWherePredicate,
-	TableDef,
-	TableExtra,
-} from "../schema/table.js";
 import { schemaError } from "../runtime/error-builders.js";
 import {
 	formatCandidateList,
@@ -35,6 +22,23 @@ import {
 	suggestSchemaColumn,
 	suggestSchemaTableAccessor,
 } from "../runtime/error-hints.js";
+import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
+import type { ColumnBuilder } from "../schema/column.js";
+import type { SchemaDef } from "../schema/define-schema.js";
+import type { ManyToManyExtra } from "../schema/many-to-many.js";
+import {
+	type FkBuilder,
+	fk,
+	resolveFkAccessorTarget,
+} from "../schema/relation.js";
+import type {
+	ColumnDef,
+	ColumnNaming,
+	IndexDef,
+	IndexWherePredicate,
+	TableDef,
+	TableExtra,
+} from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 
 export type SchemaValidationIssue = {
@@ -243,8 +247,7 @@ function resolveFkTargetSql(
 		);
 	}
 
-	const targetColumnTs =
-		column ?? findPrimaryKeyColumn(targetTable._columns);
+	const targetColumnTs = column ?? findPrimaryKeyColumn(targetTable._columns);
 	if (!targetColumnTs) {
 		throw schemaError(
 			"missing_primary_key",
@@ -252,7 +255,7 @@ function resolveFkTargetSql(
 			{ tableAccessor: accessor, tableSqlName: targetTable._tableName },
 			[
 				`Add a primary key to "${accessor}" (e.g. id: uuid().primary() or id: id())`,
-				"Or pass an explicit column: fk(\"users.id\")",
+				'Or pass an explicit column: fk("users.id")',
 			],
 		);
 	}
@@ -266,8 +269,7 @@ function resolveFkTargetSql(
 		);
 	}
 
-	const targetColumnNaming =
-		targetTable._columnNaming ?? defaultColumnNaming;
+	const targetColumnNaming = targetTable._columnNaming ?? defaultColumnNaming;
 	const targetColSql = resolveSqlName(
 		targetColumnTs,
 		targetTable._columns[targetColumnTs],
@@ -299,9 +301,7 @@ function compileIndexWhere(
 		} else if (typeof value === "number") {
 			parts.push(`${quoted} = ${value}`);
 		} else {
-			parts.push(
-				`${quoted} = '${String(value).replace(/'/g, "''")}'`,
-			);
+			parts.push(`${quoted} = '${String(value).replace(/'/g, "''")}'`);
 		}
 	}
 	return parts.join(" AND ");
@@ -706,8 +706,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			);
 		}
 
-		const leftTsName =
-			extra.leftKey ?? `${singularize(sourceAccessor)}Id`;
+		const leftTsName = extra.leftKey ?? `${singularize(sourceAccessor)}Id`;
 		const rightTsName =
 			extra.rightKey ?? `${singularize(targetTable.accessor)}Id`;
 
@@ -841,7 +840,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 						tableSqlName: inverseTable.sqlName,
 					},
 					[
-						"Set an explicit `.inverse(\"uniqueName\")` on each fk() to disambiguate",
+						'Set an explicit `.inverse("uniqueName")` on each fk() to disambiguate',
 						"Each inverse relation name must be unique on the target table",
 					],
 				);
