@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
-import { findMany, loadRelations } from "../src/runtime/query/find.js";
+import { findFirst, findMany, loadRelations } from "../src/runtime/query/find.js";
 import { atIndex, manifestTable } from "./helpers/manifest.js";
 
 const eagerLoadingSchema = defineSchema({
@@ -685,5 +685,63 @@ describe("eager loading batching", () => {
 		expect(executor.queries).toHaveLength(1);
 		expect(executor.queries[0]?.params).toEqual([]);
 		expect(rows[0]?.comments).toEqual([]);
+	});
+});
+
+describe("findFirst without with", () => {
+	const manifest = schemaToManifest(eagerLoadingSchema);
+	const runtime: QueryRuntime = { manifest };
+
+	it("honors skip without throwing", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("LIMIT 1");
+				expect(sql).toContain("OFFSET 1");
+				expect(sql).not.toContain("json_agg");
+				return [
+					{
+						id: "post_2",
+						title: "Post B",
+						author_id: "user_2",
+					},
+				];
+			},
+		});
+
+		const row = await findFirst(executor, runtime, "posts", {
+			orderBy: { title: "asc" },
+			skip: 1,
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(row).toEqual({
+			id: "post_2",
+			title: "Post B",
+			authorId: "user_2",
+		});
+	});
+
+	it("honors distinct without throwing", async () => {
+		const executor = createMockExecutor({
+			query: (sql) => {
+				expect(sql).toContain("DISTINCT ON");
+				expect(sql).toContain("LIMIT 1");
+				return [
+					{
+						id: "post_1",
+						title: "Post A",
+						author_id: "user_1",
+					},
+				];
+			},
+		});
+
+		const row = await findFirst(executor, runtime, "posts", {
+			distinct: ["title"],
+			orderBy: { title: "asc" },
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(row?.title).toBe("Post A");
 	});
 });

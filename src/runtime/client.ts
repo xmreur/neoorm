@@ -100,6 +100,8 @@ export type TableRepository = {
 	findFirst(args?: {
 		where?: Record<string, unknown>;
 		orderBy?: OrderByInput;
+		skip?: number;
+		distinct?: readonly string[] | Record<string, boolean | undefined>;
 		select?: readonly string[] | Record<string, boolean | undefined>;
 		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
