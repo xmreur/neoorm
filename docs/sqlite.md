@@ -66,12 +66,14 @@ Pass any object implementing `prepare(sql)`, `exec(sql)`, and `close()` — the 
 
 ```ts
 import { DatabaseSync } from "node:sqlite";
-import { createNeoOrmClient } from "neoorm";
+import { createNeoOrmClientFromSqlite } from "neoorm";
 import { manifest } from "./neoorm/manifest.js";
 
 const database = new DatabaseSync("./dev.db");
-const db = createNeoOrmClient(manifest, { db: database });
+const db = createNeoOrmClientFromSqlite(manifest, database);
 ```
+
+`$disconnect()` does not close the handle — call `database.close()` yourself. `createNeoOrmClient(manifest, { db: database })` is the same ownership model.
 
 ## CLI
 

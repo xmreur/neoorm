@@ -121,7 +121,7 @@ See [Getting started](docs/getting-started.md) and [Examples](docs/examples.md) 
 
 | Import | Purpose |
 |--------|---------|
-| `neoorm` | `defineConfig`, `createNeoOrmClient`, `createNeoOrmClientFromPool`, client types |
+| `neoorm` | `defineConfig`, `createNeoOrmClient`, `createNeoOrmClientFromPool`, `createNeoOrmClientFromSqlite`, client types |
 | `neoorm/schema` | Schema DSL (`defineSchema`, `table`, column builders, `fk`, `many`, `index`, `unique`, `primaryKey`) |
 | `neoorm/sql` | Tagged SQL templates (`sql`), SQL fragment builder, fluent query builder |
 | `neoorm/plugins` | Plugin registry, `NeoOrmPlugin`, `ColumnTypePlugin` |

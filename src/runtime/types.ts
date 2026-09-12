@@ -464,7 +464,8 @@ export type TypedNeoOrmClient<
 	$connect(): Promise<void>;
 	/**
 	 * Close the database connection this client created.
-	 * No-op when created with `createNeoOrmClientFromPool` — the caller still owns the pool.
+	 * No-op for `createNeoOrmClientFromPool` and `createNeoOrmClientFromSqlite`
+	 * — the caller still owns the handle.
 	 */
 	$disconnect(): Promise<void>;
 	$transaction<T>(
