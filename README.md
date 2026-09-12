@@ -123,7 +123,7 @@ See [Getting started](docs/getting-started.md) and [Examples](docs/examples.md) 
 |--------|---------|
 | `neoorm` | `defineConfig`, `createNeoOrmClient`, `createNeoOrmClientFromPool`, `createNeoOrmClientFromSqlite`, client types |
 | `neoorm/schema` | Schema DSL (`defineSchema`, `table`, column builders, `fk`, `many`, `index`, `unique`, `primaryKey`) |
-| `neoorm/sql` | Tagged SQL templates (`sql`), SQL fragment builder, fluent query builder |
+| `neoorm/sql` | Same compiler as `db.sql`: tagged templates (`sql`), `sqlId`, fragments, fluent `sqlBuilder` |
 | `neoorm/plugins` | Plugin registry, `NeoOrmPlugin`, `ColumnTypePlugin` |
 | `neoorm/plugins/postgis` | PostGIS column types (`geometry`, `geography`, `point`) and spatial operators |
 

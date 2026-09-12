@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { CompiledQuery } from "../dialect/types.js";
+import { compile, sqlTag } from "../sql/template.js";
 import {
 	type DatabaseClient,
 	type SqliteDatabaseLike,
@@ -322,22 +323,12 @@ function createClientExecutor(
 	};
 }
 
+/** Same compiler as `neoorm/sql` (`sqlTag`): values, fragments, and `sqlId`. */
 export function compileQuery(
 	parts: TemplateStringsArray,
 	values: unknown[],
 ): CompiledQuery {
-	let text = "";
-	const params: unknown[] = [];
-
-	for (let i = 0; i < parts.length; i++) {
-		text += parts[i];
-		if (i < values.length) {
-			params.push(values[i]);
-			text += `$${params.length}`;
-		}
-	}
-
-	return { text, params };
+	return compile(sqlTag(parts, ...values));
 }
 
 function createExecutorFromDriver(

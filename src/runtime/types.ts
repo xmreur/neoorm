@@ -531,6 +531,11 @@ export type TypedNeoOrmClient<
 		Record<string, unknown>
 	> = DefaultRowPayloadMap<TTables>,
 > = {
+	/**
+	 * Run a parameterized SQL template. Uses the same compiler as `neoorm/sql`
+	 * (`sql`, `sqlId`, nested fragments). `sqlBuilder` has no WHERE/LIMIT/params —
+	 * interpolate `sqlBuilder.compile()` into this tag for those clauses.
+	 */
 	sql<T = Record<string, unknown>>(
 		strings: TemplateStringsArray,
 		...values: unknown[]

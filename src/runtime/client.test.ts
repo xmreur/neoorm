@@ -5,6 +5,7 @@ import { emptyManifest } from "../codegen/diff-manifest.js";
 import { schemaToManifest } from "../codegen/schema-to-manifest.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import { defineSchema, id, table, text } from "../schema/index.js";
+import { sqlId } from "../sql/index.js";
 import {
 	createNeoOrmClient,
 	createNeoOrmClientFromPool,
@@ -116,6 +117,10 @@ describe("createNeoOrmClient sqlite path", () => {
 			await client.sql`INSERT INTO t (id) VALUES (${"a"})`;
 			const rows = await client.sql`SELECT id FROM t`;
 			expect(rows).toEqual([{ id: "a" }]);
+			const ident = sqlId("t");
+			const byId =
+				await client.sql`SELECT id FROM ${ident} WHERE id = ${"a"}`;
+			expect(byId).toEqual([{ id: "a" }]);
 			await client.$disconnect();
 		} finally {
 			if (previous === undefined) {

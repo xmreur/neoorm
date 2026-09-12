@@ -505,7 +505,7 @@ const stats = await db.posts.aggregate({
 
 `_count: true` is still `COUNT(*)` and returns `_count: number`. A field map uses `COUNT(col)` (nulls are skipped) — not `DISTINCT`.
 
-Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db.sql` or `sqlBuilder`.
+Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db.sql` (same compiler as `neoorm/sql`) or `sqlBuilder` composed into `db.sql`.
 
 ### `groupBy()`
 
@@ -542,6 +542,27 @@ const taken = await db.users.exists({ where: { email: "a@b.com" } });
 `count()` returns a number unless `select` is set. `distinct` is `COUNT(DISTINCT col)` on one column and cannot be combined with `select`. Field `select` / `_count` maps are non-null `COUNT(col)`, not distinct.
 
 `exists()` runs `SELECT 1 … LIMIT 1` and returns a boolean. Use `count()` when you need the actual number of matches.
+
+## Raw SQL
+
+`db.sql` and `import { sql } from "neoorm/sql"` share one compiler. Interpolate values, `sqlId("table")`, nested `sql\`...\`` fragments, or `sqlBuilder.compile()`. `sqlBuilder` itself has no WHERE, LIMIT, or params — add those in the `db.sql` tag.
+
+```ts
+import { sql, sqlBuilder, sqlId } from "neoorm/sql";
+
+const ident = sqlId("users");
+const filter = sql`email = ${"a@b.com"}`;
+const rows = await db.sql`SELECT * FROM ${ident} WHERE ${filter}`;
+
+const grouped = sqlBuilder
+  .selectFrom("users")
+  .select(["id", "email"])
+  .groupBy("id", "email")
+  .compile();
+await db.sql`${grouped} LIMIT ${10}`;
+```
+
+`db.execute({ text, params })` runs already-compiled SQL. Raw SQL is not rewritten for tenant `schema` — qualify identifiers yourself.
 
 ## Logging SQL
 
