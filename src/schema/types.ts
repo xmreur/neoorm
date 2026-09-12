@@ -454,7 +454,11 @@ export type FindOrCreateArgs<
 > = {
 	where: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	create: CreateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
+	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	/** Include schema `.hidden()` columns in the default output. */
+	includeHidden?: boolean;
 };
 
 export type FindOrCreateResult<TRow> = {
