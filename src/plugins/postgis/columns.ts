@@ -1,4 +1,6 @@
 import type { ManifestColumn } from "../../dialect/types.js";
+import { schemaError } from "../../runtime/error-builders.js";
+import { SchemaErrorCode } from "../../runtime/error-codes.js";
 import type { ColumnMeta } from "../../schema/column.js";
 import { createColumnBuilder } from "../../schema/column.js";
 import type { ColumnTypePlugin } from "../types.js";
@@ -20,10 +22,56 @@ export type GeoJsonGeometry =
 	| GeoJsonPolygon
 	| Record<string, unknown>;
 
-export type GeometryOptions = {
-	subtype?: string;
-	srid?: number;
+const SPATIAL_BASE_TYPES = [
+	"Geometry",
+	"Point",
+	"LineString",
+	"Polygon",
+	"MultiPoint",
+	"MultiLineString",
+	"MultiPolygon",
+	"GeometryCollection",
+	"CircularString",
+	"CompoundCurve",
+	"CurvePolygon",
+	"MultiCurve",
+	"MultiSurface",
+	"PolyhedralSurface",
+	"Triangle",
+	"TIN",
+] as const;
+
+const SPATIAL_DIMENSIONS = ["", "Z", "M", "ZM"] as const;
+
+type SpatialBaseType = (typeof SPATIAL_BASE_TYPES)[number];
+type SpatialDimension = (typeof SPATIAL_DIMENSIONS)[number];
+
+/** Canonical PostGIS geometry type, including optional Z/M/ZM. */
+export type SpatialSubtype = `${SpatialBaseType}${SpatialDimension}`;
+
+export const SPATIAL_SUBTYPES: readonly SpatialSubtype[] =
+	SPATIAL_BASE_TYPES.flatMap((base) =>
+		SPATIAL_DIMENSIONS.map((dim) => `${base}${dim}` as SpatialSubtype),
+	);
+
+const SPATIAL_SUBTYPE_BY_LOWER = new Map(
+	SPATIAL_SUBTYPES.map((subtype) => [subtype.toLowerCase(), subtype]),
+);
+
+type SpatialOptionsWithoutSrid = {
+	subtype?: SpatialSubtype;
+	srid?: never;
 };
+
+type SpatialOptionsWithSrid = {
+	subtype: SpatialSubtype;
+	srid: number;
+};
+
+/** PostGIS `geometry` options. `srid` requires a whitelisted `subtype`. */
+export type GeometryOptions =
+	| SpatialOptionsWithoutSrid
+	| SpatialOptionsWithSrid;
 
 export type GeographyOptions = GeometryOptions;
 
@@ -31,20 +79,77 @@ export type PointOptions = {
 	srid?: number;
 };
 
+type ResolvedSpatialOptions = {
+	subtype?: SpatialSubtype;
+	srid?: number;
+};
+
+function resolveSpatialSubtype(value: unknown): SpatialSubtype | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (typeof value !== "string" || value.length === 0) {
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			`PostGIS subtype must be a geometry type such as Point or Geometry, received ${JSON.stringify(value)}`,
+		);
+	}
+	const canonical = SPATIAL_SUBTYPE_BY_LOWER.get(value.toLowerCase());
+	if (canonical === undefined) {
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			`Invalid PostGIS subtype "${value}". Use a type such as Point, LineString, Polygon, MultiPolygon, or Geometry, optionally with Z, M, or ZM (e.g. PointZ).`,
+		);
+	}
+	return canonical;
+}
+
+function resolveSpatialSrid(value: unknown): number | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (typeof value !== "number" || !Number.isInteger(value)) {
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			`PostGIS srid must be an integer, received ${JSON.stringify(value)}`,
+		);
+	}
+	return value;
+}
+
+function resolveSpatialOptions(
+	base: "geometry" | "geography",
+	options: Record<string, unknown> | undefined,
+): ResolvedSpatialOptions {
+	const subtype = resolveSpatialSubtype(options?.subtype);
+	const srid = resolveSpatialSrid(options?.srid);
+	if (srid !== undefined && subtype === undefined) {
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			`PostGIS ${base} columns with srid require a subtype. Valid typmod is ${base}(Point,4326), not ${base}(${srid}).`,
+			{},
+			[
+				`Use ${base}({ subtype: "Point", srid: ${srid} })`,
+				`Use subtype: "Geometry" to set SRID without constraining the type`,
+			],
+		);
+	}
+	return {
+		...(subtype !== undefined ? { subtype } : {}),
+		...(srid !== undefined ? { srid } : {}),
+	};
+}
+
 function spatialSqlType(
 	base: "geometry" | "geography",
-	options?: GeometryOptions,
+	options?: Record<string, unknown>,
 ): string {
-	const subtype = options?.subtype;
-	const srid = options?.srid;
-	if (subtype && srid !== undefined) {
+	const { subtype, srid } = resolveSpatialOptions(base, options);
+	if (subtype !== undefined && srid !== undefined) {
 		return `${base}(${subtype},${srid})`;
 	}
-	if (subtype) {
+	if (subtype !== undefined) {
 		return `${base}(${subtype})`;
-	}
-	if (srid !== undefined) {
-		return `${base}(${srid})`;
 	}
 	return base;
 }
@@ -58,19 +163,23 @@ function spatialWriteExpression(
 	col: ManifestColumn,
 	paramIndex: number,
 ): string {
-	const srid = (col.typeOptions?.["srid"] as number | undefined) ?? 4326;
+	const srid = resolveSpatialSrid(col.typeOptions?.srid) ?? 4326;
 	return `ST_SetSRID(ST_GeomFromGeoJSON($${paramIndex}::json), ${srid})`;
 }
 
 function createSpatialTypePlugin(
 	kind: "geometry" | "geography" | "point",
 	base: "geometry" | "geography",
-	defaultOptions?: GeometryOptions,
+	defaultOptions?: Record<string, unknown>,
 ): ColumnTypePlugin {
 	return {
 		kind,
 		createBuilder(options?: Record<string, unknown>) {
 			const merged = { ...defaultOptions, ...options };
+			if (kind === "point") {
+				merged.subtype = "Point";
+			}
+			const typeOptions = resolveSpatialOptions(base, merged);
 			return createColumnBuilder<
 				GeoJsonGeometry | null,
 				ColumnMeta & {
@@ -83,14 +192,11 @@ function createSpatialTypePlugin(
 				unique: false,
 				primary: false,
 				defaultNow: false,
-				typeOptions: merged,
+				typeOptions,
 			});
 		},
 		columnType(col) {
-			return spatialSqlType(
-				base,
-				col.typeOptions as GeometryOptions | undefined,
-			);
+			return spatialSqlType(base, col.typeOptions);
 		},
 		columnTsType(col) {
 			const tsType =
@@ -139,7 +245,7 @@ export function geography(options?: GeographyOptions) {
 	);
 }
 
-/** PostGIS `geometry(Point)` column with default SRID 4326. */
+/** PostGIS `geometry(Point,4326)` column with default SRID 4326. */
 export function point(options?: PointOptions) {
 	return pointType.createBuilder(
 		options as Record<string, unknown> | undefined,

@@ -8,9 +8,9 @@ export type {
 	GeoJsonPolygon,
 	GeometryOptions,
 	PointOptions,
+	SpatialSubtype,
 } from "./columns.js";
-
-export { geography, geometry, point } from "./columns.js";
+export { geography, geometry, point, SPATIAL_SUBTYPES } from "./columns.js";
 export { postgisPlugin } from "./plugin.js";
 
 registerPlugin(postgisPlugin);
