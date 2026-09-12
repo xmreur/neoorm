@@ -126,3 +126,81 @@ describe("createNeoOrmClient sqlite path", () => {
 		}
 	});
 });
+
+describe("query hooks", () => {
+	it("fires beforeQuery and afterQuery for repository and raw SQL", async () => {
+		const database = new DatabaseSync(":memory:");
+		const manifest = schemaToManifest(nestedSchema);
+		const items = manifest.tables.items;
+		if (!items) throw new Error("expected items table");
+		database.exec(sqliteDialect.emitCreateTable(items, { manifest }));
+
+		const events: Array<{
+			phase: "before" | "after";
+			sql: string;
+			method: string;
+			inTransaction?: boolean;
+			durationMs?: number;
+			error?: unknown;
+		}> = [];
+
+		const db = createNeoOrmClient<typeof nestedSchema._tables>(manifest, {
+			db: database,
+			beforeQuery: (event) => {
+				events.push({
+					phase: "before",
+					sql: event.sql,
+					method: event.method,
+					inTransaction: event.inTransaction,
+				});
+			},
+			afterQuery: (event) => {
+				events.push({
+					phase: "after",
+					sql: event.sql,
+					method: event.method,
+					inTransaction: event.inTransaction,
+					durationMs: event.durationMs,
+					error: event.error,
+				});
+			},
+		});
+
+		await db.items.create({ data: { name: "hooked" } });
+		await db.sql`SELECT name FROM items`;
+
+		const sqls = events.map((event) => event.sql);
+		expect(sqls.some((sql) => sql.includes("INSERT"))).toBe(true);
+		expect(sqls.some((sql) => sql.includes("SELECT name FROM items"))).toBe(
+			true,
+		);
+		expect(events.some((event) => event.phase === "before")).toBe(true);
+		expect(
+			events.some(
+				(event) =>
+					event.phase === "after" &&
+					typeof event.durationMs === "number" &&
+					event.durationMs >= 0 &&
+					event.error === undefined,
+			),
+		).toBe(true);
+
+		await db.$transaction(async (tx) => {
+			await tx.items.findMany();
+		});
+		expect(
+			events.some(
+				(event) =>
+					event.inTransaction === true &&
+					event.sql.includes("SELECT"),
+			),
+		).toBe(true);
+
+		await expect(db.sql`SELECT * FROM missing_table`).rejects.toThrow();
+		const failed = events.filter((event) => event.error !== undefined);
+		expect(failed.length).toBeGreaterThan(0);
+
+		await db.$disconnect();
+		database.close();
+	});
+});

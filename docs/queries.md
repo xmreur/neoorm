@@ -542,3 +542,17 @@ const taken = await db.users.exists({ where: { email: "a@b.com" } });
 `count()` returns a number unless `select` is set. `distinct` is `COUNT(DISTINCT col)` on one column and cannot be combined with `select`. Field `select` / `_count` maps are non-null `COUNT(col)`, not distinct.
 
 `exists()` runs `SELECT 1 … LIMIT 1` and returns a boolean. Use `count()` when you need the actual number of matches.
+
+## Logging SQL
+
+Pass `beforeQuery` / `afterQuery` when creating the client. They run for repository methods and `db.sql` / `db.execute`, including queries inside `$transaction`. BEGIN/COMMIT/SAVEPOINT are not included.
+
+```ts
+const db = createNeoOrmClient(manifest, {
+  afterQuery: ({ sql, params, durationMs, error }) => {
+    if (error || durationMs > 100) {
+      console.warn({ sql, params, durationMs, error });
+    }
+  },
+});
+```

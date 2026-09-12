@@ -21,6 +21,8 @@ import {
 	createExecutor,
 	createSqliteExecutor,
 	type Executor,
+	type ExecutorOptions,
+	type QueryHooks,
 } from "./executor.js";
 import { aggregateRecords } from "./query/aggregate.js";
 import type { OrderByInput } from "./query/compile.js";
@@ -84,11 +86,39 @@ export type NeoOrmClientOptions = {
 	schema?: string;
 	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). @default false */
 	preparedStatements?: boolean;
+	/**
+	 * Called before each data query (`query` / `queryOne` / `execute`).
+	 * Transaction control statements (BEGIN/COMMIT/SAVEPOINT) are not included.
+	 */
+	beforeQuery?: QueryHooks["beforeQuery"];
+	/**
+	 * Called after each data query with duration, optional `rowCount`, and `error` on failure.
+	 * Use this for slow-query logs.
+	 */
+	afterQuery?: QueryHooks["afterQuery"];
 	pool?: {
 		max?: number;
 		idleTimeoutMillis?: number;
 	};
 };
+
+function pickExecutorOptions(
+	options:
+		| Pick<
+				NeoOrmClientOptions,
+				"preparedStatements" | "beforeQuery" | "afterQuery"
+		  >
+		| undefined,
+): ExecutorOptions | undefined {
+	if (!options) return undefined;
+	const next: ExecutorOptions = {};
+	if (options.preparedStatements !== undefined) {
+		next.preparedStatements = options.preparedStatements;
+	}
+	if (options.beforeQuery) next.beforeQuery = options.beforeQuery;
+	if (options.afterQuery) next.afterQuery = options.afterQuery;
+	return Object.keys(next).length > 0 ? next : undefined;
+}
 
 /**
  * Untyped table repository. Prefer the generated typed client from `neoorm generate`.
@@ -462,11 +492,20 @@ export function createNeoOrmClient<
 		options.db !== undefined ||
 		options.databasePath !== undefined
 	) {
-		const sqliteOptions = {
+		const sqliteOptions: Pick<
+			NeoOrmClientOptions,
+			"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery"
+		> = {
 			...(options.migrationsDir !== undefined
 				? { migrationsDir: options.migrationsDir }
 				: {}),
 			...(options.sqlite !== undefined ? { sqlite: options.sqlite } : {}),
+			...(options.beforeQuery !== undefined
+				? { beforeQuery: options.beforeQuery }
+				: {}),
+			...(options.afterQuery !== undefined
+				? { afterQuery: options.afterQuery }
+				: {}),
 		};
 		if (options.db !== undefined) {
 			return createNeoOrmClientFromSqlite(
@@ -496,11 +535,7 @@ export function createNeoOrmClient<
 		...options.pool,
 	});
 	const schema = resolvePgSchemaName(options.schema);
-	const executorOptions =
-		options.preparedStatements !== undefined
-			? { preparedStatements: options.preparedStatements }
-			: undefined;
-	const executor = createExecutor(pool, executorOptions);
+	const executor = createExecutor(pool, pickExecutorOptions(options));
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
@@ -550,17 +585,17 @@ export function createNeoOrmClientFromPool<
 	pool: Pool,
 	options?: Pick<
 		NeoOrmClientOptions,
-		"migrationsDir" | "schema" | "preparedStatements"
+		| "migrationsDir"
+		| "schema"
+		| "preparedStatements"
+		| "beforeQuery"
+		| "afterQuery"
 	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
 
 	const schema = resolvePgSchemaName(options?.schema);
-	const executorOptions =
-		options?.preparedStatements !== undefined
-			? { preparedStatements: options.preparedStatements }
-			: undefined;
-	const executor = createExecutor(pool, executorOptions);
+	const executor = createExecutor(pool, pickExecutorOptions(options));
 	const appliedManifest = applySchemaToManifest(manifest, schema);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
@@ -602,7 +637,10 @@ export function createNeoOrmClientFromSqlite<
 >(
 	manifest: Manifest,
 	db: SqliteDatabaseLike,
-	options?: Pick<NeoOrmClientOptions, "migrationsDir" | "sqlite">,
+	options?: Pick<
+		NeoOrmClientOptions,
+		"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery"
+	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	return createNeoOrmSqliteClient(manifest, db, options, false);
 }
@@ -620,7 +658,12 @@ function createNeoOrmSqliteClient<
 >(
 	manifest: Manifest,
 	db: SqliteDatabaseLike,
-	options: Pick<NeoOrmClientOptions, "migrationsDir" | "sqlite"> | undefined,
+	options:
+		| Pick<
+				NeoOrmClientOptions,
+				"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery"
+		  >
+		| undefined,
 	ownsDatabase: boolean,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
@@ -637,7 +680,7 @@ function createNeoOrmSqliteClient<
 			: {}),
 	};
 
-	const executor = createSqliteExecutor(driver);
+	const executor = createSqliteExecutor(driver, pickExecutorOptions(options));
 	return buildClient<TTables, TIncludes, TRowPayloads>(
 		executor,
 		runtime,
@@ -650,6 +693,12 @@ function createNeoOrmSqliteClient<
 }
 
 export type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
+export type {
+	QueryEvent,
+	QueryHooks,
+	QueryMethod,
+	QueryResultEvent,
+} from "./executor.js";
 export type {
 	DefaultRowPayloadMap,
 	DefaultWithMap,
