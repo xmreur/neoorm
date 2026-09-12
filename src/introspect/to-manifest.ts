@@ -11,7 +11,10 @@ import {
 	getPluginRegistry,
 } from "../plugins/registry.js";
 import type { DatabaseClient } from "../runtime/driver.js";
-import { toCamelCase } from "../utils/case.js";
+import {
+	columnTsNameFromSqlName,
+	tableAccessorFromSqlName,
+} from "../utils/case.js";
 import type { CheckConstraintRow, UniqueConstraintRow } from "./queries.js";
 import {
 	queryCheckConstraints,
@@ -24,10 +27,6 @@ import {
 	queryTables,
 	queryUniqueConstraints,
 } from "./queries.js";
-
-function tableAccessor(tableName: string): string {
-	return toCamelCase(tableName.endsWith("s") ? tableName : `${tableName}s`);
-}
 
 function isSerialColumn(
 	dataType: string,
@@ -324,7 +323,7 @@ async function introspectTable(
 	const pkSet = new Set(primaryKey);
 
 	const manifestColumns: ManifestColumn[] = columns.map((col) => {
-		const tsName = toCamelCase(col.column_name);
+		const tsName = columnTsNameFromSqlName(col.column_name);
 		const fk = fkMap.get(col.column_name);
 		const nullable = col.is_nullable === "YES";
 		const uniqueConstraintName = uniqueMap.get(col.column_name);
@@ -396,7 +395,7 @@ async function introspectTable(
 	applyCheckConstraints(manifestColumns, checkRows);
 
 	return {
-		accessor: tableAccessor(tableName),
+		accessor: tableAccessorFromSqlName(tableName),
 		sqlName: tableName,
 		columns: manifestColumns,
 		relations: [],

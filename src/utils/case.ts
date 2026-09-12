@@ -19,8 +19,20 @@ export function escapeTsString(str: string): string {
 /** Coerce an arbitrary string into a valid TypeScript identifier. */
 export function sanitizeTsIdentifier(str: string): string {
 	const sanitized = str.replace(/[^A-Za-z0-9_$]/g, "_");
+	if (sanitized.length === 0) return "_";
 	if (/^[0-9]/.test(sanitized)) return `_${sanitized}`;
 	return sanitized;
+}
+
+/** Table accessor for introspected SQL names (`posts` stays `posts`, `post` → `posts`). */
+export function tableAccessorFromSqlName(tableName: string): string {
+	const pluralized = tableName.endsWith("s") ? tableName : `${tableName}s`;
+	return sanitizeTsIdentifier(toCamelCase(pluralized));
+}
+
+/** Column TypeScript name from an introspected SQL column. */
+export function columnTsNameFromSqlName(columnName: string): string {
+	return sanitizeTsIdentifier(toCamelCase(columnName));
 }
 
 export function resolveSqlColumnName(

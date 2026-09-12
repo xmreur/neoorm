@@ -50,7 +50,10 @@ import {
 	updateRecord,
 } from "./query/update.js";
 import { upsertRecord } from "./query/upsert.js";
-import { openSqliteDatabase } from "./sqlite-open.js";
+import {
+	openSqliteDatabase,
+	resolveSqliteDatabasePath,
+} from "./sqlite-open.js";
 import type {
 	DefaultRowPayloadMap,
 	DefaultWithMap,
@@ -470,10 +473,7 @@ export function createNeoOrmClient<
 			);
 		}
 		const db = openSqliteDatabase(
-			options.databasePath ??
-				process.env["DATABASE_URL"] ??
-				manifest.url ??
-				":memory:",
+			resolveSqliteDatabasePath(options.databasePath, manifest.url),
 		);
 		return createNeoOrmSqliteClient(manifest, db, sqliteOptions, true);
 	}

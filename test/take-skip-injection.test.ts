@@ -8,7 +8,7 @@ import { buildFindManyQuery } from "../src/runtime/query/compile.js";
 const databaseUrl = process.env.DATABASE_URL;
 
 const schema = defineSchema({
-	users: table({
+	users: table("lmt_users", {
 		id: id(),
 		name: text().notNull(),
 	}),
@@ -81,6 +81,7 @@ describe.skipIf(!databaseUrl)("take/skip injection (integration)", () => {
 
 	beforeAll(async () => {
 		pool = new Pool({ connectionString: databaseUrl });
+		await pool.query("DROP TABLE IF EXISTS lmt_users");
 		await pool.query(`
 			CREATE TABLE lmt_users (
 				id text PRIMARY KEY,

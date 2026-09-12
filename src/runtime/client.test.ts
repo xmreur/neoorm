@@ -95,3 +95,34 @@ describe("nested $transaction options", () => {
 		await db.$disconnect();
 	});
 });
+
+describe("createNeoOrmClient sqlite path", () => {
+	it("does not treat a PostgreSQL DATABASE_URL as a sqlite file", async () => {
+		const previous = process.env.DATABASE_URL;
+		process.env.DATABASE_URL =
+			"postgresql://postgres:postgres@localhost:5432/neoorm_test";
+		try {
+			const client = createNeoOrmClient({
+				version: 1,
+				provider: "sqlite",
+				url: ":memory:",
+				tables: {},
+				manyToMany: [],
+			});
+			await client.execute({
+				text: "CREATE TABLE t (id TEXT PRIMARY KEY)",
+				params: [],
+			});
+			await client.sql`INSERT INTO t (id) VALUES (${"a"})`;
+			const rows = await client.sql`SELECT id FROM t`;
+			expect(rows).toEqual([{ id: "a" }]);
+			await client.$disconnect();
+		} finally {
+			if (previous === undefined) {
+				delete process.env.DATABASE_URL;
+			} else {
+				process.env.DATABASE_URL = previous;
+			}
+		}
+	});
+});

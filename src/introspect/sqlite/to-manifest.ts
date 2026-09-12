@@ -6,7 +6,10 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { DatabaseClient } from "../../runtime/driver.js";
-import { toCamelCase } from "../../utils/case.js";
+import {
+	columnTsNameFromSqlName,
+	tableAccessorFromSqlName,
+} from "../../utils/case.js";
 
 interface TableInfoRow {
 	cid: number;
@@ -40,10 +43,6 @@ interface IndexInfoRow {
 	seqno: number;
 	cid: number;
 	name: string;
-}
-
-function tableAccessor(tableName: string): string {
-	return toCamelCase(tableName.endsWith("s") ? tableName : `${tableName}s`);
 }
 
 function mapDeleteRule(rule: string): string | undefined {
@@ -170,7 +169,7 @@ async function introspectSqliteTable(
 	);
 
 	const manifestColumns: ManifestColumn[] = info.map((col) => {
-		const tsName = toCamelCase(col.name);
+		const tsName = columnTsNameFromSqlName(col.name);
 		const nullable = col.notnull === 0;
 		const fk = fkMap.get(col.name);
 		const defaults = parseDefaultValue(col.dflt_value);
@@ -262,7 +261,7 @@ async function introspectSqliteTable(
 	}
 
 	return {
-		accessor: tableAccessor(tableName),
+		accessor: tableAccessorFromSqlName(tableName),
 		sqlName: tableName,
 		columns: manifestColumns,
 		relations: [],
