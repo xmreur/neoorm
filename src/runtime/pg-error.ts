@@ -17,7 +17,7 @@ export function isPgError(err: unknown): err is PgErrorLike {
 		return false;
 	}
 	const code = (err as PgErrorLike).code;
-	return typeof code === "string" && /^[0-9A-Z]{5}$/i.test(code);
+	return typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
 }
 
 export function truncateSql(sql: string, maxLen = 240): string {

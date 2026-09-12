@@ -142,7 +142,7 @@ export async function runQuery<T = Record<string, unknown>>(
 	try {
 		return await executor.query<T>(sql, params);
 	} catch (err) {
-		if (isPgError(err) || isSqliteError(err)) {
+		if (isSqliteError(err) || isPgError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
@@ -160,7 +160,7 @@ export async function runExecute<T = Record<string, unknown>>(
 	try {
 		return await executor.execute<T>(sql, params);
 	} catch (err) {
-		if (isPgError(err) || isSqliteError(err)) {
+		if (isSqliteError(err) || isPgError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
@@ -213,7 +213,7 @@ export async function runQueryOne<T = Record<string, unknown>>(
 		if (err instanceof NeoOrmQueryError) {
 			throw err;
 		}
-		if (isPgError(err) || isSqliteError(err)) {
+		if (isSqliteError(err) || isPgError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
