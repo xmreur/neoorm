@@ -9,6 +9,7 @@ NeoOrm surfaces structured errors with dialect-agnostic codes, optional subclass
 - **`NeoOrmQueryError`** — query builder mistakes (compile phase) or database runtime failures
 - **Constraint subclasses** — `UniqueViolationError`, `ForeignKeyViolationError`, `NotNullViolationError`, `CheckViolationError`, `InvalidInputError`, `SchemaDriftError`
 - **`QueryCompileError`** — compile-time query builder mistakes (`phase: "compile"`)
+- **`NeoOrmDriverError`** — unclassified driver/SQL failures (`driver_error`)
 
 Every error exposes **`err.code`** (typed string) and **`err.context`** with `detail`, `suggestions`, and optional table/column metadata.
 
@@ -60,12 +61,17 @@ Codes are **dialect-agnostic** — the same `unique_violation` code is used for 
 | `column_not_found` | `SchemaDriftError` | 500 | Column missing (PG `42703`) |
 | `empty_returning` | — | 500 | INSERT … RETURNING returned no row |
 | `connection_error` | — | 503 | `$connect` failed |
+| `driver_error` | `NeoOrmDriverError` | 500 | Unclassified driver/SQL failure |
 | `unknown_table` | `QueryCompileError` | 400 | Bad table accessor |
 | `unknown_column` | `QueryCompileError` | 400 | Bad column in where/select/omit/groupBy |
+| `unknown_relation` | `QueryCompileError` | 400 | Bad relation name on `with` or nested writes |
 | `invalid_args` | `QueryCompileError` | 400 | Unsupported where/having operator |
 | `invalid_nested_write` | `QueryCompileError` | 400 | Relation field is not a pure nested write bag |
+| `invalid_cursor` | `QueryCompileError` | 400 | Malformed or mismatched pagination cursor |
 | `unique_where_invalid` | `QueryCompileError` | 400 | unique where is not unique, or uses filter operators |
 | `where_required` | `QueryCompileError` | 400 | update/delete missing where |
+| `missing_primary_key` | `QueryCompileError` | 400 | Table or RETURNING row is missing a primary key |
+| `unsupported_operation` | `QueryCompileError` | 400 | Operator not supported on this dialect (e.g. SQLite `search`) |
 
 PostgreSQL SQLSTATE is preserved on `err.context.pgCode` when available.
 

@@ -151,7 +151,7 @@ const users = await db.users.findMany({
 });
 ```
 
-Omit columns at query time (still fetched from DB):
+Omit columns at query time (dropped from the `SELECT`):
 
 ```ts
 const user = await db.users.findById("user_1", {
