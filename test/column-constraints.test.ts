@@ -10,7 +10,14 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../src/dialect/types.js";
-import { defineSchema, enumType, id, int, table, text } from "../src/schema/index.js";
+import {
+	defineSchema,
+	enumType,
+	id,
+	int,
+	table,
+	text,
+} from "../src/schema/index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function col(
@@ -45,9 +52,7 @@ function manifestTableDef(
 	};
 }
 
-function manifest(
-	tables: Record<string, ManifestTable>,
-): Manifest {
+function manifest(tables: Record<string, ManifestTable>): Manifest {
 	return {
 		version: 1,
 		tables,
@@ -81,7 +86,9 @@ describe("column constraint helpers", () => {
 			provider: "sqlite",
 		});
 		const sqliteUsers = manifestTable(sqliteManifest, "users");
-		const sqliteEmail = sqliteUsers.columns.find((c) => c.tsName === "email");
+		const sqliteEmail = sqliteUsers.columns.find(
+			(c) => c.tsName === "email",
+		);
 		expect(sqliteEmail?.checkExpression).toBe('length("email") <= 255');
 	});
 
@@ -139,7 +146,7 @@ describe("column constraint helpers", () => {
 		).toBe('("score" >= 0) AND (score < 100)');
 		expect(
 			posts.columns.find((c) => c.tsName === "status")?.checkExpression,
-		).toBe('"status" IN (\'draft\', \'published\')');
+		).toBe("\"status\" IN ('draft', 'published')");
 	});
 
 	it("rejects invalid constraint combinations", () => {
@@ -193,7 +200,9 @@ describe("column constraint helpers", () => {
 
 		const diff = diffManifest(prev, next);
 		expect(
-			diff.sql.some((s) => s.includes('ALTER COLUMN "email" TYPE VARCHAR(255)')),
+			diff.sql.some((s) =>
+				s.includes('ALTER COLUMN "email" TYPE VARCHAR(255)'),
+			),
 		).toBe(true);
 		expect(
 			diff.destructive.some((d) => d.kind === "alter_column_type_manual"),

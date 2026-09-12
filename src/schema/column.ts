@@ -142,11 +142,7 @@ export interface TimestampColumnBuilder<
 	updatedAt(): TimestampColumnBuilder<TValue, TMeta & UpdatedAtMeta>;
 }
 
-type ColumnExtrasFactory<
-	TValue,
-	TMeta extends ColumnMeta,
-	TExtra,
-> = (
+type ColumnExtrasFactory<TValue, TMeta extends ColumnMeta, TExtra> = (
 	rebuild: (nextMeta: TMeta) => ColumnBuilder<TValue, TMeta> & TExtra,
 	meta: TMeta,
 ) => TExtra;
@@ -185,9 +181,7 @@ export function createColumnBuilder<
 	meta: TMeta,
 	createExtras?: ColumnExtrasFactory<TValue, TMeta, TExtra>,
 ): ColumnBuilder<TValue, TMeta> & TExtra {
-	const rebuild = (
-		nextMeta: TMeta,
-	): ColumnBuilder<TValue, TMeta> & TExtra =>
+	const rebuild = (nextMeta: TMeta): ColumnBuilder<TValue, TMeta> & TExtra =>
 		createColumnBuilder(nextMeta, createExtras);
 
 	const builder = {
@@ -223,9 +217,7 @@ export function createColumnBuilder<
 		},
 	} as ColumnBuilder<TValue, TMeta>;
 
-	const extras = createExtras
-		? createExtras(rebuild, meta)
-		: ({} as TExtra);
+	const extras = createExtras ? createExtras(rebuild, meta) : ({} as TExtra);
 
 	return { ...builder, ...extras } as ColumnBuilder<TValue, TMeta> & TExtra;
 }

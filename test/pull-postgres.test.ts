@@ -211,7 +211,9 @@ describe("introspectPostgres extras", () => {
 	it("emits indexes, composite uniques, composite PKs, onDelete, uniques, checks, and defaults", async () => {
 		const schema = await introspectPostgres(pgClient(mockPool(blogDb)));
 
-		expect(schema).toContain("email: text({ maxLength: 255 }).notNull().unique()");
+		expect(schema).toContain(
+			"email: text({ maxLength: 255 }).notNull().unique()",
+		);
 		expect(schema).toContain(
 			'authorId: fk("users").notNull().onDelete("cascade")',
 		);

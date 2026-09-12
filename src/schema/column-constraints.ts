@@ -1,4 +1,7 @@
-import { isSqliteProvider, type DatabaseProvider } from "../datasource-provider.js";
+import {
+	type DatabaseProvider,
+	isSqliteProvider,
+} from "../datasource-provider.js";
 import type { ManifestColumn } from "../dialect/types.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
@@ -29,10 +32,7 @@ function formatCheckLiteral(value: number | bigint | string): string {
 	return value;
 }
 
-function andExpressions(
-	left: string | undefined,
-	right: string,
-): string {
+function andExpressions(left: string | undefined, right: string): string {
 	return left ? `(${left}) AND (${right})` : right;
 }
 
@@ -150,22 +150,27 @@ export function compileColumnCheckConstraints(
 }
 
 export type TextConstraintMethods = {
-	maxLength(n: number): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
-	minLength(n: number): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
+	maxLength(
+		n: number,
+	): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
+	minLength(
+		n: number,
+	): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
 	notEmpty(): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
 };
 
 export type NumericConstraintMethods = {
-	min(n: number | bigint | string): ColumnBuilder<unknown, ColumnMeta> & NumericConstraintMethods;
-	max(n: number | bigint | string): ColumnBuilder<unknown, ColumnMeta> & NumericConstraintMethods;
+	min(
+		n: number | bigint | string,
+	): ColumnBuilder<unknown, ColumnMeta> & NumericConstraintMethods;
+	max(
+		n: number | bigint | string,
+	): ColumnBuilder<unknown, ColumnMeta> & NumericConstraintMethods;
 	positive(): ColumnBuilder<unknown, ColumnMeta> & NumericConstraintMethods;
 };
 
 /** Text/citext length constraint helpers. */
-export function createTextConstraintExtras<
-	TValue,
-	TMeta extends ColumnMeta,
->(
+export function createTextConstraintExtras<TValue, TMeta extends ColumnMeta>(
 	meta: TMeta,
 	rebuild: (
 		nextMeta: TMeta,
@@ -194,10 +199,7 @@ export function createTextConstraintExtras<
 }
 
 /** Numeric min/max/positive constraint helpers. */
-export function createNumericConstraintExtras<
-	TValue,
-	TMeta extends ColumnMeta,
->(
+export function createNumericConstraintExtras<TValue, TMeta extends ColumnMeta>(
 	meta: TMeta,
 	rebuild: (
 		nextMeta: TMeta,

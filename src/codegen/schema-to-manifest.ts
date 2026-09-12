@@ -28,6 +28,7 @@ import {
 } from "../runtime/error-hints.js";
 import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
 import type { ColumnBuilder } from "../schema/column.js";
+import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
 import type { SchemaDef } from "../schema/define-schema.js";
 import type { ManyToManyExtra } from "../schema/many-to-many.js";
 import {
@@ -46,7 +47,6 @@ import {
 } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import { singularize } from "../utils/inflect.js";
-import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
 
 export type SchemaValidationIssue = {
 	code: string;

@@ -140,8 +140,7 @@ const textType: ColumnTypePlugin = {
 	kind: "text",
 	createBuilder(options?: Record<string, unknown>) {
 		const maxLength = options?.maxLength as number | undefined;
-		const typeOptions =
-			maxLength !== undefined ? { maxLength } : undefined;
+		const typeOptions = maxLength !== undefined ? { maxLength } : undefined;
 		return createColumnBuilder<
 			string | null,
 			ColumnMeta,
@@ -656,9 +655,7 @@ export function id(): ColumnBuilder<string, IdColumnMeta> {
 }
 
 /** `TEXT` column. Pass `{ maxLength: n }` for `VARCHAR(n)` on Postgres. */
-export function text(
-	options?: TextOptions,
-): TextColumnBuilder<string | null> {
+export function text(options?: TextOptions): TextColumnBuilder<string | null> {
 	return textType.createBuilder(
 		options as Record<string, unknown> | undefined,
 	) as TextColumnBuilder<string | null>;
@@ -720,16 +717,10 @@ export function jsonb<T = unknown>(): ColumnBuilder<T | null> {
 /** `NUMERIC` column — use string values to avoid float loss. */
 export function decimal(
 	options?: DecimalOptions,
-): NumericColumnBuilder<
-	string | null,
-	ColumnMeta & { kind: "decimal" }
-> {
+): NumericColumnBuilder<string | null, ColumnMeta & { kind: "decimal" }> {
 	return decimalType.createBuilder(
 		options as Record<string, unknown> | undefined,
-	) as NumericColumnBuilder<
-		string | null,
-		ColumnMeta & { kind: "decimal" }
-	>;
+	) as NumericColumnBuilder<string | null, ColumnMeta & { kind: "decimal" }>;
 }
 
 /** Alias for {@link decimal}. */
