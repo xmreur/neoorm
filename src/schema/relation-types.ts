@@ -159,16 +159,42 @@ type InferFkAs<C extends string> = C extends `${infer B}Id`
 		? B
 		: C;
 
-/** Basic singularizer matching runtime `singularize()`. */
-type Singularize<S extends string> = S extends `${infer B}ies`
-	? `${B}y`
-	: S extends `${infer B}${"ses" | "xes" | "zes" | "ches" | "shes"}`
-		? B
-		: S extends `${infer B}s`
-			? B extends `${string}ss`
-				? S
-				: B
-			: S;
+/** Singularizer matching runtime `singularize()` in `src/utils/inflect.ts`. */
+type Uncountable =
+	| "news"
+	| "series"
+	| "species"
+	| "means"
+	| "barracks"
+	| "headquarters"
+	| "aircraft"
+	| "sheep"
+	| "deer"
+	| "fish"
+	| "moose"
+	| "salmon"
+	| "trout";
+
+type Singularize<S extends string> =
+	Lowercase<S> extends Uncountable
+		? S
+		: S extends `${infer B}sses`
+			? `${B}ss`
+			: S extends `${infer B}xes`
+				? `${B}x`
+				: S extends `${infer B}zes`
+					? `${B}z`
+					: S extends `${infer B}ches`
+						? `${B}ch`
+						: S extends `${infer B}shes`
+							? `${B}sh`
+							: S extends `${infer B}ies`
+								? `${B}y`
+								: S extends `${string}${"ss" | "us" | "is"}`
+									? S
+									: S extends `${infer B}s`
+										? B
+										: S;
 
 export type FkRelationName<
 	As extends string,

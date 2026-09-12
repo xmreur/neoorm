@@ -4,7 +4,11 @@ import type {
 	ManifestRelation,
 	ManifestTable,
 } from "../dialect/types.js";
-import { effectiveRelations, pascalCase } from "./manifest-relations.js";
+import {
+	effectiveRelations,
+	modelTypeName,
+	pascalCase,
+} from "./manifest-relations.js";
 
 function columnUnion(columns: ManifestColumn[]): string {
 	if (columns.length === 0) return "never";
@@ -30,10 +34,10 @@ function emitRelationIncludeType(
 	tableAccessor: string,
 	relation: ManifestRelation,
 ): string {
-	const typeName = `${pascalCase(tableAccessor)}${pascalCase(relation.name)}Include`;
+	const typeName = `${modelTypeName(tableAccessor)}${pascalCase(relation.name)}Include`;
 	const target = manifest.tables[relation.targetAccessor];
 	const columns = target?.columns ?? [];
-	const nestedWith = `${pascalCase(relation.targetAccessor)}With`;
+	const nestedWith = `${modelTypeName(relation.targetAccessor)}With`;
 
 	return `export type ${typeName} =
   | boolean
@@ -48,7 +52,7 @@ function emitRelationIncludeType(
 }
 
 function emitTableWithType(manifest: Manifest, table: ManifestTable): string {
-	const typeName = `${pascalCase(table.accessor)}With`;
+	const typeName = `${modelTypeName(table.accessor)}With`;
 	const relations = effectiveRelations(manifest, table);
 	const manyRelations = relations.filter((rel) => rel.cardinality === "many");
 
@@ -58,7 +62,7 @@ function emitTableWithType(manifest: Manifest, table: ManifestTable): string {
 
 	const fields = relations
 		.map((rel) => {
-			const includeType = `${pascalCase(table.accessor)}${pascalCase(rel.name)}Include`;
+			const includeType = `${modelTypeName(table.accessor)}${pascalCase(rel.name)}Include`;
 			return `  ${rel.name}?: ${includeType};`;
 		})
 		.join("\n");
@@ -100,7 +104,7 @@ export function emitIncludesTs(manifest: Manifest): string {
 	}
 
 	const includeMapEntries = tables
-		.map((t) => `  ${t.accessor}: ${pascalCase(t.accessor)}With;`)
+		.map((t) => `  ${t.accessor}: ${modelTypeName(t.accessor)}With;`)
 		.join("\n");
 
 	lines.push(`export type NeoOrmIncludes = {`);

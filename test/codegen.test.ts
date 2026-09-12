@@ -94,7 +94,7 @@ describe("codegen", () => {
 			join(outDir, "includes.ts"),
 			"utf-8",
 		);
-		expect(includesContent).toContain("export type UsersWith");
+		expect(includesContent).toContain("export type UserWith");
 		expect(includesContent).toContain("profile?:");
 		expect(includesContent).toContain("_count?:");
 
