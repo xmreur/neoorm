@@ -64,3 +64,14 @@ export function assertNoSavepointOptions(options?: TransactionOptions): void {
 		);
 	}
 }
+
+/** Run ROLLBACK cleanup without masking the error that triggered it. */
+export async function rollbackIgnoringFailure(
+	rollback: () => Promise<unknown>,
+): Promise<void> {
+	try {
+		await rollback();
+	} catch {
+		// Connection may already be dead; never mask the original error.
+	}
+}
