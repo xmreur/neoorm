@@ -41,3 +41,31 @@ describe("compileQuery uses sqlTag", () => {
 		expect(compiled.params).toEqual([10]);
 	});
 });
+
+describe("sqlBuilder.orderBy", () => {
+	it("emits ASC and DESC from the whitelist", () => {
+		const asc = sqlBuilder
+			.selectFrom("users")
+			.select(["id"])
+			.orderBy("id")
+			.compile();
+		expect(asc.text).toBe('SELECT "id" FROM "users" ORDER BY "id" ASC');
+
+		const desc = sqlBuilder
+			.selectFrom("users")
+			.select(["id"])
+			.orderBy("id", "desc")
+			.compile();
+		expect(desc.text).toBe('SELECT "id" FROM "users" ORDER BY "id" DESC');
+	});
+
+	it("rejects directions outside asc/desc", () => {
+		expect(() =>
+			sqlBuilder
+				.selectFrom("users")
+				.select(["id"])
+				.orderBy("id", "desc; DROP TABLE users" as "desc")
+				.compile(),
+		).toThrow(/orderBy direction must be "asc" or "desc"/);
+	});
+});
