@@ -22,18 +22,18 @@ import {
 	orderByShapeKey,
 	whereShapeKey,
 } from "./compile.js";
-import { mapRowToTs } from "./map-row.js";
 import type { QueryRuntime } from "./execute.js";
 import type { WithInput } from "./find.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
+import { mapRowToTs } from "./map-row.js";
 import { requireScalarPrimaryKey, targetRelationPkSql } from "./primary-key.js";
 import {
 	columnByTsName,
 	columnsByTsNames,
 	getOrSetSqlCache,
 	getTableIndex,
-	requireRelation,
 	type ManifestIndex,
+	requireRelation,
 } from "./table-index.js";
 
 export type RelationCountSpec = true | { where?: Record<string, unknown> };
@@ -567,16 +567,16 @@ function buildHasManyRowExpression(
 	manifest?: Manifest,
 	extra?: ExtraSqlBuild,
 ): string {
+	const cols = columnsForInlineSelect(
+		node.targetTable,
+		node.nestedSpec,
+		manifestIndex,
+	);
+	const entries = cols.map(
+		(col) =>
+			`'${col.sqlName}', ${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
+	);
 	if (node.child) {
-		const cols = columnsForInlineSelect(
-			node.targetTable,
-			node.nestedSpec,
-			manifestIndex,
-		);
-		const entries = cols.map(
-			(col) =>
-				`'${col.sqlName}', ${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
-		);
 		const nested = buildChildAggregationExpr(
 			node.child,
 			rowAlias,
@@ -587,22 +587,8 @@ function buildHasManyRowExpression(
 			extra,
 		);
 		entries.push(`'${node.child.relationName}', ${nested}`);
-		return dialect.jsonBuildObjectExpr(entries);
 	}
-
-	const cols = columnsForInlineSelect(
-		node.targetTable,
-		undefined,
-		manifestIndex,
-	);
-	const refs = cols.map(
-		(col) => `${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
-	);
-	return dialect.rowToJsonObject(
-		cols,
-		refs,
-		`${quoteIdentifier(rowAlias)}.*`,
-	);
+	return dialect.jsonBuildObjectExpr(entries);
 }
 
 function buildHasManySubqueryFromRef(

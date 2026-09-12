@@ -9,9 +9,9 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindByIdQuery,
@@ -28,9 +28,9 @@ import {
 	type OrderByInput,
 	rowsToTsIndexed,
 } from "./compile.js";
-import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
+import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import {
 	primaryKeyTsNames,
 	requireScalarPrimaryKey,
@@ -57,7 +57,12 @@ import {
 	type RelationPlanOptions,
 	withShapeSignature,
 } from "./relation-planner.js";
-import { columnBySqlName, getTableIndex, type ManifestIndex , requireTable } from "./table-index.js";
+import {
+	columnBySqlName,
+	getTableIndex,
+	type ManifestIndex,
+	requireTable,
+} from "./table-index.js";
 
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
@@ -98,9 +103,7 @@ function validateDistinctOrderBy(
 	if (!distinct || distinct.length === 0) return;
 	const orderKeys = orderBy ? Object.keys(orderBy) : [];
 	if (orderKeys.length < distinct.length) {
-		compileError(
-			"distinct requires orderBy to lead with the same columns",
-		);
+		compileError("distinct requires orderBy to lead with the same columns");
 	}
 	for (let i = 0; i < distinct.length; i++) {
 		if (orderKeys[i] !== distinct[i]) {
@@ -324,6 +327,7 @@ function columnsForSelect(
 	table: ManifestTable,
 	withSpec: WithInput | undefined,
 	manifestIndex?: ManifestIndex,
+	tableAlias?: string,
 ): string {
 	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
@@ -332,7 +336,63 @@ function columnsForSelect(
 		selectKeys ? [...selectKeys] : undefined,
 		manifestIndex,
 		nestedSpec?.includeHidden,
+		tableAlias,
 	);
+}
+
+const BATCH_PARENT_ID = "_parent_id";
+const BATCH_ROW_NUMBER = "_neoorm_rn";
+const BATCH_RANKED_ALIAS = "_neoorm_ranked";
+
+function batchParentKey(
+	row: Record<string, unknown>,
+	fallbackKeys: readonly string[],
+): string {
+	const tagged = row[BATCH_PARENT_ID];
+	if (tagged != null) return String(tagged);
+	for (const key of fallbackKeys) {
+		const value = row[key];
+		if (value != null) return String(value);
+	}
+	return String(tagged);
+}
+
+function stripBatchRelationMeta(
+	row: Record<string, unknown>,
+): Record<string, unknown> {
+	const {
+		[BATCH_PARENT_ID]: _parentId,
+		[BATCH_ROW_NUMBER]: _rowNumber,
+		...targetRow
+	} = row;
+	return targetRow;
+}
+
+function applyPerParentTakeSkip(args: {
+	selectList: string;
+	fromSql: string;
+	partitionBy: string;
+	orderBySql: string;
+	take?: number | undefined;
+	skip?: number | undefined;
+}): string {
+	const { selectList, fromSql, partitionBy, orderBySql, take, skip } = args;
+	if (take === undefined && skip === undefined) {
+		return `SELECT ${selectList} ${fromSql}${orderBySql ? ` ${orderBySql}` : ""}`;
+	}
+
+	const takeN =
+		take !== undefined ? normalizeLimitOffset(take, "take") : undefined;
+	const skipN = skip !== undefined ? normalizeLimitOffset(skip, "skip") : 0;
+	const rank = quoteIdentifier(BATCH_ROW_NUMBER);
+	const ranked = quoteIdentifier(BATCH_RANKED_ALIAS);
+	const overOrder = orderBySql ? ` ${orderBySql}` : "";
+	const filter =
+		takeN !== undefined
+			? `${rank} > ${skipN} AND ${rank} <= ${skipN + takeN}`
+			: `${rank} > ${skipN}`;
+
+	return `SELECT * FROM (SELECT ${selectList}, ROW_NUMBER() OVER (PARTITION BY ${partitionBy}${overOrder}) AS ${rank} ${fromSql}) AS ${ranked} WHERE ${filter}`;
 }
 
 async function loadNestedRelations(
@@ -455,30 +515,29 @@ async function loadOneRelation(
 			withSpec,
 			runtime.tableIndex,
 		);
-
-		let sql = `SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})`;
+		const parentIdSelect = `${fkCol} AS ${quoteIdentifier(BATCH_PARENT_ID)}`;
 		const { extraWhere, extraParams } = compileBatchedRelationWhere(
 			runtime,
 			targetTable,
 			nestedSpec?.where,
 			parentIds.length,
 		);
-		sql += extraWhere;
-
-		if (nestedSpec?.orderBy) {
-			sql += ` ${compileOrderBy(
-				targetTable,
-				nestedSpec.orderBy,
-				undefined,
-				runtime.tableIndex,
-			)}`;
-		}
-		if (nestedSpec?.take !== undefined) {
-			sql += ` LIMIT ${normalizeLimitOffset(nestedSpec.take, "take")}`;
-		}
-		if (nestedSpec?.skip !== undefined) {
-			sql += ` OFFSET ${normalizeLimitOffset(nestedSpec.skip, "skip")}`;
-		}
+		const orderBySql = nestedSpec?.orderBy
+			? compileOrderBy(
+					targetTable,
+					nestedSpec.orderBy,
+					undefined,
+					runtime.tableIndex,
+				)
+			: "";
+		const sql = applyPerParentTakeSkip({
+			selectList: `${selectCols}, ${parentIdSelect}`,
+			fromSql: `FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere}`,
+			partitionBy: fkCol,
+			orderBySql,
+			take: nestedSpec?.take,
+			skip: nestedSpec?.skip,
+		});
 
 		const rows = await runQuery(
 			executor,
@@ -491,8 +550,6 @@ async function loadOneRelation(
 			runtime.tableIndex,
 			targetTable.accessor,
 		);
-		const mapped = mapRowsToTs(targetTableIndex, targetTable, rows);
-
 		const fkTargetCol = columnBySqlName(
 			targetTableIndex,
 			targetTable,
@@ -501,14 +558,19 @@ async function loadOneRelation(
 		const fkTsName = fkTargetCol?.tsName ?? relation.fkColumn;
 
 		const grouped = new Map<string, Record<string, unknown>[]>();
-		for (const row of mapped) {
-			const key = String(row[fkTsName]);
+		for (const row of rows) {
+			const key = batchParentKey(row, [fkTsName, relation.fkSqlColumn]);
+			const mapped = mapRowToTs(
+				targetTableIndex,
+				targetTable,
+				stripBatchRelationMeta(row),
+			);
 			let bucket = grouped.get(key);
 			if (!bucket) {
 				bucket = [];
 				grouped.set(key, bucket);
 			}
-			bucket.push(row);
+			bucket.push(mapped);
 		}
 
 		for (const parent of parentRows) {
@@ -576,10 +638,15 @@ async function loadM2MRelation(
 
 	const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
 	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
-	const selectCols = targetTable.columns
-		.map((c) => `t.${quoteIdentifier(c.sqlName)}`)
-		.join(", ");
+	const selectCols = columnsForSelect(
+		targetTable,
+		withSpec,
+		runtime.tableIndex,
+		"t",
+	);
 	const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable));
+	const parentFkSql = quoteIdentifier(parentFkCol);
+	const targetFkSql = quoteIdentifier(targetFkCol);
 	const { extraWhere, extraParams } = compileBatchedRelationWhere(
 		runtime,
 		targetTable,
@@ -587,28 +654,22 @@ async function loadM2MRelation(
 		parentIds.length,
 		"t",
 	);
-
-	let sql = `
-    SELECT ${selectCols}, j.${quoteIdentifier(parentFkCol)} AS _parent_id
-    FROM ${tableRef(throughTable)} j
-    JOIN ${tableRef(targetTable)} t ON t.${targetPkCol} = j.${quoteIdentifier(targetFkCol)}
-    WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere}
-  `.trim();
-
-	if (nestedSpec?.orderBy) {
-		sql += ` ${compileOrderBy(
-			targetTable,
-			nestedSpec.orderBy,
-			"t",
-			runtime.tableIndex,
-		)}`;
-	}
-	if (nestedSpec?.take !== undefined) {
-		sql += ` LIMIT ${normalizeLimitOffset(nestedSpec.take, "take")}`;
-	}
-	if (nestedSpec?.skip !== undefined) {
-		sql += ` OFFSET ${normalizeLimitOffset(nestedSpec.skip, "skip")}`;
-	}
+	const orderBySql = nestedSpec?.orderBy
+		? compileOrderBy(
+				targetTable,
+				nestedSpec.orderBy,
+				"t",
+				runtime.tableIndex,
+			)
+		: "";
+	const sql = applyPerParentTakeSkip({
+		selectList: `${selectCols}, j.${parentFkSql} AS ${quoteIdentifier(BATCH_PARENT_ID)}`,
+		fromSql: `FROM ${tableRef(throughTable)} j JOIN ${tableRef(targetTable)} t ON t.${targetPkCol} = j.${targetFkSql} WHERE j.${parentFkSql} IN (${placeholders})${extraWhere}`,
+		partitionBy: `j.${parentFkSql}`,
+		orderBySql,
+		take: nestedSpec?.take,
+		skip: nestedSpec?.skip,
+	});
 
 	const rows = await runQuery(
 		executor,
@@ -624,9 +685,12 @@ async function loadM2MRelation(
 	);
 	const grouped = new Map<string, Record<string, unknown>[]>();
 	for (const row of rows) {
-		const parentId = String(row["_parent_id"]);
-		const { ["_parent_id"]: _parentKey, ...targetRow } = row;
-		const mapped = mapRowToTs(targetTableIndex, targetTable, targetRow);
+		const parentId = String(row[BATCH_PARENT_ID]);
+		const mapped = mapRowToTs(
+			targetTableIndex,
+			targetTable,
+			stripBatchRelationMeta(row),
+		);
 		let bucket = grouped.get(parentId);
 		if (!bucket) {
 			bucket = [];
@@ -1173,12 +1237,7 @@ export async function findById(
 						),
 				)
 			: projection.includeHidden
-				? buildFindByIdQuery(
-						table,
-						undefined,
-						runtime.tableIndex,
-						true,
-					)
+				? buildFindByIdQuery(table, undefined, runtime.tableIndex, true)
 				: tableIndex?.findByIdSql || buildFindByIdQuery(table);
 		const row = await runQueryOne(executor, runtime, ctx, query, [pkValue]);
 		return row

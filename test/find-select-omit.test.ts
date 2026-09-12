@@ -318,4 +318,29 @@ describe("root select / omit", () => {
 		expect(atIndex(executor.queries, 0).sql).toContain('"email"');
 		expect(atIndex(executor.queries, 1).sql).toContain('"name"');
 	});
+
+	it("narrows inlined has-many json_agg columns with nested select", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					email: "a@b.com",
+					name: "Ada",
+					bio: null,
+					__neoorm_posts: [{ title: "Hello" }],
+				},
+			],
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			with: { posts: { select: { title: true } } },
+		});
+
+		const sql = atIndex(executor.queries, 0).sql;
+		expect(sql).toContain("json_build_object");
+		expect(sql).toContain("'title'");
+		expect(sql).not.toContain("'body'");
+		expect(sql).not.toContain("row_to_json");
+		expect(rows[0]?.posts).toEqual([{ title: "Hello" }]);
+	});
 });
