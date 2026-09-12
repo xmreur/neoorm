@@ -4,13 +4,13 @@ SQLite is a first-class dialect for local development, testing, and single-file 
 
 ## Requirements
 
-No SQLite package is required — NeoOrm uses the driver bundled with your runtime:
+NeoOrm requires **Node.js 22.5+** or **Bun**. No SQLite package is required — auto-open uses the driver bundled with your runtime:
 
 | Runtime | Driver |
 |---------|--------|
 | Node.js 22.5+ | built-in `node:sqlite` (`DatabaseSync`) |
 | Bun | `bun:sqlite` |
-| Anything else | pass your own `db` instance (see [Custom driver](#custom-driver)) |
+| Custom | pass your own `db` instance (see [Custom driver](#custom-driver)) |
 
 If none is available, creating a client throws: `No SQLite driver available. Provide a db instance, or run on Bun or Node.js 22.5+`.
 

@@ -73,7 +73,7 @@
 		"database"
 	],
 	"engines": {
-		"node": ">=20"
+		"node": ">=22.5.0"
 	},
 	"scripts": {
 		"build": "bunx tsc -p tsconfig.build.json",
