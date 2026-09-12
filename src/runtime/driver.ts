@@ -35,6 +35,24 @@ export type SqliteDatabaseLike = {
 	close(): void;
 };
 
+/** Options for {@link sqliteClient} production PRAGMAs. */
+export type SqliteClientOptions = {
+	/**
+	 * Milliseconds to wait on `SQLITE_BUSY`.
+	 * `false` leaves the engine default (0).
+	 * @default 5000
+	 */
+	busyTimeout?: number | false;
+	/**
+	 * Set `journal_mode=WAL`. `false` skips the pragma.
+	 * No-op for `:memory:` databases (SQLite keeps `memory`).
+	 * @default true
+	 */
+	wal?: boolean;
+};
+
+const SQLITE_DEFAULT_BUSY_TIMEOUT_MS = 5000;
+
 function convertPlaceholders(sql: string): string {
 	let out = "";
 	let inSingle = false;
@@ -254,18 +272,45 @@ async function executeWriteStatements(
 
 const sqliteClients = new WeakMap<SqliteDatabaseLike, DatabaseClient>();
 
-export function sqliteClient(db: SqliteDatabaseLike): DatabaseClient {
+export function sqliteClient(
+	db: SqliteDatabaseLike,
+	options?: SqliteClientOptions,
+): DatabaseClient {
 	const cached = sqliteClients.get(db);
 	if (cached) {
 		return cached;
 	}
-	const client = createSqliteClient(db);
+	const client = createSqliteClient(db, options);
 	sqliteClients.set(db, client);
 	return client;
 }
 
-function createSqliteClient(db: SqliteDatabaseLike): DatabaseClient {
+function applySqlitePragmas(
+	db: SqliteDatabaseLike,
+	options?: SqliteClientOptions,
+): void {
 	db.exec("PRAGMA foreign_keys = ON");
+	if (options?.busyTimeout !== false) {
+		const ms =
+			typeof options?.busyTimeout === "number"
+				? Math.max(0, Math.trunc(options.busyTimeout))
+				: SQLITE_DEFAULT_BUSY_TIMEOUT_MS;
+		db.exec(`PRAGMA busy_timeout = ${ms}`);
+	}
+	if (options?.wal !== false) {
+		try {
+			db.exec("PRAGMA journal_mode = WAL");
+		} catch {
+			// :memory: and some VFS cannot use WAL
+		}
+	}
+}
+
+function createSqliteClient(
+	db: SqliteDatabaseLike,
+	options?: SqliteClientOptions,
+): DatabaseClient {
+	applySqlitePragmas(db, options);
 	const state = { savepointCounter: 0 };
 
 	// One SQLite connection is shared by every query and transaction.

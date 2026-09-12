@@ -48,6 +48,18 @@ const db = createNeoOrmClient(manifest, {
 
 Use `databasePath: ":memory:"` for an in-memory database (one connection, no persistence).
 
+Wrapping a connection sets `PRAGMA foreign_keys = ON`, `busy_timeout = 5000`, and `journal_mode = WAL` (WAL is a no-op for `:memory:`). Opt out per client:
+
+```ts
+const db = createNeoOrmClient(manifest, {
+  provider: "sqlite",
+  databasePath: "./dev.db",
+  sqlite: { wal: false, busyTimeout: false },
+});
+```
+
+`busyTimeout` can also be a millisecond wait (`sqlite: { busyTimeout: 10_000 }`).
+
 ### Custom driver
 
 Pass any object implementing `prepare(sql)`, `exec(sql)`, and `close()` — the `node:sqlite` and `bun:sqlite` APIs both match. Useful for sandboxed runtimes or existing database handles:

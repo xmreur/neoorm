@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { sqliteClient } from "./driver.js";
@@ -115,6 +118,60 @@ describe("sqliteClient connection sharing", () => {
 			"SELECT v FROM t ORDER BY id",
 		);
 		expect(rows.rows.map((row) => row.v)).toEqual(["keep", "also"]);
+		await client.close();
+	});
+});
+
+describe("sqlite production pragmas", () => {
+	async function pragmaValue(
+		client: ReturnType<typeof sqliteClient>,
+		name: string,
+	): Promise<unknown> {
+		const result = await client.query(`PRAGMA ${name}`);
+		const row = result.rows[0];
+		return row ? Object.values(row)[0] : undefined;
+	}
+
+	it("sets busy_timeout and leaves :memory: journal as memory", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		expect(await pragmaValue(client, "busy_timeout")).toBe(5000);
+		expect(await pragmaValue(client, "foreign_keys")).toBe(1);
+		expect(await pragmaValue(client, "journal_mode")).toBe("memory");
+		await client.close();
+	});
+
+	it("sets WAL on a file database", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "neoorm-wal-"));
+		try {
+			const db = new DatabaseSync(join(dir, "t.db"));
+			const client = sqliteClient(db);
+			expect(await pragmaValue(client, "journal_mode")).toBe("wal");
+			expect(await pragmaValue(client, "busy_timeout")).toBe(5000);
+			await client.close();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("allows opting out of busy_timeout and WAL", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "neoorm-wal-"));
+		try {
+			const db = new DatabaseSync(join(dir, "t.db"));
+			const client = sqliteClient(db, { busyTimeout: false, wal: false });
+			expect(await pragmaValue(client, "busy_timeout")).toBe(0);
+			expect(await pragmaValue(client, "journal_mode")).not.toBe("wal");
+			expect(await pragmaValue(client, "foreign_keys")).toBe(1);
+			await client.close();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("accepts a custom busy_timeout", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db, { busyTimeout: 2500 });
+		expect(await pragmaValue(client, "busy_timeout")).toBe(2500);
 		await client.close();
 	});
 });
