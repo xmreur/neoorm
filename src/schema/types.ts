@@ -462,7 +462,11 @@ export type PaginateArgs<
 	take: number;
 	after?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy, TSchema>;
 	before?: CursorInput<TSchema[TAccessor]["_columns"], TOrderBy, TSchema>;
+	select?: SelectInput<TSchema[TAccessor]["_columns"]>;
+	omit?: OmitInput<TSchema[TAccessor]["_columns"]>;
 	with?: WithInputMap<TSchema, TAccessor>;
+	/** Include schema `.hidden()` columns in the default output. */
+	includeHidden?: boolean;
 };
 
 /** Result of a `paginate` call. */

@@ -175,11 +175,15 @@ export type PaginateArgsWith<
 	TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 	TWith,
 	TRowPayload extends Record<string, unknown> = Record<string, unknown>,
+	TSelect = undefined,
+	TOmit = undefined,
 > = Omit<
 	PaginateArgs<TSchema, TAccessor, TOrderBy>,
-	"with" | "after" | "before"
+	"with" | "after" | "before" | "select" | "omit"
 > & {
 	with?: TWith;
+	select?: TSelect;
+	omit?: TOmit;
 	after?: PaginateCursor<
 		TRowPayload,
 		TOrderBy,
@@ -478,11 +482,34 @@ export type TypedTableRepository<
 	paginate<
 		TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 		W extends TWith | undefined = undefined,
+		const S extends
+			| SelectInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const IH extends boolean | undefined = undefined,
 	>(
-		args: PaginateArgsWith<TSchema, TAccessor, TOrderBy, W, TRowPayload>,
+		args: PaginateArgsWith<
+			TSchema,
+			TAccessor,
+			TOrderBy,
+			W,
+			TRowPayload,
+			S,
+			O
+		> & { includeHidden?: IH },
 	): Promise<
 		PaginateResult<
-			InferWithResult<TSchema, TAccessor, W, TRowPayload>,
+			InferFindResult<
+				TSchema,
+				TAccessor,
+				W,
+				S,
+				O,
+				TRowPayload,
+				IncludeHiddenFlag<IH>
+			>,
 			PaginateCursor<
 				TRowPayload,
 				TOrderBy,

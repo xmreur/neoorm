@@ -73,7 +73,7 @@ function internalSelectColumns(
 	return extras;
 }
 
-function mergeSqlColumns(
+export function mergeSqlColumns(
 	requested: readonly string[],
 	extras: readonly string[],
 ): string[] {
