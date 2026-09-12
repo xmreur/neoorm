@@ -6,11 +6,13 @@ import {
 	formatDestructiveWarnings,
 	resolveMigrationSql,
 } from "../src/codegen/diff-manifest.js";
+import { postgresDialect } from "../src/dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestColumn,
 	ManifestTable,
 } from "../src/dialect/types.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { manifestTable, manifestTableFromRecord } from "./helpers/manifest.js";
 
 function col(
@@ -176,6 +178,92 @@ describe("diffManifest", () => {
 		expect(
 			dropped.sql.some((s) => s.includes("DROP CONSTRAINT")),
 		).toBe(false);
+	});
+
+	it("creates all tables before adding foreign keys", () => {
+		const postsThenUsers = manifest({
+			posts: table("posts", "posts", [
+				col("id", "id", {
+					kind: "id",
+					primary: true,
+					nullable: false,
+				}),
+				col("authorId", "author_id", {
+					kind: "fk",
+					nullable: false,
+					fkTarget: "users.id",
+				}),
+			]),
+			users: table("users", "users", [
+				col("id", "id", {
+					kind: "id",
+					primary: true,
+					nullable: false,
+				}),
+			]),
+		});
+
+		const initial = diffManifest(null, postsThenUsers, postgresDialect);
+		const createPosts = initial.sql.findIndex((s) =>
+			s.includes('CREATE TABLE "posts"'),
+		);
+		const createUsers = initial.sql.findIndex((s) =>
+			s.includes('CREATE TABLE "users"'),
+		);
+		const addFk = initial.sql.findIndex(
+			(s) =>
+				s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
+		);
+		expect(createPosts).toBeGreaterThanOrEqual(0);
+		expect(createUsers).toBeGreaterThanOrEqual(0);
+		expect(addFk).toBeGreaterThan(createPosts);
+		expect(addFk).toBeGreaterThan(createUsers);
+		expect(initial.sql[createPosts]).not.toContain("FOREIGN KEY");
+		expect(initial.sql[createUsers]).not.toContain("FOREIGN KEY");
+		expect(initial.sql[addFk]).toContain(
+			'ALTER TABLE "posts" ADD CONSTRAINT "posts_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "users"("id")',
+		);
+
+		const sqliteInitial = diffManifest(null, postsThenUsers, sqliteDialect);
+		const sqliteCreatePosts = sqliteInitial.sql.find(
+			(s) => s.includes('CREATE TABLE "posts"'),
+		);
+		expect(sqliteCreatePosts).toContain("FOREIGN KEY");
+		expect(
+			sqliteInitial.sql.some(
+				(s) => s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
+			),
+		).toBe(false);
+
+		const prev = manifest({
+			tags: table("tags", "tags", [
+				col("id", "id", {
+					kind: "id",
+					primary: true,
+					nullable: false,
+				}),
+			]),
+		});
+		const incremental = diffManifest(
+			prev,
+			manifest({
+				...postsThenUsers.tables,
+				tags: manifestTableFromRecord(prev.tables, "tags"),
+			}),
+			postgresDialect,
+		);
+		const incCreatePosts = incremental.sql.findIndex((s) =>
+			s.includes('CREATE TABLE "posts"'),
+		);
+		const incCreateUsers = incremental.sql.findIndex((s) =>
+			s.includes('CREATE TABLE "users"'),
+		);
+		const incAddFk = incremental.sql.findIndex(
+			(s) =>
+				s.includes("ADD CONSTRAINT") && s.includes("FOREIGN KEY"),
+		);
+		expect(incAddFk).toBeGreaterThan(incCreatePosts);
+		expect(incAddFk).toBeGreaterThan(incCreateUsers);
 	});
 
 	it("detects new tables", () => {

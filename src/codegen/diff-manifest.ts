@@ -113,6 +113,37 @@ function fkColumns(
 	return table.columns.filter(isFkColumn);
 }
 
+function emitCreatedTablesSql(
+	tables: ManifestTable[],
+	dialect: Dialect,
+	manifest?: Manifest,
+): string[] {
+	const isSqlite = dialect.name === "sqlite";
+	const sql: string[] = [];
+
+	for (const table of tables) {
+		sql.push(
+			dialect.emitCreateTable(table, {
+				inlineForeignKeys: isSqlite,
+				...(manifest ? { manifest } : {}),
+			}),
+		);
+		for (const index of table.indexes) {
+			sql.push(dialect.emitCreateIndex(table, index));
+		}
+	}
+
+	if (!isSqlite) {
+		for (const table of tables) {
+			for (const col of fkColumns(table)) {
+				sql.push(dialect.emitAddForeignKey(table, col));
+			}
+		}
+	}
+
+	return sql;
+}
+
 function indexSqlName(table: ManifestTable, index: ManifestIndex): string {
 	return index.sqlName ?? resolveIndexSqlName(table.sqlName, index);
 }
@@ -579,7 +610,6 @@ export function buildMigrationSql(
 	dialect: Dialect = postgresDialect,
 ): string[] {
 	const sql: string[] = [];
-	const isSqlite = dialect.name === "sqlite";
 	const schemaNames = new Set(
 		Object.values(manifest?.tables ?? {})
 			.map((table) => table.schemaName)
@@ -616,22 +646,13 @@ export function buildMigrationSql(
 		sql.push(dialect.emitDropTable(diff.table));
 	}
 
-	for (const diff of createDiffs) {
-		sql.push(
-			dialect.emitCreateTable(diff.table, {
-				inlineForeignKeys: isSqlite,
-				...(manifest ? { manifest } : {}),
-			}),
-		);
-		for (const index of diff.table.indexes) {
-			sql.push(dialect.emitCreateIndex(diff.table, index));
-		}
-		if (!isSqlite) {
-			for (const col of fkColumns(diff.table)) {
-				sql.push(dialect.emitAddForeignKey(diff.table, col));
-			}
-		}
-	}
+	sql.push(
+		...emitCreatedTablesSql(
+			createDiffs.map((diff) => diff.table),
+			dialect,
+			manifest,
+		),
+	);
 
 	return sql;
 }
@@ -698,13 +719,9 @@ export function diffManifest(
 			sql.push(...dialect.emitCreateEnumTypes(next.enumTypes));
 		}
 
-		const tables = Object.values(next.tables);
-		for (const table of tables) {
-			sql.push(dialect.emitCreateTable(table, { manifest: next }));
-			for (const index of table.indexes) {
-				sql.push(dialect.emitCreateIndex(table, index));
-			}
-		}
+		sql.push(
+			...emitCreatedTablesSql(Object.values(next.tables), dialect, next),
+		);
 
 		return { isInitial: true, sql, destructive: [] };
 	}
