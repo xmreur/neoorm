@@ -1,4 +1,5 @@
 import type { ManifestColumn } from "../dialect/types.js";
+import { parseDbJsonValue } from "../runtime/parse-db-json.js";
 import type {
 	ColumnBuilder,
 	ColumnMeta,
@@ -48,11 +49,11 @@ function formatJsonDefault(
 	return `'${json}'::${cast}`;
 }
 
-function parseJsonValue(dbValue: unknown): unknown {
-	if (typeof dbValue === "string") {
-		return JSON.parse(dbValue);
-	}
-	return dbValue;
+function parseJsonValue(dbValue: unknown, col: ManifestColumn): unknown {
+	return parseDbJsonValue(dbValue, {
+		columnTsName: col.tsName,
+		columnSqlName: col.sqlName,
+	});
 }
 
 function decimalSqlType(col: ManifestColumn): string {
@@ -307,8 +308,8 @@ const jsonType: ColumnTypePlugin = {
 		return scalarTsType(col, "unknown");
 	},
 	formatDefault: formatJsonDefault,
-	deserializeValue(_col, dbValue) {
-		return parseJsonValue(dbValue);
+	deserializeValue(col, dbValue) {
+		return parseJsonValue(dbValue, col);
 	},
 	introspect(pgDataType) {
 		return pgDataType === "json";
@@ -334,8 +335,8 @@ const jsonbType: ColumnTypePlugin = {
 		return scalarTsType(col, "unknown");
 	},
 	formatDefault: formatJsonDefault,
-	deserializeValue(_col, dbValue) {
-		return parseJsonValue(dbValue);
+	deserializeValue(col, dbValue) {
+		return parseJsonValue(dbValue, col);
 	},
 	introspect(pgDataType) {
 		return pgDataType === "jsonb";
@@ -491,10 +492,10 @@ const textArrayType: ColumnTypePlugin = {
 		if (dialect?.name === "sqlite") return JSON.stringify(value);
 		return value;
 	},
-	deserializeValue(_col, dbValue) {
+	deserializeValue(col, dbValue) {
 		if (dbValue === null || dbValue === undefined) return dbValue;
 		if (Array.isArray(dbValue)) return dbValue;
-		return parseJsonValue(dbValue);
+		return parseJsonValue(dbValue, col);
 	},
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_text";
@@ -526,10 +527,10 @@ const intArrayType: ColumnTypePlugin = {
 		if (dialect?.name === "sqlite") return JSON.stringify(value);
 		return value;
 	},
-	deserializeValue(_col, dbValue) {
+	deserializeValue(col, dbValue) {
 		if (dbValue === null || dbValue === undefined) return dbValue;
 		if (Array.isArray(dbValue)) return dbValue;
-		return parseJsonValue(dbValue);
+		return parseJsonValue(dbValue, col);
 	},
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_int4";

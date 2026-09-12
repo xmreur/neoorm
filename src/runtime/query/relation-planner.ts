@@ -10,6 +10,7 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
+import { parseDbJsonValue } from "../parse-db-json.js";
 import {
 	buildQualifiedSelectColumns,
 	buildSelectColumns,
@@ -994,11 +995,11 @@ function extractJoinedRelations(
 	return relations;
 }
 
-function parseJsonValue(value: unknown): unknown {
-	if (typeof value === "string") {
-		return JSON.parse(value) as unknown;
-	}
-	return value;
+function parseJsonValue(value: unknown, table: ManifestTable): unknown {
+	return parseDbJsonValue(value, {
+		tableAccessor: table.accessor,
+		tableSqlName: table.sqlName,
+	});
 }
 
 function hydrateInlineChainValue(
@@ -1016,7 +1017,7 @@ function hydrateInlineChainValue(
 	);
 
 	if (node.relation.cardinality === "many") {
-		const parsed = parseJsonValue(value);
+		const parsed = parseJsonValue(value, node.targetTable);
 		if (!Array.isArray(parsed)) return [];
 		return parsed.map((row) => {
 			const childRow = row as Record<string, unknown>;
@@ -1035,7 +1036,7 @@ function hydrateInlineChainValue(
 		});
 	}
 
-	const parsed = parseJsonValue(value);
+	const parsed = parseJsonValue(value, node.targetTable);
 	if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return null;
 	}
