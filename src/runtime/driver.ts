@@ -107,8 +107,10 @@ function convertPlaceholders(sql: string): string {
 		if (ch === "$" && next !== undefined && /\d/.test(next)) {
 			out += "?";
 			i++;
+			out += next;
 			while (i + 1 < sql.length && /\d/.test(sql[i + 1] ?? "")) {
 				i++;
+				out += sql[i];
 			}
 			continue;
 		}
