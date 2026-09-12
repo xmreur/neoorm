@@ -278,8 +278,9 @@ Relations are eagerly loaded in `findMany`, `findFirst`, and `findById` via the 
 NeoORM uses a relation-loading planner that picks the fewest round-trips per `with` tree:
 
 - **LEFT JOIN** — to-one relations where the parent table owns the foreign key are resolved in the main query. No additional round-trips.
+- **JOIN + `json_agg`** — a single inverse has-many include may use one collection `LEFT JOIN` with `GROUP BY`. A second collection is a correlated subquery so sizes N and M do not become N×M rows.
 - **Correlated `json_agg` subquery** — inverse has-many relations (and simple linear nested chains) are embedded in the main `SELECT` as correlated subqueries. Multiple top-level relations can be inlined in the same query alongside JOINs.
-- **Inline `COUNT` subquery** — simple `_count` on has-many relations is embedded in the main `SELECT`.
+- **Inline `COUNT` subquery** — simple `_count` on has-many relations is embedded in the main `SELECT`. At most one `_count` collection uses a `LEFT JOIN`; additional counts are correlated `COUNT(*)` subqueries.
 - **Batch query** — many-to-many, nested `with` on to-one, sibling-heavy trees, and other complex shapes fall back to batched `WHERE IN (...)` queries (one per relation level). Sibling batch queries at the same level run in parallel.
 
 Typical query counts:
