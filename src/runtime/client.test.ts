@@ -5,7 +5,11 @@ import { emptyManifest } from "../codegen/diff-manifest.js";
 import { schemaToManifest } from "../codegen/schema-to-manifest.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import { defineSchema, id, table, text } from "../schema/index.js";
-import { createNeoOrmClient, createNeoOrmClientFromPool } from "./client.js";
+import {
+	createNeoOrmClient,
+	createNeoOrmClientFromPool,
+	createNeoOrmClientFromSqlite,
+} from "./client.js";
 import { QueryErrorCode } from "./error-codes.js";
 
 function fakePool(): Pool & { end: ReturnType<typeof vi.fn> } {
@@ -22,6 +26,16 @@ describe("createNeoOrmClientFromPool", () => {
 		const client = createNeoOrmClientFromPool(emptyManifest(), pool);
 		await client.$disconnect();
 		expect(pool.end).not.toHaveBeenCalled();
+	});
+});
+
+describe("createNeoOrmClientFromSqlite", () => {
+	it("does not close the caller's database on $disconnect", async () => {
+		const database = new DatabaseSync(":memory:");
+		const client = createNeoOrmClientFromSqlite(emptyManifest(), database);
+		await client.$disconnect();
+		database.exec("SELECT 1");
+		database.close();
 	});
 });
 

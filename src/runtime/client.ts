@@ -61,7 +61,8 @@ import type {
 } from "./types.js";
 
 /**
- * Options for {@link createNeoOrmClient} and {@link createNeoOrmClientFromPool}.
+ * Options for {@link createNeoOrmClient}, {@link createNeoOrmClientFromPool},
+ * and {@link createNeoOrmClientFromSqlite}.
  */
 export type NeoOrmClientOptions = {
 	/** PostgreSQL connection string. Falls back to `DATABASE_URL`. */
@@ -455,20 +456,26 @@ export function createNeoOrmClient<
 		options.db !== undefined ||
 		options.databasePath !== undefined
 	) {
-		const db =
-			options.db ??
-			openSqliteDatabase(
-				options.databasePath ??
-					process.env["DATABASE_URL"] ??
-					manifest.url ??
-					":memory:",
-			);
-		return createNeoOrmClientFromSqlite(manifest, db, {
+		const sqliteOptions = {
 			...(options.migrationsDir !== undefined
 				? { migrationsDir: options.migrationsDir }
 				: {}),
 			...(options.sqlite !== undefined ? { sqlite: options.sqlite } : {}),
-		});
+		};
+		if (options.db !== undefined) {
+			return createNeoOrmClientFromSqlite(
+				manifest,
+				options.db,
+				sqliteOptions,
+			);
+		}
+		const db = openSqliteDatabase(
+			options.databasePath ??
+				process.env["DATABASE_URL"] ??
+				manifest.url ??
+				":memory:",
+		);
+		return createNeoOrmSqliteClient(manifest, db, sqliteOptions, true);
 	}
 
 	const url =
@@ -570,6 +577,15 @@ export function createNeoOrmClientFromPool<
 	);
 }
 
+/**
+ * Create a typed NeoOrm client from an existing SQLite database handle.
+ *
+ * `$disconnect()` does not call `db.close()`. The caller owns the handle and
+ * must close it.
+ *
+ * @param manifest - Manifest emitted by `neoorm generate`.
+ * @param db - `node:sqlite` / `bun:sqlite` database, or any `SqliteDatabaseLike`.
+ */
 export function createNeoOrmClientFromSqlite<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<
@@ -584,6 +600,25 @@ export function createNeoOrmClientFromSqlite<
 	manifest: Manifest,
 	db: SqliteDatabaseLike,
 	options?: Pick<NeoOrmClientOptions, "migrationsDir" | "sqlite">,
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	return createNeoOrmSqliteClient(manifest, db, options, false);
+}
+
+function createNeoOrmSqliteClient<
+	TTables extends Record<string, TableDef>,
+	TIncludes extends Record<
+		keyof TTables & string,
+		unknown
+	> = DefaultWithMap<TTables>,
+	TRowPayloads extends Record<
+		keyof TTables & string,
+		Record<string, unknown>
+	> = DefaultRowPayloadMap<TTables>,
+>(
+	manifest: Manifest,
+	db: SqliteDatabaseLike,
+	options: Pick<NeoOrmClientOptions, "migrationsDir" | "sqlite"> | undefined,
+	ownsDatabase: boolean,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
 
@@ -603,13 +638,15 @@ export function createNeoOrmClientFromSqlite<
 	return buildClient<TTables, TIncludes, TRowPayloads>(
 		executor,
 		runtime,
-		async () => {
-			await driver.close();
-		},
+		ownsDatabase
+			? async () => {
+					await driver.close();
+				}
+			: noopDisconnect,
 	);
 }
 
-export type { SqliteClientOptions } from "./driver.js";
+export type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
 export type {
 	DefaultRowPayloadMap,
 	DefaultWithMap,

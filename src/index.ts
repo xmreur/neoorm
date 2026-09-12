@@ -70,6 +70,7 @@ export type {
 	NeoOrmClientOptions,
 	PaginateCursor,
 	SqliteClientOptions,
+	SqliteDatabaseLike,
 	TableRepository,
 	TransactionClient,
 	TransactionIsolationLevel,
@@ -80,6 +81,7 @@ export type {
 export {
 	createNeoOrmClient,
 	createNeoOrmClientFromPool,
+	createNeoOrmClientFromSqlite,
 } from "./runtime/client.js";
 export {
 	QueryErrorCode,
