@@ -1,6 +1,10 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { NeoOrmDriverError } from "./errors.js";
-import { assertNoSavepointOptions, buildBeginSql } from "./transaction.js";
+import {
+	assertNoSavepointOptions,
+	buildBeginSql,
+	buildSqliteBeginSql,
+} from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
 export type DriverResult<T = Record<string, unknown>> = {
@@ -398,7 +402,12 @@ function createSqliteClient(
 		transaction: (fn, options) =>
 			enqueue(async () => {
 				db.exec(buildSqliteBeginSql(options));
+				let queryOnly = false;
 				try {
+					if (options?.readOnly) {
+						db.exec("PRAGMA query_only = ON");
+						queryOnly = true;
+					}
 					const result = await fn(createTxClient());
 					db.exec("COMMIT");
 					return result;
@@ -409,27 +418,20 @@ function createSqliteClient(
 						// e.g. the failed COMMIT already rolled back; never mask err.
 					}
 					throw err;
+				} finally {
+					if (queryOnly) {
+						try {
+							db.exec("PRAGMA query_only = OFF");
+						} catch {
+							// connection may already be closed or rolled back
+						}
+					}
 				}
 			}),
 		async close(): Promise<void> {
 			db.close();
 		},
 	};
-}
-
-function buildSqliteBeginSql(options?: TransactionOptions): string {
-	if (options?.readOnly) {
-		return "BEGIN DEFERRED";
-	}
-	switch (options?.isolationLevel) {
-		case "RepeatableRead":
-		case "Serializable":
-			return "BEGIN IMMEDIATE";
-		case "ReadUncommitted":
-		case "ReadCommitted":
-		default:
-			return "BEGIN";
-	}
 }
 
 type PgTxState = {

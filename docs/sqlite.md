@@ -111,7 +111,7 @@ bunx neoorm migrate reset --force
 | `distinct` (`DISTINCT ON`) | supported | throws `distinct is not supported on SQLite` |
 | `datasource.schema` | multi-schema | not applicable |
 | `enum: "native"` | `CREATE TYPE ... AS ENUM` | not applicable (TEXT + CHECK) |
-| transaction options (`readOnly`, `isolationLevel`) | full | outer `BEGIN` only; nested transactions use savepoints |
+| transaction options (`readOnly`, `isolationLevel`) | `BEGIN READ ONLY` / `ISOLATION LEVEL` | `readOnly` → `PRAGMA query_only`; `RepeatableRead`/`Serializable` → `BEGIN IMMEDIATE`; other isolation → `BEGIN` |
 | JSON operators | `@>`, `?`, `#>` | `json_patch` / `json_each` / `json_extract` |
 
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, upsert, `findOrCreate`, savepoint-based nested transactions — behaves identically.

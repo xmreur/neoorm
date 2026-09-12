@@ -51,4 +51,15 @@ await db.$transaction(async (tx) => {
 
 Nested `create` calls inside a transaction do not start a separate transaction. `readOnly` and `isolationLevel` apply only to the outermost `BEGIN`.
 
-On SQLite, nested transactions use `SAVEPOINT`/`RELEASE`/`ROLLBACK TO SAVEPOINT`; `readOnly` and `isolationLevel` are rejected on nested transactions (mapped to `BEGIN`/`BEGIN IMMEDIATE`/`BEGIN DEFERRED` on the outer transaction).
+### SQLite
+
+SQLite has no `BEGIN READ ONLY` and no SQL isolation levels. Outer `$transaction` options map as follows:
+
+| Option | SQLite |
+|--------|--------|
+| `readOnly: true` | `PRAGMA query_only = ON` for the duration of the transaction (writes fail) |
+| `isolationLevel: "RepeatableRead"` or `"Serializable"` | `BEGIN IMMEDIATE` (reserved lock before the first statement) |
+| `isolationLevel: "ReadUncommitted"` or `"ReadCommitted"` | `BEGIN` (deferred; default) |
+| nested `$transaction` | `SAVEPOINT` — `readOnly` / `isolationLevel` are rejected |
+
+After the transaction commits or rolls back, `query_only` is turned off so later writes succeed.
