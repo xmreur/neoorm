@@ -147,6 +147,10 @@ Atomically insert a row or return an existing one when a unique constraint match
 
 `where` must identify a unique constraint (same rules as `findUnique` and `upsert`).
 
+Postgres issues `INSERT … ON CONFLICT DO UPDATE` with a no-op assignment so `RETURNING` always includes the row — including when a concurrent session already inserted it. `created` is `(xmax = 0)` (inserted vs existing). A no-op update can fire `UPDATE` triggers; column values are not changed.
+
+Under `SERIALIZABLE` (and sometimes `REPEATABLE READ`), a concurrent insert can still abort the transaction with a serialization failure. Retry the whole `$transaction`. SQLite uses find-then-insert and retries the find after a unique violation.
+
 ```ts
 const { record, created } = await db.tags.findOrCreate({
   where: { slug: "orm" },

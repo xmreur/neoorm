@@ -2211,11 +2211,14 @@ export function buildFindOrCreateQuery(
 	table: ManifestTable,
 	insertKeys: string[],
 	conflictSqlColumns: readonly string[],
-	fallbackWhereBody: string,
 	manifestIndex?: ManifestIndex,
 	select?: readonly string[],
 	includeHidden?: boolean,
 ): string {
+	if (conflictSqlColumns.length === 0) {
+		compileError("findOrCreate requires a unique conflict target");
+	}
+
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
 		return quoteIdentifier(col?.sqlName ?? k);
@@ -2235,21 +2238,16 @@ export function buildFindOrCreateQuery(
 	const conflictCols = conflictSqlColumns
 		.map((c) => quoteIdentifier(c))
 		.join(", ");
+	const noOpSets = conflictSqlColumns.map((c) => {
+		const sqlCol = quoteIdentifier(c);
+		return `${sqlCol} = excluded.${sqlCol}`;
+	});
 	const tableSql = tableRef(table);
-	const fallbackClause = fallbackWhereBody
-		? ` AND (${fallbackWhereBody})`
-		: "";
 
-	return `WITH ins AS (
-  INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders})
-  ON CONFLICT (${conflictCols}) DO NOTHING
-  RETURNING ${selectCols}
-)
-SELECT ${selectCols}, true AS "${FIND_OR_CREATE_FLAG}" FROM ins
-UNION ALL
-SELECT ${selectCols}, false AS "${FIND_OR_CREATE_FLAG}" FROM ${tableSql} t
-WHERE NOT EXISTS (SELECT 1 FROM ins)${fallbackClause}
-LIMIT 1`;
+	// No-op DO UPDATE so RETURNING always yields the conflict row. A follow-up
+	// SELECT (UNION) can miss a concurrent insert under REPEATABLE READ /
+	// SERIALIZABLE. xmax = 0 is the inserted tuple; a locked/updated row is not.
+	return `INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${noOpSets.join(", ")} RETURNING ${selectCols}, (xmax = 0) AS "${FIND_OR_CREATE_FLAG}"`;
 }
 
 export type InsertReturning = "full" | "pk" | "none";
