@@ -8,7 +8,11 @@ import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
-import type { DatabaseClient, SqliteDatabaseLike } from "./driver.js";
+import type {
+	DatabaseClient,
+	SqliteClientOptions,
+	SqliteDatabaseLike,
+} from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
 import { queryError, schemaError } from "./error-builders.js";
 import { QueryErrorCode, SchemaErrorCode } from "./error-codes.js";
@@ -68,6 +72,8 @@ export type NeoOrmClientOptions = {
 	db?: SqliteDatabaseLike;
 	/** SQLite file path when `db` is not provided. */
 	databasePath?: string;
+	/** SQLite PRAGMAs applied when wrapping a connection. */
+	sqlite?: SqliteClientOptions;
 	/** Directory containing migration SQL files. */
 	migrationsDir?: string;
 	/** PostgreSQL schema name. @default "public" */
@@ -462,6 +468,7 @@ export function createNeoOrmClient<
 			...(options.migrationsDir !== undefined
 				? { migrationsDir: options.migrationsDir }
 				: {}),
+			...(options.sqlite !== undefined ? { sqlite: options.sqlite } : {}),
 		});
 	}
 
@@ -572,11 +579,11 @@ export function createNeoOrmClientFromSqlite<
 >(
 	manifest: Manifest,
 	db: SqliteDatabaseLike,
-	options?: Pick<NeoOrmClientOptions, "migrationsDir">,
+	options?: Pick<NeoOrmClientOptions, "migrationsDir" | "sqlite">,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
 
-	const driver = sqliteClient(db);
+	const driver = sqliteClient(db, options?.sqlite);
 	const appliedManifest = applySchemaToManifest(manifest, undefined);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
@@ -598,6 +605,7 @@ export function createNeoOrmClientFromSqlite<
 	);
 }
 
+export type { SqliteClientOptions } from "./driver.js";
 export type {
 	DefaultRowPayloadMap,
 	DefaultWithMap,
