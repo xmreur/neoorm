@@ -10,6 +10,8 @@
 | **One-to-many** (inverse) | `create`, `connect`, `disconnect`, `set`, `delete` |
 | **Many-to-many** | `connect`, `connectOrCreate`, `disconnect`, `set`, `delete` |
 
+`connect`, `set`, `disconnect`, and `delete` identify related rows by the **target table's scalar primary key** (`{ id: ... }` when the PK is `id`, `{ userId: ... }` when it is `userId`). Composite-PK connect is not supported.
+
 ## Examples
 
 ### To-one on update

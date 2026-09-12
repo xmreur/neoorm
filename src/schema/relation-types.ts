@@ -70,26 +70,18 @@ export type InferInsertRow<
 		: never]: InferColumnValue<TColumns[K], TSchema>;
 };
 
-type PrimaryIdValue<
-	TColumns extends Record<string, ColumnDef>,
-	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
-> = {
-	[K in keyof TColumns]: TColumns[K] extends ColumnBuilder<unknown, infer M>
-		? M extends { primary: true }
-			? InferColumnValue<TColumns[K], TSchema>
-			: never
-		: never;
-}[keyof TColumns & string];
-
-/** Primary-key reference for relation `connect` writes (`{ id: ... }`). */
+/** Primary-key reference for relation `connect` writes (`{ id }` when the PK is `id`). */
 export type ConnectInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
-> = {
-	id: [PrimaryIdValue<TColumns, TSchema>] extends [never]
-		? string
-		: PrimaryIdValue<TColumns, TSchema>;
-};
+> = [ScalarPkName<TColumns>] extends [never]
+	? { id: string }
+	: {
+			[K in ScalarPkName<TColumns>]: InferColumnValue<
+				TColumns[K],
+				TSchema
+			>;
+		};
 
 export type ConnectOrCreateItem<
 	TColumns extends Record<string, ColumnDef>,

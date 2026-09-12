@@ -10,6 +10,14 @@ import {
 	hasPostRelationWrites,
 	splitScalarsAndRelationWrites,
 } from "../src/runtime/query/relation-writes.js";
+import {
+	defineSchema,
+	fk,
+	id,
+	table,
+	text,
+	uuid,
+} from "../src/schema/index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function createMockExecutor(): Executor & {
@@ -298,5 +306,88 @@ describe("relation-writes", () => {
 			q.sql.includes("INSERT INTO"),
 		);
 		expect(insertQuery?.params).toContain("post_1");
+	});
+});
+
+describe("relation connect uses the target scalar PK tsName", () => {
+	const customPkSchema = defineSchema({
+		accounts: table({
+			userId: uuid().primary(),
+			email: text().notNull(),
+		}),
+		notes: table({
+			id: id(),
+			accountId: fk("accounts").notNull().as("account").inverse("notes"),
+			body: text().notNull(),
+		}),
+	});
+
+	it("sets the FK from connect using a non-id primary key", async () => {
+		const manifest = schemaToManifest(customPkSchema);
+		const runtime: QueryRuntime = { manifest };
+		const table = manifestTable(manifest, "notes");
+		const scalarData: Record<string, unknown> = { body: "hello" };
+
+		await applyToOnePreWrites(
+			createMockExecutor(),
+			runtime,
+			table,
+			scalarData,
+			[
+				{
+					relationName: "account",
+					value: { connect: { userId: "acct_1" } },
+				},
+			],
+			runCreate,
+		);
+
+		expect(scalarData["accountId"]).toBe("acct_1");
+	});
+
+	it("rejects connect that uses id when the target PK is not id", async () => {
+		const manifest = schemaToManifest(customPkSchema);
+		const runtime: QueryRuntime = { manifest };
+		const table = manifestTable(manifest, "notes");
+
+		await expect(
+			applyToOnePreWrites(
+				createMockExecutor(),
+				runtime,
+				table,
+				{ body: "hello" },
+				[
+					{
+						relationName: "account",
+						value: { connect: { id: "acct_1" } },
+					},
+				],
+				runCreate,
+			),
+		).rejects.toThrow(/userId/);
+	});
+
+	it("rejects connect against a composite primary key", async () => {
+		const manifest = schemaToManifest(customPkSchema);
+		const accounts = manifestTable(manifest, "accounts");
+		accounts.primaryKey = ["user_id", "email"];
+		const runtime: QueryRuntime = { manifest };
+		const table = manifestTable(manifest, "notes");
+
+		await expect(
+			applyToOnePreWrites(
+				createMockExecutor(),
+				runtime,
+				table,
+				{ body: "hello" },
+				[
+					{
+						relationName: "account",
+						value: { connect: { userId: "acct_1" } },
+					},
+				],
+				runCreate,
+			),
+		).rejects.toThrow(/single-column primary key/);
 	});
 });
