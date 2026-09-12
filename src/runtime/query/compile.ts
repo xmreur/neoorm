@@ -434,7 +434,7 @@ function compileRelationCondition(
 	);
 
 	let fromClause: string;
-	let whereParts: string[];
+	const joinParts: string[] = [];
 
 	if (m2m) {
 		const isLeft = m2m.leftAccessor === parentTable.accessor;
@@ -447,48 +447,51 @@ function compileRelationCondition(
 		const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
 		const targetPkSql = targetRelationPkSql(targetTable);
 		fromClause = `${tableRef(throughTable)} AS ${quoteIdentifier(junctionAlias)} INNER JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)} ON ${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${quoteIdentifier(junctionAlias)}.${quoteIdentifier(targetFkCol)}`;
-		whereParts = [
+		joinParts.push(
 			`${quoteIdentifier(junctionAlias)}.${quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable)}`,
-		];
-		if (nested.sql) whereParts.push(nested.sql);
+		);
 	} else {
 		fromClause = `${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)}`;
-		whereParts = [
+		joinParts.push(
 			`${quoteIdentifier(relAlias)}.${quoteIdentifier(relation.fkSqlColumn)} = ${parentPkRef(parentTable)}`,
-		];
-		if (nested.sql) whereParts.push(nested.sql);
+		);
 	}
 
-	const existsSql = `SELECT 1 FROM ${fromClause} WHERE ${whereParts.join(" AND ")}`;
-
-	if (mode === "some") {
-		return {
-			sql: compileExistsSubquery(existsSql, false),
-			params: nested.params,
-			nextParamIndex: nested.nextParamIndex,
-		};
+	switch (mode) {
+		case "some":
+		case "none": {
+			const whereParts = nested.sql
+				? [...joinParts, nested.sql]
+				: joinParts;
+			const existsSql = `SELECT 1 FROM ${fromClause} WHERE ${whereParts.join(" AND ")}`;
+			return {
+				sql: compileExistsSubquery(existsSql, mode === "none"),
+				params: nested.params,
+				nextParamIndex: nested.nextParamIndex,
+			};
+		}
+		case "every": {
+			const everyWhereParts = nested.sql
+				? [...joinParts, `NOT (${nested.sql})`]
+				: [...joinParts, "FALSE"];
+			const everySql = `SELECT 1 FROM ${fromClause} WHERE ${everyWhereParts.join(" AND ")}`;
+			return {
+				sql: compileExistsSubquery(everySql, true),
+				params: nested.params,
+				nextParamIndex: nested.nextParamIndex,
+			};
+		}
+		default: {
+			const _never: never = mode;
+			compileError(
+				`unsupported relation filter "${String(_never)}" on "${relation.name}"`,
+				{
+					tableAccessor: parentTable.accessor,
+					tableSqlName: parentTable.sqlName,
+				},
+			);
+		}
 	}
-
-	if (mode === "none") {
-		return {
-			sql: compileExistsSubquery(existsSql, true),
-			params: nested.params,
-			nextParamIndex: nested.nextParamIndex,
-		};
-	}
-
-	const everyWhereParts = [...whereParts];
-	if (nested.sql) {
-		everyWhereParts.push(`NOT (${nested.sql})`);
-	} else {
-		everyWhereParts.push("FALSE");
-	}
-	const everySql = `SELECT 1 FROM ${fromClause} WHERE ${everyWhereParts.join(" AND ")}`;
-	return {
-		sql: compileExistsSubquery(everySql, true),
-		params: nested.params,
-		nextParamIndex: nested.nextParamIndex,
-	};
 }
 
 function combinatorTableContext(table: ManifestTable): {

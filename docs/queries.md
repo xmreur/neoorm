@@ -226,7 +226,7 @@ await db.posts.findMany({
 | `authorId: "user_1"` | Filter by FK column value |
 | `author: { email: "a@b.c" }` | Filter by related record (to-one) |
 | `posts: { some: { ... } }` | At least one related record matches (to-many) |
-| `posts: { every: { ... } }` | All related records match (to-many) |
+| `posts: { every: { ... } }` | All related records match (to-many). Compiled as `NOT EXISTS` of related rows that fail the nested filter. |
 | `posts: { none: { ... } }` | No related records match (to-many) |
 
 Relation filters compile to SQL `EXISTS` subqueries, so they work with `findMany`, `count`, `updateMany`, and `deleteMany` without duplicate rows.
