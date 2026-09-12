@@ -18,7 +18,7 @@ bun add neoorm pg        # PostgreSQL
 bun add neoorm           # SQLite (no extra driver needed)
 ```
 
-Requires **Node.js 20+** (Node.js 22.5+ for SQLite on Node — or Bun, or pass your own `db` instance; see [SQLite](docs/sqlite.md)).
+Requires **Node.js 22.5+** or **Bun** (SQLite uses built-in `node:sqlite` / `bun:sqlite`; see [SQLite](docs/sqlite.md)).
 
 ---
 
