@@ -1,6 +1,6 @@
 # Schema DSL
 
-NeoOrm **0.7.4** uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
+NeoOrm **0.8.0** uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
 
 ## Tables and accessors
 
