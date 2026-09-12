@@ -360,3 +360,136 @@ describe("resolvePgColumnKind", () => {
 		).toBe("uuid");
 	});
 });
+
+function createConstraintMockPool(): Pool {
+	const query = vi.fn(async (sql: string) => {
+
+		if (sql.includes("information_schema.tables")) {
+			return { rows: [{ table_name: "post_tags" }] };
+		}
+		if (sql.includes("information_schema.columns")) {
+			return {
+				rows: [
+					{
+						column_name: "post_id",
+						data_type: "uuid",
+						udt_name: "uuid",
+						is_nullable: "NO",
+						column_default: null,
+					},
+					{
+						column_name: "tag_id",
+						data_type: "uuid",
+						udt_name: "uuid",
+						is_nullable: "NO",
+						column_default: null,
+					},
+					{
+						column_name: "priority",
+						data_type: "integer",
+						udt_name: "int4",
+						is_nullable: "NO",
+						column_default: "0",
+					},
+				],
+			};
+		}
+		if (sql.includes("FOREIGN KEY")) {
+			return { rows: [] };
+		}
+		if (sql.includes("pg_index")) {
+			return {
+				rows: [
+					{
+						index_name: "post_tags_post_id_tag_id_key",
+						column_name: "post_id",
+						is_unique: true,
+						is_primary: false,
+					},
+					{
+						index_name: "post_tags_post_id_tag_id_key",
+						column_name: "tag_id",
+						is_unique: true,
+						is_primary: false,
+					},
+					{
+						index_name: "post_tags_priority_idx",
+						column_name: "priority",
+						is_unique: false,
+						is_primary: false,
+					},
+				],
+			};
+		}
+		if (sql.includes("UNIQUE")) {
+			return {
+				rows: [
+					{
+						column_name: "post_id",
+						constraint_name: "post_tags_post_id_tag_id_key",
+					},
+					{
+						column_name: "tag_id",
+						constraint_name: "post_tags_post_id_tag_id_key",
+					},
+				],
+			};
+		}
+		if (sql.includes("PRIMARY KEY")) {
+			return {
+				rows: [{ column_name: "post_id" }, { column_name: "tag_id" }],
+			};
+		}
+		if (sql.includes("pg_get_constraintdef")) {
+			return {
+				rows: [
+					{
+						column_name: "priority",
+						definition: "CHECK ((priority >= 0))",
+						column_count: 1,
+					},
+				],
+			};
+		}
+		return { rows: [] };
+	}) as unknown as Pool["query"];
+
+	return { query } as unknown as Pool;
+}
+
+describe("introspectToManifest constraints", () => {
+	it("keeps composite uniques as indexes and attaches single-column checks", async () => {
+		const manifest = await introspectToManifest(
+			pgClient(createConstraintMockPool()),
+		);
+		const postTags = manifest.tables["postTags"];
+
+		expect(postTags?.primaryKey).toEqual(["post_id", "tag_id"]);
+		expect(
+			postTags?.columns.find((col) => col.tsName === "postId"),
+		).toMatchObject({ unique: false, primary: true });
+		expect(
+			postTags?.columns.find((col) => col.tsName === "tagId"),
+		).toMatchObject({ unique: false, primary: true });
+		expect(
+			postTags?.columns.find((col) => col.tsName === "priority"),
+		).toMatchObject({
+			defaultValue: 0,
+			checkExpression: "priority >= 0",
+		});
+		expect(postTags?.indexes).toEqual([
+			{
+				name: "post_tags_post_id_tag_id_key",
+				sqlName: "post_tags_post_id_tag_id_key",
+				columns: ["post_id", "tag_id"],
+				unique: true,
+			},
+			{
+				name: "post_tags_priority_idx",
+				sqlName: "post_tags_priority_idx",
+				columns: ["priority"],
+				unique: false,
+			},
+		]);
+	});
+});

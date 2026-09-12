@@ -32,6 +32,12 @@ export type UniqueConstraintRow = {
 	constraint_name: string;
 };
 
+export type CheckConstraintRow = {
+	column_name: string | null;
+	definition: string;
+	column_count: number | string | null;
+};
+
 export async function queryTables(
 	client: DatabaseClient,
 	schema = "public",
@@ -149,6 +155,33 @@ export async function queryUniqueConstraints(
 	return result.rows;
 }
 
+export async function queryCheckConstraints(
+	client: DatabaseClient,
+	tableName: string,
+	schema = "public",
+): Promise<CheckConstraintRow[]> {
+	const result = await client.query<CheckConstraintRow>(
+		`
+    SELECT
+      att.attname AS column_name,
+      pg_get_constraintdef(con.oid) AS definition,
+      array_length(con.conkey, 1) AS column_count
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+    LEFT JOIN pg_attribute att
+      ON att.attrelid = con.conrelid
+      AND con.conkey IS NOT NULL
+      AND att.attnum = con.conkey[1]
+    WHERE con.contype = 'c'
+      AND nsp.nspname = $1
+      AND rel.relname = $2
+  `,
+		[schema, tableName],
+	);
+	return result.rows;
+}
+
 export async function queryPrimaryKeyColumns(
 	client: DatabaseClient,
 	tableName: string,
@@ -171,7 +204,9 @@ export async function queryPrimaryKeyColumns(
 	return result.rows.map((row) => row.column_name);
 }
 
-export async function queryInstalledExtensions(client: DatabaseClient): Promise<string[]> {
+export async function queryInstalledExtensions(
+	client: DatabaseClient,
+): Promise<string[]> {
 	const result = await client.query<{ extname: string }>(`
     SELECT extname
     FROM pg_extension
