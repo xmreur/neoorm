@@ -1,5 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest";
-import type { PostsWith } from "../examples/blog/neoorm/includes.js";
+import type { PostWith } from "../examples/blog/neoorm/includes.js";
 import type { schema } from "../examples/blog/schema.js";
 import type {
 	WhereInput,
@@ -38,7 +38,7 @@ describe("with autocomplete types", () => {
 			};
 			tags: true;
 		};
-		expectTypeOf<ValidWith>().toExtend<PostsWith>();
+		expectTypeOf<ValidWith>().toExtend<PostWith>();
 	});
 
 	it("types nested where on comment includes", () => {
@@ -68,7 +68,7 @@ describe("with autocomplete types", () => {
 			};
 			tags: true;
 		};
-		expectTypeOf<ValidWith>().toExtend<PostsWith>();
+		expectTypeOf<ValidWith>().toExtend<PostWith>();
 	});
 
 	it("types paginate select omit and includeHidden", () => {

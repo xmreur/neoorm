@@ -45,6 +45,7 @@ import {
 	type TableExtra,
 } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
+import { singularize } from "../utils/inflect.js";
 
 export type SchemaValidationIssue = {
 	code: string;
@@ -106,19 +107,6 @@ function pluralize(word: string): string {
 		return `${word.slice(0, -1)}ies`;
 	}
 	return `${word}s`;
-}
-
-function singularize(word: string): string {
-	if (/ies$/.test(word)) {
-		return `${word.slice(0, -3)}y`;
-	}
-	if (/(ses|xes|zes|ches|shes)$/.test(word)) {
-		return word.slice(0, -2);
-	}
-	if (/s$/.test(word) && !/ss$/.test(word)) {
-		return word.slice(0, -1);
-	}
-	return word;
 }
 
 function autoJunctionName(leftSql: string, rightSql: string): string {

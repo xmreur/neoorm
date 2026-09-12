@@ -26,6 +26,8 @@ export const schema = defineSchema({
 - `table({ columns, extras? })` — SQL name is filled in from the accessor (`users` → `"users"`).
 - `table("sql_name", { columns }, extras?)` — override the SQL name (`postTags` → `"post_tags"`).
 
+Generated row types are the English singular of the accessor: `users` → `User`, `status` → `Status` (not `Statu`).
+
 Column field names use camelCase in TypeScript. By default SQL column names are snake_case (`createdAt` → `created_at`). See [column naming](#column-naming-strategy).
 
 ## Column types

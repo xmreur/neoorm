@@ -4,6 +4,7 @@ import type {
 	ManifestTable,
 } from "../dialect/types.js";
 import { primaryKeySqlName } from "../runtime/query/primary-key.js";
+import { singularize } from "../utils/inflect.js";
 
 export function pascalCase(str: string): string {
 	return str
@@ -11,33 +12,9 @@ export function pascalCase(str: string): string {
 		.replace(/_/g, "");
 }
 
-const IRREGULAR_SINGULARS = new Set([
-	"news",
-	"series",
-	"species",
-	"means",
-	"barracks",
-	"headquarters",
-	"aircraft",
-	"sheep",
-	"deer",
-	"fish",
-	"moose",
-	"salmon",
-	"trout",
-]);
-
-export function singularTypeName(accessor: string): string {
-	const pascal = pascalCase(accessor);
-	if (IRREGULAR_SINGULARS.has(pascal.toLowerCase())) return pascal;
-	// already-singular nouns whose final "s" is part of the word
-	if (/ss$/.test(pascal) || /us$/.test(pascal) || /is$/.test(pascal)) {
-		return pascal;
-	}
-	if (pascal.endsWith("s") && pascal.length > 1) {
-		return pascal.slice(0, -1);
-	}
-	return pascal;
+/** Generated model type name: PascalCase singular of the table accessor. */
+export function modelTypeName(accessor: string): string {
+	return pascalCase(singularize(accessor));
 }
 
 function uniqueRelations(table: ManifestTable): ManifestRelation[] {
