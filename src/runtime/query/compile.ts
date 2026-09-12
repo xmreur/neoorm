@@ -227,7 +227,7 @@ function compileColumnCondition(
 
 	if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
 		conditions.push(dialect.whereOperators.equals(sqlCol, nextParamIndex));
-		params.push(serializeColumnValue(col, rawValue));
+		params.push(serializeColumnValue(col, rawValue, dialect));
 		nextParamIndex++;
 		return { sql: conditions.join(" AND "), params, nextParamIndex };
 	}
@@ -305,11 +305,13 @@ function compileColumnCondition(
 		const paramValue =
 			operator === "in" || operator === "notIn"
 				? Array.isArray(value)
-					? value.map((item) => serializeColumnValue(col, item))
+					? value.map((item) =>
+							serializeColumnValue(col, item, dialect),
+						)
 					: value
 				: transform
 					? transform(value)
-					: serializeColumnValue(col, value);
+					: serializeColumnValue(col, value, dialect);
 		conditions.push(
 			isStringPatternOp(operator)
 				? stringFilterSql(

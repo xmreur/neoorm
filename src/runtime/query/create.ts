@@ -1,8 +1,8 @@
 import { postgresDialect } from "../../dialect/postgres.js";
 import type { Manifest, ManifestTable } from "../../dialect/types.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildInsertManyQuery,
@@ -11,7 +11,6 @@ import {
 	getCachedInsertQuery,
 	type InsertReturning,
 } from "./compile.js";
-import { mapRowToTs, mapRowsToTs } from "./map-row.js";
 import {
 	type QueryRuntime,
 	runExecute,
@@ -20,6 +19,7 @@ import {
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
+import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import {
 	fillMissingPrimaryKeys,
 	primaryKeyTsNames,
@@ -27,19 +27,19 @@ import {
 	scalarPkAvailable,
 } from "./primary-key.js";
 import {
-	columnByTsName,
-	getTableIndex,
-	relationByName,
-	requireTable,
-	requireTsColumn,
-} from "./table-index.js";
-import {
 	applyToOnePreWrites,
 	executeRelationWrites,
 	hasPostRelationWrites,
 	type ParsedRelationWrite,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
+import {
+	columnByTsName,
+	getTableIndex,
+	relationByName,
+	requireTable,
+	requireTsColumn,
+} from "./table-index.js";
 
 function createNeedsTransaction(
 	table: ManifestTable,
@@ -114,11 +114,13 @@ export async function runCreate(
 
 	fillMissingPrimaryKeys(table, scalarData, tableIndex);
 
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { keys, values } = dataToSqlValues(
 		table,
 		scalarData,
 		undefined,
 		runtime.tableIndex,
+		dialect,
 	);
 
 	const needsFullReturning = args.returnCreated || args.with;
@@ -339,6 +341,7 @@ function prepareCreateManyRows(
 	const scalarRows: Record<string, unknown>[] = [];
 
 	const tableIndex = runtime.tableIndex?.get(tableAccessor);
+	const dialect = runtime.dialect ?? postgresDialect;
 
 	for (const item of data) {
 		const scalarData: Record<string, unknown> = {};
@@ -371,6 +374,7 @@ function prepareCreateManyRows(
 			row,
 			undefined,
 			runtime.tableIndex,
+			dialect,
 		);
 		for (const k of keys) keySet.add(k);
 	}
@@ -387,6 +391,7 @@ function prepareCreateManyRows(
 			row,
 			undefined,
 			runtime.tableIndex,
+			dialect,
 		);
 		const valueByKey = new Map(keys.map((k, i) => [k, values[i]]));
 		return dataKeys.map((k) => valueByKey.get(k));
