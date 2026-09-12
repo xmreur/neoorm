@@ -235,6 +235,7 @@ describe("where compilation", () => {
 		);
 		expect(like.sql).toContain("LIKE");
 		expect(like.sql).not.toContain("LOWER");
+		expect(like.sql).toContain("ESCAPE '\\'");
 		expect(like.params).toEqual(["%ORM%"]);
 
 		const insensitive = compileWhere(
@@ -245,7 +246,55 @@ describe("where compilation", () => {
 		);
 		expect(insensitive.sql).toContain("LOWER(");
 		expect(insensitive.sql).toContain("LIKE LOWER(");
+		expect(insensitive.sql).toContain("ESCAPE '\\'");
 		expect(insensitive.params).toEqual(["%orm%"]);
+	});
+
+	it("escapes LIKE wildcards in contains, startsWith, and endsWith", () => {
+		const contains = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "hello%world_x" } },
+			postgresDialect,
+		);
+		expect(contains.sql).toContain("ESCAPE '\\'");
+		expect(contains.params).toEqual(["%hello\\%world\\_x%"]);
+
+		const starts = compileWhere(
+			manifest,
+			posts,
+			{ title: { startsWith: "a_b%" } },
+			postgresDialect,
+		);
+		expect(starts.params).toEqual(["a\\_b\\%%"]);
+
+		const ends = compileWhere(
+			manifest,
+			posts,
+			{ title: { endsWith: "100%" } },
+			sqliteDialect,
+		);
+		expect(ends.sql).toContain("ESCAPE '\\'");
+		expect(ends.params).toEqual(["%100\\%"]);
+
+		const slash = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "a\\b" } },
+			postgresDialect,
+		);
+		expect(slash.params).toEqual(["%a\\\\b%"]);
+	});
+
+	it("escapes LIKE wildcards for case-insensitive equals", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ email: { equals: "100%_off", mode: "insensitive" } },
+			postgresDialect,
+		);
+		expect(sql).toContain("ESCAPE '\\'");
+		expect(params).toEqual(["100\\%\\_off"]);
 	});
 
 	it("compiles equals with mode insensitive as ILIKE", () => {
@@ -257,6 +306,7 @@ describe("where compilation", () => {
 		);
 		expect(sql).toContain("ILIKE");
 		expect(sql).not.toContain('"email" = $');
+		expect(sql).toContain("ESCAPE '\\'");
 		expect(params).toEqual(["Ada@Example.com"]);
 	});
 
@@ -269,6 +319,7 @@ describe("where compilation", () => {
 		);
 		expect(sql).toContain("LOWER(");
 		expect(sql).toContain("LIKE LOWER(");
+		expect(sql).toContain("ESCAPE '\\'");
 		expect(params).toEqual(["Ada@Example.com"]);
 	});
 

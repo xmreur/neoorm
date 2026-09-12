@@ -219,7 +219,7 @@ Unknown column names and operators fail at compile time (`unknown_column`, with 
 | PostGIS (`geometry`, `geography`, `point`) | `intersects`, `within`, `dWithin` |
 | All nullable | `isNull`, `isNotNull` |
 
-`contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode.
+`contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode. `%` and `_` in the search string are matched literally (`ESCAPE '\'`).
 
 `search` is POSIX regex (`~`, or `~*` with `mode: "insensitive"`). It is PostgreSQL-only; SQLite throws.
 
