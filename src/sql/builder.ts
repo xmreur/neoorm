@@ -30,7 +30,11 @@ function parseQualifiedColumn(col: string): SqlFragment {
 	return sqlId(col);
 }
 
-/** Fluent SQL builder for simple select/join/group queries. */
+/**
+ * Fluent SQL builder for select/join/group/order.
+ * No WHERE, LIMIT, or bound params — interpolate `.compile()` into `db.sql`
+ * or `sql\`...\`` for those clauses.
+ */
 export const sqlBuilder = {
 	selectFrom(table: string): JoinBuilder {
 		const fromClause = sqlId(table).text;

@@ -369,9 +369,11 @@ await db.$transaction(async (tx) => {
 
 ## Raw SQL
 
-Use `db.sql` when you need full SQL control. Table names in tagged templates use your schema accessors:
+Use `db.sql` when you need full SQL control. It uses the same compiler as `neoorm/sql` (`sql`, `sqlId`, nested fragments). `sqlBuilder` is select/join/group/order only — interpolate `.compile()` into `db.sql` for WHERE, LIMIT, or bound params.
 
 ```ts
+import { sql, sqlBuilder, sqlId } from "neoorm/sql";
+
 const rows = await db.sql`
   SELECT u.id, u.email, count(p.id) AS post_count
   FROM users u
@@ -379,6 +381,19 @@ const rows = await db.sql`
   GROUP BY u.id, u.email
   ORDER BY post_count DESC
 `;
+
+const email = "a@b.com";
+const ident = sqlId("users");
+const filter = sql`email = ${email}`;
+const named = await db.sql`SELECT * FROM ${ident} WHERE ${filter}`;
+
+const grouped = sqlBuilder
+  .selectFrom("users")
+  .leftJoin("posts", "posts.author_id", "users.id")
+  .select(["users.id", "users.email"])
+  .groupBy("users.id", "users.email")
+  .compile();
+const dashboard = await db.sql`${grouped} HAVING count(posts.id) > ${0}`;
 ```
 
 ## API responses (`strip`)
