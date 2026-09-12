@@ -75,6 +75,14 @@ const db = createNeoOrmClientFromSqlite(manifest, database);
 
 `$disconnect()` does not close the handle — call `database.close()` yourself. `createNeoOrmClient(manifest, { db: database })` is the same ownership model.
 
+`sqliteDialect` is exported from `neoorm` (alongside `postgresDialect`) for `dbPush`, migrate helpers, and custom executor wiring:
+
+```ts
+import { dbPush, sqliteDialect } from "neoorm";
+
+await dbPush(client, sqliteDialect, manifest);
+```
+
 ## CLI
 
 The full CLI works against SQLite:
