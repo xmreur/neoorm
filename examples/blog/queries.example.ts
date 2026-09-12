@@ -216,7 +216,7 @@ export async function exampleMutations() {
 	});
 
 	const publishPost = await db.posts.update({
-		where: { title: "NeoORM" },
+		where: { id: "post_1" },
 		data: {
 			status: "published",
 			published: true,
@@ -228,7 +228,7 @@ export async function exampleMutations() {
 	});
 
 	const withRelationWrites = await db.posts.update({
-		where: { title: "NeoORM" },
+		where: { id: "post_1" },
 		data: {
 			comments: {
 				create: [
@@ -254,7 +254,7 @@ export async function exampleMutations() {
 	});
 
 	const relationOnlyUpdate = await db.posts.update({
-		where: { title: "NeoORM" },
+		where: { id: "post_1" },
 		data: {
 			tags: { disconnect: [{ id: "tag_1" }] },
 		},
@@ -286,7 +286,7 @@ export async function exampleMutations() {
 	});
 
 	const deleted = await db.posts.delete({
-		where: { title: "Draft post" },
+		where: { id: "post_draft" },
 	});
 
 	const deletedCount = await db.comments.deleteMany({

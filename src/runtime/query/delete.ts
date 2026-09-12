@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { queryCompileError } from "../error-builders.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildDeleteManyQuery,
@@ -11,7 +11,6 @@ import {
 	getCachedWhereClause,
 	isImpossibleWhere,
 } from "./compile.js";
-import { mapRowToTs, mapRowsToTs } from "./map-row.js";
 import {
 	type QueryRuntime,
 	runExecute,
@@ -19,8 +18,10 @@ import {
 	runQueryOne,
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
+import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import { resolvePkWhere } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
+import { assertUniqueWhere } from "./unique.js";
 
 export async function deleteRecord(
 	executor: Executor,
@@ -35,6 +36,12 @@ export async function deleteRecord(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "delete");
+	assertUniqueWhere(
+		table,
+		args.where,
+		"delete",
+		getTableIndex(runtime.tableIndex, tableAccessor),
+	);
 
 	const { sql: whereSql, params } = compileWhere(
 		manifest,

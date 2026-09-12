@@ -49,6 +49,8 @@ const users = await db.users.createManyAndReturn({
 
 ## Update
 
+Singular `update` requires a unique `where` (primary key, `@unique` column, or composite unique index), same as `findUnique`. Use `updateMany` when the filter can match multiple rows.
+
 ```ts
 // Single record
 const user = await db.users.update({
@@ -90,6 +92,8 @@ await db.posts.updateMany({
 ```
 
 ## Delete
+
+Singular `delete` requires a unique `where`. Use `deleteMany` for bulk deletes.
 
 ```ts
 // Returns {} on success, null if no row matched
