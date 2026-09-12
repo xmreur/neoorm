@@ -4,11 +4,40 @@ import type { NeoOrmIncludes } from "../examples/blog/neoorm/includes.js";
 import type { NeoOrmRowPayloads } from "../examples/blog/neoorm/models.js";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { parseFkTarget } from "../src/dialect/fk.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import type { Manifest, ManifestTable } from "../src/dialect/types.js";
+import { resetDatabaseSchema } from "../src/migrate/runner.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
+import { pgClient } from "../src/runtime/driver.js";
 import { defined } from "./helpers/manifest.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
+
+function tablesInFkCreateOrder(manifest: Manifest): ManifestTable[] {
+	const tables = Object.values(manifest.tables);
+	const bySql = new Map(tables.map((table) => [table.sqlName, table]));
+	const visiting = new Set<string>();
+	const done = new Set<string>();
+	const ordered: ManifestTable[] = [];
+
+	function visit(table: ManifestTable): void {
+		if (done.has(table.sqlName)) return;
+		if (visiting.has(table.sqlName)) return;
+		visiting.add(table.sqlName);
+		for (const col of table.columns) {
+			if (col.kind !== "fk" || !col.fkTarget) continue;
+			const parent = bySql.get(parseFkTarget(col.fkTarget).tableSql);
+			if (parent) visit(parent);
+		}
+		visiting.delete(table.sqlName);
+		done.add(table.sqlName);
+		ordered.push(table);
+	}
+
+	for (const table of tables) visit(table);
+	return ordered;
+}
 
 describe.skipIf(!DATABASE_URL)("integration", () => {
 	let pool: Pool;
@@ -16,11 +45,22 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 	beforeAll(async () => {
 		pool = new Pool({ connectionString: DATABASE_URL });
 		const manifest = schemaToManifest(schema);
+		const client = pgClient(pool);
+		await resetDatabaseSchema(client, postgresDialect);
 
-		await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+		for (const sql of postgresDialect.emitCreateEnumTypes(
+			manifest.enumTypes ?? {},
+		)) {
+			await pool.query(sql);
+		}
 
-		for (const table of Object.values(manifest.tables)) {
-			await pool.query(postgresDialect.emitCreateTable(table));
+		for (const table of tablesInFkCreateOrder(manifest)) {
+			await pool.query(
+				postgresDialect.emitCreateTable(table, { manifest }),
+			);
+			for (const index of table.indexes) {
+				await pool.query(postgresDialect.emitCreateIndex(table, index));
+			}
 		}
 	});
 

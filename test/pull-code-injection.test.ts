@@ -1,8 +1,10 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { postgresDialect } from "../src/dialect/postgres.js";
 import { introspectPostgres } from "../src/introspect/pull.js";
+import { resetDatabaseSchema } from "../src/migrate/runner.js";
 import { pgClient } from "../src/runtime/driver.js";
-import { sanitizeTsIdentifier, escapeTsString } from "../src/utils/case.js";
+import { escapeTsString, sanitizeTsIdentifier } from "../src/utils/case.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -23,6 +25,7 @@ describe.skipIf(!databaseUrl)("db pull code injection (integration)", () => {
 
 	beforeAll(async () => {
 		pool = new Pool({ connectionString: databaseUrl });
+		await resetDatabaseSchema(pgClient(pool), postgresDialect);
 		await pool.query(
 			`CREATE TABLE "x""); 1//" ("id" text PRIMARY KEY, "col""); 2//" text)`,
 		);

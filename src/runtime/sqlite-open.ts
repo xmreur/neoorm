@@ -1,9 +1,30 @@
 import { createRequire } from "node:module";
-import { SchemaErrorCode } from "./error-codes.js";
-import { schemaError } from "./error-builders.js";
 import type { SqliteDatabaseLike } from "./driver.js";
+import { schemaError } from "./error-builders.js";
+import { SchemaErrorCode } from "./error-codes.js";
 
 const require = createRequire(import.meta.url);
+
+const POSTGRES_URL = /^(postgres(ql)?:)/i;
+
+function usableSqlitePath(path: string | undefined): string | undefined {
+	if (!path) return undefined;
+	if (POSTGRES_URL.test(path)) return undefined;
+	return path;
+}
+
+/** File path or `:memory:` for SQLite. Ignores PostgreSQL `DATABASE_URL` values. */
+export function resolveSqliteDatabasePath(
+	databasePath: string | undefined,
+	manifestUrl: string | undefined,
+): string {
+	return (
+		usableSqlitePath(databasePath) ??
+		usableSqlitePath(process.env["DATABASE_URL"]) ??
+		usableSqlitePath(manifestUrl) ??
+		":memory:"
+	);
+}
 
 export function openSqliteDatabase(databasePath: string): SqliteDatabaseLike {
 	const bunRuntime =

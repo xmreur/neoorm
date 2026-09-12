@@ -11,18 +11,24 @@ const databaseUrl = process.env.DATABASE_URL;
 
 describe("bigint column kind", () => {
 	it("builds a BIGINT column that maps to the TS bigint type", () => {
-const schema = defineSchema({
+		const schema = defineSchema({
 			users: table({
 				id: text().primary(),
 				count: bigint().notNull().default(9007199254740993n),
 			}),
 		});
 		const manifest = schemaToManifest(schema);
-		const col = manifest.tables.users!.columns.find((c) => c.tsName === "count")!;
+		const col = manifest.tables.users!.columns.find(
+			(c) => c.tsName === "count",
+		)!;
 		expect(col.kind).toBe("bigint");
 		expect(col.defaultValue).toBe(9007199254740993n);
-		const createSql = postgresDialect.emitCreateTable(manifest.tables.users!);
-		expect(createSql).toContain('"count" BIGINT NOT NULL DEFAULT 9007199254740993');
+		const createSql = postgresDialect.emitCreateTable(
+			manifest.tables.users!,
+		);
+		expect(createSql).toContain(
+			'"count" BIGINT NOT NULL DEFAULT 9007199254740993',
+		);
 	});
 
 	it("serializes bigint values as strings for pg and deserializes back", async () => {
@@ -33,10 +39,12 @@ const schema = defineSchema({
 			}),
 		});
 		const manifest = schemaToManifest(schema);
-		const col = manifest.tables.users!.columns.find((c) => c.tsName === "count")!;
-		const plugin = (await import("../src/plugins/registry.js")).getColumnType(
-			"bigint",
+		const col = manifest.tables.users!.columns.find(
+			(c) => c.tsName === "count",
 		)!;
+		const plugin = (
+			await import("../src/plugins/registry.js")
+		).getColumnType("bigint")!;
 		expect(plugin.serializeValue?.(col, 9007199254740993n)).toBe(
 			"9007199254740993",
 		);
@@ -51,6 +59,7 @@ describe.skipIf(!databaseUrl)("bigint introspection (integration)", () => {
 
 	beforeAll(async () => {
 		pool = new Pool({ connectionString: databaseUrl });
+		await pool.query("DROP TABLE IF EXISTS bg_users");
 		await pool.query(`
 			CREATE TABLE bg_users (
 				id text PRIMARY KEY,
@@ -80,7 +89,7 @@ describe.skipIf(!databaseUrl)("bigint introspection (integration)", () => {
 
 	it("reads and writes bigint values without precision loss", async () => {
 		const schema = defineSchema({
-			users: table({
+			users: table("bg_users", {
 				id: id(),
 				count: bigint().notNull(),
 			}),

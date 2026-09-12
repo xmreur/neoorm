@@ -1,8 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Pool } from "pg";
-import { postgresDialect } from "../src/dialect/postgres.js";
-import { pgClient } from "../src/runtime/driver.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	buildDownSql,
@@ -10,6 +8,7 @@ import {
 	emptyManifest,
 } from "../src/codegen/diff-manifest.js";
 import { generateFromSchema, readSnapshot } from "../src/codegen/generate.js";
+import { postgresDialect } from "../src/dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestColumn,
@@ -21,6 +20,7 @@ import {
 	migrateStatus,
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
+import { pgClient } from "../src/runtime/driver.js";
 import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
 
 const DATABASE_URL = process.env["DATABASE_URL"];
@@ -131,7 +131,9 @@ describe("migrateDown step selection", () => {
 		} as unknown as Pool;
 
 		await expect(
-			migrateDown(pgClient(pool), postgresDialect, "/tmp/migrations", { steps: 1 }),
+			migrateDown(pgClient(pool), postgresDialect, "/tmp/migrations", {
+				steps: 1,
+			}),
 		).rejects.toThrow(/No applied migrations/);
 	});
 
@@ -146,27 +148,36 @@ describe("migrateDown step selection", () => {
 		} as unknown as Pool;
 
 		await expect(
-			migrateDown(pgClient(pool), postgresDialect, "/tmp/migrations", { steps: 2 }),
+			migrateDown(pgClient(pool), postgresDialect, "/tmp/migrations", {
+				steps: 2,
+			}),
 		).rejects.toThrow(/only 1 applied/);
 	});
 });
 
 describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 	let pool: Pool;
-	let tmpDir: string;
+	let tmpDir: string | undefined;
 
 	beforeAll(async () => {
 		pool = new Pool({ connectionString: DATABASE_URL });
-		tmpDir = await mkdtemp(join(import.meta.dirname, ".tmp/migrate-down-"));
+		const tmpRoot = join(import.meta.dirname, ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		tmpDir = await mkdtemp(join(tmpRoot, "migrate-down-"));
 		await resetDatabaseSchema(pgClient(pool), postgresDialect);
 	});
 
 	afterAll(async () => {
 		await pool.end();
-		await rm(tmpDir, { recursive: true, force: true });
+		if (tmpDir) {
+			await rm(tmpDir, { recursive: true, force: true });
+		}
 	});
 
 	it("deploy → down → redeploy restores pending status and snapshot", async () => {
+		if (!tmpDir) {
+			throw new Error("expected migrate-down work directory");
+		}
 		const schemaPath = join(
 			import.meta.dirname,
 			"../examples/blog/schema.ts",
@@ -175,10 +186,7 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 		const migrationsDir = join(outDir, "migrations");
 
 		const { migrationName } = await generateFromSchema(schemaPath, outDir);
-		const resolvedMigrationName = defined(
-			migrationName,
-			"migrationName",
-		);
+		const resolvedMigrationName = defined(migrationName, "migrationName");
 
 		const migrationDir = join(migrationsDir, resolvedMigrationName);
 		const downSql = await readFile(join(migrationDir, "down.sql"), "utf-8");
@@ -189,28 +197,49 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 		expect(downSql.length).toBeGreaterThan(0);
 		expect(JSON.parse(snapshotBefore)).toEqual(emptyManifest());
 
-		const applied = await migrateDeploy(pgClient(pool), postgresDialect, migrationsDir);
+		const applied = await migrateDeploy(
+			pgClient(pool),
+			postgresDialect,
+			migrationsDir,
+		);
 		expect(applied).toContain(resolvedMigrationName);
 
-		let status = await migrateStatus(pgClient(pool), postgresDialect, migrationsDir);
+		let status = await migrateStatus(
+			pgClient(pool),
+			postgresDialect,
+			migrationsDir,
+		);
 		expect(status.pending).toEqual([]);
 
 		const snapshotAfterDeploy = await readSnapshot(outDir);
 		expect(snapshotAfterDeploy?.tables["users"]).toBeDefined();
 
-		const reverted = await migrateDown(pgClient(pool), postgresDialect, migrationsDir, {
-			outDir,
-			steps: 1,
-		});
+		const reverted = await migrateDown(
+			pgClient(pool),
+			postgresDialect,
+			migrationsDir,
+			{
+				outDir,
+				steps: 1,
+			},
+		);
 		expect(reverted).toEqual([resolvedMigrationName]);
 
-		status = await migrateStatus(pgClient(pool), postgresDialect, migrationsDir);
+		status = await migrateStatus(
+			pgClient(pool),
+			postgresDialect,
+			migrationsDir,
+		);
 		expect(status.pending).toContain(resolvedMigrationName);
 
 		const snapshotAfterDown = await readSnapshot(outDir);
 		expect(snapshotAfterDown?.tables).toEqual({});
 
-		const reapplied = await migrateDeploy(pgClient(pool), postgresDialect, migrationsDir);
+		const reapplied = await migrateDeploy(
+			pgClient(pool),
+			postgresDialect,
+			migrationsDir,
+		);
 		expect(reapplied).toContain(resolvedMigrationName);
 	});
 });
