@@ -102,7 +102,7 @@ bunx neoorm migrate reset --force
 | `bytea` | `BLOB` |
 | `fk` | the target column's type (default `TEXT`) |
 
-`defaultNow()` compiles to `CURRENT_TIMESTAMP`. Structural table changes that SQLite cannot do in place (column type changes, FK changes) are applied via a table-rebuild strategy: create `__neoorm_<table>_new`, copy rows, drop the old table, rename.
+`defaultNow()` compiles to `CURRENT_TIMESTAMP`. Structural table changes that SQLite cannot do in place (column type changes, FK changes, nullability) are applied via a table-rebuild strategy: `PRAGMA foreign_keys = OFF`, then in one transaction create `__neoorm_<table>_new`, copy rows, drop the old table, rename, and `PRAGMA foreign_keys = ON`. Foreign keys must be disabled *before* `BEGIN` — SQLite ignores that pragma inside a transaction. The client always enables `foreign_keys` at connect time, so inbound FKs (e.g. `posts.user_id` → `users`) would otherwise block `DROP TABLE` of the parent.
 
 ## Differences from PostgreSQL
 

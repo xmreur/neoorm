@@ -91,6 +91,21 @@ async function ensureMigrationsChecksumColumn(
 	);
 }
 
+const SQLITE_FOREIGN_KEYS_PRAGMA = /^\s*PRAGMA\s+foreign_keys\s*=/i;
+const SQLITE_FOREIGN_KEYS_OFF = /^\s*PRAGMA\s+foreign_keys\s*=\s*OFF\b/i;
+
+async function withSqliteForeignKeysOff<T>(
+	client: DatabaseClient,
+	fn: () => Promise<T>,
+): Promise<T> {
+	await client.query("PRAGMA foreign_keys = OFF");
+	try {
+		return await fn();
+	} finally {
+		await client.query("PRAGMA foreign_keys = ON");
+	}
+}
+
 async function withMigrateDeployLock<T>(
 	client: DatabaseClient,
 	dialect: Dialect,
@@ -98,7 +113,11 @@ async function withMigrateDeployLock<T>(
 	fn: (locked: DatabaseClient) => Promise<T>,
 ): Promise<T> {
 	if (dialect.name === "sqlite") {
-		return client.transaction(fn, { isolationLevel: "Serializable" });
+		// PRAGMA foreign_keys is a no-op inside a transaction. Disable
+		// before BEGIN IMMEDIATE so table rebuilds can DROP a parent.
+		return withSqliteForeignKeysOff(client, () =>
+			client.transaction(fn, { isolationLevel: "Serializable" }),
+		);
 	}
 
 	// Session-level pg_advisory_lock on pool.query would bind a random
@@ -397,11 +416,23 @@ export async function applySql(
 	}
 
 	try {
-		await client.transaction(async (tx) => {
-			for (const statement of sql) {
-				await tx.query(statement);
-			}
-		});
+		const disableForeignKeys = sql.some((statement) =>
+			SQLITE_FOREIGN_KEYS_OFF.test(statement),
+		);
+		const statements = sql.filter(
+			(statement) => !SQLITE_FOREIGN_KEYS_PRAGMA.test(statement),
+		);
+		const run = () =>
+			client.transaction(async (tx) => {
+				for (const statement of statements) {
+					await tx.query(statement);
+				}
+			});
+		if (disableForeignKeys) {
+			await withSqliteForeignKeysOff(client, run);
+		} else {
+			await run();
+		}
 	} catch (err) {
 		const statement =
 			err instanceof NeoOrmDriverError ? err.statement : undefined;
@@ -425,17 +456,23 @@ export async function applyMigration(
 	const sql = await readFile(sqlPath, "utf-8");
 
 	try {
-		await client.transaction(async (tx) => {
-			const schemaSql = dialect.emitCreateSchema(context.schema);
-			if (schemaSql) {
-				await tx.query(schemaSql);
-			}
-			await tx.query(sql);
-			await tx.query(
-				`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum) VALUES ($1, $2)`,
-				[name, hashMigrationSql(sql)],
-			);
-		});
+		const apply = () =>
+			client.transaction(async (tx) => {
+				const schemaSql = dialect.emitCreateSchema(context.schema);
+				if (schemaSql) {
+					await tx.query(schemaSql);
+				}
+				await tx.query(sql);
+				await tx.query(
+					`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum) VALUES ($1, $2)`,
+					[name, hashMigrationSql(sql)],
+				);
+			});
+		if (dialect.name === "sqlite") {
+			await withSqliteForeignKeysOff(client, apply);
+		} else {
+			await apply();
+		}
 	} catch (err) {
 		throw enrichMigrationError(err, {
 			...(context.schemaPath ? { schemaPath: context.schemaPath } : {}),
