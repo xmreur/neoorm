@@ -63,6 +63,7 @@ Codes are **dialect-agnostic** — the same `unique_violation` code is used for 
 | `unknown_table` | `QueryCompileError` | 400 | Bad table accessor |
 | `unknown_column` | `QueryCompileError` | 400 | Bad column in where/select/omit/groupBy |
 | `invalid_args` | `QueryCompileError` | 400 | Unsupported where/having operator |
+| `invalid_nested_write` | `QueryCompileError` | 400 | Relation field is not a pure nested write bag |
 | `unique_where_invalid` | `QueryCompileError` | 400 | unique where is not unique, or uses filter operators |
 | `where_required` | `QueryCompileError` | 400 | update/delete missing where |
 

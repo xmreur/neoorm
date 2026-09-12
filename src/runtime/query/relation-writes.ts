@@ -65,6 +65,10 @@ export type SplitDataResult = {
 	relationWrites: ParsedRelationWrite[];
 };
 
+function isRelationWriteKey(key: string): boolean {
+	return (RELATION_WRITE_KEYS as readonly string[]).includes(key);
+}
+
 function isRelationWriteObject(
 	value: unknown,
 ): value is Record<string, unknown> {
@@ -72,9 +76,36 @@ function isRelationWriteObject(
 		return false;
 	const keys = Object.keys(value);
 	if (keys.length === 0) return false;
-	return keys.every((k) =>
-		(RELATION_WRITE_KEYS as readonly string[]).includes(k),
-	);
+	return keys.every(isRelationWriteKey);
+}
+
+function requireRelationWriteObject(
+	relationName: string,
+	value: unknown,
+	table: ManifestTable,
+	operation: QueryOperation,
+): asserts value is Record<string, unknown> {
+	if (isRelationWriteObject(value)) return;
+
+	const allowed = RELATION_WRITE_KEYS.join(", ");
+	let detail = `Relation "${relationName}" requires a nested write object (${allowed})`;
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const unknownKeys = Object.keys(value).filter(
+			(k) => !isRelationWriteKey(k),
+		);
+		if (unknownKeys.length > 0) {
+			detail = `Relation "${relationName}" nested write has unknown keys: ${unknownKeys.join(", ")}. Allowed: ${allowed}`;
+		}
+	}
+
+	compileError(detail, {
+		code: QueryErrorCode.invalid_nested_write,
+		operation,
+		tableAccessor: table.accessor,
+		tableSqlName: table.sqlName,
+		columnTsName: relationName,
+		suggestions: [...RELATION_WRITE_KEYS],
+	});
 }
 
 function isRelationField(
@@ -178,17 +209,7 @@ export function splitScalarsAndRelationWrites(
 		}
 
 		if (isRelationField(manifest, tableAccessor, table, key, tableIndex)) {
-			if (!isRelationWriteObject(value)) {
-				compileError(
-					`Relation "${key}" requires a nested write object`,
-					{
-						code: QueryErrorCode.invalid_nested_write,
-						operation,
-						tableAccessor: table.accessor,
-						tableSqlName: table.sqlName,
-					},
-				);
-			}
+			requireRelationWriteObject(key, value, table, operation);
 			relationWrites.push({ relationName: key, value });
 			continue;
 		}
