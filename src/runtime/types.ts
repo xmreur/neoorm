@@ -131,8 +131,15 @@ export type FindOrCreateArgsWith<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith,
-> = Omit<FindOrCreateArgs<TSchema, TAccessor>, "with"> & {
+	TSelect = undefined,
+	TOmit = undefined,
+> = Omit<
+	FindOrCreateArgs<TSchema, TAccessor>,
+	"with" | "select" | "omit"
+> & {
 	with?: TWith;
+	select?: TSelect;
+	omit?: TOmit;
 };
 
 export type CreateArgsWith<
@@ -333,10 +340,31 @@ export type TypedTableRepository<
 	upsert<W extends TWith | undefined = undefined>(
 		args: UpsertArgsWith<TSchema, TAccessor, W>,
 	): Promise<InferWithResult<TSchema, TAccessor, W, TRowPayload>>;
-	findOrCreate<W extends TWith | undefined = undefined>(
-		args: FindOrCreateArgsWith<TSchema, TAccessor, W>,
+	findOrCreate<
+		W extends TWith | undefined = undefined,
+		const S extends
+			| SelectInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const O extends
+			| OmitInput<TSchema[TAccessor]["_columns"]>
+			| undefined = undefined,
+		const IH extends boolean | undefined = undefined,
+	>(
+		args: FindOrCreateArgsWith<TSchema, TAccessor, W, S, O> & {
+			includeHidden?: IH;
+		},
 	): Promise<
-		FindOrCreateResult<InferWithResult<TSchema, TAccessor, W, TRowPayload>>
+		FindOrCreateResult<
+			InferFindResult<
+				TSchema,
+				TAccessor,
+				W,
+				S,
+				O,
+				TRowPayload,
+				IncludeHiddenFlag<IH>
+			>
+		>
 	>;
 	update<W extends TWith | undefined = undefined>(
 		args: UpdateArgsWith<TSchema, TAccessor, W>,

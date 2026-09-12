@@ -141,7 +141,10 @@ export type TableRepository = {
 	findOrCreate(args: {
 		where: Record<string, unknown>;
 		create: Record<string, unknown>;
+		select?: readonly string[] | Record<string, boolean | undefined>;
+		omit?: readonly string[] | Record<string, boolean | undefined>;
 		with?: Record<string, WithInput>;
+		includeHidden?: boolean;
 	}): Promise<{ record: Record<string, unknown>; created: boolean }>;
 	update(args: {
 		where: Record<string, unknown>;

@@ -2036,6 +2036,8 @@ export function buildFindOrCreateQuery(
 	conflictSqlColumns: readonly string[],
 	fallbackWhereBody: string,
 	manifestIndex?: ManifestIndex,
+	select?: readonly string[],
+	includeHidden?: boolean,
 ): string {
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
@@ -2047,7 +2049,12 @@ export function buildFindOrCreateQuery(
 			return buildValuePlaceholder(col, i + 1);
 		})
 		.join(", ");
-	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
+	const selectCols = buildSelectColumns(
+		table,
+		select,
+		manifestIndex,
+		includeHidden,
+	);
 	const conflictCols = conflictSqlColumns
 		.map((c) => quoteIdentifier(c))
 		.join(", ");
