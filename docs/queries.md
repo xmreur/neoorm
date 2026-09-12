@@ -86,6 +86,12 @@ const updated = await db.users.updateManyAndReturn({
   where: { email: { contains: "@old" } },
   data: { status: "archived" },
 });
+
+const post = await db.posts.update({
+  where: { id: postId },
+  data: { title: "New" },
+  with: { author: true }, // full row plus relations; no returnUpdated needed
+});
 ```
 
 Numeric columns (`int`, `serial`, `decimal`, `bigint`) also accept `{ increment }`, `{ decrement }`, `{ multiply }`, and `{ set }`. These compile to `col = col ±/* $n` so concurrent updates do not clobber each other. `{ set: value }` is the same assignment as a plain value. `NULL + 1` stays SQL NULL.
@@ -114,6 +120,12 @@ await db.users.delete({ where: { id: userId } });
 const deleted = await db.users.delete({
   where: { id: userId },
   returnDeleted: true,
+});
+
+// `with` also returns the full row (plus relations), even without returnDeleted
+const post = await db.posts.delete({
+  where: { id: postId },
+  with: { author: true },
 });
 
 // Scalar PK — pass a string

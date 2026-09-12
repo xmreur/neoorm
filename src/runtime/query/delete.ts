@@ -74,7 +74,7 @@ export async function deleteRecord(
 		return rowCount > 0 ? {} : null;
 	}
 
-	const returning = args.returnDeleted ? "full" : "pk";
+	const returning = args.returnDeleted || args.with ? "full" : "pk";
 	const query = buildDeleteQuery(
 		table,
 		whereSql,
