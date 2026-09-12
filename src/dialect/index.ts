@@ -1,4 +1,5 @@
 export { postgresDialect, quoteIdentifier } from "./postgres.js";
+export { sqliteDialect } from "./sqlite.js";
 export type {
 	CompiledQuery,
 	DestructiveChange,
