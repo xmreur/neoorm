@@ -6,6 +6,7 @@ import { defineSchema, fk, id, table, text } from "../../schema/index.js";
 import { UniqueViolationError } from "../errors.js";
 import { createSqliteExecutor } from "../executor.js";
 import { createRecord } from "./create.js";
+import { deleteRecord } from "./delete.js";
 import type { QueryRuntime } from "./execute.js";
 import { findMany } from "./find.js";
 import {
@@ -125,6 +126,49 @@ describe("update nested to-one create", () => {
 
 		const users = await findMany(executor, runtime, "users", {});
 		expect(users.map((row) => row.email).sort()).toEqual(["ada@b.com"]);
+		db.close();
+	});
+});
+
+describe("update/delete with relations", () => {
+	it("returns full scalars when update sets with without returnUpdated", async () => {
+		const { db, runtime, executor } = openDb();
+		const author = await createRecord(executor, runtime, "users", {
+			data: { email: "ada@b.com", name: "Ada" },
+		});
+		const post = await createRecord(executor, runtime, "posts", {
+			data: { title: "one", authorId: author.id },
+		});
+
+		const updated = await updateRecord(executor, runtime, "posts", {
+			where: { id: post.id },
+			data: { title: "renamed" },
+			with: { author: true },
+		});
+		expect(updated).toMatchObject({
+			title: "renamed",
+			author: { email: "ada@b.com", name: "Ada" },
+		});
+		db.close();
+	});
+
+	it("returns full scalars when delete sets with without returnDeleted", async () => {
+		const { db, runtime, executor } = openDb();
+		const author = await createRecord(executor, runtime, "users", {
+			data: { email: "ada@b.com", name: "Ada" },
+		});
+		const post = await createRecord(executor, runtime, "posts", {
+			data: { title: "one", authorId: author.id },
+		});
+
+		const deleted = await deleteRecord(executor, runtime, "posts", {
+			where: { id: post.id },
+			with: { author: true },
+		});
+		expect(deleted).toMatchObject({
+			title: "one",
+			author: { email: "ada@b.com", name: "Ada" },
+		});
 		db.close();
 	});
 });

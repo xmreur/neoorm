@@ -179,9 +179,8 @@ async function runUpdate(
 			if (rowCount === 0) return null;
 			result = {};
 		} else {
-			const returning: UpdateReturning = args.returnUpdated
-				? "full"
-				: "pk";
+			const returning: UpdateReturning =
+				args.returnUpdated || args.with ? "full" : "pk";
 			const query = buildUpdateQuery(
 				table,
 				keys,
