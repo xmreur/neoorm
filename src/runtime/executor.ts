@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto";
 import type { Pool, PoolClient, QueryResult } from "pg";
 import type { CompiledQuery } from "../dialect/types.js";
-import type { TransactionOptions } from "./types.js";
+import {
+	type DatabaseClient,
+	type SqliteDatabaseLike,
+	sqliteClient,
+} from "./driver.js";
+import { CappedMap } from "./query/table-index.js";
 import {
 	assertNoSavepointOptions,
 	buildBeginSql,
 	buildSavepointName,
 } from "./transaction.js";
-import {
-	sqliteClient,
-	type SqliteDatabaseLike,
-} from "./driver.js";
-import { CappedMap } from "./query/table-index.js";
+import type { TransactionOptions } from "./types.js";
 
 export type ExecuteResult<T = Record<string, unknown>> = {
 	rows: T[];
@@ -174,7 +175,9 @@ function createClientExecutor(
 
 			await client.query(`SAVEPOINT ${savepointName}`);
 			try {
-				const result = await fn(createClientExecutor(state, usePrepared));
+				const result = await fn(
+					createClientExecutor(state, usePrepared),
+				);
 				await client.query(`RELEASE SAVEPOINT ${savepointName}`);
 				return result;
 			} catch (err) {
@@ -205,7 +208,7 @@ export function compileQuery(
 }
 
 function createExecutorFromDriver(
-	driver: ReturnType<typeof sqliteClient>,
+	driver: DatabaseClient,
 	inTransaction: boolean,
 ): Executor {
 	return {
@@ -236,17 +239,23 @@ function createExecutorFromDriver(
 			options?: TransactionOptions,
 		): Promise<T> {
 			return driver.transaction(
-				() => fn(createExecutorFromDriver(driver, true)),
+				(txDriver) => fn(createExecutorFromDriver(txDriver, true)),
 				options,
 			);
 		},
 	};
 }
 
+function isSqliteDatabaseLike(
+	value: SqliteDatabaseLike | DatabaseClient,
+): value is SqliteDatabaseLike {
+	return "prepare" in value && typeof value.prepare === "function";
+}
+
 export function createSqliteExecutor(
-	db: SqliteDatabaseLike,
+	db: SqliteDatabaseLike | DatabaseClient,
 	_options?: ExecutorOptions,
 ): Executor {
-	const driver = sqliteClient(db);
+	const driver = isSqliteDatabaseLike(db) ? sqliteClient(db) : db;
 	return createExecutorFromDriver(driver, false);
 }

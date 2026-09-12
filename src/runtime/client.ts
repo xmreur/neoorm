@@ -8,11 +8,10 @@ import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
-import { QueryErrorCode } from "./error-codes.js";
-import { queryError, schemaError } from "./error-builders.js";
-import { SchemaErrorCode } from "./error-codes.js";
 import type { DatabaseClient, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
+import { queryError, schemaError } from "./error-builders.js";
+import { QueryErrorCode, SchemaErrorCode } from "./error-codes.js";
 import {
 	compileQuery,
 	createExecutor,
@@ -346,7 +345,11 @@ function buildClient<
 						throw queryError(
 							QueryErrorCode.connection_error,
 							"Failed to connect to the database",
-							{ operation: "raw", phase: "runtime", sql: "SELECT 1" },
+							{
+								operation: "raw",
+								phase: "runtime",
+								sql: "SELECT 1",
+							},
 							undefined,
 							err,
 						);
@@ -501,7 +504,7 @@ export function createNeoOrmClient<
 			await pool.end();
 		},
 	);
-};
+}
 
 /**
  * Create a typed NeoOrm client from an existing `pg` connection pool.
@@ -585,7 +588,7 @@ export function createNeoOrmClientFromSqlite<
 			: {}),
 	};
 
-	const executor = createSqliteExecutor(db);
+	const executor = createSqliteExecutor(driver);
 	return buildClient<TTables, TIncludes, TRowPayloads>(
 		executor,
 		runtime,
