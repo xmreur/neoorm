@@ -981,9 +981,8 @@ export async function findFirst(
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	const projection = resolveParentProjection(table, args, tableIndex);
 	const hasWith = Boolean(args?.with && Object.keys(args.with).length > 0);
-	const canFastPath = !hasWith && !args?.distinct && args?.skip === undefined;
 
-	if (canFastPath) {
+	if (!hasWith) {
 		const compiledWhere = getCachedWhereClause(
 			manifest,
 			table,
@@ -997,6 +996,15 @@ export async function findFirst(
 		}
 
 		const { sql: whereSql, params } = compiledWhere;
+		const distinctOn = normalizeSelectColumns(args?.distinct);
+		validateDistinctOrderBy(distinctOn, args?.orderBy);
+
+		if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
+			compileError(
+				"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
+			);
+		}
+
 		const orderSql = getCachedOrderByClause(
 			table,
 			args?.orderBy,
@@ -1008,15 +1016,15 @@ export async function findFirst(
 			projection.sqlColumns,
 			projection.includeHidden,
 		);
-		const signature = `${whereSql}|${orderSql}|1|||${projSig}`;
+		const signature = `${whereSql}|${orderSql}|1|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
 				table,
 				whereSql,
 				orderSql,
 				1,
-				undefined,
-				undefined,
+				args?.skip,
+				distinctOn,
 				undefined,
 				undefined,
 				runtime.tableIndex,

@@ -19,6 +19,13 @@ const users = await db.users.findMany({
   skip: 40,
 });
 
+// First match after skip, or with DISTINCT ON (null if not found)
+await db.users.findFirst({ orderBy: { email: "asc" }, skip: 1 });
+await db.users.findFirst({
+  distinct: ["email"],
+  orderBy: { email: "asc" },
+});
+
 // Unique constraint lookup
 const user = await db.users.findUnique({ where: { slug: "hello" } });
 ```
