@@ -119,7 +119,7 @@ describe("postgres schema namespaces", () => {
 	});
 
 	it("qualifies migration metadata and resets the selected schema", async () => {
-		const pool = mockPool();
+		const pool = mockPool([{ exists: true }]);
 
 		await ensureMigrationsTable(pgClient(pool), postgresDialect, "tenant_a");
 		await resetDatabaseSchema(pgClient(pool), postgresDialect, "tenant_a");
@@ -130,9 +130,15 @@ describe("postgres schema namespaces", () => {
 		expect(pool.queries[1]?.sql).toContain(
 			'CREATE TABLE IF NOT EXISTS "tenant_a"."_neoorm_migrations"',
 		);
-		expect(pool.queries[2]?.sql).toContain(
+		expect(pool.queries[1]?.sql).toContain("checksum");
+		expect(pool.queries[2]?.sql).toContain("information_schema.columns");
+		expect(pool.queries[2]?.params).toEqual([
+			"tenant_a",
+			"_neoorm_migrations",
+		]);
+		expect(pool.queries[3]?.sql).toContain(
 			'DROP SCHEMA "tenant_a" CASCADE',
 		);
-		expect(pool.queries[2]?.sql).toContain('CREATE SCHEMA "tenant_a"');
+		expect(pool.queries[3]?.sql).toContain('CREATE SCHEMA "tenant_a"');
 	});
 });

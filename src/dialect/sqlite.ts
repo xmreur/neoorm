@@ -356,7 +356,7 @@ export const sqliteDialect: Dialect = {
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>
-		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 	castToInt: (expr) => `CAST(${expr} AS INTEGER)`,
 	castToNumeric: (expr) => `CAST(${expr} AS NUMERIC)`,
 	rowToJsonObject(columns, refs, _aliasExpr) {
