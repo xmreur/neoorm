@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	rebaseParamRefs,
-	sqlFragment,
-	sqlTag,
-} from "../src/sql/template.js";
+import { rebaseParamRefs, sqlFragment, sqlTag } from "../src/sql/template.js";
 
 describe("rebaseParamRefs", () => {
 	it("rebases real $N parameters by the offset", () => {
@@ -36,8 +32,8 @@ describe("rebaseParamRefs", () => {
 	});
 
 	it("handles mixed quoted and unquoted content", () => {
-		expect(rebaseParamRefs('"a$1" \'b$2\' $$c$3$$ x = $1', 1)).toBe(
-			'"a$1" \'b$2\' $$c$3$$ x = $2',
+		expect(rebaseParamRefs("\"a$1\" 'b$2' $$c$3$$ x = $1", 1)).toBe(
+			"\"a$1\" 'b$2' $$c$3$$ x = $2",
 		);
 	});
 });

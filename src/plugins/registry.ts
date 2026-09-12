@@ -1,5 +1,5 @@
-import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { builtinPlugin, citextPlugin } from "./builtin.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
@@ -20,11 +20,21 @@ function globalState(): GlobalState {
 }
 
 function registry(): NeoOrmPlugin[] {
-	return (globalState()[REGISTRY_KEY] ??= []);
+	const state = globalState();
+	const existing = state[REGISTRY_KEY];
+	if (existing) return existing;
+	const created: NeoOrmPlugin[] = [];
+	state[REGISTRY_KEY] = created;
+	return created;
 }
 
 function columnTypeMap(): Map<string, ColumnTypePlugin> {
-	return (globalState()[COLUMN_TYPES_KEY] ??= new Map());
+	const state = globalState();
+	const existing = state[COLUMN_TYPES_KEY];
+	if (existing) return existing;
+	const created = new Map<string, ColumnTypePlugin>();
+	state[COLUMN_TYPES_KEY] = created;
+	return created;
 }
 
 function builtinsRegistered(): boolean {

@@ -46,16 +46,12 @@ function parseSqliteConstraint(message: string): {
 	table?: string;
 	column?: string;
 } {
-	const unique = message.match(
-		/UNIQUE constraint failed: ([^.]+)\.(.+)/i,
-	);
+	const unique = message.match(/UNIQUE constraint failed: ([^.]+)\.(.+)/i);
 	if (unique?.[1] && unique[2]) {
 		return { kind: "unique", table: unique[1], column: unique[2] };
 	}
 
-	const notNull = message.match(
-		/NOT NULL constraint failed: ([^.]+)\.(.+)/i,
-	);
+	const notNull = message.match(/NOT NULL constraint failed: ([^.]+)\.(.+)/i);
 	if (notNull?.[1] && notNull[2]) {
 		return { kind: "not_null", table: notNull[1], column: notNull[2] };
 	}
@@ -77,7 +73,10 @@ function parseSqliteConstraint(message: string): {
 	return {};
 }
 
-function headlineForSqlite(message: string, parsed: ReturnType<typeof parseSqliteConstraint>): string {
+function headlineForSqlite(
+	message: string,
+	parsed: ReturnType<typeof parseSqliteConstraint>,
+): string {
 	switch (parsed.kind) {
 		case "unique":
 			return parsed.column
@@ -134,7 +133,9 @@ function suggestionsForSqlite(
 				suggestions.push(
 					`Provide "${columnTsName}" in create/update input`,
 				);
-				const col = table?.columns.find((c) => c.tsName === columnTsName);
+				const col = table?.columns.find(
+					(c) => c.tsName === columnTsName,
+				);
 				if (col?.kind === "fk" && col.nullable === false) {
 					suggestions.push(
 						"This FK column is required because it is .notNull() in the schema",
@@ -200,8 +201,9 @@ export function enrichSqliteError(
 ): QueryErrorContext {
 	const parsed = parseSqliteConstraint(err.message);
 	const table =
-		(base.tableAccessor ? manifest.tables[base.tableAccessor] : undefined) ??
-		findTableBySqlName(manifest, parsed.table);
+		(base.tableAccessor
+			? manifest.tables[base.tableAccessor]
+			: undefined) ?? findTableBySqlName(manifest, parsed.table);
 
 	let columnTsName: string | undefined;
 	let columnSqlName: string | undefined;

@@ -46,7 +46,10 @@ jobs:
             exit 1
           fi
 
+      - run: bun run lint
       - run: bun run build
+      - run: bun run dist/bin/neoorm.js generate
+      - run: bun run typecheck
       - run: bun run test
 
       # Trusted Publisher requires npm >= 11.5.1 and must NOT use NODE_AUTH_TOKEN

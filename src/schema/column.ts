@@ -215,10 +215,9 @@ export function createColumnBuilder<TValue, TMeta extends ColumnMeta>(
 	return builder;
 }
 
-export function createTimestampColumnBuilder<
-	TValue,
-	TMeta extends ColumnMeta,
->(meta: TMeta): TimestampColumnBuilder<TValue, TMeta> {
+export function createTimestampColumnBuilder<TValue, TMeta extends ColumnMeta>(
+	meta: TMeta,
+): TimestampColumnBuilder<TValue, TMeta> {
 	const builder: TimestampColumnBuilder<TValue, TMeta> = {
 		_type: undefined as unknown as TValue,
 		_meta: meta,
@@ -242,7 +241,9 @@ export function createTimestampColumnBuilder<
 			return createTimestampColumnBuilder<
 				TValue,
 				Omit<TMeta, "index"> & { index: true }
-			>({ ...meta, index: true } as Omit<TMeta, "index"> & { index: true });
+			>({ ...meta, index: true } as Omit<TMeta, "index"> & {
+				index: true;
+			});
 		},
 		hidden() {
 			return createTimestampColumnBuilder<
@@ -256,7 +257,10 @@ export function createTimestampColumnBuilder<
 			return createTimestampColumnBuilder<
 				TValue,
 				Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
-			>({ ...meta, defaultValue: value } as Omit<TMeta, "defaultValue"> & {
+			>({ ...meta, defaultValue: value } as Omit<
+				TMeta,
+				"defaultValue"
+			> & {
 				defaultValue: TValue;
 			});
 		},
@@ -334,8 +338,8 @@ export function timestamps() {
 }
 
 export {
-	bool,
 	bigint,
+	bool,
 	bytea,
 	citext,
 	decimal,

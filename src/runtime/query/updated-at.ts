@@ -1,5 +1,9 @@
 import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
-import type { Dialect, ManifestColumn, ManifestTable } from "../../dialect/types.js";
+import type {
+	Dialect,
+	ManifestColumn,
+	ManifestTable,
+} from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
 import type { TableIndex } from "./table-index.js";
 

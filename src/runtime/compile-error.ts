@@ -1,5 +1,5 @@
-import { QueryErrorCode, type QueryErrorCodeValue } from "./error-codes.js";
 import { queryCompileError } from "./error-builders.js";
+import { QueryErrorCode, type QueryErrorCodeValue } from "./error-codes.js";
 import type { QueryOperation } from "./errors.js";
 
 type CompileErrorOptions = {

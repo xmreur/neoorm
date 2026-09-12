@@ -1,12 +1,13 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
-import { loadDocsPages, hydratePageTitles, type DocsPage } from "./pages.js";
+import {
+	createServer,
+	type IncomingMessage,
+	type ServerResponse,
+} from "node:http";
+import { type DocsPage, hydratePageTitles, loadDocsPages } from "./pages.js";
 import { renderDocsIndex, renderDocsPage } from "./render.js";
 import { resolveDocsDir } from "./resolve-docs-dir.js";
-import {
-	buildSearchIndex,
-	type DocsSearchRecord,
-} from "./search.js";
+import { buildSearchIndex, type DocsSearchRecord } from "./search.js";
 
 export type DocsServerOptions = {
 	port?: number;
@@ -98,8 +99,7 @@ function openBrowser(url: string): void {
 			: platform === "win32"
 				? "cmd"
 				: "xdg-open";
-	const args =
-		platform === "win32" ? ["/c", "start", "", url] : [url];
+	const args = platform === "win32" ? ["/c", "start", "", url] : [url];
 	spawn(command, args, { detached: true, stdio: "ignore" }).unref();
 }
 

@@ -1,6 +1,6 @@
-import type { Manifest, ManifestColumn, ManifestTable } from "./types.js";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
+import type { Manifest, ManifestColumn, ManifestTable } from "./types.js";
 
 export type FkTargetParts = {
 	tableSql: string;

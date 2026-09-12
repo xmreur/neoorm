@@ -1,5 +1,4 @@
 import type { Pool } from "pg";
-import { pgClient } from "../src/runtime/driver.js";
 import { describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -13,6 +12,7 @@ import {
 	ensureMigrationsTable,
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
+import { pgClient } from "../src/runtime/driver.js";
 import {
 	buildFindManyQuery,
 	buildInsertQuery,
@@ -121,7 +121,11 @@ describe("postgres schema namespaces", () => {
 	it("qualifies migration metadata and resets the selected schema", async () => {
 		const pool = mockPool([{ exists: true }]);
 
-		await ensureMigrationsTable(pgClient(pool), postgresDialect, "tenant_a");
+		await ensureMigrationsTable(
+			pgClient(pool),
+			postgresDialect,
+			"tenant_a",
+		);
 		await resetDatabaseSchema(pgClient(pool), postgresDialect, "tenant_a");
 
 		expect(pool.queries[0]?.sql).toContain(

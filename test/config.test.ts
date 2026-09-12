@@ -113,7 +113,9 @@ export default {
 };
 `,
 			async (dir) => {
-				await expect(loadConfig(dir)).rejects.toThrow(REQUIRED_SHAPE_ERROR);
+				await expect(loadConfig(dir)).rejects.toThrow(
+					REQUIRED_SHAPE_ERROR,
+				);
 			},
 		);
 	});
@@ -202,22 +204,23 @@ export default {
 		);
 	});
 
-	it.each(["check", "union", "native"] as const)(
-		"accepts enum mode %s",
-		async (enumMode) => {
-			await withConfigFile(
-				configSource(`{
+	it.each([
+		"check",
+		"union",
+		"native",
+	] as const)("accepts enum mode %s", async (enumMode) => {
+		await withConfigFile(
+			configSource(`{
     provider: "postgresql",
     url: "postgresql://postgres:postgres@localhost:5432/app",
     enum: "${enumMode}",
   }`),
-				async (dir) => {
-					const config = await loadConfig(dir);
-					expect(config.datasource.enum).toBe(enumMode);
-				},
-			);
-		},
-	);
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.datasource.enum).toBe(enumMode);
+			},
+		);
+	});
 
 	it("rejects a non-string datasource schema", async () => {
 		await withConfigFile(
@@ -276,7 +279,9 @@ describe("loadConfig .env", () => {
 					"DATABASE_URL=postgresql://from-env/db\n",
 				);
 				const config = await loadConfig(dir);
-				expect(config.datasource.url).toBe("postgresql://from-shell/db");
+				expect(config.datasource.url).toBe(
+					"postgresql://from-shell/db",
+				);
 			});
 		} finally {
 			restoreEnv("DATABASE_URL", previous);

@@ -1,6 +1,10 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { globSync } from "node:fs";
-import { readdirSync, statSync } from "node:fs";
+import {
+	globSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 function walk(dir) {

@@ -1,8 +1,8 @@
 import { defineSchema, id, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { formatQueryError, NeoOrmQueryError } from "../src/runtime/errors.js";
 import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
+import { formatQueryError, NeoOrmQueryError } from "../src/runtime/errors.js";
 import type { Executor } from "../src/runtime/executor.js";
 import { enrichPgError } from "../src/runtime/pg-error.js";
 import { runCreate } from "../src/runtime/query/create.js";
@@ -20,7 +20,10 @@ const schema = defineSchema({
 function createMockExecutor(behavior?: {
 	queryOne?: () => Promise<Record<string, unknown> | null>;
 	query?: () => Promise<never>;
-	execute?: () => Promise<{ rows: Record<string, unknown>[]; rowCount: number }>;
+	execute?: () => Promise<{
+		rows: Record<string, unknown>[];
+		rowCount: number;
+	}>;
 }): Executor {
 	return {
 		inTransaction: false,
@@ -113,7 +116,9 @@ describe("query errors", () => {
 			detail: "relation missing",
 		});
 
-		expect(message).toContain('Select on "legacy_users" failed: relation missing');
+		expect(message).toContain(
+			'Select on "legacy_users" failed: relation missing',
+		);
 		expect(message).toContain('Table: SQL: "legacy_users"');
 	});
 

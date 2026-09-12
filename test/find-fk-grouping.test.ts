@@ -40,9 +40,10 @@ describe("find FK grouping", () => {
 			users: table({ id: id() }),
 			posts: table({
 				id: id(),
-				ownerId: fk("users.id").as("owner").inverse("posts").map(
-					"owner_ref",
-				),
+				ownerId: fk("users.id")
+					.as("owner")
+					.inverse("posts")
+					.map("owner_ref"),
 			}),
 		});
 
@@ -83,9 +84,10 @@ describe("find FK grouping", () => {
 			users: table({ id: id() }),
 			posts: table({
 				id: id(),
-				ownerId: fk("users.id").as("owner").inverse("posts").map(
-					"owner_ref_id",
-				),
+				ownerId: fk("users.id")
+					.as("owner")
+					.inverse("posts")
+					.map("owner_ref_id"),
 			}),
 		});
 
@@ -125,7 +127,10 @@ describe("find FK grouping", () => {
 				"posts",
 				{
 					id: id(),
-					ownerId: fk("users.id").as("owner").inverse("posts").map("ownerRef"),
+					ownerId: fk("users.id")
+						.as("owner")
+						.inverse("posts")
+						.map("ownerRef"),
 				},
 				{ columnNaming: "camelCase" },
 			),

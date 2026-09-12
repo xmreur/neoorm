@@ -55,7 +55,14 @@ describe("json path operator", () => {
 		const where = getCachedWhereClause(
 			manifest,
 			manifestTable(manifest, "users"),
-			{ meta: { path: { segments: ["settings"], jsonContains: { admin: true } } } },
+			{
+				meta: {
+					path: {
+						segments: ["settings"],
+						jsonContains: { admin: true },
+					},
+				},
+			},
 			postgresDialect,
 			1,
 		);
@@ -65,72 +72,78 @@ describe("json path operator", () => {
 	});
 });
 
-describe.skipIf(!databaseUrl)("json path operator injection (integration)", () => {
-	const users = table({
-		id: text().primary(),
-		name: text().notNull(),
-		meta: jsonb(),
-	});
-	const schema = defineSchema({ users });
-	const manifest = schemaToManifest(schema);
+describe.skipIf(!databaseUrl)(
+	"json path operator injection (integration)",
+	() => {
+		const users = table({
+			id: text().primary(),
+			name: text().notNull(),
+			meta: jsonb(),
+		});
+		const schema = defineSchema({ users });
+		const manifest = schemaToManifest(schema);
 
-	let pool: Pool;
+		let pool: Pool;
 
-	beforeAll(async () => {
-		pool = new Pool({ connectionString: databaseUrl });
-		await pool.query(`
+		beforeAll(async () => {
+			pool = new Pool({ connectionString: databaseUrl });
+			await pool.query(`
 			CREATE TABLE jpath_users (
 				id text PRIMARY KEY,
 				name text NOT NULL,
 				meta jsonb
 			);
 		`);
-		await pool.query(`
+			await pool.query(`
 			INSERT INTO jpath_users (id, name, meta) VALUES
 				('1', 'alice', '{"role":"admin"}'),
 				('2', 'bob', '{"role":"user"}'),
 				('3', 'carol', '{"role":"user"}');
 		`);
-	});
+		});
 
-	afterAll(async () => {
-		await pool.query('DROP TABLE IF EXISTS jpath_users');
-		await pool.end();
-	});
+		afterAll(async () => {
+			await pool.query("DROP TABLE IF EXISTS jpath_users");
+			await pool.end();
+		});
 
-	it("returns only matching rows and blocks segment injection", async () => {
-		const benign = getCachedWhereClause(
-			manifest,
-			manifestTable(manifest, "users"),
-			{ meta: { path: { segments: ["role"], equals: "user" } } },
-			postgresDialect,
-			1,
-		);
-		const benignRes = await pool.query(
-			`SELECT "id", "name", "meta" FROM "jpath_users" ${benign.sql}`,
-			benign.params,
-		);
-		expect(benignRes.rows.map((r) => r.name).sort()).toEqual(["bob", "carol"]);
+		it("returns only matching rows and blocks segment injection", async () => {
+			const benign = getCachedWhereClause(
+				manifest,
+				manifestTable(manifest, "users"),
+				{ meta: { path: { segments: ["role"], equals: "user" } } },
+				postgresDialect,
+				1,
+			);
+			const benignRes = await pool.query(
+				`SELECT "id", "name", "meta" FROM "jpath_users" ${benign.sql}`,
+				benign.params,
+			);
+			expect(benignRes.rows.map((r) => r.name).sort()).toEqual([
+				"bob",
+				"carol",
+			]);
 
-		// attacker-controlled segment stays data: it can never widen the filter
-		const attacked = getCachedWhereClause(
-			manifest,
-			manifestTable(manifest, "users"),
-			{
-				meta: {
-					path: {
-						segments: ["role}' = $1 OR true --"],
-						equals: "user",
+			// attacker-controlled segment stays data: it can never widen the filter
+			const attacked = getCachedWhereClause(
+				manifest,
+				manifestTable(manifest, "users"),
+				{
+					meta: {
+						path: {
+							segments: ["role}' = $1 OR true --"],
+							equals: "user",
+						},
 					},
 				},
-			},
-			postgresDialect,
-			1,
-		);
-		const attackedRes = await pool.query(
-			`SELECT "id", "name", "meta" FROM "jpath_users" ${attacked.sql}`,
-			attacked.params,
-		);
-		expect(attackedRes.rows).toEqual([]);
-	});
-});
+				postgresDialect,
+				1,
+			);
+			const attackedRes = await pool.query(
+				`SELECT "id", "name", "meta" FROM "jpath_users" ${attacked.sql}`,
+				attacked.params,
+			);
+			expect(attackedRes.rows).toEqual([]);
+		});
+	},
+);

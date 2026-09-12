@@ -236,7 +236,7 @@ type OutgoingFkRelationEntry<
 	C extends ColumnDef,
 	K extends string,
 > =
-		FkMetaOf<C> extends {
+	FkMetaOf<C> extends {
 		target: infer TTarget extends string;
 		as: infer As extends string;
 	}
@@ -281,9 +281,7 @@ export type InverseRelationEntryForSource<
 					inverse: infer Inv extends string;
 					unique: infer TUnique extends boolean;
 				}
-			? [TTarget] extends [
-					`${TTargetAccessor & string}.${string}`,
-				]
+			? [TTarget] extends [`${TTargetAccessor & string}.${string}`]
 				? {
 						[P in FkInverseName<
 							Inv,
@@ -650,10 +648,9 @@ export type HiddenKeys<TColumns extends Record<string, ColumnDef>> = {
 }[ScalarColumnKeys<TColumns>];
 
 /** Result of `strip()` — removes hidden and extra omitted keys; preserves null/undefined and maps arrays. */
-export type StripResult<
-	T,
-	Keys extends PropertyKey = never,
-> = T extends null | undefined
+export type StripResult<T, Keys extends PropertyKey = never> = T extends
+	| null
+	| undefined
 	? T
 	: T extends readonly (infer Item extends Record<string, unknown>)[]
 		? Array<StripResult<Item, Keys>>
@@ -817,7 +814,10 @@ export type InferFindResult<
 				W,
 				IncludeHidden extends true
 					? TRowPayload
-					: Omit<TRowPayload, HiddenKeys<TSchema[TAccessor]["_columns"]>>
+					: Omit<
+							TRowPayload,
+							HiddenKeys<TSchema[TAccessor]["_columns"]>
+						>
 			>
 		: InferWithResult<
 				TSchema,
@@ -896,7 +896,7 @@ type OutgoingFkRelationWhereEntry<
 	C extends ColumnDef,
 	K extends string,
 > =
-		FkMetaOf<C> extends {
+	FkMetaOf<C> extends {
 		target: infer TTarget extends string;
 		as: infer As extends string;
 	}
@@ -905,7 +905,10 @@ type OutgoingFkRelationWhereEntry<
 				? IsThroughTable<TSchema[Acc]["_columns"]> extends true
 					? never
 					: {
-							[P in FkRelationName<As, K>]?: FkTargetMatchesAccessor<
+							[P in FkRelationName<
+								As,
+								K
+							>]?: FkTargetMatchesAccessor<
 								TSchema,
 								TTarget,
 								TAccessor
@@ -926,7 +929,10 @@ type OutgoingFkRelationWhereEntry<
 				? IsThroughTable<TSchema[TTarget]["_columns"]> extends true
 					? never
 					: {
-							[P in FkRelationName<As, K>]?: FkTargetMatchesAccessor<
+							[P in FkRelationName<
+								As,
+								K
+							>]?: FkTargetMatchesAccessor<
 								TSchema,
 								TTarget,
 								TAccessor
@@ -959,23 +965,16 @@ type InverseRelationWhereEntry<
 					inverse: infer Inv extends string;
 					unique: infer TUnique extends boolean;
 				}
-			? [TTarget] extends [
-					`${TTargetAccessor & string}.${string}`,
-				]
+			? [TTarget] extends [`${TTargetAccessor & string}.${string}`]
 				? {
-						[P in FkInverseName<
-							Inv,
+						[P in FkInverseName<Inv, TSourceAccessor, TUnique>]?: [
 							TSourceAccessor,
-							TUnique
-						>]?: [TSourceAccessor] extends [TTargetAccessor]
+						] extends [TTargetAccessor]
 							? ShallowManyRelationFilter<
 									TSchema,
 									TSourceAccessor
 								>
-							: ManyRelationFilter<
-									TSchema,
-									TSourceAccessor
-								>;
+							: ManyRelationFilter<TSchema, TSourceAccessor>;
 					}
 				: [TTarget] extends [TTargetAccessor]
 					? {
@@ -988,10 +987,7 @@ type InverseRelationWhereEntry<
 										TSchema,
 										TSourceAccessor
 									>
-								: ManyRelationFilter<
-										TSchema,
-										TSourceAccessor
-									>;
+								: ManyRelationFilter<TSchema, TSourceAccessor>;
 						}
 					: never
 			: never;

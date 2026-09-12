@@ -34,7 +34,7 @@ const schema = defineSchema({
 		age: int(),
 		active: int().default(1),
 	}),
-		posts: table(
+	posts: table(
 		"posts",
 		{
 			id: serial().primary(),
@@ -57,7 +57,6 @@ const schema = defineSchema({
 		(t) => [primaryKey(t.postId, t.tagId)],
 	),
 });
-
 
 const manifest = schemaToManifest(schema);
 

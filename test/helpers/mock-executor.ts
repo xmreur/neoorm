@@ -27,8 +27,10 @@ export function createMockExecutor(handlers?: {
 		queries,
 		inTransaction: false,
 		query: vi.fn(
-			async <T = Record<string, unknown>>(sql: string, params?: unknown[]) =>
-				runTrackedQuery(sql, params) as T[],
+			async <T = Record<string, unknown>>(
+				sql: string,
+				params?: unknown[],
+			) => runTrackedQuery(sql, params) as T[],
 		) as Executor["query"],
 		queryOne: vi.fn(async (sql: string, params?: unknown[]) => {
 			queries.push({ sql, params: params ?? [] });

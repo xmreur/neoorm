@@ -26,13 +26,18 @@ const schema = defineSchema({
 		legacyCode: text().map("legacy_user_code"),
 	}),
 
-	posts: table({
-		id: id(),
-		authorId: fk("users").as("author").inverse("posts")
-			.notNull()
-			.map("author_ref"),
-		title: text().notNull(),
-	}, (t) => [index(t.authorId)]),
+	posts: table(
+		{
+			id: id(),
+			authorId: fk("users")
+				.as("author")
+				.inverse("posts")
+				.notNull()
+				.map("author_ref"),
+			title: text().notNull(),
+		},
+		(t) => [index(t.authorId)],
+	),
 });
 
 describe("column map", () => {

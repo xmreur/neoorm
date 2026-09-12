@@ -1,4 +1,12 @@
-import { bytea, citext, defineSchema, intArray, table, text, textArray } from "neoorm/schema";
+import {
+	bytea,
+	citext,
+	defineSchema,
+	intArray,
+	table,
+	text,
+	textArray,
+} from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import {
 	schemaToManifest,

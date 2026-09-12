@@ -27,21 +27,22 @@ type CommentWhere = WhereInput<
 
 describe("self-referential relation where types", () => {
 	it("accepts scalar where for delete", () => {
-		expectTypeOf<{ id: string; postId: string }>().toMatchTypeOf<
-			CommentWhere
-		>();
+		expectTypeOf<{
+			id: string;
+			postId: string;
+		}>().toMatchTypeOf<CommentWhere>();
 	});
 
 	it("accepts one-level replyTo filter", () => {
-		expectTypeOf<{ replyTo: { id: string } }>().toMatchTypeOf<
-			CommentWhere
-		>();
+		expectTypeOf<{
+			replyTo: { id: string };
+		}>().toMatchTypeOf<CommentWhere>();
 	});
 
 	it("accepts one-level replies filter", () => {
-		expectTypeOf<{ replies: { some: { body: string } } }>().toMatchTypeOf<
-			CommentWhere
-		>();
+		expectTypeOf<{
+			replies: { some: { body: string } };
+		}>().toMatchTypeOf<CommentWhere>();
 	});
 });
 

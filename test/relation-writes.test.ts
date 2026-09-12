@@ -61,7 +61,9 @@ describe("relation-writes", () => {
 	});
 
 	it("manifest includes M2M tags relation on posts", () => {
-		const names = manifestTable(manifest, "posts").relations.map((r) => r.name);
+		const names = manifestTable(manifest, "posts").relations.map(
+			(r) => r.name,
+		);
 		expect(names).toContain("tags");
 		expect(names).toContain("comments");
 	});

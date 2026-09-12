@@ -60,7 +60,10 @@ export function didYouMean(
 	return scored
 		.filter(({ score, candidate }) => {
 			if (score <= 3) return true;
-			return levenshtein(input.toLowerCase(), candidate.toLowerCase()) <= maxDistance;
+			return (
+				levenshtein(input.toLowerCase(), candidate.toLowerCase()) <=
+				maxDistance
+			);
 		})
 		.slice(0, limit)
 		.map(({ candidate }) => candidate);

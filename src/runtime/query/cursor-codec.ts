@@ -1,5 +1,5 @@
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 
 const CURSOR_CODEC_VERSION = 1;
 

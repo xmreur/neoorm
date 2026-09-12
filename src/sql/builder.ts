@@ -1,5 +1,5 @@
-import { QueryErrorCode } from "../runtime/error-codes.js";
 import { compileError } from "../runtime/compile-error.js";
+import { QueryErrorCode } from "../runtime/error-codes.js";
 import { type SqlFragment, sqlFragment, sqlId } from "./template.js";
 
 type JoinBuilder = {

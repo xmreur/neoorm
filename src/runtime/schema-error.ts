@@ -109,7 +109,9 @@ export function enrichMigrationError(
 		...(tableAccessor ? { tableAccessor } : {}),
 		...(tableSqlName ? { tableSqlName } : {}),
 		...(manyToManyHint ? { manyToManyHint } : {}),
-		...(options.migrationName ? { migrationName: options.migrationName } : {}),
+		...(options.migrationName
+			? { migrationName: options.migrationName }
+			: {}),
 		...(options.sqlPath ? { sqlPath: options.sqlPath } : {}),
 		...(statement ? { statement } : {}),
 		detail: driverDetail(err),

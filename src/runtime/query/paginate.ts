@@ -1,6 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { compileError } from "../compile-error.js";
+import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildExistsQuery,
@@ -191,9 +191,7 @@ export async function paginateRecords(
 	}
 
 	const nextCursor = hasMore ? cursorFromRow(orderSpec, lastItem) : null;
-	const prevCursor = hasPrevious
-		? cursorFromRow(orderSpec, firstItem)
-		: null;
+	const prevCursor = hasPrevious ? cursorFromRow(orderSpec, firstItem) : null;
 
 	return { items: loaded, nextCursor, prevCursor, hasMore, hasPrevious };
 }

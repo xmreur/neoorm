@@ -1,7 +1,10 @@
 import type { Pool } from "pg";
-import { pgClient } from "../src/runtime/driver.js";
 import { describe, expect, it, vi } from "vitest";
-import { introspectToManifest, resolvePgColumnKind } from "../src/introspect/to-manifest.js";
+import {
+	introspectToManifest,
+	resolvePgColumnKind,
+} from "../src/introspect/to-manifest.js";
+import { pgClient } from "../src/runtime/driver.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 type QueryCall = {
@@ -214,7 +217,9 @@ describe("introspectToManifest", () => {
 	it("maps tables, columns, defaults, FKs, indexes, and enums from introspection rows", async () => {
 		const pool = createMockPool();
 
-		const manifest = await introspectToManifest(pgClient(pool), { schema: "tenant_a" });
+		const manifest = await introspectToManifest(pgClient(pool), {
+			schema: "tenant_a",
+		});
 		const accounts = manifest.tables["accounts"];
 		const auditLogs = manifest.tables["auditLogs"];
 
@@ -225,7 +230,9 @@ describe("introspectToManifest", () => {
 			audit_status: { values: ["created", "deleted"] },
 		});
 
-		expect(accounts?.columns.find((col) => col.tsName === "id")).toMatchObject({
+		expect(
+			accounts?.columns.find((col) => col.tsName === "id"),
+		).toMatchObject({
 			sqlName: "id",
 			kind: "uuid",
 			primary: true,
@@ -240,7 +247,9 @@ describe("introspectToManifest", () => {
 		});
 
 		expect(auditLogs?.primaryKey).toEqual(["id"]);
-		expect(auditLogs?.columns.find((col) => col.tsName === "id")).toMatchObject({
+		expect(
+			auditLogs?.columns.find((col) => col.tsName === "id"),
+		).toMatchObject({
 			kind: "serial",
 			generated: true,
 			primary: true,
@@ -261,10 +270,14 @@ describe("introspectToManifest", () => {
 		).toMatchObject({
 			defaultValue: "created",
 		});
-		expect(auditLogs?.columns.find((col) => col.tsName === "success")).toMatchObject({
+		expect(
+			auditLogs?.columns.find((col) => col.tsName === "success"),
+		).toMatchObject({
 			defaultValue: true,
 		});
-		expect(auditLogs?.columns.find((col) => col.tsName === "score")).toMatchObject({
+		expect(
+			auditLogs?.columns.find((col) => col.tsName === "score"),
+		).toMatchObject({
 			nullable: true,
 			defaultValue: 42,
 		});
@@ -273,7 +286,9 @@ describe("introspectToManifest", () => {
 		).toMatchObject({
 			defaultNow: true,
 		});
-		expect(auditLogs?.columns.find((col) => col.tsName === "status")).toMatchObject({
+		expect(
+			auditLogs?.columns.find((col) => col.tsName === "status"),
+		).toMatchObject({
 			kind: "enum",
 			typeOptions: {
 				values: ["created", "deleted"],
@@ -296,9 +311,13 @@ describe("introspectToManifest", () => {
 
 		await introspectToManifest(pgClient(pool), { schema: "tenant_a" });
 
-		const scopedCalls = pool.queries.filter((call) => call.params.length > 0);
+		const scopedCalls = pool.queries.filter(
+			(call) => call.params.length > 0,
+		);
 		expect(scopedCalls.length).toBeGreaterThan(0);
-		expect(scopedCalls.every((call) => call.params[0] === "tenant_a")).toBe(true);
+		expect(scopedCalls.every((call) => call.params[0] === "tenant_a")).toBe(
+			true,
+		);
 	});
 });
 
@@ -363,7 +382,6 @@ describe("resolvePgColumnKind", () => {
 
 function createConstraintMockPool(): Pool {
 	const query = vi.fn(async (sql: string) => {
-
 		if (sql.includes("information_schema.tables")) {
 			return { rows: [{ table_name: "post_tags" }] };
 		}

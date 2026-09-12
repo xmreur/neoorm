@@ -1,7 +1,7 @@
 import { access, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import {
 	envExampleTemplate,
 	neoormConfigTemplate,

@@ -3,7 +3,11 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
-import { compileWhere, getCachedOrderByClause, orderByShapeKey } from "../src/runtime/query/compile.js";
+import {
+	compileWhere,
+	getCachedOrderByClause,
+	orderByShapeKey,
+} from "../src/runtime/query/compile.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
@@ -396,23 +400,13 @@ describe("where compilation", () => {
 
 	it("rejects invalid OR items", () => {
 		expect(() =>
-			compileWhere(
-				manifest,
-				posts,
-				{ OR: [null] },
-				postgresDialect,
-			),
+			compileWhere(manifest, posts, { OR: [null] }, postgresDialect),
 		).toThrow("OR items must be where objects");
 	});
 
 	it("rejects a non-object NOT combinator", () => {
 		expect(() =>
-			compileWhere(
-				manifest,
-				posts,
-				{ NOT: true },
-				postgresDialect,
-			),
+			compileWhere(manifest, posts, { NOT: true }, postgresDialect),
 		).toThrow("NOT must be a where object");
 	});
 
@@ -424,7 +418,10 @@ describe("where compilation", () => {
 			compileWhere(manifest, users, { emial: "a" }, postgresDialect);
 		} catch (err) {
 			expect((err as { code: string }).code).toBe("unknown_column");
-			expect((err as { context: { suggestions?: string[] } }).context.suggestions).toEqual(
+			expect(
+				(err as { context: { suggestions?: string[] } }).context
+					.suggestions,
+			).toEqual(
 				expect.arrayContaining([expect.stringContaining("email")]),
 			);
 		}
@@ -448,9 +445,7 @@ describe("where compilation", () => {
 				(err as { context: { suggestions?: string[] } }).context
 					.suggestions,
 			).toEqual(
-				expect.arrayContaining([
-					expect.stringContaining("equals"),
-				]),
+				expect.arrayContaining([expect.stringContaining("equals")]),
 			);
 		}
 	});
@@ -535,12 +530,12 @@ describe("orderBy compilation", () => {
 	const tableIndex = buildManifestIndex(manifest);
 
 	it("preserves orderBy entry order in the cache key", () => {
-		expect(
-			orderByShapeKey({ email: "asc", createdAt: "desc" }),
-		).toBe("email:ASC|createdAt:DESC");
-		expect(
-			orderByShapeKey({ createdAt: "desc", email: "asc" }),
-		).toBe("createdAt:DESC|email:ASC");
+		expect(orderByShapeKey({ email: "asc", createdAt: "desc" })).toBe(
+			"email:ASC|createdAt:DESC",
+		);
+		expect(orderByShapeKey({ createdAt: "desc", email: "asc" })).toBe(
+			"createdAt:DESC|email:ASC",
+		);
 	});
 
 	it("does not reuse ORDER BY SQL when column order differs", () => {

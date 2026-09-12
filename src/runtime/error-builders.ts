@@ -1,4 +1,7 @@
-import type { QueryErrorCodeValue, SchemaErrorCodeValue } from "./error-codes.js";
+import type {
+	QueryErrorCodeValue,
+	SchemaErrorCodeValue,
+} from "./error-codes.js";
 import {
 	createQueryError,
 	NeoOrmSchemaError,

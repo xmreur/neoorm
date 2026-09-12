@@ -1,7 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { emitModelsTs } from "../src/codegen/emit-models.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { defineSchema, table, timestamp, timestamps, uuid } from "../src/schema/index.js";
+import {
+	defineSchema,
+	table,
+	timestamp,
+	timestamps,
+	uuid,
+} from "../src/schema/index.js";
 import type { CreateInput, InferSelectRow } from "../src/schema/types.js";
 
 const schema = defineSchema({
@@ -29,7 +35,9 @@ describe("timestamp TypeScript types", () => {
 	it("types schema rows and inserts as Date", () => {
 		expectTypeOf<PostRow["createdAt"]>().toEqualTypeOf<Date>();
 		expectTypeOf<PostRow["deletedAt"]>().toEqualTypeOf<Date | null>();
-		expectTypeOf<PostCreate["createdAt"]>().toEqualTypeOf<Date | undefined>();
+		expectTypeOf<PostCreate["createdAt"]>().toEqualTypeOf<
+			Date | undefined
+		>();
 		expectTypeOf<PostCreate["deletedAt"]>().toEqualTypeOf<
 			Date | null | undefined
 		>();

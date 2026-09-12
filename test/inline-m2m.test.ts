@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
 import { defineSchema, fk, id, manyToMany, table, text } from "neoorm/schema";
-import { schemaToManifest, validateManifest } from "../src/codegen/schema-to-manifest.js";
+import { describe, expect, it } from "vitest";
+import {
+	schemaToManifest,
+	validateManifest,
+} from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { compileWhere } from "../src/runtime/query/compile.js";
@@ -23,7 +26,7 @@ const tags = table({
 	slug: text().notNull().unique(),
 });
 
-export const schema = defineSchema({ users, posts, tags });
+const schema = defineSchema({ users, posts, tags });
 
 const postsThrough = table({
 	id: id(),
@@ -41,7 +44,12 @@ const posts_tags = table({
 	tagId: fk(tags).primary(),
 });
 
-export const throughSchema = defineSchema({ users, postsThrough, tags, posts_tags });
+const throughSchema = defineSchema({
+	users,
+	postsThrough,
+	tags,
+	posts_tags,
+});
 
 function manifest() {
 	return schemaToManifest(schema);
@@ -70,21 +78,21 @@ describe("inline manyToMany extra", () => {
 	it("emits valid CREATE TABLE SQL for the auto junction", () => {
 		const m = manifest();
 		const junction = manifestTable(m, "posts_tags");
-		const sqliteSql = sqliteDialect.emitCreateTable(junction, { manifest: m });
+		const sqliteSql = sqliteDialect.emitCreateTable(junction, {
+			manifest: m,
+		});
 		const postgresSql = postgresDialect.emitCreateTable(junction, {
 			manifest: m,
 		});
 
 		expect(sqliteSql).toContain('"post_id"');
 		expect(sqliteSql).toContain('"tag_id"');
-		expect(sqliteSql).toContain("PRIMARY KEY (\"post_id\", \"tag_id\")");
-		expect(sqliteSql).not.toMatch(
-			/CREATE TABLE[^(]*\(\s*PRIMARY KEY/,
-		);
+		expect(sqliteSql).toContain('PRIMARY KEY ("post_id", "tag_id")');
+		expect(sqliteSql).not.toMatch(/CREATE TABLE[^(]*\(\s*PRIMARY KEY/);
 
 		expect(postgresSql).toContain('"post_id"');
 		expect(postgresSql).toContain('"tag_id"');
-		expect(postgresSql).toContain("PRIMARY KEY (\"post_id\", \"tag_id\")");
+		expect(postgresSql).toContain('PRIMARY KEY ("post_id", "tag_id")');
 		expect(postgresSql.match(/PRIMARY KEY/g)).toHaveLength(1);
 		expect(postgresSql).not.toMatch(/"post_id" \S+ PRIMARY KEY/);
 		expect(postgresSql).not.toMatch(/"tag_id" \S+ PRIMARY KEY/);
@@ -147,7 +155,7 @@ describe("inline manyToMany with an existing junction", () => {
 		const sql = sqliteDialect.emitCreateTable(junction, { manifest: m });
 		expect(sql).toContain('"post_id"');
 		expect(sql).toContain('"tag_id"');
-		expect(sql).toContain("PRIMARY KEY (\"post_id\", \"tag_id\")");
+		expect(sql).toContain('PRIMARY KEY ("post_id", "tag_id")');
 	});
 });
 
@@ -171,7 +179,7 @@ const serverMembers = table({
 	userId: fk(serverUsers).primary(),
 });
 
-export const serverSchema = defineSchema({
+const serverSchema = defineSchema({
 	servers,
 	users: serverUsers,
 	serverMembers,
@@ -187,14 +195,14 @@ const lobbyUsers = table({
 	id: id(),
 });
 
-export const autoColumnSchema = defineSchema({ teams, lobbyUsers });
+const autoColumnSchema = defineSchema({ teams, lobbyUsers });
 
 const guilds = table({
 	id: id(),
 	officers: manyToMany("users", { as: "mods", inverse: "guildsLed" }),
 });
 
-export const overrideSchema = defineSchema({ guilds, users: serverUsers });
+const overrideSchema = defineSchema({ guilds, users: serverUsers });
 
 describe("inline manyToMany as a virtual column", () => {
 	it("reuses an existing junction via through/leftKey/rightKey", () => {

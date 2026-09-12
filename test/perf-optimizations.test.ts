@@ -220,9 +220,7 @@ describe("read path optimizations", () => {
 	});
 
 	it("findAll SQL aliases renamed columns to ts names", () => {
-		const blogIndex = buildManifestIndex(
-			schemaToManifest(blogSchema),
-		);
+		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
 		const usersIndex = blogIndex.get("users")!;
 		expect(usersIndex.findAllSql).toContain('AS "createdAt"');
 		expect(usersIndex.selectUsesColumnAliases).toBe(true);
@@ -307,7 +305,9 @@ describe("read path optimizations", () => {
 				orders: table({
 					id: id(),
 					totalAmount: text().notNull().map("totalAmount"),
-					customerId: fk("customers.id").as("customer").inverse("orders")
+					customerId: fk("customers.id")
+						.as("customer")
+						.inverse("orders")
 						.notNull()
 						.map("customerId"),
 				}),
@@ -447,7 +447,10 @@ describe("SQL template cache", () => {
 	it("where clause cache returns same result for identical filters", () => {
 		const runtime = createRuntime();
 		const users = runtime.manifest.tables.users!;
-		const tableIndex = runtime.tableIndex?.get("users")!;
+		const tableIndex = runtime.tableIndex.get("users");
+		if (!tableIndex) {
+			throw new Error("expected users table index");
+		}
 
 		const first = getCachedWhereClause(
 			runtime.manifest,

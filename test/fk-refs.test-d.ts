@@ -11,16 +11,15 @@ const posts = table({
 	reviewerId: fk("users.id"),
 });
 
-type ShapeOf<C> = C extends FkBuilder<infer T, infer As, infer Inv>
-	? [T, As, Inv]
-	: never;
+type ShapeOf<C> =
+	C extends FkBuilder<infer T, infer As, infer Inv> ? [T, As, Inv] : never;
 
-type AuthorCol = typeof posts._columns["authorId"];
+type AuthorCol = (typeof posts._columns)["authorId"];
 declare const authorShape: ShapeOf<AuthorCol>;
 const authorOk: ["users", "", "posts"] = authorShape;
 void authorOk;
 
-type ReviewerCol = typeof posts._columns["reviewerId"];
+type ReviewerCol = (typeof posts._columns)["reviewerId"];
 declare const reviewerShape: ShapeOf<ReviewerCol>;
 const reviewerOk: ["users.id", "", ""] = reviewerShape;
 void reviewerOk;
