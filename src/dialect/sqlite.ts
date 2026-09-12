@@ -1,6 +1,6 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
-import { QueryErrorCode } from "../runtime/error-codes.js";
 import { compileError } from "../runtime/compile-error.js";
+import { QueryErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import { quoteIdentifier as q, tableRef } from "./shared.js";
@@ -28,6 +28,7 @@ const SQLITE_TEXT_TYPES = new Set([
 	"intArray",
 	"citext",
 	"enum",
+	"timestamp",
 ]);
 
 export function sqliteColumnType(
@@ -57,9 +58,6 @@ export function sqliteColumnType(
 	}
 	if (col.kind === "bool") {
 		return "BOOLEAN";
-	}
-	if (col.kind === "timestamp") {
-		return "TIMESTAMPTZ";
 	}
 	if (col.kind === "bytea") {
 		return "BLOB";

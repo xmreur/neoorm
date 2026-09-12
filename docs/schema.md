@@ -41,7 +41,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `bool()` | `BOOLEAN` | `boolean \| null` | |
 | `int()` | `INTEGER` | `number \| null` | |
 | `bigint()` | `BIGINT` | `bigint \| null` | Maps to `TEXT` on SQLite |
-| `timestamp()` | `TIMESTAMPTZ` | `Date \| null` | `.defaultNow()` / `.updatedAt()` on timestamp builders only |
+| `timestamp()` | `TIMESTAMPTZ` | `Date \| null` | `.defaultNow()` / `.updatedAt()` on timestamp builders only. Maps to `TEXT` on SQLite |
 | `json()` / `jsonb()` | `JSON` / `JSONB` | `unknown \| null` | Generic: `jsonb<MyType>()` |
 | `decimal()` / `numeric()` | `NUMERIC` | `string \| null` | Use strings to avoid float loss |
 | `enumType(["a", "b"])` | mode-dependent | union literals | See [Enum columns](#enum-columns) |

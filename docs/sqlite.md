@@ -86,7 +86,7 @@ bunx neoorm migrate reset --force
 | `bigint` | `TEXT` |
 | `serial().primary()` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
 | `bool` | `BOOLEAN` (stored as 0/1) |
-| `timestamp` | `TIMESTAMPTZ` (stored as ISO-8601 text) |
+| `timestamp` | `TEXT` (ISO-8601) |
 | `bytea` | `BLOB` |
 | `fk` | the target column's type (default `TEXT`) |
 
