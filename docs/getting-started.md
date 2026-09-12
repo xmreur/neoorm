@@ -124,3 +124,5 @@ const tenantDb = createNeoOrmClient(manifest, {
 Raw `db.sql` / `db.execute` are not rewritten — qualify tenant schema yourself in raw SQL.
 
 Reuse an existing `pg` pool with `createNeoOrmClientFromPool(manifest, pool)`, or an existing SQLite handle with `createNeoOrmClientFromSqlite(manifest, database)`. `$disconnect()` does not close a borrowed pool or database — close it yourself when every consumer is done.
+
+Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Queries](queries.md#logging-sql)).

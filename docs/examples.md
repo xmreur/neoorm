@@ -446,6 +446,16 @@ const db = createNeoOrmClient(manifest, {
 
 See [SQLite](sqlite.md) for type mapping and limitations.
 
+Log compiled SQL:
+
+```ts
+const db = createNeoOrmClient(manifest, {
+  afterQuery: ({ sql, durationMs }) => {
+    if (durationMs > 50) console.warn(`slow ${durationMs.toFixed(1)}ms`, sql);
+  },
+});
+```
+
 ## PostGIS
 
 ```ts
