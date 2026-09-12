@@ -31,6 +31,17 @@ When migration is blocked, the CLI explains why — for example unsupported type
 neoorm generate --accept-data-loss
 ```
 
+## Deploy locking and checksums
+
+`neoorm migrate deploy` serializes concurrent runs and records a SHA-256 checksum of each applied `migration.sql`:
+
+| Dialect | Lock |
+|---------|------|
+| PostgreSQL | `pg_advisory_xact_lock` on the deploy transaction |
+| SQLite | `BEGIN IMMEDIATE` around the whole deploy |
+
+The ledger table `_neoorm_migrations` stores `name` and `checksum`. Editing an already-applied `migration.sql` is rejected (`migration_guard`) — restore the original file or add a new migration. Pending migrations in one deploy run apply in that locked transaction; if a later statement fails, none of that run's new ledger rows remain.
+
 ## Status
 
 ```bash

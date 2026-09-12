@@ -85,7 +85,7 @@ bunx neoorm migrate status
 bunx neoorm migrate reset --force
 ```
 
-- The migration ledger table is `_neoorm_migrations` (`id INTEGER PRIMARY KEY AUTOINCREMENT`).
+- The migration ledger table is `_neoorm_migrations` (`id INTEGER PRIMARY KEY AUTOINCREMENT`, `name`, `checksum`, `applied_at`). `migrate deploy` wraps the run in `BEGIN IMMEDIATE` and refuses an edited `migration.sql` whose checksum no longer matches the ledger.
 - `migrate reset` drops all non-`sqlite_` tables (there is no schema concept).
 - `db pull` introspects `sqlite_master` back into a schema file.
 

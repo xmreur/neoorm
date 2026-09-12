@@ -1,6 +1,6 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { quoteIdentifier as q, tableRef } from "./shared.js";
 import type {
@@ -565,7 +565,7 @@ export const postgresDialect: Dialect = {
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
 	defaultNowExpression,
 	emitCreateMigrationsTable: (ref) =>
-		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	castToInt: (expr) => `${expr}::int`,
 	castToNumeric: (expr) => `${expr}::numeric`,
 	rowToJsonObject(_columns, _refs, aliasExpr) {

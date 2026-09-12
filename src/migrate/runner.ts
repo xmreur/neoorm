@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -13,19 +14,33 @@ import {
 	resolvePgSchemaName,
 } from "../dialect/postgres.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
-import { introspectToManifest } from "../introspect/to-manifest.js";
 import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
+import { introspectToManifest } from "../introspect/to-manifest.js";
 import type { DatabaseClient } from "../runtime/driver.js";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { NeoOrmDriverError } from "../runtime/errors.js";
 import {
 	enrichMigrationError,
-	resolveMigrateContext,
 	type MigrateContext,
+	resolveMigrateContext,
 } from "../runtime/schema-error.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
+
+/** int4 classid for `pg_advisory_xact_lock` — distinct from table OIDs. */
+const PG_MIGRATE_LOCK_CLASSID = 872014;
+
+export function hashMigrationSql(sql: string): string {
+	return createHash("sha256").update(sql, "utf8").digest("hex");
+}
+
+function pgMigrateAdvisoryLockKeys(schema?: string): [number, number] {
+	const digest = createHash("sha256")
+		.update(`neoorm.migrate.${resolvePgSchemaName(schema)}`)
+		.digest();
+	return [PG_MIGRATE_LOCK_CLASSID, digest.readInt32BE(0)];
+}
 
 function migrationsTableRef(dialect: Dialect, schema?: string): string {
 	if (dialect.name === "sqlite") {
@@ -37,9 +52,113 @@ function migrationsTableRef(dialect: Dialect, schema?: string): string {
 		: quoteQualifiedIdentifier(schemaName, MIGRATIONS_TABLE);
 }
 
+async function migrationsLedgerHasChecksumColumn(
+	client: DatabaseClient,
+	dialect: Dialect,
+	schema?: string,
+): Promise<boolean> {
+	if (dialect.name === "sqlite") {
+		const result = await client.query<{ name: string }>(
+			`PRAGMA table_info(${dialect.quoteIdentifier(MIGRATIONS_TABLE)})`,
+		);
+		return result.rows.some((row) => row.name === "checksum");
+	}
+
+	const schemaName = resolvePgSchemaName(schema);
+	const result = await client.query<{ exists: boolean }>(
+		`SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = $1
+				AND table_name = $2
+				AND column_name = 'checksum'
+		) AS exists`,
+		[schemaName, MIGRATIONS_TABLE],
+	);
+	return result.rows[0]?.exists === true;
+}
+
+async function ensureMigrationsChecksumColumn(
+	client: DatabaseClient,
+	dialect: Dialect,
+	schema?: string,
+): Promise<void> {
+	if (await migrationsLedgerHasChecksumColumn(client, dialect, schema)) {
+		return;
+	}
+	await client.query(
+		`ALTER TABLE ${migrationsTableRef(dialect, schema)} ADD COLUMN checksum TEXT`,
+	);
+}
+
+async function withMigrateDeployLock<T>(
+	client: DatabaseClient,
+	dialect: Dialect,
+	schema: string | undefined,
+	fn: (locked: DatabaseClient) => Promise<T>,
+): Promise<T> {
+	if (dialect.name === "sqlite") {
+		return client.transaction(fn, { isolationLevel: "Serializable" });
+	}
+
+	// Session-level pg_advisory_lock on pool.query would bind a random
+	// connection. An xact lock on the deploy transaction stays on that
+	// backend until COMMIT, so a second deploy cannot apply the same files.
+	return client.transaction(async (tx) => {
+		const [classid, objid] = pgMigrateAdvisoryLockKeys(schema);
+		await tx.query("SELECT pg_advisory_xact_lock($1, $2)", [
+			classid,
+			objid,
+		]);
+		return fn(tx);
+	});
+}
+
+async function verifyAppliedMigrationChecksums(
+	client: DatabaseClient,
+	dialect: Dialect,
+	migrationsDir: string,
+	schema: string | undefined,
+	applied: MigrationRecord[],
+): Promise<void> {
+	const tableRef = migrationsTableRef(dialect, schema);
+
+	for (const record of applied) {
+		const sqlPath = join(migrationsDir, record.name, "migration.sql");
+		let sql: string;
+		try {
+			sql = await readFile(sqlPath, "utf-8");
+		} catch {
+			continue;
+		}
+
+		const hash = hashMigrationSql(sql);
+		if (record.checksum == null || record.checksum === "") {
+			await client.query(
+				`UPDATE ${tableRef} SET checksum = $1 WHERE name = $2 AND (checksum IS NULL OR checksum = '')`,
+				[hash, record.name],
+			);
+			continue;
+		}
+
+		if (record.checksum !== hash) {
+			throw schemaError(
+				SchemaErrorCode.migration_guard,
+				`Applied migration "${record.name}" does not match migration.sql on disk (checksum mismatch).`,
+				{ migrationName: record.name, sqlPath },
+				[
+					"Restore the original migration.sql contents.",
+					"Do not edit applied migrations; add a new migration for the change.",
+				],
+			);
+		}
+	}
+}
+
 export type MigrationRecord = {
 	name: string;
 	appliedAt: Date;
+	checksum: string | null;
 };
 
 export type MigrationStatus = {
@@ -60,6 +179,7 @@ export async function ensureMigrationsTable(
 	await client.query(
 		dialect.emitCreateMigrationsTable(migrationsTableRef(dialect, schema)),
 	);
+	await ensureMigrationsChecksumColumn(client, dialect, schema);
 }
 
 export async function listAppliedMigrations(
@@ -68,12 +188,17 @@ export async function listAppliedMigrations(
 	schema?: string,
 ): Promise<MigrationRecord[]> {
 	await ensureMigrationsTable(client, dialect, schema);
-	const result = await client.query<{ name: string; applied_at: string }>(
-		`SELECT name, applied_at FROM ${migrationsTableRef(dialect, schema)} ORDER BY id`,
+	const result = await client.query<{
+		name: string;
+		checksum: string | null;
+		applied_at: string;
+	}>(
+		`SELECT name, checksum, applied_at FROM ${migrationsTableRef(dialect, schema)} ORDER BY id`,
 	);
 	return result.rows.map((row) => ({
 		name: row.name,
 		appliedAt: new Date(row.applied_at),
+		checksum: row.checksum ?? null,
 	}));
 }
 
@@ -307,8 +432,8 @@ export async function applyMigration(
 			}
 			await tx.query(sql);
 			await tx.query(
-				`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name) VALUES ($1)`,
-				[name],
+				`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum) VALUES ($1, $2)`,
+				[name, hashMigrationSql(sql)],
 			);
 		});
 	} catch (err) {
@@ -329,24 +454,39 @@ export async function migrateDeploy(
 	schemaOrContext?: string | MigrateContext,
 ): Promise<string[]> {
 	const context = resolveMigrateContext(schemaOrContext);
-	const applied = await getAppliedMigrations(
+	return withMigrateDeployLock(
 		client,
 		dialect,
 		context.schema,
+		async (locked) => {
+			const records = await listAppliedMigrations(
+				locked,
+				dialect,
+				context.schema,
+			);
+			await verifyAppliedMigrationChecksums(
+				locked,
+				dialect,
+				migrationsDir,
+				context.schema,
+				records,
+			);
+			const applied = new Set(records.map((record) => record.name));
+			const pending = await listPendingMigrations(migrationsDir, applied);
+
+			for (const name of pending) {
+				await applyMigration(
+					locked,
+					dialect,
+					migrationsDir,
+					name,
+					context,
+				);
+			}
+
+			return pending;
+		},
 	);
-	const pending = await listPendingMigrations(migrationsDir, applied);
-
-	for (const name of pending) {
-		await applyMigration(
-			client,
-			dialect,
-			migrationsDir,
-			name,
-			context,
-		);
-	}
-
-	return pending;
 }
 
 async function readDownSql(
@@ -415,7 +555,11 @@ export async function migrateDown(
 		);
 	}
 
-	const applied = await listAppliedMigrations(client, dialect, options?.schema);
+	const applied = await listAppliedMigrations(
+		client,
+		dialect,
+		options?.schema,
+	);
 	if (applied.length === 0) {
 		throw schemaError(
 			SchemaErrorCode.migration_guard,
@@ -440,7 +584,13 @@ export async function migrateDown(
 
 	const reverted: string[] = [];
 	for (const name of toRevert) {
-		await revertMigration(client, dialect, migrationsDir, name, options?.schema);
+		await revertMigration(
+			client,
+			dialect,
+			migrationsDir,
+			name,
+			options?.schema,
+		);
 		reverted.push(name);
 	}
 

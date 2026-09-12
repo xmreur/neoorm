@@ -12,6 +12,7 @@ describe("computeMigrationStatus", () => {
 				{
 					name: "20250101_init",
 					appliedAt: new Date("2025-01-01T12:00:00Z"),
+					checksum: null,
 				},
 			],
 		);
@@ -27,10 +28,12 @@ describe("computeMigrationStatus", () => {
 				{
 					name: "20250101_init",
 					appliedAt: new Date("2025-01-01T12:00:00Z"),
+					checksum: null,
 				},
 				{
 					name: "20241201_old",
 					appliedAt: new Date("2024-12-01T12:00:00Z"),
+					checksum: null,
 				},
 			],
 		);
@@ -46,6 +49,7 @@ describe("formatMigrateStatus", () => {
 					{
 						name: "20250101_init",
 						appliedAt: new Date("2025-01-01T12:00:00.000Z"),
+						checksum: null,
 					},
 				],
 				pending: ["20250102_add_posts"],
