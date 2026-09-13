@@ -134,6 +134,9 @@ const idType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string" };
+	},
 };
 
 const textType: ColumnTypePlugin = {
@@ -163,6 +166,9 @@ const textType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string" };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "text" || pgDataType === "character varying";
 	},
@@ -184,6 +190,9 @@ const boolType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "boolean");
+	},
+	columnValidation() {
+		return { kind: "boolean" };
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
@@ -224,6 +233,9 @@ const intType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "number");
 	},
+	columnValidation() {
+		return { kind: "number", int: true };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "integer" || pgDataType === "smallint";
 	},
@@ -253,6 +265,9 @@ const bigintType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "bigint");
 	},
+	columnValidation() {
+		return { kind: "bigint" };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "bigint";
 	},
@@ -280,6 +295,9 @@ const timestampType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "Date");
+	},
+	columnValidation() {
+		return { kind: "date" };
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
@@ -325,6 +343,9 @@ const uuidType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string", format: "uuid" };
+	},
 	introspect(_pgDataType, udtName) {
 		return udtName === "uuid";
 	},
@@ -346,6 +367,9 @@ const jsonType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "unknown");
+	},
+	columnValidation() {
+		return { kind: "unknown" };
 	},
 	formatDefault: formatJsonDefault,
 	deserializeValue(col, dbValue) {
@@ -373,6 +397,9 @@ const jsonbType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "unknown");
+	},
+	columnValidation() {
+		return { kind: "unknown" };
 	},
 	formatDefault: formatJsonDefault,
 	deserializeValue(col, dbValue) {
@@ -416,6 +443,9 @@ const decimalType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string" };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "numeric";
 	},
@@ -444,6 +474,9 @@ const serialType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "number");
+	},
+	columnValidation() {
+		return { kind: "number", int: true };
 	},
 };
 
@@ -474,6 +507,19 @@ const enumColumnType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return enumUnionTsType(col);
 	},
+	columnValidation(col) {
+		const values = col.typeOptions?.values as readonly string[] | undefined;
+		const first = values?.[0];
+		if (first === undefined || !values) {
+			return { kind: "string" };
+		}
+		const name = col.typeOptions?.name as string | undefined;
+		return {
+			kind: "enum",
+			values: [first, ...values.slice(1)] as [string, ...string[]],
+			...(typeof name === "string" ? { name } : {}),
+		};
+	},
 };
 
 const byteaType: ColumnTypePlugin = {
@@ -495,6 +541,9 @@ const byteaType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "Buffer");
+	},
+	columnValidation() {
+		return { kind: "instance", tsName: "Buffer" };
 	},
 	serializeValue(_col, value) {
 		if (value instanceof Uint8Array && !(value instanceof Buffer)) {
@@ -535,6 +584,9 @@ const textArrayType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return col.nullable ? "string[] | null" : "string[]";
 	},
+	columnValidation() {
+		return { kind: "array", element: { kind: "string" } };
+	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
 		if (dialect?.name === "sqlite") return JSON.stringify(value);
@@ -569,6 +621,9 @@ const intArrayType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return col.nullable ? "number[] | null" : "number[]";
+	},
+	columnValidation() {
+		return { kind: "array", element: { kind: "number", int: true } };
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
@@ -608,6 +663,9 @@ const citextType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "string");
+	},
+	columnValidation() {
+		return { kind: "string" };
 	},
 	introspect(_pgDataType, udtName) {
 		return udtName === "citext";

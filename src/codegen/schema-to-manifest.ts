@@ -27,7 +27,7 @@ import {
 	suggestSchemaTableAccessor,
 } from "../runtime/error-hints.js";
 import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
-import type { ColumnBuilder } from "../schema/column.js";
+import type { ColumnBuilder, ColumnMeta } from "../schema/column.js";
 import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
 import type { SchemaDef } from "../schema/define-schema.js";
 import type { ManyToManyExtra } from "../schema/many-to-many.js";
@@ -365,7 +365,42 @@ function columnToManifest(
 	if (compiledCheck !== undefined) {
 		result.checkExpression = compiledCheck;
 	}
+	copyStructuredConstraints(result, meta);
 	return result;
+}
+
+function jsonSafeConstraint(value: number | bigint | string): number | string {
+	return typeof value === "bigint" ? value.toString() : value;
+}
+
+function copyStructuredConstraints(
+	result: ManifestColumn,
+	meta: ColumnMeta,
+): void {
+	if (meta.checkMin !== undefined) {
+		result.checkMin = jsonSafeConstraint(meta.checkMin);
+	}
+	if (meta.checkMax !== undefined) {
+		result.checkMax = jsonSafeConstraint(meta.checkMax);
+	}
+	if (meta.checkPositive === true) {
+		result.checkPositive = true;
+	}
+	if (meta.checkMinLength !== undefined) {
+		result.checkMinLength = meta.checkMinLength;
+	}
+	if (meta.checkMaxLength !== undefined) {
+		result.checkMaxLength = meta.checkMaxLength;
+	}
+	if (meta.checkNotEmpty === true) {
+		result.checkNotEmpty = true;
+	}
+	if (meta.checkEmail === true) {
+		result.checkEmail = true;
+	}
+	if (meta.checkUrl === true) {
+		result.checkUrl = true;
+	}
 }
 
 function extrasToManifest(

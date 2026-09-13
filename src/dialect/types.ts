@@ -31,6 +31,17 @@ export type ManifestColumn = {
 	storageSqlType?: string;
 	checkExpression?: string;
 	generated?: boolean;
+	/** Structured CHECK helper values for validation emit. Ignored by migration diffs. */
+	checkMin?: number | string;
+	checkMax?: number | string;
+	checkPositive?: boolean;
+	checkMinLength?: number;
+	checkMaxLength?: number;
+	checkNotEmpty?: boolean;
+	/** Client-side email format for validation emit. Ignored by migration diffs. */
+	checkEmail?: boolean;
+	/** Client-side URL format for validation emit. Ignored by migration diffs. */
+	checkUrl?: boolean;
 };
 
 export type ManifestEnumType = {

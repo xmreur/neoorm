@@ -1,7 +1,8 @@
-import { readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { generateFromSchema } from "../src/codegen/generate.js";
+import { generateFromSchema, zodPeerWarning } from "../src/codegen/generate.js";
 import { atIndex } from "./helpers/manifest.js";
 
 describe("codegen", () => {
@@ -125,5 +126,72 @@ describe("codegen", () => {
 		}
 
 		await rm(outDir, { recursive: true, force: true });
+	});
+
+	it("does not write zod.ts by default", async () => {
+		await rm(outDir, { recursive: true, force: true });
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		await generateFromSchema(schemaPath, outDir);
+		await expect(
+			readFile(join(outDir, "zod.ts"), "utf-8"),
+		).rejects.toMatchObject({ code: "ENOENT" });
+		const clientContent = await readFile(
+			join(outDir, "client.ts"),
+			"utf-8",
+		);
+		expect(clientContent).not.toContain("./zod.js");
+		await rm(outDir, { recursive: true, force: true });
+	});
+
+	it("writes zod.ts and re-exports it from client when zod is enabled", async () => {
+		await rm(outDir, { recursive: true, force: true });
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		const { warnings } = await generateFromSchema(schemaPath, outDir, {
+			zod: true,
+		});
+		const zodContent = await readFile(join(outDir, "zod.ts"), "utf-8");
+		expect(zodContent).toContain('import { z } from "zod";');
+		expect(zodContent).toContain("export const UserCreateSchema");
+		expect(zodContent).toContain("export type UserSelect");
+		expect(zodContent).toContain("export type UserCreate");
+		expect(zodContent).toContain("avatarUrl: z.url()");
+		const clientContent = await readFile(
+			join(outDir, "client.ts"),
+			"utf-8",
+		);
+		expect(clientContent).toContain('export * from "./zod.js"');
+		expect(
+			warnings.some((warning) =>
+				warning.includes('"zod" is not installed'),
+			),
+		).toBe(false);
+		await generateFromSchema(schemaPath, outDir);
+		await expect(
+			readFile(join(outDir, "zod.ts"), "utf-8"),
+		).rejects.toMatchObject({ code: "ENOENT" });
+		await rm(outDir, { recursive: true, force: true });
+	});
+});
+
+describe("zodPeerWarning", () => {
+	it("is silent when zod can be resolved from the project", () => {
+		expect(zodPeerWarning(process.cwd())).toBeUndefined();
+	});
+
+	it("warns when zod cannot be resolved", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "neoorm-no-zod-"));
+		try {
+			expect(zodPeerWarning(dir)).toBe(
+				'generate.zod is enabled but "zod" is not installed. Run: bun add zod',
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });

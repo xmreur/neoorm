@@ -102,6 +102,7 @@ export function summarizeGenerateOutcome(params: {
 export function formatGenerateSummary(
 	summary: GenerateSummary,
 	outDir: string,
+	options?: { zod?: boolean },
 ): string[] {
 	const lines: string[] = [];
 
@@ -159,6 +160,10 @@ export function formatGenerateSummary(
 			const _exhaustive: never = summary.status;
 			return [_exhaustive];
 		}
+	}
+
+	if (options?.zod === true) {
+		lines.push(`  Generated Zod schemas at ${outDir}/zod.ts`);
 	}
 
 	return lines;

@@ -51,7 +51,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `textArray()` / `intArray()` | arrays | arrays \| null | |
 | `citext()` | `CITEXT` | `string \| null` | Requires `citext` extension |
 
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, and `.notEmpty()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`) add `.min()`, `.max()`, and `.positive()`.
+All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, `.notEmpty()`, `.email()`, and `.url()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`) add `.min()`, `.max()`, and `.positive()`.
 
 `.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses.
 
@@ -148,7 +148,7 @@ export const schema = defineSchema({
 
 ## Column checks
 
-Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not client-side validators — use Zod or similar at your API boundary for format rules.
+Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not runtime validators by themselves. With [`generate.zod`](zod.md), the same helpers are copied into generated Zod schemas at your API boundary.
 
 ### Typed constraint helpers
 
@@ -157,6 +157,8 @@ Use `.check("sql expression")` for custom CHECK constraints, or the typed helper
 | `.maxLength(n)` / `text({ maxLength: n })` | `text` | `VARCHAR(n)` | `TEXT` + `CHECK (length(col) <= n)` |
 | `.minLength(n)` | `text`, `citext` | CHECK | CHECK |
 | `.notEmpty()` | `text`, `citext` | CHECK | CHECK |
+| `.email()` | `text`, `citext` | — | — |
+| `.url()` | `text`, `citext` | — | — |
 | `.min(n)` / `.max(n)` | `int`, `bigint`, `serial`, `decimal` | CHECK | CHECK |
 | `.positive()` | same numeric types | CHECK | CHECK |
 
@@ -164,9 +166,13 @@ Use `.check("sql expression")` for custom CHECK constraints, or the typed helper
 email: text({ maxLength: 255 }).notNull().unique()
 title: text().notNull().minLength(1).maxLength(200)
 bio: text().notEmpty()
+handle: text().notNull().email()
+website: text().notNull().url()
 views: int().notNull().min(0)
 price: decimal({ precision: 10, scale: 2 }).notNull().positive()
 ```
+
+`.email()` and `.url()` are validation-only: they do not emit a SQL CHECK. With [`generate.zod`](zod.md), columns named `email` or ending in `Email` (`contactEmail`) become `z.email()`, and columns named `url` or ending in `Url` (`avatarUrl`) become `z.url()`. You can also mark any `text` / `citext` column with `.email()` or `.url()`. Foreign keys follow the **referenced** column (`authorEmail` pointing at a uuid PK stays a uuid).
 
 `citext` length helpers use CHECK only (no `VARCHAR`). NULL still bypasses CHECK — pair `.notEmpty()` with `.notNull()` to reject empty strings.
 

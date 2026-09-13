@@ -55,6 +55,7 @@ describe("neoorm init", () => {
 		expect(config).toContain('schema: "./schema.ts"');
 		expect(config).toContain('out: "./neoorm"');
 		expect(config).toContain('provider: "postgresql"');
+		expect(config).toContain("// generate: { zod: true }");
 
 		const envExample = await readFile(
 			join(tmpDir, ".env.example"),

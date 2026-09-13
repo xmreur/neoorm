@@ -43,6 +43,8 @@ const DOCUMENTED_BUILDER_METHODS: { method: string; file: string }[] = [
 	{ method: "maxLength", file: "src/schema/column.ts" },
 	{ method: "minLength", file: "src/schema/column.ts" },
 	{ method: "notEmpty", file: "src/schema/column.ts" },
+	{ method: "email", file: "src/schema/column.ts" },
+	{ method: "url", file: "src/schema/column.ts" },
 	{ method: "min", file: "src/schema/column.ts" },
 	{ method: "max", file: "src/schema/column.ts" },
 	{ method: "positive", file: "src/schema/column.ts" },

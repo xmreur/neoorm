@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	columnsEqual,
 	diffManifest,
 	resolveMigrationSql,
 } from "../src/codegen/diff-manifest.js";
@@ -237,5 +238,91 @@ describe("column constraint helpers", () => {
 		expect(sql).toContain(
 			'ALTER TABLE "items" ADD CONSTRAINT "items_views_check" CHECK ("views" >= 0);',
 		);
+	});
+
+	it("persists structured constraints without treating them as column diffs", () => {
+		const schema = defineSchema({
+			items: table({
+				id: id(),
+				views: int().notNull().min(0),
+				title: text().notNull().minLength(1).notEmpty(),
+			}),
+		});
+		const views = manifestTable(
+			schemaToManifest(schema),
+			"items",
+		).columns.find((column) => column.tsName === "views");
+		const title = manifestTable(
+			schemaToManifest(schema),
+			"items",
+		).columns.find((column) => column.tsName === "title");
+		expect(views?.checkMin).toBe(0);
+		expect(title?.checkMinLength).toBe(1);
+		expect(title?.checkNotEmpty).toBe(true);
+
+		const withoutHints = col("views", "views", {
+			kind: "int",
+			nullable: false,
+			checkExpression: '"views" >= 0',
+		});
+		const withHints = col("views", "views", {
+			kind: "int",
+			nullable: false,
+			checkExpression: '"views" >= 0',
+			checkMin: 0,
+		});
+		expect(columnsEqual(withoutHints, withHints)).toBe(true);
+	});
+
+	it("persists .email() without compiling a SQL CHECK", () => {
+		const schema = defineSchema({
+			users: table({
+				id: id(),
+				handle: text().notNull().email(),
+			}),
+		});
+		const handle = manifestTable(
+			schemaToManifest(schema),
+			"users",
+		).columns.find((column) => column.tsName === "handle");
+		expect(handle?.checkEmail).toBe(true);
+		expect(handle?.checkExpression).toBeUndefined();
+
+		const withoutHint = col("handle", "handle", {
+			kind: "text",
+			nullable: false,
+		});
+		const withHint = col("handle", "handle", {
+			kind: "text",
+			nullable: false,
+			checkEmail: true,
+		});
+		expect(columnsEqual(withoutHint, withHint)).toBe(true);
+	});
+
+	it("persists .url() without compiling a SQL CHECK", () => {
+		const schema = defineSchema({
+			users: table({
+				id: id(),
+				website: text().notNull().url(),
+			}),
+		});
+		const website = manifestTable(
+			schemaToManifest(schema),
+			"users",
+		).columns.find((column) => column.tsName === "website");
+		expect(website?.checkUrl).toBe(true);
+		expect(website?.checkExpression).toBeUndefined();
+
+		const withoutHint = col("website", "website", {
+			kind: "text",
+			nullable: false,
+		});
+		const withHint = col("website", "website", {
+			kind: "text",
+			nullable: false,
+			checkUrl: true,
+		});
+		expect(columnsEqual(withoutHint, withHint)).toBe(true);
 	});
 });
