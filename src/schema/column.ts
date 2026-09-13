@@ -80,6 +80,16 @@ export interface ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> {
 	>;
 }
 
+type SharedColumnBuilderMethod =
+	| "notNull"
+	| "unique"
+	| "index"
+	| "hidden"
+	| "default"
+	| "primary"
+	| "map"
+	| "check";
+
 /** Fluent builder for a timestamp column (supports `defaultNow` and `updatedAt`). */
 export interface TimestampColumnBuilder<
 	TValue,
@@ -151,7 +161,41 @@ type ColumnExtrasFactory<TValue, TMeta extends ColumnMeta, TExtra> = (
 export type TextColumnBuilder<
 	TValue,
 	TMeta extends ColumnMeta = ColumnMeta,
-> = ColumnBuilder<TValue, TMeta> & {
+> = Omit<ColumnBuilder<TValue, TMeta>, SharedColumnBuilderMethod> & {
+	readonly _type: TValue;
+	readonly _meta: TMeta;
+	notNull(): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "nullable"> & { nullable: false }
+	>;
+	unique(): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "unique"> & { unique: true }
+	>;
+	index(): TextColumnBuilder<TValue, Omit<TMeta, "index"> & { index: true }>;
+	hidden(): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "hidden"> & { hidden: true }
+	>;
+	default(
+		value: TValue,
+	): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
+	>;
+	primary(): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "primary"> & { primary: true }
+	>;
+	map(
+		name: string,
+	): TextColumnBuilder<TValue, Omit<TMeta, "mapName"> & { mapName: string }>;
+	check(
+		expression: string,
+	): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "checkExpression"> & { checkExpression: string }
+	>;
 	/** Limit string length (`VARCHAR(n)` on Postgres; CHECK on SQLite). */
 	maxLength(n: number): TextColumnBuilder<TValue, TMeta>;
 	/** Require minimum string length via CHECK. */
@@ -164,7 +208,47 @@ export type TextColumnBuilder<
 export type NumericColumnBuilder<
 	TValue,
 	TMeta extends ColumnMeta = ColumnMeta,
-> = ColumnBuilder<TValue, TMeta> & {
+> = Omit<ColumnBuilder<TValue, TMeta>, SharedColumnBuilderMethod> & {
+	readonly _type: TValue;
+	readonly _meta: TMeta;
+	notNull(): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "nullable"> & { nullable: false }
+	>;
+	unique(): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "unique"> & { unique: true }
+	>;
+	index(): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "index"> & { index: true }
+	>;
+	hidden(): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "hidden"> & { hidden: true }
+	>;
+	default(
+		value: TValue,
+	): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "defaultValue"> & { defaultValue: TValue }
+	>;
+	primary(): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "primary"> & { primary: true }
+	>;
+	map(
+		name: string,
+	): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "mapName"> & { mapName: string }
+	>;
+	check(
+		expression: string,
+	): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "checkExpression"> & { checkExpression: string }
+	>;
 	/** Require values >= n via CHECK. */
 	min(n: number | bigint | string): NumericColumnBuilder<TValue, TMeta>;
 	/** Require values <= n via CHECK. */
