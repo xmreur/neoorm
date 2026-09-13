@@ -51,7 +51,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `textArray()` / `intArray()` | arrays | arrays \| null | |
 | `citext()` | `CITEXT` | `string \| null` | Requires `citext` extension |
 
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`.
+All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, and `.notEmpty()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`) add `.min()`, `.max()`, and `.positive()`.
 
 `.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses.
 
@@ -148,7 +148,29 @@ export const schema = defineSchema({
 
 ## Column checks
 
-`.check("price >= 0")` stores a SQL expression on the column (combined with enum `check` mode when both apply):
+Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not client-side validators — use Zod or similar at your API boundary for format rules.
+
+### Typed constraint helpers
+
+| Method | Column types | Postgres | SQLite |
+|--------|--------------|----------|--------|
+| `.maxLength(n)` / `text({ maxLength: n })` | `text` | `VARCHAR(n)` | `TEXT` + `CHECK (length(col) <= n)` |
+| `.minLength(n)` | `text`, `citext` | CHECK | CHECK |
+| `.notEmpty()` | `text`, `citext` | CHECK | CHECK |
+| `.min(n)` / `.max(n)` | `int`, `bigint`, `serial`, `decimal` | CHECK | CHECK |
+| `.positive()` | same numeric types | CHECK | CHECK |
+
+```ts
+email: text({ maxLength: 255 }).notNull().unique()
+title: text().notNull().minLength(1).maxLength(200)
+bio: text().notEmpty()
+views: int().notNull().min(0)
+price: decimal({ precision: 10, scale: 2 }).notNull().positive()
+```
+
+`citext` length helpers use CHECK only (no `VARCHAR`). NULL still bypasses CHECK — pair `.notEmpty()` with `.notNull()` to reject empty strings.
+
+Custom `.check()` expressions are combined with helpers and enum `check` mode using AND. Prefer helpers over raw SQL so constraints use the mapped SQL column name after `.map()`.
 
 ```ts
 price: decimal({ precision: 10, scale: 2 }).notNull().check("price >= 0"),

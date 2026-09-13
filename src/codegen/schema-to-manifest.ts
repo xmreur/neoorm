@@ -28,6 +28,7 @@ import {
 } from "../runtime/error-hints.js";
 import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
 import type { ColumnBuilder } from "../schema/column.js";
+import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
 import type { SchemaDef } from "../schema/define-schema.js";
 import type { ManyToManyExtra } from "../schema/many-to-many.js";
 import {
@@ -278,6 +279,7 @@ function columnToManifest(
 	columnNaming: ColumnNaming,
 	tables: Record<string, TableDef>,
 	defaultColumnNaming: ColumnNaming,
+	provider?: DatabaseProvider,
 ): ManifestColumn {
 	if (isFkBuilder(col)) {
 		const meta = col._meta;
@@ -359,8 +361,9 @@ function columnToManifest(
 	if (meta.hidden === true) {
 		result.hidden = true;
 	}
-	if (meta.checkExpression) {
-		result.checkExpression = meta.checkExpression;
+	const compiledCheck = compileColumnCheckConstraints(result, meta, provider);
+	if (compiledCheck !== undefined) {
+		result.checkExpression = compiledCheck;
 	}
 	return result;
 }
@@ -546,6 +549,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 					columnNaming,
 					tables,
 					defaultColumnNaming,
+					provider,
 				),
 			);
 

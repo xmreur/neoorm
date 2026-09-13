@@ -7,12 +7,15 @@
 export type {
 	DecimalOptions,
 	EnumTypeOptions,
+	TextOptions,
 	UuidOptions,
 } from "../plugins/builtin.js";
 export type {
 	ColumnBuilder,
 	ColumnKind,
 	ColumnMeta,
+	NumericColumnBuilder,
+	TextColumnBuilder,
 	TimestampColumnBuilder,
 } from "./column.js";
 export {
