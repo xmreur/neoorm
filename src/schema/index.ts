@@ -4,14 +4,15 @@
  *
  * Import from `neoorm/schema` when authoring `schema.ts`.
  */
+
+export type { InferValidationType } from "../codegen/validation/infer.js";
+export type { ValidationType } from "../codegen/validation/types.js";
 export type {
 	DecimalOptions,
 	EnumTypeOptions,
 	TextOptions,
 	UuidOptions,
 } from "../plugins/builtin.js";
-export type { InferValidationType } from "../codegen/validation/infer.js";
-export type { ValidationType } from "../codegen/validation/types.js";
 export type {
 	ColumnBuilder,
 	ColumnKind,
@@ -20,7 +21,6 @@ export type {
 	TextColumnBuilder,
 	TimestampColumnBuilder,
 } from "./column.js";
-export type { JsonColumnBuilder } from "./json-column.js";
 export {
 	bigint,
 	bool,
@@ -43,6 +43,7 @@ export {
 } from "./column.js";
 export type { SchemaDef, SchemaOptions } from "./define-schema.js";
 export { defineSchema } from "./define-schema.js";
+export type { JsonColumnBuilder } from "./json-column.js";
 export type {
 	InlineManyToManyOptions,
 	ManyToManyExtra,

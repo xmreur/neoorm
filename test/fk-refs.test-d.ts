@@ -1,7 +1,7 @@
 import { fk, id, table } from "neoorm/schema";
 import type { FkBuilder } from "../src/schema/relation.js";
 
-const users = table({
+const _users = table({
 	id: id(),
 });
 

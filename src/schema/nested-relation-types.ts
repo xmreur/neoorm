@@ -10,13 +10,6 @@ import type { ColumnDef, TableDef } from "./table.js";
 
 type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
-type MergeInverseRelationUnion<U> = {
-	[K in U extends unknown ? keyof U : never]?: Extract<
-		U,
-		{ [P in K]: unknown }
-	>[K];
-};
-
 type FkMetaOf<C> =
 	C extends FkBuilder<
 		infer TTarget,

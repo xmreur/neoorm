@@ -4,7 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { loadRelations } from "../src/runtime/query/find.js";
-import { atIndex, manifestTable, rowAt } from "./helpers/manifest.js";
+import { manifestTable, rowAt } from "./helpers/manifest.js";
 
 function createMockExecutor(): Executor & {
 	queries: { sql: string; params: unknown[] }[];
@@ -74,9 +74,9 @@ describe("find FK grouping", () => {
 			posts: true,
 		});
 
-		expect(rowAt(parentRows, 0)["posts"]).toHaveLength(2);
-		expect(rowAt(parentRows, 1)["posts"]).toHaveLength(1);
-		expect(rowAt(parentRows, 2)["posts"]).toEqual([]);
+		expect(rowAt(parentRows, 0).posts).toHaveLength(2);
+		expect(rowAt(parentRows, 1).posts).toHaveLength(1);
+		expect(rowAt(parentRows, 2).posts).toEqual([]);
 	});
 
 	it("groups rows by a non-standard snake_case FK name that does not round-trip through camelCase", async () => {
@@ -116,8 +116,8 @@ describe("find FK grouping", () => {
 			posts: true,
 		});
 
-		expect(rowAt(parentRows, 0)["posts"]).toHaveLength(1);
-		expect(rowAt(parentRows, 1)["posts"]).toHaveLength(1);
+		expect(rowAt(parentRows, 0).posts).toHaveLength(1);
+		expect(rowAt(parentRows, 1).posts).toHaveLength(1);
 	});
 
 	it("groups rows under a camelCase naming strategy with a custom mapped FK", async () => {
@@ -158,6 +158,6 @@ describe("find FK grouping", () => {
 			posts: true,
 		});
 
-		expect(rowAt(parentRows, 0)["posts"]).toHaveLength(2);
+		expect(rowAt(parentRows, 0).posts).toHaveLength(2);
 	});
 });

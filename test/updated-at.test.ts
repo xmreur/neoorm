@@ -1,4 +1,4 @@
-import { defineSchema, table, text } from "neoorm/schema";
+import { defineSchema, table } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -12,7 +12,7 @@ import {
 	updatedAtSetExpressions,
 } from "../src/runtime/query/updated-at.js";
 import { createColumnBuilder } from "../src/schema/column.js";
-import { manifestTable } from "./helpers/manifest.js";
+import { defined, manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema);
@@ -99,7 +99,10 @@ describe("updatedAt", () => {
 	it("no-ops for tables without updatedAt column", () => {
 		const manifest = blogManifest();
 		const tags = manifestTable(manifest, "tags");
-		const tagsIndex = buildManifestIndex(manifest).get("tags")!;
+		const tagsIndex = defined(
+			buildManifestIndex(manifest).get("tags"),
+			"tags table index",
+		);
 		const data = { slug: "hello", name: "Hello" };
 
 		stripUpdatedAtFromData(tags, data, tagsIndex);

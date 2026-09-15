@@ -73,7 +73,7 @@ describe("codegen", () => {
 		const { manifest } = await generateFromSchema(schemaPath, outDir);
 
 		expect(manifest.version).toBe(1);
-		expect(manifest.tables["users"]).toBeDefined();
+		expect(manifest.tables.users).toBeDefined();
 
 		const manifestContent = await readFile(
 			join(outDir, "manifest.ts"),

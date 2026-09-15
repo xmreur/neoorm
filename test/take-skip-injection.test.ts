@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { buildFindManyQuery } from "../src/runtime/query/compile.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -17,7 +18,7 @@ const manifest = schemaToManifest(schema);
 
 describe("take/skip interpolation", () => {
 	it("rejects non-integer and negative take/skip at compile time", () => {
-		const table = manifest.tables.users!;
+		const table = manifestTable(manifest, "users");
 		const benign = buildFindManyQuery(
 			table,
 			"",
@@ -108,7 +109,7 @@ describe.skipIf(!databaseUrl)("take/skip injection (integration)", () => {
 		);
 
 		const valid = await db.users.findMany({ take: 2 });
-		expect(valid.map((r) => r["id"])).toHaveLength(2);
+		expect(valid.map((r) => r.id)).toHaveLength(2);
 
 		await expect(
 			db.users.findMany({

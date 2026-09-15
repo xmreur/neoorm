@@ -17,6 +17,7 @@ import { enrichPgError } from "../src/runtime/pg-error.js";
 import { requireTsColumn } from "../src/runtime/query/table-index.js";
 import { enrichSqliteError } from "../src/runtime/sqlite-error.js";
 import { defineSchema, fk, id, table } from "../src/schema/index.js";
+import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema);
@@ -98,7 +99,7 @@ describe("runtime errors", () => {
 
 	it("throws NeoOrmQueryError for unknown query column with TS name hint", () => {
 		const manifest = blogManifest();
-		const users = manifest.tables.users!;
+		const users = manifestTable(manifest, "users");
 
 		expect(() =>
 			requireTsColumn(undefined, users, "created_at", "where", "select"),
@@ -122,7 +123,7 @@ describe("runtime errors", () => {
 
 	it("suggests TS column from SQL column name on profiles", () => {
 		const manifest = blogManifest();
-		const profiles = manifest.tables.profiles!;
+		const profiles = manifestTable(manifest, "profiles");
 		const suggestions = suggestTsColumn("avatar_url", profiles, "select");
 		expect(suggestions.some((s) => s.includes("avatarUrl"))).toBe(true);
 	});

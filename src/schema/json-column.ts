@@ -17,9 +17,10 @@ export function createJsonValidationExtras<TValue, TMeta extends ColumnMeta>(
 ): JsonValidationMethods {
 	return {
 		schema(validation: ValidationType) {
-			return rebuild({ ...meta, validation } as TMeta) as JsonColumnBuilder<
-				unknown | null
-			>;
+			return rebuild({
+				...meta,
+				validation,
+			} as TMeta) as JsonColumnBuilder<unknown | null>;
 		},
 	};
 }

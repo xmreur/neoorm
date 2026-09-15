@@ -50,16 +50,17 @@ export function requireCountSqlCol(
 	manifestIndex?: ManifestIndex,
 ): string {
 	const sqlCol = countSqlCol(table, tsName, manifestIndex);
-	if (!sqlCol) {
-		requireTsColumn(
-			getTableIndex(manifestIndex, table.accessor),
-			table,
-			tsName,
-			"count",
-			"select",
-		);
+	if (sqlCol) {
+		return sqlCol;
 	}
-	return sqlCol!;
+	requireTsColumn(
+		getTableIndex(manifestIndex, table.accessor),
+		table,
+		tsName,
+		"count",
+		"select",
+	);
+	throw new Error(`count column "${tsName}" could not be resolved`);
 }
 
 export function normalizeCountMap(
@@ -469,16 +470,19 @@ function requireFieldAggExpression(
 		dialect,
 		manifestIndex,
 	);
-	if (!expr) {
-		requireTsColumn(
-			getTableIndex(manifestIndex, table.accessor),
-			table,
-			colName,
-			`aggregate ${key}`,
-			"select",
-		);
+	if (expr) {
+		return expr;
 	}
-	return expr!;
+	requireTsColumn(
+		getTableIndex(manifestIndex, table.accessor),
+		table,
+		colName,
+		`aggregate ${key}`,
+		"select",
+	);
+	throw new Error(
+		`aggregate expression for "${colName}" could not be resolved`,
+	);
 }
 
 export function compileHaving(

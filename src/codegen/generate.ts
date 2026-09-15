@@ -14,7 +14,8 @@ import type { NeoOrmPlugin } from "../plugins/types.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { NeoOrmSchemaError } from "../runtime/errors.js";
 import { schemaCompileError } from "../runtime/schema-error.js";
-import type { ColumnDef, ColumnNaming } from "../schema/table.js";
+import type { SchemaDef } from "../schema/define-schema.js";
+import type { ColumnDef, ColumnNaming, TableDef } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import {
 	buildDownSql,
@@ -30,8 +31,8 @@ import {
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
 import { emitZodTs } from "./validation/emit-zod.js";
-import { applyJsonGenericTypesFromSchema } from "./validation/json-generic-types.js";
 import { validationFromManifest } from "./validation/from-manifest.js";
+import { applyJsonGenericTypesFromSchema } from "./validation/json-generic-types.js";
 
 function dialectForProvider(provider: DatabaseProvider | undefined): Dialect {
 	return isSqliteProvider(provider) ? sqliteDialect : postgresDialect;
@@ -73,18 +74,31 @@ async function resolvePluginRegistry(): Promise<NeoOrmPlugin[]> {
 	return [...fromDist];
 }
 
+function asSchemaDef(
+	value: unknown,
+): SchemaDef<Record<string, TableDef>> | null {
+	if (value === null || typeof value !== "object") {
+		return null;
+	}
+	const tables = Reflect.get(value, "_tables");
+	if (tables === null || typeof tables !== "object") {
+		return null;
+	}
+	return value as SchemaDef<Record<string, TableDef>>;
+}
+
 export async function loadSchemaModule(schemaPath: string): Promise<{
-	schema: import("../schema/define-schema.js").SchemaDef<
-		Record<string, import("../schema/table.js").TableDef>
-	>;
+	schema: SchemaDef<Record<string, TableDef>>;
 	plugins: NeoOrmPlugin[];
 }> {
-	const { importTsModule } = await import("../utils/load-ts.js");
+	const { importTsModule, resolveModuleExport } = await import(
+		"../utils/load-ts.js"
+	);
 
 	const mod = await importTsModule(schemaPath);
 
-	const schema = mod.schema ?? mod.default?.schema ?? mod.default;
-	if (!schema || !schema._tables) {
+	const schema = asSchemaDef(resolveModuleExport(mod, "schema"));
+	if (!schema) {
 		throw schemaError(
 			"invalid_schema_export",
 			"Schema file must export a schema via `export const schema = defineSchema(...)`",

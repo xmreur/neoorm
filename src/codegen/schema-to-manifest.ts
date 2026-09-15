@@ -40,7 +40,6 @@ import {
 	type ColumnDef,
 	type ColumnNaming,
 	findPrimaryKeyColumn,
-	type IndexDef,
 	type IndexWherePredicate,
 	type TableDef,
 	type TableExtra,
@@ -100,7 +99,7 @@ function inferFkAs(tsName: string): string {
 	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
 }
 
-function pluralize(word: string): string {
+function _pluralize(word: string): string {
 	if (/(s|x|z|ch|sh)$/.test(word)) {
 		return `${word}es`;
 	}
@@ -200,7 +199,7 @@ function resolveFkTargetSql(
 	col: FkBuilder,
 	tables: Record<string, TableDef>,
 	defaultColumnNaming: ColumnNaming,
-	sourceColumnNaming: ColumnNaming,
+	_sourceColumnNaming: ColumnNaming,
 ): string {
 	const { accessor, column } = resolveFkAccessorTarget(col._meta, tables);
 	const targetTable = tables[accessor];
@@ -555,7 +554,7 @@ function resolveM2M(incoming: IncomingM2M): ManifestManyToMany {
  */
 export function schemaToManifest<T extends Record<string, TableDef>>(
 	schema: SchemaDef<T>,
-	plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
+	_plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
 	options: SchemaToManifestOptions = {},
 ): Manifest {
 	const enumMode = options.enumMode ?? "check";
@@ -684,6 +683,13 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				defaultColumnNaming,
 			),
 		];
+		const leftCol = columns[0];
+		const rightCol = columns[1];
+		if (!leftCol || !rightCol) {
+			throw new Error(
+				`M2M junction "${accessor}" must have exactly two FK columns`,
+			);
+		}
 		const table: ManifestTable = {
 			accessor,
 			sqlName,
@@ -691,7 +697,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			columns,
 			relations: [],
 			indexes: [],
-			primaryKey: [columns[0]!.sqlName, columns[1]!.sqlName],
+			primaryKey: [leftCol.sqlName, rightCol.sqlName],
 		};
 		manifestTables[accessor] = table;
 		sqlNameToAccessor[sqlName] = accessor;

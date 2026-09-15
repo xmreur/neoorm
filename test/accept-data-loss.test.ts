@@ -14,6 +14,7 @@ import {
 	hashManifest,
 	readSnapshot,
 } from "../src/codegen/generate.js";
+import { defined } from "./helpers/manifest.js";
 
 const SCHEMA_V1 = `import { defineSchema, id, table } from "neoorm/schema";
 
@@ -77,8 +78,8 @@ describe("accept-data-loss generate flow", () => {
 
 		const snapshotAfterBlocked = await readSnapshot(outDir);
 		expect(snapshotAfterBlocked).not.toBeNull();
-		expect(hashManifest(snapshotAfterBlocked!)).toBe(
-			hashManifest(snapshotAfterV1!),
+		expect(hashManifest(defined(snapshotAfterBlocked, "snapshot"))).toBe(
+			hashManifest(defined(snapshotAfterV1, "v1 snapshot")),
 		);
 		expect(snapshotAfterBlocked?.tables.archives).toBeDefined();
 

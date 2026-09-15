@@ -1,14 +1,9 @@
 import type { ManifestTable } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
-import { QueryErrorCode } from "../error-codes.js";
 import { columnsForOutput, normalizeSelectColumns } from "./compile.js";
 import { findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { primaryKeyTsNames } from "./primary-key.js";
-import {
-	columnByTsName,
-	requireTsColumn,
-	type TableIndex,
-} from "./table-index.js";
+import { requireTsColumn, type TableIndex } from "./table-index.js";
 
 export type ColumnPickArg =
 	| readonly string[]

@@ -124,7 +124,7 @@ function buildOwnedFkTsNames(table: ManifestTable): Set<string> {
 
 export function buildTableIndex(
 	manifest: Manifest,
-	accessor: string,
+	_accessor: string,
 	table: ManifestTable,
 	dialect: Dialect = postgresDialect,
 ): TableIndex {

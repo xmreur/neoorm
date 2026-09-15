@@ -5,26 +5,49 @@ export function levenshtein(a: string, b: string): number {
 	if (a.length === 0) return b.length;
 	if (b.length === 0) return a.length;
 
+	const rowCount = b.length + 1;
+	const colCount = a.length + 1;
 	const matrix: number[][] = [];
-	for (let i = 0; i <= b.length; i++) {
-		matrix[i] = [i];
+	for (let i = 0; i < rowCount; i++) {
+		const row = new Array<number>(colCount);
+		row[0] = i;
+		matrix.push(row);
 	}
-	for (let j = 0; j <= a.length; j++) {
-		matrix[0]![j] = j;
+	const firstRow = matrix[0];
+	if (!firstRow) {
+		throw new Error("levenshtein matrix initialization failed");
+	}
+	for (let j = 0; j < colCount; j++) {
+		firstRow[j] = j;
 	}
 
-	for (let i = 1; i <= b.length; i++) {
-		for (let j = 1; j <= a.length; j++) {
+	for (let i = 1; i < rowCount; i++) {
+		const row = matrix[i];
+		const prev = matrix[i - 1];
+		if (!row || !prev) {
+			throw new Error("levenshtein matrix row missing");
+		}
+		for (let j = 1; j < colCount; j++) {
 			const cost = a[j - 1] === b[i - 1] ? 0 : 1;
-			matrix[i]![j] = Math.min(
-				matrix[i - 1]![j]! + 1,
-				matrix[i]![j - 1]! + 1,
-				matrix[i - 1]![j - 1]! + cost,
-			);
+			const up = prev[j];
+			const left = row[j - 1];
+			const diag = prev[j - 1];
+			if (up === undefined || left === undefined || diag === undefined) {
+				throw new Error("levenshtein matrix cell missing");
+			}
+			row[j] = Math.min(up + 1, left + 1, diag + cost);
 		}
 	}
 
-	return matrix[b.length]![a.length]!;
+	const lastRow = matrix[b.length];
+	if (!lastRow) {
+		throw new Error("levenshtein matrix result row missing");
+	}
+	const distance = lastRow[a.length];
+	if (distance === undefined) {
+		throw new Error("levenshtein matrix result missing");
+	}
+	return distance;
 }
 
 function scoreCandidate(input: string, candidate: string): number {

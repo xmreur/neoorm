@@ -1,8 +1,4 @@
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
+import { quoteIdentifier, tableRef } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	Manifest,
@@ -29,8 +25,6 @@ import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import { mapRowToTs } from "./map-row.js";
 import { requireScalarPrimaryKey, targetRelationPkSql } from "./primary-key.js";
 import {
-	columnByTsName,
-	columnsByTsNames,
 	getOrSetSqlCache,
 	getTableIndex,
 	type ManifestIndex,
@@ -594,7 +588,7 @@ function buildHasManyRowExpression(
 
 function buildHasManySubqueryFromRef(
 	node: InlineChainNode,
-	parentTable: ManifestTable,
+	_parentTable: ManifestTable,
 	parentCorrelationRef: string,
 	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
@@ -725,7 +719,7 @@ export function buildInlineCountSelectCol(
 ): string {
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	const relation = findRelation(parentTable, relationName, parentTableIndex);
-	if (!relation || relation.cardinality !== "many") {
+	if (relation?.cardinality !== "many") {
 		compileError(`Cannot inline count for relation: ${relationName}`);
 	}
 
@@ -1089,7 +1083,7 @@ export function hydrateRowsWithPlan(
 				countBucket[countPlan.relationName] =
 					typeof val === "number" ? val : Number(val ?? 0);
 			}
-			row["_count"] = countBucket;
+			row._count = countBucket;
 		}
 
 		return row;

@@ -350,10 +350,6 @@ function sqliteColumnBuilder(col: ManifestColumn): string {
 			return "jsonb";
 		case "bytea":
 			return "bytea";
-		case "text":
-		case "citext":
-		case "enum":
-		case "uuid":
 		default:
 			return "text";
 	}

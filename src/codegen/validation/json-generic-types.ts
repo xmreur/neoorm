@@ -30,7 +30,10 @@ function extractBalancedAngle(
 	return undefined;
 }
 
-function tableAccessorBefore(source: string, columnIndex: number): string | undefined {
+function tableAccessorBefore(
+	source: string,
+	columnIndex: number,
+): string | undefined {
 	const before = source.slice(0, columnIndex);
 	const matches = [...before.matchAll(/(\w+)\s*:\s*table\s*\(/g)];
 	return matches.at(-1)?.[1];
@@ -95,7 +98,9 @@ function parseTypeExpression(input: string): ValidationType | undefined {
 					return {
 						kind: "record",
 						key: parseTypeExpression(keyArg) ?? { kind: "string" },
-						value: parseTypeExpression(valueArg) ?? { kind: "unknown" },
+						value: parseTypeExpression(valueArg) ?? {
+							kind: "unknown",
+						},
 					};
 				}
 				return { kind: "record", value: { kind: "unknown" } };
@@ -105,8 +110,9 @@ function parseTypeExpression(input: string): ValidationType | undefined {
 				if (elementArg !== undefined) {
 					return {
 						kind: "array",
-						element:
-							parseTypeExpression(elementArg) ?? { kind: "unknown" },
+						element: parseTypeExpression(elementArg) ?? {
+							kind: "unknown",
+						},
 					};
 				}
 				return undefined;
@@ -299,7 +305,9 @@ export async function applyJsonGenericTypesFromSchema(
 		if (!table) {
 			continue;
 		}
-		const column = table.columns.find((col) => col.tsName === ref.columnName);
+		const column = table.columns.find(
+			(col) => col.tsName === ref.columnName,
+		);
 		if (
 			!column ||
 			(column.kind !== "json" && column.kind !== "jsonb") ||

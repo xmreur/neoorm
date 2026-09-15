@@ -69,14 +69,14 @@ describe.skipIf(!databaseUrl)("where clause cache param binding", () => {
 		const first = await db.users.findMany({
 			where: { email: { equals: "a@x.com" }, name: { equals: "Alice" } },
 		});
-		expect(first.map((r) => r["id"]).sort()).toEqual(["u1"]);
+		expect(first.map((r) => r.id).sort()).toEqual(["u1"]);
 
 		// swapped key order hits the same shape cache shell; params must
 		// still line up with the $N placeholders.
 		const swapped = await db.users.findMany({
 			where: { name: { equals: "Alice" }, email: { equals: "a@x.com" } },
 		});
-		expect(swapped.map((r) => r["id"]).sort()).toEqual(["u1"]);
+		expect(swapped.map((r) => r.id).sort()).toEqual(["u1"]);
 	});
 
 	it("binds nested params for relation some on cache hit", async () => {
@@ -89,19 +89,19 @@ describe.skipIf(!databaseUrl)("where clause cache param binding", () => {
 		const world = await db.users.findMany({
 			where: { posts: { some: { title: { equals: "World" } } } },
 		});
-		expect(world.map((r) => r["id"]).sort()).toEqual(["u2"]);
+		expect(world.map((r) => r.id).sort()).toEqual(["u2"]);
 
 		// same shape, different nested value -> re-bind, no stale params
 		const hello = await db.users.findMany({
 			where: { posts: { some: { title: { equals: "Hello" } } } },
 		});
-		expect(hello.map((r) => r["id"]).sort()).toEqual(["u1"]);
+		expect(hello.map((r) => r.id).sort()).toEqual(["u1"]);
 
 		// none shares the same nested-param collection path
 		const none = await db.users.findMany({
 			where: { posts: { none: { title: { equals: "World" } } } },
 		});
-		expect(none.map((r) => r["id"]).sort()).toEqual(["u1", "u3"]);
+		expect(none.map((r) => r.id).sort()).toEqual(["u1", "u3"]);
 	});
 
 	it("binds plugin operator params (json path) on cache hit", async () => {
@@ -114,11 +114,11 @@ describe.skipIf(!databaseUrl)("where clause cache param binding", () => {
 		const admin = await db.users.findMany({
 			where: { meta: { path: { segments: ["role"], equals: "admin" } } },
 		});
-		expect(admin.map((r) => r["id"]).sort()).toEqual(["u1"]);
+		expect(admin.map((r) => r.id).sort()).toEqual(["u1"]);
 
 		const user = await db.users.findMany({
 			where: { meta: { path: { segments: ["role"], equals: "user" } } },
 		});
-		expect(user.map((r) => r["id"]).sort()).toEqual(["u2", "u3"]);
+		expect(user.map((r) => r.id).sort()).toEqual(["u2", "u3"]);
 	});
 });

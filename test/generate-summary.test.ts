@@ -5,7 +5,7 @@ import {
 	summarizeGenerateOutcome,
 } from "../src/codegen/generate-summary.js";
 import type { Manifest, ManifestDiff } from "../src/dialect/types.js";
-import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
+import { manifestTableFromRecord } from "./helpers/manifest.js";
 
 function baseManifest(overrides: Partial<Manifest> = {}): Manifest {
 	return {

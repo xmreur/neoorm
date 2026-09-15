@@ -3,15 +3,9 @@ import {
 	quoteIdentifier,
 	tableRef,
 } from "../../dialect/postgres.js";
-import type {
-	Manifest,
-	ManifestManyToMany,
-	ManifestTable,
-} from "../../dialect/types.js";
+import type { ManifestManyToMany, ManifestTable } from "../../dialect/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
 import { compileError } from "../compile-error.js";
-import { queryCompileError } from "../error-builders.js";
-import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildFindByIdQuery,
@@ -26,7 +20,6 @@ import {
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
-	rowsToTsIndexed,
 } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
@@ -198,10 +191,9 @@ async function loadRelationCounts(
 			for (const parent of parentRows) {
 				const parentKey = rowPkKey(parent, parentTable);
 				const bucket =
-					(parent["_count"] as Record<string, number> | undefined) ??
-					{};
+					(parent._count as Record<string, number> | undefined) ?? {};
 				bucket[relationName] = counts.get(parentKey) ?? 0;
-				parent["_count"] = bucket;
+				parent._count = bucket;
 			}
 		}),
 	);
@@ -230,7 +222,7 @@ async function countRelationLinks(
 	}
 
 	const relation = findRelation(parentTable, relationName);
-	if (!relation || relation.cardinality !== "many") {
+	if (relation?.cardinality !== "many") {
 		return new Map();
 	}
 
@@ -1024,7 +1016,7 @@ export async function findMany(
 		tableAccessor,
 		table,
 		tableIndex,
-		{ ...(args ?? {}), with: args!.with! },
+		{ ...(args ?? {}), with: args?.with ?? {} },
 		whereSql,
 		params,
 		{ useHasManyAggregate: true },
@@ -1107,10 +1099,9 @@ export async function findFirst(
 		);
 
 		if (rows.length === 0) return null;
-		return projectFindRow(
-			mapRowToTs(tableIndex, table, rows[0]!),
-			projection,
-		);
+		const row = rows[0];
+		if (row === undefined) return null;
+		return projectFindRow(mapRowToTs(tableIndex, table, row), projection);
 	}
 
 	const compiledWhere = getCachedWhereClause(
@@ -1134,7 +1125,7 @@ export async function findFirst(
 		tableAccessor,
 		table,
 		tableIndex,
-		{ ...args, with: args!.with!, take: 1 },
+		{ ...args, with: args?.with ?? {}, take: 1 },
 		compiledWhere.sql,
 		compiledWhere.params,
 		{ useHasManyAggregate: false },

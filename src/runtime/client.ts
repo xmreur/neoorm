@@ -9,14 +9,10 @@ import {
 	resolvePgSchemaName,
 } from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
-import type { Dialect, Manifest } from "../dialect/types.js";
+import type { Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
-import type {
-	DatabaseClient,
-	SqliteClientOptions,
-	SqliteDatabaseLike,
-} from "./driver.js";
+import type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
 import { queryError, schemaError } from "./error-builders.js";
 import { QueryErrorCode, SchemaErrorCode } from "./error-codes.js";
@@ -66,7 +62,6 @@ import type {
 	TransactionClient,
 	TransactionOptions,
 	TypedNeoOrmClient,
-	TypedTableRepository,
 } from "./types.js";
 
 /**
@@ -336,7 +331,7 @@ function createTableRepository(
 	runtime: QueryRuntime,
 	accessor: string,
 ): TableRepository {
-	const table = requireTable(runtime.manifest, accessor, "select");
+	const _table = requireTable(runtime.manifest, accessor, "select");
 
 	return {
 		findMany: (args) => findMany(executor, runtime, accessor, args),
@@ -565,7 +560,7 @@ export function createNeoOrmClient<
 	}
 
 	const url =
-		options.connectionString ?? process.env["DATABASE_URL"] ?? manifest.url;
+		options.connectionString ?? process.env.DATABASE_URL ?? manifest.url;
 	if (!url) {
 		throw schemaError(
 			SchemaErrorCode.invalid_config,

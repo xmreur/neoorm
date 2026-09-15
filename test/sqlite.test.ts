@@ -61,7 +61,9 @@ const schema = defineSchema({
 const manifest = schemaToManifest(schema);
 
 type TestTables = (typeof schema)["_tables"];
-type TestWith = { [K in keyof TestTables & string]: Record<string, any> };
+type TestWith = {
+	[K in keyof TestTables & string]: Record<string, unknown>;
+};
 type TestPayloads = {
 	[K in keyof TestTables]: InferSelectRow<TestTables[K]["_columns"]>;
 };
@@ -115,26 +117,26 @@ describe("sqlite runtime", () => {
 		const alice = await orm.users.create({
 			data: { email: "a@b.c", name: "alice", age: 30 },
 		});
-		expect(alice["id"]).toBeDefined();
+		expect(alice.id).toBeDefined();
 
-		const found = await orm.users.findById({ id: alice["id"] });
-		expect(found?.["name"]).toBe("alice");
-		expect(found?.["age"]).toBe(30);
+		const found = await orm.users.findById({ id: alice.id });
+		expect(found?.name).toBe("alice");
+		expect(found?.age).toBe(30);
 
 		const updated = await orm.users.update({
-			where: { id: alice["id"] },
+			where: { id: alice.id },
 			data: { age: 31 },
 			returnUpdated: true,
 		});
-		expect(updated?.["age"]).toBe(31);
+		expect(updated?.age).toBe(31);
 
 		const deleted = await orm.users.delete({
-			where: { id: alice["id"] },
+			where: { id: alice.id },
 			returnDeleted: true,
 		});
-		expect(deleted?.["id"]).toBe(alice["id"]);
+		expect(deleted?.id).toBe(alice.id);
 
-		const gone = await orm.users.findById({ id: alice["id"] });
+		const gone = await orm.users.findById({ id: alice.id });
 		expect(gone).toBeNull();
 		db.close();
 	});
@@ -161,7 +163,7 @@ describe("sqlite runtime", () => {
 			skipDuplicates: true,
 		});
 		expect(mixed).toHaveLength(1);
-		expect(mixed[0]?.["email"]).toBe("new@x");
+		expect(mixed[0]?.email).toBe("new@x");
 
 		const all = await orm.users.findMany();
 		expect(all).toHaveLength(2);
@@ -183,13 +185,13 @@ describe("sqlite runtime", () => {
 			data: { name: "Updated" },
 		});
 		expect(updated).toHaveLength(1);
-		expect(updated[0]?.["name"]).toBe("Updated");
+		expect(updated[0]?.name).toBe("Updated");
 
 		const deleted = await orm.users.deleteManyAndReturn({
 			where: { name: "Beta" },
 		});
 		expect(deleted).toHaveLength(1);
-		expect(deleted[0]?.["email"]).toBe("b@x");
+		expect(deleted[0]?.email).toBe("b@x");
 
 		const remaining = await orm.users.findMany();
 		expect(remaining).toHaveLength(1);
@@ -203,22 +205,22 @@ describe("sqlite runtime", () => {
 			data: { email: "a@b.c", name: "alice", age: 30 },
 		});
 		await orm.users.update({
-			where: { id: alice["id"] },
+			where: { id: alice.id },
 			data: { age: { increment: 1 } },
 		});
 		await orm.users.update({
-			where: { id: alice["id"] },
+			where: { id: alice.id },
 			data: { age: { increment: 1 } },
 		});
-		const found = await orm.users.findById({ id: alice["id"] });
-		expect(found?.["age"]).toBe(32);
+		const found = await orm.users.findById({ id: alice.id });
+		expect(found?.age).toBe(32);
 
 		await orm.users.updateMany({
 			where: { email: "a@b.c" },
 			data: { age: { decrement: 2 } },
 		});
-		const afterMany = await orm.users.findById({ id: alice["id"] });
-		expect(afterMany?.["age"]).toBe(30);
+		const afterMany = await orm.users.findById({ id: alice.id });
+		expect(afterMany?.age).toBe(30);
 		db.close();
 	});
 
@@ -232,7 +234,7 @@ describe("sqlite runtime", () => {
 			data: { email: "b@x", name: "beta", age: 10 },
 		});
 
-		const byId = await orm.users.findMany({ where: { id: a["id"] } });
+		const byId = await orm.users.findMany({ where: { id: a.id } });
 		expect(byId).toHaveLength(1);
 
 		const contains = await orm.users.findMany({
@@ -272,7 +274,7 @@ describe("sqlite runtime", () => {
 		const literalPercent = await orm.users.findMany({
 			where: { name: { contains: "hello%world" } },
 		});
-		expect(literalPercent.map((row) => row["email"])).toEqual(["lit@x"]);
+		expect(literalPercent.map((row) => row.email)).toEqual(["lit@x"]);
 		db.close();
 	});
 
@@ -284,69 +286,73 @@ describe("sqlite runtime", () => {
 			data: { email: "a@b.c", name: "author" },
 		});
 		const p1 = await orm.posts.create({
-			data: { title: "one", author: { connect: { id: author["id"] } } },
+			data: { title: "one", author: { connect: { id: author.id } } },
 		});
-		const p2 = await orm.posts.create({
-			data: { title: "two", author: { connect: { id: author["id"] } } },
+		const _p2 = await orm.posts.create({
+			data: { title: "two", author: { connect: { id: author.id } } },
 		});
 		const tag = await orm.tags.create({ data: { slug: "ts" } });
 		await orm.posts.update({
-			where: { id: p1["id"] },
-			data: { tags: { connect: [{ id: tag["id"] }] } },
+			where: { id: p1.id },
+			data: { tags: { connect: [{ id: tag.id }] } },
 		});
 
 		const withPosts = (await orm.users.findById(
-			{ id: author["id"] },
+			{ id: author.id },
 			{
 				with: { posts: true },
 			},
-		)) as Record<string, any> | null;
+		)) as Record<string, unknown> | null;
 		expect(
-			withPosts?.["posts"]?.map((p: { title: string }) => p.title),
+			(withPosts?.posts as { title: string }[] | undefined)?.map(
+				(p) => p.title,
+			),
 		).toEqual(["one", "two"]);
 
 		const withAuthor = await orm.posts.findById(
-			{ id: p1["id"] },
+			{ id: p1.id },
 			{
 				with: { author: true },
 			},
 		);
-		expect(withAuthor?.["author"]?.["name"]).toBe("author");
+		expect(withAuthor?.author?.name).toBe("author");
 
 		const nested = (await orm.users.findById(
-			{ id: author["id"] },
+			{ id: author.id },
 			{
 				with: { posts: { with: { author: true } } },
 			},
-		)) as Record<string, any> | null;
+		)) as Record<string, unknown> | null;
 		expect(
-			(nested?.["posts"]?.[0] as { author: { name: string } })?.author
-				?.name,
+			(nested?.posts as { author: { name: string } }[] | undefined)?.[0]
+				?.author?.name,
 		).toBe("author");
 
 		const withTags = (await orm.posts.findById(
-			{ id: p1["id"] },
+			{ id: p1.id },
 			{
 				with: { tags: true },
 			},
-		)) as Record<string, any> | null;
+		)) as Record<string, unknown> | null;
 		expect(
-			withTags?.["tags"]?.map((t: { slug: string }) => t.slug),
+			(withTags?.tags as { slug: string }[] | undefined)?.map(
+				(t) => t.slug,
+			),
 		).toEqual(["ts"]);
 		expect(
-			(withTags?.["tags"]?.[0] as Record<string, unknown>)?.[
-				"_parent_id"
-			],
+			(withTags?.tags?.[0] as Record<string, unknown>)?._parent_id,
 		).toBeUndefined();
 
 		const inverse = (await orm.tags.findById(
-			{ id: tag["id"] },
+			{ id: tag.id },
 			{
 				with: { posts: true },
 			},
-		)) as Record<string, any> | null;
+		)) as Record<string, unknown> | null;
 		expect(
-			inverse?.["posts"]?.map((p: { title: string }) => p.title),
+			(inverse?.posts as { title: string }[] | undefined)?.map(
+				(p) => p.title,
+			),
 		).toEqual(["one"]);
 		db.close();
 	});
@@ -363,8 +369,8 @@ describe("sqlite runtime", () => {
 			_count: true,
 			_avg: { age: true },
 		});
-		expect(agg["_count"]).toBe(2);
-		expect(agg["_avg"]?.["age"]).toBe(15);
+		expect(agg._count).toBe(2);
+		expect(agg._avg?.age).toBe(15);
 
 		const grouped = await orm.users.groupBy({
 			by: ["active"],
@@ -388,7 +394,7 @@ describe("sqlite runtime", () => {
 			orderBy: { id: "asc" },
 			take: 1,
 		});
-		expect(page1.items.map((u: { id: number }) => u["id"])).toEqual([1]);
+		expect(page1.items.map((u: { id: number }) => u.id)).toEqual([1]);
 		expect(page1.hasPrevious).toBe(false);
 		expect(page1.prevCursor).toBeNull();
 		const page2 = await orm.users.paginate({
@@ -396,14 +402,14 @@ describe("sqlite runtime", () => {
 			take: 1,
 			...(page1.nextCursor ? { after: page1.nextCursor } : {}),
 		});
-		expect(page2.items.map((u: { id: number }) => u["id"])).toEqual([2]);
+		expect(page2.items.map((u: { id: number }) => u.id)).toEqual([2]);
 		expect(page2.hasPrevious).toBe(true);
 		const pageBack = await orm.users.paginate({
 			orderBy: { id: "asc" },
 			take: 1,
 			...(page2.prevCursor ? { before: page2.prevCursor } : {}),
 		});
-		expect(pageBack.items.map((u: { id: number }) => u["id"])).toEqual([1]);
+		expect(pageBack.items.map((u: { id: number }) => u.id)).toEqual([1]);
 		db.close();
 	});
 
@@ -423,7 +429,7 @@ describe("sqlite runtime", () => {
 		const agg = await orm.users.aggregate({
 			_count: { _all: true, age: true },
 		});
-		expect(agg["_count"]).toEqual({ _all: 3, age: 2 });
+		expect(agg._count).toEqual({ _all: 3, age: 2 });
 
 		const grouped = await orm.users.groupBy({
 			by: ["active"],
@@ -443,26 +449,26 @@ describe("sqlite runtime", () => {
 			data: { email: "a@x", name: "original" },
 		});
 		await orm.users.upsert({
-			where: { id: created["id"] },
+			where: { id: created.id },
 			create: { email: "a@x", name: "create" },
 			update: { name: "updated" },
 		});
-		const afterUpsert = await orm.users.findById({ id: created["id"] });
-		expect(afterUpsert?.["name"]).toBe("create");
+		const afterUpsert = await orm.users.findById({ id: created.id });
+		expect(afterUpsert?.name).toBe("create");
 
 		const found = await orm.users.findOrCreate({
-			where: { id: created["id"] },
+			where: { id: created.id },
 			create: { email: "a@x", name: "should-not-create" },
 		});
 		expect(found.created).toBe(false);
-		expect(found.record["name"]).toBe("create");
+		expect(found.record.name).toBe("create");
 
 		const fresh = await orm.users.findOrCreate({
 			where: { email: "new@x" },
 			create: { email: "new@x", name: "newbie" },
 		});
 		expect(fresh.created).toBe(true);
-		expect(fresh.record["name"]).toBe("newbie");
+		expect(fresh.record.name).toBe("newbie");
 		db.close();
 	});
 

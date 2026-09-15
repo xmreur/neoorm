@@ -13,16 +13,16 @@ import {
 	createTimestampColumnBuilder,
 } from "../schema/column.js";
 import {
-	createJsonValidationExtras,
-	type JsonColumnBuilder,
-	type JsonValidationMethods,
-} from "../schema/json-column.js";
-import {
 	createNumericConstraintExtras,
 	createTextConstraintExtras,
 	type NumericConstraintMethods,
 	type TextConstraintMethods,
 } from "../schema/column-constraints.js";
+import {
+	createJsonValidationExtras,
+	type JsonColumnBuilder,
+	type JsonValidationMethods,
+} from "../schema/json-column.js";
 import { jsonWhereOperators } from "./json/operators.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 

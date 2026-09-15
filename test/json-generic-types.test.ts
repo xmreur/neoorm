@@ -48,7 +48,9 @@ export const schema = defineSchema({
 				zod: true,
 			});
 			const posts = manifest.tables.posts;
-			const metadata = posts?.columns.find((col) => col.tsName === "metadata");
+			const metadata = posts?.columns.find(
+				(col) => col.tsName === "metadata",
+			);
 			expect(metadata?.validation).toEqual({
 				kind: "object",
 				fields: [

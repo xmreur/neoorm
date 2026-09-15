@@ -3,7 +3,6 @@ import type { InferColumnValue } from "./column-where.js";
 import type {
 	ApplySelect,
 	ColumnNames,
-	ConnectInput,
 	ConnectOrCreateItem,
 	CursorInput,
 	InferInsertRow,
@@ -364,19 +363,19 @@ export type InferAggregateResult<TArgs> = Expand<
 						[K in keyof C as C[K] extends true ? K : never]: number;
 					};
 				}
-			: {}) &
+			: Record<string, never>) &
 		(TArgs extends { _avg: infer S extends Record<string, true> }
 			? { _avg: InferAggregateBucket<S> }
-			: {}) &
+			: Record<string, never>) &
 		(TArgs extends { _sum: infer S extends Record<string, true> }
 			? { _sum: InferAggregateBucket<S> }
-			: {}) &
+			: Record<string, never>) &
 		(TArgs extends { _min: infer S extends Record<string, true> }
 			? { _min: InferAggregateBucket<S> }
-			: {}) &
+			: Record<string, never>) &
 		(TArgs extends { _max: infer S extends Record<string, true> }
 			? { _max: InferAggregateBucket<S> }
-			: {})
+			: Record<string, never>)
 >;
 
 export type NumericHaving = Expand<{

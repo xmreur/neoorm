@@ -7,7 +7,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { applyMigration } from "../src/migrate/runner.js";
 import { sqliteClient } from "../src/runtime/driver.js";
-import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
+import { SchemaErrorCode } from "../src/runtime/error-codes.js";
 import {
 	formatSchemaError,
 	NeoOrmDriverError,

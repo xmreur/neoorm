@@ -11,13 +11,6 @@ type IsPrimary<T> =
 			: false
 		: false;
 
-type IsUpdatedAt<T> =
-	T extends ColumnBuilder<unknown, infer M>
-		? M extends { updatedAt: true }
-			? true
-			: false
-		: false;
-
 type IsGenerated<T> =
 	T extends ColumnBuilder<unknown, infer M>
 		? M extends { kind: "serial" }
@@ -298,7 +291,7 @@ export type InverseRelationEntryForSource<
 	TTargetAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
-	K extends string,
+	_K extends string,
 > =
 	IsThroughTable<TSchema[TSourceAccessor]["_columns"]> extends true
 		? never
@@ -352,12 +345,6 @@ export type InverseRelations<
 		>;
 	}[keyof TSchema & string]
 >;
-
-type SqlMatchesAccessor<
-	TSchema extends Record<string, TableDef>,
-	TSql extends string,
-	TAccessor extends keyof TSchema & string,
-> = [TSql] extends [TSchema[TAccessor]["_tableName"]] ? true : false;
 
 type FkTargetMatchesAccessor<
 	TSchema extends Record<string, TableDef>,
@@ -503,7 +490,7 @@ type InlineM2MInverseRelationEntry<
 	TAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
-	K extends string,
+	_K extends string,
 > = [C] extends [ManyToManyExtra]
 	? M2MTargetOf<C> extends TAccessor
 		? { [P in M2MInverseOf<TSourceAccessor, C>]: TSourceAccessor }
@@ -778,7 +765,7 @@ type InferWithRelations<
 		? never
 		: NonNullable<
 					RelationAccessors<TSchema, TAccessor>[R]
-				> extends infer TTarget extends keyof TSchema & string
+				> extends infer _TTarget extends keyof TSchema & string
 			? InferRelationIncludeResult<
 					TSchema,
 					TAccessor,
@@ -796,7 +783,7 @@ type InferWithRelations<
 
 type InferCountResult<
 	TSchema extends Record<string, TableDef>,
-	TAccessor extends keyof TSchema & string,
+	_TAccessor extends keyof TSchema & string,
 	W,
 > = W extends { _count: infer C }
 	? C extends Record<string, unknown>
@@ -982,7 +969,7 @@ type InverseRelationWhereEntry<
 	TTargetAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
-	K extends string,
+	_K extends string,
 > =
 	IsThroughTable<TSchema[TSourceAccessor]["_columns"]> extends true
 		? never
@@ -1083,7 +1070,7 @@ type InlineM2MInverseWhereRelationEntry<
 	TAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
-	K extends string,
+	_K extends string,
 > = [C] extends [ManyToManyExtra]
 	? M2MTargetOf<C> extends TAccessor
 		? {
@@ -1278,7 +1265,7 @@ type InlineM2MInverseWriteRelationEntry<
 	TAccessor extends keyof TSchema & string,
 	TSourceAccessor extends keyof TSchema & string,
 	C extends ColumnDef,
-	K extends string,
+	_K extends string,
 > = [C] extends [ManyToManyExtra]
 	? M2MTargetOf<C> extends TAccessor
 		? {
