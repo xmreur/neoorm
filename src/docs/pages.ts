@@ -14,6 +14,7 @@ const PAGE_ORDER = [
 	"schema",
 	"zod",
 	"typebox",
+	"elysia",
 	"queries",
 	"relations",
 	"transactions",

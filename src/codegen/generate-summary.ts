@@ -102,7 +102,7 @@ export function summarizeGenerateOutcome(params: {
 export function formatGenerateSummary(
 	summary: GenerateSummary,
 	outDir: string,
-	options?: { zod?: boolean; typebox?: boolean },
+	options?: { zod?: boolean; typebox?: boolean; elysia?: boolean },
 ): string[] {
 	const lines: string[] = [];
 
@@ -167,6 +167,9 @@ export function formatGenerateSummary(
 	}
 	if (options?.typebox === true) {
 		lines.push(`  Generated TypeBox schemas at ${outDir}/typebox.ts`);
+	}
+	if (options?.elysia === true) {
+		lines.push(`  Generated Elysia schemas at ${outDir}/elysia.ts`);
 	}
 
 	return lines;

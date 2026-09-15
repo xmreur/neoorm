@@ -89,11 +89,12 @@ export default defineConfig({
 bunx neoorm generate
 ```
 
-To emit Zod or TypeBox Select/Create/Update schemas, install the library and set `generate.zod` / `generate.typebox` in config:
+To emit Zod, TypeBox, or Elysia Select/Create/Update schemas, install the library and set `generate.zod` / `generate.typebox` / `generate.elysia` in config:
 
 ```bash
 bun add zod
 bun add typebox
+bun add elysia
 ```
 
 ```ts
@@ -107,11 +108,12 @@ export default defineConfig({
   generate: {
     zod: true,
     typebox: true,
+    elysia: true,
   },
 });
 ```
 
-`neoorm generate` / `neoorm migrate dev` then writes `out/zod.ts` and/or `out/typebox.ts` (re-exported from `out/client.ts`). See [Zod schemas](zod.md) and [TypeBox schemas](typebox.md). `neoorm init` leaves this commented in `neoorm.config.ts`.
+`neoorm generate` / `neoorm migrate dev` then writes `out/zod.ts`, `out/typebox.ts`, and/or `out/elysia.ts` (re-exported from `out/client.ts`). See [Zod schemas](zod.md), [TypeBox schemas](typebox.md), and [Elysia schemas](elysia.md). `neoorm init` leaves this commented in `neoorm.config.ts`.
 
 ## SQLite
 

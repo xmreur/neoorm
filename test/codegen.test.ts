@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	elysiaPeerWarning,
 	generateFromSchema,
 	typeboxPeerWarning,
 	zodPeerWarning,
@@ -132,7 +133,7 @@ describe("codegen", () => {
 		await rm(outDir, { recursive: true, force: true });
 	});
 
-	it("does not write zod.ts or typebox.ts by default", async () => {
+	it("does not write zod.ts, typebox.ts, or elysia.ts by default", async () => {
 		await rm(outDir, { recursive: true, force: true });
 		const schemaPath = join(
 			import.meta.dirname,
@@ -145,12 +146,16 @@ describe("codegen", () => {
 		await expect(
 			readFile(join(outDir, "typebox.ts"), "utf-8"),
 		).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(
+			readFile(join(outDir, "elysia.ts"), "utf-8"),
+		).rejects.toMatchObject({ code: "ENOENT" });
 		const clientContent = await readFile(
 			join(outDir, "client.ts"),
 			"utf-8",
 		);
 		expect(clientContent).not.toContain("./zod.js");
 		expect(clientContent).not.toContain("./typebox.js");
+		expect(clientContent).not.toContain("./elysia.js");
 		await rm(outDir, { recursive: true, force: true });
 	});
 
@@ -250,6 +255,69 @@ describe("codegen", () => {
 		).resolves.toContain("export const UserCreateSchema");
 		await rm(outDir, { recursive: true, force: true });
 	});
+
+	it("writes elysia.ts and re-exports it from client when elysia is enabled", async () => {
+		await rm(outDir, { recursive: true, force: true });
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		const { warnings } = await generateFromSchema(schemaPath, outDir, {
+			elysia: true,
+		});
+		const elysiaContent = await readFile(
+			join(outDir, "elysia.ts"),
+			"utf-8",
+		);
+		expect(elysiaContent).toContain('import { t } from "elysia";');
+		expect(elysiaContent).toContain("export const UserCreateSchema");
+		expect(elysiaContent).toContain("export type UserSelect");
+		expect(elysiaContent).toContain("export type UserCreate");
+		expect(elysiaContent).toContain(
+			'avatarUrl: t.Nullable(t.String({ format: "uri" }))',
+		);
+		const clientContent = await readFile(
+			join(outDir, "client.ts"),
+			"utf-8",
+		);
+		expect(clientContent).toContain('export * from "./elysia.js"');
+		expect(clientContent).not.toContain("./zod.js");
+		expect(clientContent).not.toContain("./typebox.js");
+		expect(
+			warnings.some((warning) =>
+				warning.includes('"elysia" is not installed'),
+			),
+		).toBe(true);
+		await generateFromSchema(schemaPath, outDir);
+		await expect(
+			readFile(join(outDir, "elysia.ts"), "utf-8"),
+		).rejects.toMatchObject({ code: "ENOENT" });
+		await rm(outDir, { recursive: true, force: true });
+	});
+
+	it("namespaces Elysia exports when Zod is also enabled", async () => {
+		await rm(outDir, { recursive: true, force: true });
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		await generateFromSchema(schemaPath, outDir, {
+			zod: true,
+			elysia: true,
+		});
+		const clientContent = await readFile(
+			join(outDir, "client.ts"),
+			"utf-8",
+		);
+		expect(clientContent).toContain('export * from "./zod.js"');
+		expect(clientContent).toContain(
+			'export * as elysia from "./elysia.js"',
+		);
+		await expect(
+			readFile(join(outDir, "elysia.ts"), "utf-8"),
+		).resolves.toContain("export const UserCreateSchema");
+		await rm(outDir, { recursive: true, force: true });
+	});
 });
 
 describe("zodPeerWarning", () => {
@@ -279,6 +347,25 @@ describe("typeboxPeerWarning", () => {
 		try {
 			expect(typeboxPeerWarning(dir)).toBe(
 				'generate.typebox is enabled but "typebox" is not installed. Run: bun add typebox',
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("elysiaPeerWarning", () => {
+	it("warns when elysia cannot be resolved from the project", () => {
+		expect(elysiaPeerWarning(process.cwd())).toBe(
+			'generate.elysia is enabled but "elysia" is not installed. Run: bun add elysia',
+		);
+	});
+
+	it("warns when elysia cannot be resolved from an empty dir", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "neoorm-no-elysia-"));
+		try {
+			expect(elysiaPeerWarning(dir)).toBe(
+				'generate.elysia is enabled but "elysia" is not installed. Run: bun add elysia',
 			);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

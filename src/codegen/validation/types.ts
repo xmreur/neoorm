@@ -1,5 +1,5 @@
 /**
- * Library-agnostic validation IR. Emitters (Zod and TypeBox today; Valibot/ArkType later)
+ * Library-agnostic validation IR. Emitters (Zod, TypeBox, and Elysia `t` today; Valibot/ArkType later)
  * print this structure — they must not inspect ManifestColumn kinds.
  */
 

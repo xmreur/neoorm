@@ -1,10 +1,10 @@
 # TypeBox schemas
 
-`neoorm generate` can print Select, Create, and Update **scalar** TypeBox schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; TypeBox is the second printer (alongside [Zod](zod.md)).
+`neoorm generate` can print Select, Create, and Update **scalar** TypeBox schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; TypeBox 1.x is one printer (alongside [Zod](zod.md) and [Elysia `t`](elysia.md)).
 
 Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
 
-Schemas target **TypeBox 1.x** (`typebox` on npm), not `@sinclair/typebox` 0.x.
+Schemas target **TypeBox 1.x** (`typebox` on npm), not `@sinclair/typebox` 0.x. For Elysia 1.x route `body:`, use [`generate.elysia`](elysia.md) instead.
 
 ## Enable
 
@@ -40,7 +40,7 @@ Disable `generate.typebox` and generate again to remove `typebox.ts`.
 
 `typebox` is an optional peer of NeoOrm. The generated file imports `typebox` directly; NeoOrm does not bundle it. If `generate.typebox` is on and `typebox` is not installed, `neoorm generate` still writes `typebox.ts` and prints a warning (`bun add typebox`).
 
-You can enable Zod and TypeBox together. When both are on, `client.ts` keeps Zod as a flat `export *` and re-exports TypeBox as `export * as typebox from "./typebox.js"` so names do not collide. Import TypeBox from `./typebox.js` (or `typebox.UserCreateSchema` from the client) in that case.
+You can enable Zod, TypeBox, and Elysia together. When Zod is on, `client.ts` keeps Zod as a flat `export *` and namespaces TypeBox and Elysia (`export * as typebox` / `export * as elysia`). TypeBox + Elysia without Zod keeps TypeBox flat and namespaces Elysia. Import TypeBox from `./typebox.js` (or `typebox.UserCreateSchema` from the client) when it is namespaced. For Elysia 1.x `body:`, use [`generate.elysia`](elysia.md).
 
 ## Usage
 
@@ -115,7 +115,7 @@ Typed schema helpers map into TypeBox:
 | `timestamp()` | `Date` or ISO datetime string → `Date` (`Type.Codec` + `Value.Decode`) |
 | `bytea()` | `Type.Refine` + `Buffer.isBuffer` |
 
-Raw `.check("sql")` is not mapped. With `generate.typebox: true` (or `generate.zod: true`), codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `Type.Object`, `Record<K,V>` to `Type.Record`, and primitives to the matching TypeBox types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
+Raw `.check("sql")` is not mapped. With `generate.typebox: true` (or `generate.zod` / `generate.elysia`), codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `Type.Object`, `Record<K,V>` to `Type.Record`, and primitives to the matching TypeBox types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
 
 ```ts
 metadata: jsonb<{ featured: boolean; category?: string }>(),

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compileSchemaToManifest } from "../src/codegen/generate.js";
+import { emitElysiaTs } from "../src/codegen/validation/emit-elysia.js";
 import { emitTypeboxTs } from "../src/codegen/validation/emit-typebox.js";
 import { emitZodTs } from "../src/codegen/validation/emit-zod.js";
 import { validationFromManifest } from "../src/codegen/validation/from-manifest.js";
@@ -126,6 +127,59 @@ export const schema = defineSchema({
 			const typebox = emitTypeboxTs(validationFromManifest(manifest));
 			expect(typebox).toContain(
 				"metadata: Type.Union([Type.Object({ featured: Type.Boolean(), category: Type.Optional(Type.String()) }), Type.Null()])",
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("maps inline object generics when only elysia is enabled", async () => {
+		const tmpRoot = join(import.meta.dirname, ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		const dir = await mkdtemp(join(tmpRoot, "json-generic-"));
+		const schemaPath = join(dir, "schema.ts");
+		try {
+			await writeFile(
+				schemaPath,
+				`import { defineSchema, id, jsonb, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+  posts: table({
+    id: id(),
+    metadata: jsonb<{ featured: boolean; category?: string }>(),
+  }),
+});
+`,
+				"utf-8",
+			);
+			const { manifest } = await compileSchemaToManifest(schemaPath, {
+				elysia: true,
+			});
+			const posts = manifest.tables.posts;
+			const metadata = posts?.columns.find(
+				(col) => col.tsName === "metadata",
+			);
+			expect(metadata?.validation).toEqual({
+				kind: "object",
+				fields: [
+					{
+						name: "featured",
+						type: { kind: "boolean" },
+						nullable: false,
+						optional: false,
+					},
+					{
+						name: "category",
+						type: { kind: "string" },
+						nullable: false,
+						optional: true,
+					},
+				],
+			});
+
+			const elysia = emitElysiaTs(validationFromManifest(manifest));
+			expect(elysia).toContain(
+				"metadata: t.Nullable(t.Object({ featured: t.Boolean(), category: t.Optional(t.String()) }))",
 			);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

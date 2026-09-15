@@ -29,6 +29,8 @@ export type NeoOrmConfig = {
 		zod?: boolean;
 		/** Emit TypeBox Select/Create/Update schemas to `out/typebox.ts`. @default false */
 		typebox?: boolean;
+		/** Emit Elysia `t` Select/Create/Update schemas to `out/elysia.ts`. @default false */
+		elysia?: boolean;
 	};
 };
 
@@ -131,18 +133,20 @@ function parseGenerateOptions(
 	}
 	const zod = parseGenerateFlag(value.zod, "zod");
 	const typebox = parseGenerateFlag(value.typebox, "typebox");
-	if (zod === undefined && typebox === undefined) {
+	const elysia = parseGenerateFlag(value.elysia, "elysia");
+	if (zod === undefined && typebox === undefined && elysia === undefined) {
 		return undefined;
 	}
 	return {
 		...(zod !== undefined ? { zod } : {}),
 		...(typebox !== undefined ? { typebox } : {}),
+		...(elysia !== undefined ? { elysia } : {}),
 	};
 }
 
 function parseGenerateFlag(
 	value: unknown,
-	key: "zod" | "typebox",
+	key: "zod" | "typebox" | "elysia",
 ): boolean | undefined {
 	if (value === undefined) {
 		return undefined;

@@ -21,7 +21,7 @@ Options:
 
 ## `neoorm generate`
 
-Generate manifest, typed client, models, includes, and migrations from your schema. With `generate.zod` in config, also writes `out/zod.ts` (install `zod` `^4`; generate warns if it is missing). With `generate.typebox`, also writes `out/typebox.ts` (install `typebox` `^1`; generate warns if it is missing).
+Generate manifest, typed client, models, includes, and migrations from your schema. With `generate.zod` in config, also writes `out/zod.ts` (install `zod` `^4`; generate warns if it is missing). With `generate.typebox`, also writes `out/typebox.ts` (install `typebox` `^1`; generate warns if it is missing). With `generate.elysia`, also writes `out/elysia.ts` (install `elysia` `>=1.2`; generate warns if it is missing).
 
 ```
 neoorm generate [options]
