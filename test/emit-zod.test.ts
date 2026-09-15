@@ -17,6 +17,7 @@ import {
 	id,
 	int,
 	jsonb,
+	many,
 	table,
 	text,
 	timestamp,
@@ -255,5 +256,81 @@ describe("emitZodTs", () => {
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("emits junction LinkCreateSchema and skips empty UpdateSchema", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				posts: table({
+					id: id(),
+					tags: many("tags"),
+				}),
+				tags: table({
+					id: id(),
+					slug: text().notNull(),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			"// Many-to-many junction for posts.tags ↔ tags.posts.",
+		);
+		expect(source).toContain("tags: { connect: [{ id }] }");
+		expect(source).toContain(
+			"export const PostsTagLinkCreateSchema = z.object({",
+		);
+		expect(source).toContain("postId: z.string()");
+		expect(source).toContain("tagId: z.string()");
+		expect(source).toContain(
+			"export const PostsTagCreateSchema = PostsTagLinkCreateSchema;",
+		);
+		expect(source).toContain(
+			"export type PostsTagLinkCreate = z.infer<typeof PostsTagLinkCreateSchema>;",
+		);
+		expect(source).toContain(
+			"export type PostsTagCreate = z.infer<typeof PostsTagCreateSchema>;",
+		);
+		expect(source).not.toContain("PostsTagUpdateSchema");
+		expect(source).toContain(
+			"// No scalar updates on junction rows — use nested relation writes on posts.tags",
+		);
+		expect(source).toContain(
+			"posts_tags: { select: PostsTagSchema, create: PostsTagCreateSchema }",
+		);
+		expect(source).not.toMatch(
+			/posts_tags: \{ select: PostsTagSchema, create: PostsTagCreateSchema, update:/,
+		);
+	});
+
+	it("emits junction UpdateSchema when the through table has extra columns", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				posts: table({
+					id: id(),
+					tags: many("tags", { through: "posts_tags" }),
+				}),
+				tags: table({ id: id() }),
+				posts_tags: table({
+					postId: fk("posts").primary(),
+					tagId: fk("tags").primary(),
+					priority: int().notNull().default(0),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			"export const PostsTagLinkCreateSchema = z.object({",
+		);
+		expect(source).toContain("postId: z.string()");
+		expect(source).toContain("tagId: z.string()");
+		expect(source).toContain("priority: z.number().int().optional()");
+		expect(source).toContain(
+			"export const PostsTagUpdateSchema = z.object({",
+		);
+		expect(source).toContain("priority: z.number().int().optional()");
+		expect(source).not.toMatch(/PostsTagUpdateSchema[\s\S]*postId:/);
+		expect(source).toContain(
+			"posts_tags: { select: PostsTagSchema, create: PostsTagCreateSchema, update: PostsTagUpdateSchema }",
+		);
 	});
 });

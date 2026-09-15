@@ -65,6 +65,23 @@ Per table (accessor `users` → model `User`):
 
 Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
 
+## Junction (M2M) tables
+
+Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `z.object({})`.
+
+Codegen treats them as **link** tables:
+
+| Export | Shape |
+|--------|--------|
+| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
+| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
+| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
+| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
+
+Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
+
+Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction Zod is for the rare case you insert a link row yourself.
+
 ## Types and constraints
 
 Timestamp columns accept both ORM `Date` values and JSON ISO-8601 strings (`2020-01-01T00:00:00.000Z`, including offsets). `parse` always returns a `Date`, so the same schema works for HTTP bodies and query results.

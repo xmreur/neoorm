@@ -15,6 +15,7 @@ import {
 	id,
 	int,
 	jsonb,
+	many,
 	table,
 	text,
 	timestamp,
@@ -343,5 +344,34 @@ describe("validationFromManifest", () => {
 		expect(
 			fieldNamed(tableNamed(ir, "widgets").select, "payload").type,
 		).toEqual({ kind: "unknown" });
+	});
+
+	it("includes composite PK FK columns on junction create and omits them from update", () => {
+		const schema = defineSchema({
+			posts: table({
+				id: id(),
+				tags: many("tags"),
+			}),
+			tags: table({
+				id: id(),
+				slug: text().notNull(),
+			}),
+		});
+		const ir = validationFromManifest(schemaToManifest(schema));
+		const junction = tableNamed(ir, "posts_tags");
+		expect(junction.junction).toEqual({
+			leftAccessor: "posts",
+			rightAccessor: "tags",
+			relationAs: "tags",
+			inverseAs: "posts",
+			linkColumnTsNames: ["postId", "tagId"],
+		});
+		expect(junction.create.map((field) => field.name)).toEqual([
+			"postId",
+			"tagId",
+		]);
+		expect(fieldNamed(junction.create, "postId").optional).toBe(false);
+		expect(fieldNamed(junction.create, "tagId").optional).toBe(false);
+		expect(junction.update).toEqual([]);
 	});
 });

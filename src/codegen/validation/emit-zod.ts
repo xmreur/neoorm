@@ -1,4 +1,5 @@
 import type {
+	TableValidation,
 	ValidationConstraints,
 	ValidationField,
 	ValidationIR,
@@ -246,6 +247,80 @@ const DATE_VALUE_HELPER = `const dateValue = z
   .transform((value) => (value instanceof Date ? value : new Date(value)));
 `;
 
+function emitJunctionComment(table: TableValidation): string[] {
+	const junction = table.junction;
+	if (!junction) {
+		return [];
+	}
+	return [
+		`// Many-to-many junction for ${junction.leftAccessor}.${junction.relationAs} ↔ ${junction.rightAccessor}.${junction.inverseAs}.`,
+		`// Prefer nested writes: db.${junction.leftAccessor}.update({ data: { ${junction.relationAs}: { connect: [{ id }] } } })`,
+		`// Direct inserts use ${table.modelName}LinkCreateSchema (both FK ids).`,
+	];
+}
+
+function emitTableZod(table: TableValidation, lines: string[]): string {
+	const isJunction = table.junction !== undefined;
+	if (isJunction) {
+		lines.push(...emitJunctionComment(table));
+	}
+
+	lines.push(
+		`export const ${table.modelName}Schema = ${emitObjectFields(table.select)};`,
+	);
+	lines.push("");
+
+	if (isJunction) {
+		lines.push(
+			`export const ${table.modelName}LinkCreateSchema = ${emitObjectFields(table.create)};`,
+		);
+		lines.push(
+			`export const ${table.modelName}CreateSchema = ${table.modelName}LinkCreateSchema;`,
+		);
+	} else {
+		lines.push(
+			`export const ${table.modelName}CreateSchema = ${emitObjectFields(table.create)};`,
+		);
+	}
+	lines.push("");
+
+	const emitUpdate = !isJunction || table.update.length > 0;
+	if (emitUpdate) {
+		lines.push(
+			`export const ${table.modelName}UpdateSchema = ${emitObjectFields(table.update)};`,
+		);
+		lines.push("");
+	} else if (table.junction) {
+		lines.push(
+			`// No scalar updates on junction rows — use nested relation writes on ${table.junction.leftAccessor}.${table.junction.relationAs}`,
+		);
+		lines.push("");
+	}
+
+	lines.push(
+		`export type ${table.modelName}Select = z.infer<typeof ${table.modelName}Schema>;`,
+	);
+	if (isJunction) {
+		lines.push(
+			`export type ${table.modelName}LinkCreate = z.infer<typeof ${table.modelName}LinkCreateSchema>;`,
+		);
+	}
+	lines.push(
+		`export type ${table.modelName}Create = z.infer<typeof ${table.modelName}CreateSchema>;`,
+	);
+	if (emitUpdate) {
+		lines.push(
+			`export type ${table.modelName}Update = z.infer<typeof ${table.modelName}UpdateSchema>;`,
+		);
+	}
+	lines.push("");
+
+	if (emitUpdate) {
+		return `  ${table.accessor}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema, update: ${table.modelName}UpdateSchema },`;
+	}
+	return `  ${table.accessor}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema },`;
+}
+
 /** Print validation IR as a Zod 4 module. Does not read ManifestColumn kinds. */
 export function emitZodTs(ir: ValidationIR): string {
 	const lines: string[] = [
@@ -271,32 +346,7 @@ export function emitZodTs(ir: ValidationIR): string {
 	const schemaEntries: string[] = [];
 
 	for (const table of ir.tables) {
-		lines.push(
-			`export const ${table.modelName}Schema = ${emitObjectFields(table.select)};`,
-		);
-		lines.push("");
-		lines.push(
-			`export const ${table.modelName}CreateSchema = ${emitObjectFields(table.create)};`,
-		);
-		lines.push("");
-		lines.push(
-			`export const ${table.modelName}UpdateSchema = ${emitObjectFields(table.update)};`,
-		);
-		lines.push("");
-		lines.push(
-			`export type ${table.modelName}Select = z.infer<typeof ${table.modelName}Schema>;`,
-		);
-		lines.push(
-			`export type ${table.modelName}Create = z.infer<typeof ${table.modelName}CreateSchema>;`,
-		);
-		lines.push(
-			`export type ${table.modelName}Update = z.infer<typeof ${table.modelName}UpdateSchema>;`,
-		);
-		lines.push("");
-
-		schemaEntries.push(
-			`  ${table.accessor}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema, update: ${table.modelName}UpdateSchema },`,
-		);
+		schemaEntries.push(emitTableZod(table, lines));
 	}
 
 	lines.push("export const schemas = {");

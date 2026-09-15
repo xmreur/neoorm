@@ -48,12 +48,22 @@ export type ValidationEnum = {
 	values: readonly [string, ...string[]];
 };
 
+/** M2M through-table metadata for codegen (nested writes live on the parent). */
+export type JunctionValidation = {
+	leftAccessor: string;
+	rightAccessor: string;
+	relationAs: string;
+	inverseAs: string;
+	linkColumnTsNames: readonly string[];
+};
+
 export type TableValidation = {
 	accessor: string;
 	modelName: string;
 	select: ValidationField[];
 	create: ValidationField[];
 	update: ValidationField[];
+	junction?: JunctionValidation;
 };
 
 export type ValidationIR = {

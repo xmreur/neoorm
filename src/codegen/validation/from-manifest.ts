@@ -1,8 +1,17 @@
 import { findFkReferencedColumn } from "../../dialect/fk.js";
-import type { Manifest, ManifestColumn } from "../../dialect/types.js";
-import { getColumnType } from "../../plugins/registry.js";
-import { modelTypeName, pascalCase } from "../manifest-relations.js";
 import type {
+	Manifest,
+	ManifestColumn,
+	ManifestTable,
+} from "../../dialect/types.js";
+import { getColumnType } from "../../plugins/registry.js";
+import {
+	modelTypeName,
+	pascalCase,
+	throughAccessors,
+} from "../manifest-relations.js";
+import type {
+	JunctionValidation,
 	TableValidation,
 	ValidationConstraints,
 	ValidationEnum,
@@ -16,7 +25,22 @@ function isManagedTimestamp(col: ManifestColumn): boolean {
 	return col.defaultNow || col.updatedAt === true;
 }
 
-function omitOnCreate(col: ManifestColumn): boolean {
+function isJunctionPkColumn(
+	col: ManifestColumn,
+	table: ManifestTable,
+	isJunction: boolean,
+): boolean {
+	return isJunction && table.primaryKey.includes(col.sqlName);
+}
+
+function omitOnCreate(
+	col: ManifestColumn,
+	table: ManifestTable,
+	isJunction: boolean,
+): boolean {
+	if (isJunctionPkColumn(col, table, isJunction)) {
+		return false;
+	}
 	return (
 		col.primary ||
 		col.generated === true ||
@@ -25,7 +49,14 @@ function omitOnCreate(col: ManifestColumn): boolean {
 	);
 }
 
-function omitOnUpdate(col: ManifestColumn): boolean {
+function omitOnUpdate(
+	col: ManifestColumn,
+	table: ManifestTable,
+	isJunction: boolean,
+): boolean {
+	if (isJunctionPkColumn(col, table, isJunction)) {
+		return true;
+	}
 	return col.primary || isManagedTimestamp(col);
 }
 
@@ -33,8 +64,12 @@ function omitOnSelect(col: ManifestColumn): boolean {
 	return col.hidden === true;
 }
 
-function isCreateRequired(col: ManifestColumn): boolean {
-	if (omitOnCreate(col)) {
+function isCreateRequired(
+	col: ManifestColumn,
+	table: ManifestTable,
+	isJunction: boolean,
+): boolean {
+	if (omitOnCreate(col, table, isJunction)) {
 		return false;
 	}
 	if (col.nullable) {
@@ -153,6 +188,28 @@ function toField(
 	};
 }
 
+function junctionMeta(
+	table: ManifestTable,
+	manifest: Manifest,
+): JunctionValidation | undefined {
+	const m2m = manifest.manyToMany.find(
+		(link) => link.throughAccessor === table.accessor,
+	);
+	if (!m2m) {
+		return undefined;
+	}
+	const pk = new Set(table.primaryKey);
+	return {
+		leftAccessor: m2m.leftAccessor,
+		rightAccessor: m2m.rightAccessor,
+		relationAs: m2m.as,
+		inverseAs: m2m.inverse,
+		linkColumnTsNames: table.columns
+			.filter((col) => pk.has(col.sqlName))
+			.map((col) => col.tsName),
+	};
+}
+
 function asEnumValues(
 	values: readonly string[],
 ): readonly [string, ...string[]] | undefined {
@@ -264,6 +321,9 @@ function hoistEnums(tables: TableValidation[]): {
 		usedExportNames.add(`${table.modelName}Schema`);
 		usedExportNames.add(`${table.modelName}CreateSchema`);
 		usedExportNames.add(`${table.modelName}UpdateSchema`);
+		if (table.junction !== undefined) {
+			usedExportNames.add(`${table.modelName}LinkCreateSchema`);
+		}
 	}
 
 	const byKey = new Map<string, ValidationEnum>();
@@ -313,25 +373,37 @@ function hoistEnums(tables: TableValidation[]): {
 
 /** Map a schema manifest to validator-neutral Select/Create/Update IR. */
 export function validationFromManifest(manifest: Manifest): ValidationIR {
+	const junctions = throughAccessors(manifest);
 	const tables = Object.values(manifest.tables)
 		.sort((a, b) => a.accessor.localeCompare(b.accessor))
 		.map((table): TableValidation => {
+			const isJunction = junctions.has(table.accessor);
 			const modelName = modelTypeName(table.accessor);
 			const select = table.columns
 				.filter((col) => !omitOnSelect(col))
 				.map((col) => toField(col, manifest, false));
 			const create = table.columns
-				.filter((col) => !omitOnCreate(col))
-				.map((col) => toField(col, manifest, !isCreateRequired(col)));
+				.filter((col) => !omitOnCreate(col, table, isJunction))
+				.map((col) =>
+					toField(
+						col,
+						manifest,
+						!isCreateRequired(col, table, isJunction),
+					),
+				);
 			const update = table.columns
-				.filter((col) => !omitOnUpdate(col))
+				.filter((col) => !omitOnUpdate(col, table, isJunction))
 				.map((col) => toField(col, manifest, true));
+			const junction = isJunction
+				? junctionMeta(table, manifest)
+				: undefined;
 			return {
 				accessor: table.accessor,
 				modelName,
 				select,
 				create,
 				update,
+				...(junction !== undefined ? { junction } : {}),
 			};
 		});
 
