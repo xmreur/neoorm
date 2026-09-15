@@ -32,10 +32,11 @@ CLI commands load `.env` from the project directory before evaluating this file,
 | `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
 | `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
 | `generate.typebox` | `boolean` | `false` | Emit Select/Create/Update TypeBox schemas to `out/typebox.ts`. See [TypeBox schemas](typebox.md). |
+| `generate.elysia` | `boolean` | `false` | Emit Select/Create/Update Elysia `t` schemas to `out/elysia.ts`. See [Elysia schemas](elysia.md). |
 
 ### Validation emit
 
-Set `generate.zod` to write `out/zod.ts` and/or `generate.typebox` to write `out/typebox.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` (`^4`) and/or `typebox` (`^1`) in the app. If a printer is enabled and its peer is missing, generate still writes the file and warns. Codegen uses a library-agnostic IR; Zod and TypeBox are the shipped printers. See [Zod schemas](zod.md) and [TypeBox schemas](typebox.md).
+Set `generate.zod` to write `out/zod.ts`, `generate.typebox` to write `out/typebox.ts`, and/or `generate.elysia` to write `out/elysia.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` (`^4`), `typebox` (`^1`), and/or `elysia` (`>=1.2`) in the app. If a printer is enabled and its peer is missing, generate still writes the file and warns. Codegen uses a library-agnostic IR; Zod, TypeBox 1.x, and Elysia `t` are the shipped printers. See [Zod schemas](zod.md), [TypeBox schemas](typebox.md), and [Elysia schemas](elysia.md).
 
 ### SQLite
 

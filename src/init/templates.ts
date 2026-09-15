@@ -23,7 +23,7 @@ export default defineConfig({
     url: ${urlLiteral},
     enum: "check",
   },
-  // generate: { zod: true, typebox: true },
+  // generate: { zod: true, typebox: true, elysia: true },
 });
 `;
 }

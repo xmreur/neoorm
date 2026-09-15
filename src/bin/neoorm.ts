@@ -194,6 +194,7 @@ function generateOptionsFromConfig(
 		...(dbSchema ? { schema: dbSchema } : {}),
 		...(config.generate?.zod === true ? { zod: true } : {}),
 		...(config.generate?.typebox === true ? { typebox: true } : {}),
+		...(config.generate?.elysia === true ? { elysia: true } : {}),
 	};
 }
 
@@ -215,6 +216,7 @@ async function runGenerateCommand(options: {
 	for (const line of formatGenerateSummary(summary, outDir, {
 		...(config.generate?.zod === true ? { zod: true } : {}),
 		...(config.generate?.typebox === true ? { typebox: true } : {}),
+		...(config.generate?.elysia === true ? { elysia: true } : {}),
 	})) {
 		console.log(line);
 	}
@@ -519,6 +521,9 @@ program
 									: {}),
 								...(config.generate?.typebox === true
 									? { typebox: true }
+									: {}),
+								...(config.generate?.elysia === true
+									? { elysia: true }
 									: {}),
 							},
 						)) {

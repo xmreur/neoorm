@@ -11,6 +11,7 @@
   <a href="docs/getting-started.md"><strong>Getting started</strong></a> ·
   <a href="docs/zod.md"><strong>Zod schemas</strong></a> ·
   <a href="docs/typebox.md"><strong>TypeBox schemas</strong></a> ·
+  <a href="docs/elysia.md"><strong>Elysia schemas</strong></a> ·
   <a href="docs/cli.md"><strong>CLI reference</strong></a> ·
   <a href="examples/blog/queries.example.ts"><strong>Example</strong></a>
 </p>
@@ -72,7 +73,7 @@ const posts = await db.posts.findMany({
 <table>
   <tr>
     <td width="50%"><strong>🧩 Schema DSL</strong><br/>Accessor-based tables (`table({…})`), fluent FKs (`fk("users")`), `many("tags")`, `id()`, `timestamps()`, array extras, checks, and partial indexes.</td>
-    <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL. Set `generate.zod` or `generate.typebox` to also emit Select/Create/Update schemas (`out/zod.ts`, `out/typebox.ts`).</td>
+    <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL. Set `generate.zod`, `generate.typebox`, or `generate.elysia` to also emit Select/Create/Update schemas (`out/zod.ts`, `out/typebox.ts`, `out/elysia.ts`).</td>
   </tr>
   <tr>
     <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`, `groupBy`. Where operators for strings, numbers, dates, JSONB, and nulls. `AND/OR/NOT` combinators.</td>

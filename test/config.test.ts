@@ -386,6 +386,86 @@ export default {
 			},
 		);
 	});
+
+	it("loads generate.elysia when true or false", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { elysia: true },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ elysia: true });
+			},
+		);
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { elysia: false },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ elysia: false });
+			},
+		);
+	});
+
+	it("loads generate.elysia without generate.zod or generate.typebox", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { elysia: true },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ elysia: true });
+				expect(config.generate?.zod).toBeUndefined();
+				expect(config.generate?.typebox).toBeUndefined();
+			},
+		);
+	});
+
+	it("rejects invalid generate.elysia values", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { elysia: "yes" },
+};
+`,
+			async (dir) => {
+				await expect(loadConfig(dir)).rejects.toThrow(
+					"neoorm.config.ts generate.elysia must be a boolean",
+				);
+			},
+		);
+	});
 });
 
 function restoreEnv(key: string, previous: string | undefined): void {
