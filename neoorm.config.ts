@@ -6,7 +6,7 @@ export default defineConfig({
 	datasource: {
 		provider: "postgresql",
 		url:
-			process.env["DATABASE_URL"] ??
+			process.env.DATABASE_URL ??
 			"postgresql://postgres:postgres@localhost:5432/neoorm_test",
 	},
 });

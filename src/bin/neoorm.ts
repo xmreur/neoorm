@@ -179,6 +179,23 @@ function registerDbPushPull(cmd: Command): void {
 		});
 }
 
+function generateOptionsFromConfig(
+	config: Awaited<ReturnType<typeof loadConfig>>,
+	options: { acceptDataLoss?: boolean },
+	dbSchema: string | undefined,
+) {
+	return {
+		...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+		...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
+		...(config.datasource.provider
+			? { provider: config.datasource.provider }
+			: {}),
+		...(config.datasource.url ? { url: config.datasource.url } : {}),
+		...(dbSchema ? { schema: dbSchema } : {}),
+		...(config.generate?.zod === true ? { zod: true } : {}),
+	};
+}
+
 async function runGenerateCommand(options: {
 	acceptDataLoss?: boolean;
 }): Promise<void> {
@@ -191,20 +208,12 @@ async function runGenerateCommand(options: {
 	const { warnings, summary, destructiveBlocked } = await generateFromSchema(
 		schemaPath,
 		outDir,
-		{
-			...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
-			...(config.datasource.enum
-				? { enumMode: config.datasource.enum }
-				: {}),
-			...(config.datasource.provider
-				? { provider: config.datasource.provider }
-				: {}),
-			...(config.datasource.url ? { url: config.datasource.url } : {}),
-			...(dbSchema ? { schema: dbSchema } : {}),
-		},
+		generateOptionsFromConfig(config, options, dbSchema),
 	);
 
-	for (const line of formatGenerateSummary(summary, outDir)) {
+	for (const line of formatGenerateSummary(summary, outDir, {
+		...(config.generate?.zod === true ? { zod: true } : {}),
+	})) {
 		console.log(line);
 	}
 	for (const warning of warnings) {
@@ -490,24 +499,23 @@ program
 							migrationName,
 							manifest,
 							destructiveBlocked,
-						} = await generateFromSchema(schemaPath, outDir, {
-							...(options.acceptDataLoss
-								? { acceptDataLoss: true }
-								: {}),
-							...(config.datasource.enum
-								? { enumMode: config.datasource.enum }
-								: {}),
-							...(config.datasource.provider
-								? { provider: config.datasource.provider }
-								: {}),
-							...(config.datasource.url
-								? { url: config.datasource.url }
-								: {}),
-							...(dbSchema ? { schema: dbSchema } : {}),
-						});
+						} = await generateFromSchema(
+							schemaPath,
+							outDir,
+							generateOptionsFromConfig(
+								config,
+								options,
+								dbSchema,
+							),
+						);
 						for (const line of formatGenerateSummary(
 							summary,
 							outDir,
+							{
+								...(config.generate?.zod === true
+									? { zod: true }
+									: {}),
+							},
 						)) {
 							console.log(line);
 						}

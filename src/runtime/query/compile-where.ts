@@ -863,11 +863,12 @@ function collectWhereParams(
 				walk(value as Record<string, unknown>, columnRef);
 				continue;
 			}
-			if (relations.get(key)) {
+			const relation = relations.get(key);
+			if (relation) {
 				const compiled = compileRelationCondition(
 					manifest,
 					table,
-					relations.get(key)!,
+					relation,
 					value,
 					dialect,
 					1,

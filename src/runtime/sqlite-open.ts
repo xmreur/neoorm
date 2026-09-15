@@ -20,7 +20,7 @@ export function resolveSqliteDatabasePath(
 ): string {
 	return (
 		usableSqlitePath(databasePath) ??
-		usableSqlitePath(process.env["DATABASE_URL"]) ??
+		usableSqlitePath(process.env.DATABASE_URL) ??
 		usableSqlitePath(manifestUrl) ??
 		":memory:"
 	);

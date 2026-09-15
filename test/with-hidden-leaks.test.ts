@@ -93,13 +93,14 @@ describe("with alias leaks and hidden default select", () => {
 		});
 
 		expect(rows).toHaveLength(1);
-		expect(joinAliasKeys(rows[0]!)).toEqual([]);
-		expect(rows[0]?.author).toEqual({
+		const row = atIndex(rows, 0);
+		expect(joinAliasKeys(row)).toEqual([]);
+		expect(row.author).toEqual({
 			id: "user_1",
 			email: "a@b.com",
 			name: "Ada",
 		});
-		expect(rows[0]?.author).not.toHaveProperty("password");
+		expect(row.author).not.toHaveProperty("password");
 	});
 
 	it("does not leak json_agg alias keys on parent rows", async () => {
@@ -128,8 +129,9 @@ describe("with alias leaks and hidden default select", () => {
 		});
 
 		expect(rows).toHaveLength(1);
-		expect(joinAliasKeys(rows[0]!)).toEqual([]);
-		expect(rows[0]?.comments).toEqual([
+		const row = atIndex(rows, 0);
+		expect(joinAliasKeys(row)).toEqual([]);
+		expect(row.comments).toEqual([
 			{ id: "comment_1", postId: "post_1", body: "Nice" },
 		]);
 	});

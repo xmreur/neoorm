@@ -12,6 +12,7 @@ const PAGE_ORDER = [
 	"getting-started",
 	"examples",
 	"schema",
+	"zod",
 	"queries",
 	"relations",
 	"transactions",

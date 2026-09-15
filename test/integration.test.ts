@@ -12,7 +12,7 @@ import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { pgClient } from "../src/runtime/driver.js";
 import { defined } from "./helpers/manifest.js";
 
-const DATABASE_URL = process.env["DATABASE_URL"];
+const DATABASE_URL = process.env.DATABASE_URL;
 
 function tablesInFkCreateOrder(manifest: Manifest): ManifestTable[] {
 	const tables = Object.values(manifest.tables);
@@ -87,8 +87,8 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		const users = await db.users.findMany();
 		expect(users.length).toBeGreaterThanOrEqual(1);
 
-		const found = await db.users.findById(user["id"] as string);
-		expect(found?.["email"]).toBe("test@example.com");
+		const found = await db.users.findById(user.id as string);
+		expect(found?.email).toBe("test@example.com");
 	});
 
 	it("create with connect and connectOrCreate", async () => {
@@ -112,7 +112,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: "NeoORM",
 				body: "FK-first relations.",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 				tags: {
 					connectOrCreate: [
 						{
@@ -125,9 +125,9 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			with: { author: true, tags: true },
 		});
 
-		expect(post["title"]).toBe("NeoORM");
-		expect(post["author"]).toBeTruthy();
-		expect(Array.isArray(post["tags"])).toBe(true);
+		expect(post.title).toBe("NeoORM");
+		expect(post.author).toBeTruthy();
+		expect(Array.isArray(post.tags)).toBe(true);
 	});
 
 	it("findOrCreate inserts then returns existing row", async () => {
@@ -146,7 +146,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		expect(first.created).toBe(true);
-		expect(first.record["slug"]).toBe(slug);
+		expect(first.record.slug).toBe(slug);
 
 		const second = await db.tags.findOrCreate({
 			where: { slug },
@@ -154,9 +154,9 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		expect(second.created).toBe(false);
-		expect(second.record["id"]).toBe(first.record["id"]);
-		expect(second.record["slug"]).toBe(slug);
-		expect(second.record["name"]).toBe("Find or create");
+		expect(second.record.id).toBe(first.record.id);
+		expect(second.record.slug).toBe(slug);
+		expect(second.record.name).toBe("Find or create");
 	});
 
 	it("update with nested create, M2M set, and relation-only writes", async () => {
@@ -180,7 +180,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: "Relation writes",
 				body: "Before update",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 			},
 		});
 
@@ -192,38 +192,35 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		const updated = await db.posts.update({
-			where: { id: post["id"] as string },
+			where: { id: post.id as string },
 			data: {
 				comments: {
 					create: [
 						{
 							body: "Nested on update",
-							author: { connect: { id: author["id"] as string } },
+							author: { connect: { id: author.id as string } },
 						},
 					],
 				},
 				tags: {
-					set: [
-						{ id: tagA["id"] as string },
-						{ id: tagB["id"] as string },
-					],
+					set: [{ id: tagA.id as string }, { id: tagB.id as string }],
 				},
 			},
 			with: { comments: true, tags: true },
 		});
 
-		expect(updated?.["comments"]).toHaveLength(1);
-		expect(updated?.["tags"]).toHaveLength(2);
+		expect(updated?.comments).toHaveLength(1);
+		expect(updated?.tags).toHaveLength(2);
 
 		const relationOnly = await db.posts.update({
-			where: { id: post["id"] as string },
+			where: { id: post.id as string },
 			data: {
-				tags: { disconnect: [{ id: tagB["id"] as string }] },
+				tags: { disconnect: [{ id: tagB.id as string }] },
 			},
 			with: { tags: true },
 		});
 
-		expect(relationOnly?.["tags"]).toHaveLength(1);
+		expect(relationOnly?.tags).toHaveLength(1);
 	});
 
 	it("update with nested delete on inverse one-to-many", async () => {
@@ -247,16 +244,16 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: "Delete comment test",
 				body: "Body",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 				comments: {
 					create: [
 						{
 							body: "Keep",
-							author: { connect: { id: author["id"] as string } },
+							author: { connect: { id: author.id as string } },
 						},
 						{
 							body: "Remove",
-							author: { connect: { id: author["id"] as string } },
+							author: { connect: { id: author.id as string } },
 						},
 					],
 				},
@@ -264,7 +261,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			with: { comments: true },
 		});
 
-		const comments = post["comments"] as { id: string; body: string }[];
+		const comments = post.comments as { id: string; body: string }[];
 		expect(comments).toHaveLength(2);
 		const toDelete = comments.find((c) => c.body === "Remove");
 		if (!toDelete) {
@@ -272,18 +269,18 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		}
 
 		const updated = await db.posts.update({
-			where: { id: post["id"] as string },
+			where: { id: post.id as string },
 			data: {
 				comments: { delete: [{ id: toDelete.id }] },
 			},
 			with: { comments: true },
 		});
 
+		expect(updated?.comments as unknown as { body: string }[]).toHaveLength(
+			1,
+		);
 		expect(
-			updated?.["comments"] as unknown as { body: string }[],
-		).toHaveLength(1);
-		expect(
-			(updated?.["comments"] as unknown as { body: string }[])[0]?.body,
+			(updated?.comments as unknown as { body: string }[])[0]?.body,
 		).toBe("Keep");
 
 		const deletedComment = await db.comments.findById(toDelete.id);
@@ -316,7 +313,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: `${prefix}-a`,
 				body: "A",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 			},
 		});
 		const postB = await db.posts.create({
@@ -324,35 +321,31 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: `${prefix}-b`,
 				body: "B",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 			},
 		});
 
 		const count = await db.posts.updateMany({
 			where: { title: { startsWith: prefix } },
 			data: {
-				tags: { connect: [{ id: tag["id"] as string }] },
+				tags: { connect: [{ id: tag.id as string }] },
 			},
 		});
 
 		expect(count).toBe(2);
 
-		const withTagsA = await db.posts.findById(postA["id"] as string, {
+		const withTagsA = await db.posts.findById(postA.id as string, {
 			with: { tags: true },
 		});
-		const withTagsB = await db.posts.findById(postB["id"] as string, {
+		const withTagsB = await db.posts.findById(postB.id as string, {
 			with: { tags: true },
 		});
 		expect(
-			(withTagsA?.["tags"] as unknown as { id: string }[])?.map(
-				(t) => t.id,
-			),
-		).toContain(tag["id"]);
+			(withTagsA?.tags as unknown as { id: string }[])?.map((t) => t.id),
+		).toContain(tag.id);
 		expect(
-			(withTagsB?.["tags"] as unknown as { id: string }[])?.map(
-				(t) => t.id,
-			),
-		).toContain(tag["id"]);
+			(withTagsB?.tags as unknown as { id: string }[])?.map((t) => t.id),
+		).toContain(tag.id);
 	});
 
 	it("update with M2M delete removes tag row and junction link", async () => {
@@ -380,27 +373,27 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: "M2M delete test",
 				body: "Body",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
-				tags: { connect: [{ id: tag["id"] as string }] },
+				author: { connect: { id: author.id as string } },
+				tags: { connect: [{ id: tag.id as string }] },
 			},
 			with: { tags: true },
 		});
 
-		expect((post["tags"] as unknown[]).length).toBe(1);
+		expect((post.tags as unknown[]).length).toBe(1);
 
 		await db.posts.update({
-			where: { id: post["id"] as string },
+			where: { id: post.id as string },
 			data: {
-				tags: { delete: [{ id: tag["id"] as string }] },
+				tags: { delete: [{ id: tag.id as string }] },
 			},
 		});
 
-		const refreshed = await db.posts.findById(post["id"] as string, {
+		const refreshed = await db.posts.findById(post.id as string, {
 			with: { tags: true },
 		});
-		expect(refreshed?.["tags"]).toHaveLength(0);
+		expect(refreshed?.tags).toHaveLength(0);
 
-		const deletedTag = await db.tags.findById(tag["id"] as string);
+		const deletedTag = await db.tags.findById(tag.id as string);
 		expect(deletedTag).toBeNull();
 	});
 
@@ -425,13 +418,13 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: "Disconnect test",
 				body: "Body",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 			},
 		});
 
 		await expect(
 			db.posts.update({
-				where: { id: post["id"] as string },
+				where: { id: post.id as string },
 				data: {
 					// @ts-expect-error -- disconnect not allowed on non-nullable outgoing FK
 					author: { disconnect: true },
@@ -490,9 +483,9 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		expect(rows).toHaveLength(2);
-		expect(rows[0]?.["id"]).toBeTruthy();
-		expect(rows[0]?.["email"]).toBe(`return-1-${ts}@example.com`);
-		expect(rows[1]?.["email"]).toBe(`return-2-${ts}@example.com`);
+		expect(rows[0]?.id).toBeTruthy();
+		expect(rows[0]?.email).toBe(`return-1-${ts}@example.com`);
+		expect(rows[1]?.email).toBe(`return-2-${ts}@example.com`);
 	});
 
 	it("createMany skipDuplicates ignores unique conflicts", async () => {
@@ -558,7 +551,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			data: { name: "Updated" },
 		});
 		expect(updated).toHaveLength(1);
-		expect(updated[0]?.["name"]).toBe("Updated");
+		expect(updated[0]?.name).toBe("Updated");
 
 		const deleted = await db.users.deleteManyAndReturn({
 			where: { email: { contains: `${ts}@example.com` } },
@@ -583,11 +576,11 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		const updated = await db.users.update({
-			where: { id: user["id"] as string },
+			where: { id: user.id as string },
 			data: { name: "After" },
 			returnUpdated: true,
 		});
-		expect(updated?.["name"]).toBe("After");
+		expect(updated?.name).toBe("After");
 
 		const count = await db.users.updateMany({
 			where: { email: { contains: "mutate" } },
@@ -595,10 +588,10 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 		expect(count).toBeGreaterThanOrEqual(1);
 
-		const deleted = await db.users.deleteById(user["id"] as string);
+		const deleted = await db.users.deleteById(user.id as string);
 		expect(deleted).toEqual({});
 
-		const remaining = await db.users.findById(user["id"] as string);
+		const remaining = await db.users.findById(user.id as string);
 		expect(remaining).toBeNull();
 	});
 
@@ -622,18 +615,18 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 					title: "Tx Post",
 					body: "Created inside a transaction",
 					published: true,
-					author: { connect: { id: user["id"] as string } },
+					author: { connect: { id: user.id as string } },
 				},
 				returnCreated: true,
 			});
 			return { user, post };
 		});
 
-		expect(result.user["email"]).toBe(email);
-		expect(result.post["title"]).toBe("Tx Post");
+		expect(result.user.email).toBe(email);
+		expect(result.post.title).toBe("Tx Post");
 
 		const found = await db.users.findFirst({ where: { email } });
-		expect(found?.["name"]).toBe("Tx User");
+		expect(found?.name).toBe("Tx User");
 	});
 
 	it("rolls back failed transaction", async () => {
@@ -744,7 +737,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 					title: `${prefix}-${i}`,
 					body: "body",
 					published: true,
-					author: { connect: { id: author["id"] as string } },
+					author: { connect: { id: author.id as string } },
 					createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
 				},
 			});
@@ -772,8 +765,8 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 
 		expect(page2.items).toHaveLength(2);
 		expect(page2.hasPrevious).toBe(true);
-		const page1Ids = page1.items.map((post) => post["id"]);
-		const page2Ids = page2.items.map((post) => post["id"]);
+		const page1Ids = page1.items.map((post) => post.id);
+		const page2Ids = page2.items.map((post) => post.id);
 		expect(page1Ids.some((id) => page2Ids.includes(id))).toBe(false);
 
 		const pageBack = await db.posts.paginate({
@@ -782,7 +775,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			take: 2,
 			before: defined(page2.prevCursor, "page2.prevCursor"),
 		});
-		expect(pageBack.items.map((post) => post["id"])).toEqual(page1Ids);
+		expect(pageBack.items.map((post) => post.id)).toEqual(page1Ids);
 
 		const page2Cursor = defined(page2.nextCursor, "page2.nextCursor");
 		const page3 = await db.posts.paginate({
@@ -819,26 +812,26 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: `updated-at-post-${Date.now()}`,
 				body: "body",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 				createdAt: new Date("2020-01-01T00:00:00.000Z"),
 			},
 		});
 
-		const originalUpdatedAt = post["updatedAt"] as Date;
+		const originalUpdatedAt = post.updatedAt as Date;
 
 		await new Promise((resolve) => setTimeout(resolve, 10));
 
-		const updated = await db.posts.updateById(post["id"] as string, {
+		const updated = await db.posts.updateById(post.id as string, {
 			returnUpdated: true,
 			data: {
-				title: `${post["title"] as string}-edited`,
+				title: `${post.title as string}-edited`,
 				// @ts-expect-error — verify runtime strips user-provided updatedAt
 				updatedAt: "1999-01-01T00:00:00.000Z",
 			},
 		});
 
-		expect(updated?.["updatedAt"]).not.toBe(originalUpdatedAt);
-		expect(updated?.["updatedAt"]).not.toBe("1999-01-01T00:00:00.000Z");
+		expect(updated?.updatedAt).not.toBe(originalUpdatedAt);
+		expect(updated?.updatedAt).not.toBe("1999-01-01T00:00:00.000Z");
 
 		const sibling = await db.posts.create({
 			returnCreated: true,
@@ -846,22 +839,20 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				title: `updated-at-sibling-${Date.now()}`,
 				body: "body",
 				published: true,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 			},
 		});
 
 		const count = await db.posts.updateMany({
-			where: { authorId: author["id"] as string },
+			where: { authorId: author.id as string },
 			data: { published: false },
 		});
 
 		expect(count).toBeGreaterThanOrEqual(2);
 
-		const refreshedSibling = await db.posts.findById(
-			sibling["id"] as string,
-		);
-		expect(refreshedSibling?.["published"]).toBe(false);
-		expect(refreshedSibling?.["updatedAt"]).not.toBe(sibling["updatedAt"]);
+		const refreshedSibling = await db.posts.findById(sibling.id as string);
+		expect(refreshedSibling?.published).toBe(false);
+		expect(refreshedSibling?.updatedAt).not.toBe(sibling.updatedAt);
 	});
 
 	it("_count on relations in with", async () => {
@@ -886,17 +877,17 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 					title: `count-post-${Date.now()}-${i}`,
 					body: "body",
 					published: true,
-					author: { connect: { id: author["id"] as string } },
+					author: { connect: { id: author.id as string } },
 				},
 			});
 		}
 
 		const users = await db.users.findMany({
-			where: { id: author["id"] as string },
+			where: { id: author.id as string },
 			with: { _count: { posts: true } },
 		});
 
-		expect(users[0]?.["_count"]).toEqual({ posts: 3 });
+		expect(users[0]?._count).toEqual({ posts: 3 });
 	});
 
 	it("aggregate returns count and avg", async () => {
@@ -921,18 +912,18 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				body: "body",
 				published: true,
 				views: 10,
-				author: { connect: { id: author["id"] as string } },
+				author: { connect: { id: author.id as string } },
 			},
 		});
 
 		const stats = await db.posts.aggregate({
-			where: { authorId: author["id"] as string },
+			where: { authorId: author.id as string },
 			_count: true,
 			_avg: { views: true },
 		});
 
-		expect(stats["_count"]).toBeGreaterThanOrEqual(1);
-		expect(stats["_avg"]).toEqual({ views: 10 });
+		expect(stats._count).toBeGreaterThanOrEqual(1);
+		expect(stats._avg).toEqual({ views: 10 });
 	});
 
 	it("groupBy returns grouped counts and having drops small groups", async () => {
@@ -964,7 +955,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				body: "body",
 				published: true,
 				views: 10,
-				author: { connect: { id: authorA["id"] as string } },
+				author: { connect: { id: authorA.id as string } },
 			},
 		});
 		await db.posts.create({
@@ -973,7 +964,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				body: "body",
 				published: true,
 				views: 20,
-				author: { connect: { id: authorA["id"] as string } },
+				author: { connect: { id: authorA.id as string } },
 			},
 		});
 		await db.posts.create({
@@ -982,7 +973,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 				body: "body",
 				published: true,
 				views: 5,
-				author: { connect: { id: authorB["id"] as string } },
+				author: { connect: { id: authorB.id as string } },
 			},
 		});
 
@@ -990,7 +981,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 			by: ["authorId"],
 			where: {
 				authorId: {
-					in: [authorA["id"] as string, authorB["id"] as string],
+					in: [authorA.id as string, authorB.id as string],
 				},
 			},
 			_count: true,
@@ -999,7 +990,7 @@ describe.skipIf(!DATABASE_URL)("integration", () => {
 		});
 
 		expect(grouped).toHaveLength(1);
-		expect(grouped[0]?.authorId).toBe(authorA["id"]);
+		expect(grouped[0]?.authorId).toBe(authorA.id);
 		expect(grouped[0]?._count).toBe(2);
 	});
 });

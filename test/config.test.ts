@@ -249,6 +249,64 @@ export default {
 			},
 		);
 	});
+
+	it("loads generate.zod when true or false", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { zod: true },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ zod: true });
+			},
+		);
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { zod: false },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ zod: false });
+			},
+		);
+	});
+
+	it("rejects invalid generate.zod values", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { zod: "yes" },
+};
+`,
+			async (dir) => {
+				await expect(loadConfig(dir)).rejects.toThrow(
+					"neoorm.config.ts generate.zod must be a boolean",
+				);
+			},
+		);
+	});
 });
 
 function restoreEnv(key: string, previous: string | undefined): void {

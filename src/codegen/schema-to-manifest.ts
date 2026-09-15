@@ -27,7 +27,7 @@ import {
 	suggestSchemaTableAccessor,
 } from "../runtime/error-hints.js";
 import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
-import type { ColumnBuilder } from "../schema/column.js";
+import type { ColumnBuilder, ColumnMeta } from "../schema/column.js";
 import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
 import type { SchemaDef } from "../schema/define-schema.js";
 import type { ManyToManyExtra } from "../schema/many-to-many.js";
@@ -40,7 +40,6 @@ import {
 	type ColumnDef,
 	type ColumnNaming,
 	findPrimaryKeyColumn,
-	type IndexDef,
 	type IndexWherePredicate,
 	type TableDef,
 	type TableExtra,
@@ -100,7 +99,7 @@ function inferFkAs(tsName: string): string {
 	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
 }
 
-function pluralize(word: string): string {
+function _pluralize(word: string): string {
 	if (/(s|x|z|ch|sh)$/.test(word)) {
 		return `${word}es`;
 	}
@@ -200,7 +199,7 @@ function resolveFkTargetSql(
 	col: FkBuilder,
 	tables: Record<string, TableDef>,
 	defaultColumnNaming: ColumnNaming,
-	sourceColumnNaming: ColumnNaming,
+	_sourceColumnNaming: ColumnNaming,
 ): string {
 	const { accessor, column } = resolveFkAccessorTarget(col._meta, tables);
 	const targetTable = tables[accessor];
@@ -365,7 +364,45 @@ function columnToManifest(
 	if (compiledCheck !== undefined) {
 		result.checkExpression = compiledCheck;
 	}
+	copyStructuredConstraints(result, meta);
 	return result;
+}
+
+function jsonSafeConstraint(value: number | bigint | string): number | string {
+	return typeof value === "bigint" ? value.toString() : value;
+}
+
+function copyStructuredConstraints(
+	result: ManifestColumn,
+	meta: ColumnMeta,
+): void {
+	if (meta.checkMin !== undefined) {
+		result.checkMin = jsonSafeConstraint(meta.checkMin);
+	}
+	if (meta.checkMax !== undefined) {
+		result.checkMax = jsonSafeConstraint(meta.checkMax);
+	}
+	if (meta.checkPositive === true) {
+		result.checkPositive = true;
+	}
+	if (meta.checkMinLength !== undefined) {
+		result.checkMinLength = meta.checkMinLength;
+	}
+	if (meta.checkMaxLength !== undefined) {
+		result.checkMaxLength = meta.checkMaxLength;
+	}
+	if (meta.checkNotEmpty === true) {
+		result.checkNotEmpty = true;
+	}
+	if (meta.checkEmail === true) {
+		result.checkEmail = true;
+	}
+	if (meta.checkUrl === true) {
+		result.checkUrl = true;
+	}
+	if (meta.validation !== undefined) {
+		result.validation = meta.validation;
+	}
 }
 
 function extrasToManifest(
@@ -517,7 +554,7 @@ function resolveM2M(incoming: IncomingM2M): ManifestManyToMany {
  */
 export function schemaToManifest<T extends Record<string, TableDef>>(
 	schema: SchemaDef<T>,
-	plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
+	_plugins: readonly NeoOrmPlugin[] = getPluginRegistry(),
 	options: SchemaToManifestOptions = {},
 ): Manifest {
 	const enumMode = options.enumMode ?? "check";
@@ -646,6 +683,13 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				defaultColumnNaming,
 			),
 		];
+		const leftCol = columns[0];
+		const rightCol = columns[1];
+		if (!leftCol || !rightCol) {
+			throw new Error(
+				`M2M junction "${accessor}" must have exactly two FK columns`,
+			);
+		}
 		const table: ManifestTable = {
 			accessor,
 			sqlName,
@@ -653,7 +697,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			columns,
 			relations: [],
 			indexes: [],
-			primaryKey: [columns[0]!.sqlName, columns[1]!.sqlName],
+			primaryKey: [leftCol.sqlName, rightCol.sqlName],
 		};
 		manifestTables[accessor] = table;
 		sqlNameToAccessor[sqlName] = accessor;

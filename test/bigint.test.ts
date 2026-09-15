@@ -6,6 +6,7 @@ import { postgresDialect } from "../src/dialect/postgres.js";
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
 import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { pgClient } from "../src/runtime/driver.js";
+import { defined, manifestTable } from "./helpers/manifest.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -18,14 +19,14 @@ describe("bigint column kind", () => {
 			}),
 		});
 		const manifest = schemaToManifest(schema);
-		const col = manifest.tables.users!.columns.find(
-			(c) => c.tsName === "count",
-		)!;
+		const users = manifestTable(manifest, "users");
+		const col = defined(
+			users.columns.find((c) => c.tsName === "count"),
+			"count column",
+		);
 		expect(col.kind).toBe("bigint");
 		expect(col.defaultValue).toBe(9007199254740993n);
-		const createSql = postgresDialect.emitCreateTable(
-			manifest.tables.users!,
-		);
+		const createSql = postgresDialect.emitCreateTable(users);
 		expect(createSql).toContain(
 			'"count" BIGINT NOT NULL DEFAULT 9007199254740993',
 		);
@@ -39,12 +40,17 @@ describe("bigint column kind", () => {
 			}),
 		});
 		const manifest = schemaToManifest(schema);
-		const col = manifest.tables.users!.columns.find(
-			(c) => c.tsName === "count",
-		)!;
-		const plugin = (
-			await import("../src/plugins/registry.js")
-		).getColumnType("bigint")!;
+		const users = manifestTable(manifest, "users");
+		const col = defined(
+			users.columns.find((c) => c.tsName === "count"),
+			"count column",
+		);
+		const plugin = defined(
+			(await import("../src/plugins/registry.js")).getColumnType(
+				"bigint",
+			),
+			"bigint plugin",
+		);
 		expect(plugin.serializeValue?.(col, 9007199254740993n)).toBe(
 			"9007199254740993",
 		);
@@ -76,13 +82,19 @@ describe.skipIf(!databaseUrl)("bigint introspection (integration)", () => {
 
 	it("introspects bigint as its own kind without losing the default", async () => {
 		const manifest = await introspectToManifest(pgClient(pool));
-		const table = manifest.tables.bgUsers!;
-		const count = table.columns.find((c) => c.sqlName === "count")!;
+		const bgUsers = manifestTable(manifest, "bgUsers");
+		const count = defined(
+			bgUsers.columns.find((c) => c.sqlName === "count"),
+			"count column",
+		);
 		expect(count.kind).toBe("bigint");
 		// the full 64-bit default is preserved as a string, not rounded
 		expect(count.defaultValue).toBe("9223372036854775807");
 
-		const small = table.columns.find((c) => c.sqlName === "small")!;
+		const small = defined(
+			bgUsers.columns.find((c) => c.sqlName === "small"),
+			"small column",
+		);
 		expect(small.kind).toBe("int");
 		expect(small.defaultValue).toBe(42);
 	});
@@ -104,9 +116,9 @@ describe.skipIf(!databaseUrl)("bigint introspection (integration)", () => {
 			data: { id: "b1", count: 9007199254740993n } as never,
 			returnCreated: true,
 		});
-		expect(created["count"]).toBe(9007199254740993n);
+		expect(created.count).toBe(9007199254740993n);
 
 		const found = await db.users.findById("b1");
-		expect(found?.["count"]).toBe(9007199254740993n);
+		expect(found?.count).toBe(9007199254740993n);
 	});
 });

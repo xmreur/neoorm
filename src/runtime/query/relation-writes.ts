@@ -10,7 +10,6 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
-import { queryCompileError } from "../error-builders.js";
 import { QueryErrorCode } from "../error-codes.js";
 import type { QueryOperation } from "../errors.js";
 import type { Executor } from "../executor.js";
@@ -348,12 +347,12 @@ async function insertM2MLinks(
 	);
 }
 
-async function insertJunctionRows(
+async function _insertJunctionRows(
 	executor: Executor,
 	runtime: QueryRuntime,
 	throughAccessor: string,
 	leftFkCol: string,
-	rightFkCol: string,
+	_rightFkCol: string,
 	leftId: string,
 	rightIds: string[],
 ): Promise<void> {
@@ -651,7 +650,7 @@ async function executeToOneWrite(
 	const { manifest } = runtime;
 	const tableIndex = getTableIndex(runtime.tableIndex, table.accessor);
 	const rel = findRelation(table, relationName, tableIndex);
-	if (!rel || rel.cardinality !== "one") return;
+	if (rel?.cardinality !== "one") return;
 
 	if ("connect" in value) {
 		const ids = normalizeConnectIds(
@@ -693,7 +692,7 @@ async function executeToOneWrite(
 
 	if ("create" in value) {
 		const created = await runCreate(executor, runtime, rel.targetAccessor, {
-			data: value["create"] as Record<string, unknown>,
+			data: value.create as Record<string, unknown>,
 		});
 		const targetTable = manifest.tables[rel.targetAccessor];
 		if (!targetTable) compileError(`Unknown table: ${rel.targetAccessor}`);
@@ -713,7 +712,7 @@ export async function applyToOnePreWrites(
 
 	for (const write of relationWrites) {
 		const rel = findRelation(table, write.relationName);
-		if (!rel || rel.cardinality !== "one" || !tableOwnsFkColumn(table, rel))
+		if (rel?.cardinality !== "one" || !tableOwnsFkColumn(table, rel))
 			continue;
 		await executeToOneWrite(
 			executor,
@@ -743,7 +742,7 @@ async function executeM2MWrite(
 	const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
 
 	if ("delete" in value) {
-		const del = value["delete"];
+		const del = value.delete;
 		if (del === true) {
 			await deleteM2MRelated(
 				executor,
@@ -767,7 +766,7 @@ async function executeM2MWrite(
 	}
 
 	if ("disconnect" in value) {
-		const disconnect = value["disconnect"];
+		const disconnect = value.disconnect;
 		if (disconnect === true) {
 			await deleteJunctionRows(
 				executor,
@@ -794,7 +793,7 @@ async function executeM2MWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeConnectIds(runtime, targetAccessor, value["set"]);
+		const ids = normalizeConnectIds(runtime, targetAccessor, value.set);
 		await deleteJunctionRows(
 			executor,
 			runtime,
@@ -816,11 +815,7 @@ async function executeM2MWrite(
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeConnectIds(
-			runtime,
-			targetAccessor,
-			value["connect"],
-		);
+		const ids = normalizeConnectIds(runtime, targetAccessor, value.connect);
 		if (ids.length > 0) {
 			await insertM2MLinks(
 				executor,
@@ -834,7 +829,7 @@ async function executeM2MWrite(
 	}
 
 	if ("connectOrCreate" in value) {
-		const items = value["connectOrCreate"] as Array<{
+		const items = value.connectOrCreate as Array<{
 			where: Record<string, unknown>;
 			create: Record<string, unknown>;
 		}>;
@@ -869,15 +864,14 @@ async function executeInverseManyWrite(
 	const { manifest } = runtime;
 	const rel = findRelation(table, relationName);
 	if (
-		!rel ||
-		rel.cardinality !== "many" ||
+		rel?.cardinality !== "many" ||
 		findM2M(manifest, table.accessor, relationName)
 	) {
 		return;
 	}
 
 	if ("delete" in value) {
-		const del = value["delete"];
+		const del = value.delete;
 		if (del === true) {
 			await deleteInverseManyChildren(
 				executor,
@@ -899,7 +893,7 @@ async function executeInverseManyWrite(
 	}
 
 	if ("disconnect" in value) {
-		const disconnect = value["disconnect"];
+		const disconnect = value.disconnect;
 		if (disconnect === true) {
 			await disconnectInverseMany(
 				executor,
@@ -919,11 +913,7 @@ async function executeInverseManyWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeConnectIds(
-			runtime,
-			rel.targetAccessor,
-			value["set"],
-		);
+		const ids = normalizeConnectIds(runtime, rel.targetAccessor, value.set);
 		await setInverseMany(executor, runtime, rel, parentId, ids);
 		return;
 	}
@@ -932,13 +922,13 @@ async function executeInverseManyWrite(
 		const ids = normalizeConnectIds(
 			runtime,
 			rel.targetAccessor,
-			value["connect"],
+			value.connect,
 		);
 		await connectInverseMany(executor, runtime, rel, parentId, ids);
 	}
 
 	if ("create" in value) {
-		const items = normalizeCreateList(value["create"]);
+		const items = normalizeCreateList(value.create);
 		for (const item of items) {
 			await runCreate(executor, runtime, rel.targetAccessor, {
 				data: {
@@ -961,8 +951,7 @@ async function executeInverseOneWrite(
 ): Promise<void> {
 	const { manifest } = runtime;
 	const rel = findRelation(table, relationName);
-	if (!rel || rel.cardinality !== "one" || tableOwnsFkColumn(table, rel))
-		return;
+	if (rel?.cardinality !== "one" || tableOwnsFkColumn(table, rel)) return;
 
 	const targetTable = manifest.tables[rel.targetAccessor];
 	if (!targetTable) return;
@@ -970,7 +959,7 @@ async function executeInverseOneWrite(
 	const fkCol = childFkColumnMeta(targetTable, rel);
 
 	if ("delete" in value) {
-		const del = value["delete"];
+		const del = value.delete;
 		if (del === true) {
 			await deleteInverseManyChildren(
 				executor,
@@ -1007,11 +996,7 @@ async function executeInverseOneWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeConnectIds(
-			runtime,
-			rel.targetAccessor,
-			value["set"],
-		);
+		const ids = normalizeConnectIds(runtime, rel.targetAccessor, value.set);
 		const id = ids[0];
 		if (id) {
 			await disconnectInverseMany(
@@ -1030,7 +1015,7 @@ async function executeInverseOneWrite(
 		const ids = normalizeConnectIds(
 			runtime,
 			rel.targetAccessor,
-			value["connect"],
+			value.connect,
 		);
 		const id = ids[0];
 		if (!id) return;
@@ -1043,7 +1028,7 @@ async function executeInverseOneWrite(
 	}
 
 	if ("create" in value) {
-		const items = normalizeCreateList(value["create"]);
+		const items = normalizeCreateList(value.create);
 		if (items.length > 1) {
 			compileError(
 				`Cannot create more than one record for one-to-one relation ${relationName}`,
@@ -1143,11 +1128,7 @@ export function relationWritesNeedTransaction(
 	}
 	for (const write of relationWrites) {
 		const rel = findRelation(table, write.relationName);
-		if (
-			!rel ||
-			rel.cardinality !== "one" ||
-			!tableOwnsFkColumn(table, rel)
-		) {
+		if (rel?.cardinality !== "one" || !tableOwnsFkColumn(table, rel)) {
 			continue;
 		}
 		if (

@@ -34,7 +34,8 @@ function m2mTargetColumn(manifest: Manifest, targetAccessor: string): string {
 	return primaryKeySqlName(targetTable);
 }
 
-function throughAccessors(manifest: Manifest): Set<string> {
+/** Accessors of M2M through (junction) tables. */
+export function throughAccessors(manifest: Manifest): Set<string> {
 	return new Set(manifest.manyToMany.map((m) => m.throughAccessor));
 }
 

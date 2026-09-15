@@ -89,6 +89,28 @@ export default defineConfig({
 bunx neoorm generate
 ```
 
+To emit Zod Select/Create/Update schemas, install Zod 4 and set `generate.zod` in config:
+
+```bash
+bun add zod
+```
+
+```ts
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: process.env.DATABASE_URL!,
+  },
+  generate: {
+    zod: true,
+  },
+});
+```
+
+`neoorm generate` / `neoorm migrate dev` then writes `out/zod.ts` (re-exported from `out/client.ts`). See [Zod schemas](zod.md). `neoorm init` leaves this commented in `neoorm.config.ts`.
+
 ## SQLite
 
 Set `provider: "sqlite"` and `url` to a file path or `:memory:`:

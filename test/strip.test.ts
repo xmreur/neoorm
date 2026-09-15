@@ -3,7 +3,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { attachStripToRows } from "../src/runtime/query/strip.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { defineSchema, id, table, text } from "../src/schema/index.js";
-import { manifestTable } from "./helpers/manifest.js";
+import { defined, manifestTable } from "./helpers/manifest.js";
 
 const schema = defineSchema({
 	users: table({
@@ -18,7 +18,10 @@ describe("row.strip()", () => {
 		const manifest = schemaToManifest(schema);
 		const manifestIndex = buildManifestIndex(manifest);
 		const users = manifestTable(manifest, "users");
-		const tableIndex = manifestIndex.get("users")!;
+		const tableIndex = defined(
+			manifestIndex.get("users"),
+			"users table index",
+		);
 
 		const row: Record<string, unknown> & {
 			strip?: (omit?: Record<string, boolean>) => Record<string, unknown>;
@@ -34,7 +37,10 @@ describe("row.strip()", () => {
 		const manifest = schemaToManifest(schema);
 		const manifestIndex = buildManifestIndex(manifest);
 		const users = manifestTable(manifest, "users");
-		const tableIndex = manifestIndex.get("users")!;
+		const tableIndex = defined(
+			manifestIndex.get("users"),
+			"users table index",
+		);
 
 		const row: Record<string, unknown> & {
 			strip?: (omit?: Record<string, boolean>) => Record<string, unknown>;

@@ -23,7 +23,7 @@ import {
 import { pgClient } from "../src/runtime/driver.js";
 import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
 
-const DATABASE_URL = process.env["DATABASE_URL"];
+const DATABASE_URL = process.env.DATABASE_URL;
 
 function col(
 	tsName: string,
@@ -238,7 +238,7 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 		expect(status.pending).toEqual([]);
 
 		const snapshotAfterDeploy = await readSnapshot(outDir);
-		expect(snapshotAfterDeploy?.tables["users"]).toBeDefined();
+		expect(snapshotAfterDeploy?.tables.users).toBeDefined();
 
 		const reverted = await migrateDown(
 			pgClient(pool),

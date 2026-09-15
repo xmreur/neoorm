@@ -168,7 +168,7 @@ describe("relation-writes", () => {
 			runCreate,
 		);
 
-		expect(scalarData["authorId"]).toBe("user_1");
+		expect(scalarData.authorId).toBe("user_1");
 	});
 
 	it("applyToOnePreWrites rejects disconnect on non-nullable FK", async () => {
@@ -426,7 +426,7 @@ describe("relation connect uses the target scalar PK tsName", () => {
 			runCreate,
 		);
 
-		expect(scalarData["accountId"]).toBe("acct_1");
+		expect(scalarData.accountId).toBe("acct_1");
 	});
 
 	it("rejects connect that uses id when the target PK is not id", async () => {

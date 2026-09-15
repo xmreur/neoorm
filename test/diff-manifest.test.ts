@@ -13,7 +13,7 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../src/dialect/types.js";
-import { manifestTable, manifestTableFromRecord } from "./helpers/manifest.js";
+import { manifestTableFromRecord } from "./helpers/manifest.js";
 
 function col(
 	tsName: string,

@@ -60,7 +60,7 @@ type ManyToManyInverseOf<T extends InlineManyToManyOptions> = T extends {
  */
 export function many<
 	const TTarget extends string,
-	const TOptions extends InlineManyToManyOptions = {},
+	const TOptions extends InlineManyToManyOptions = InlineManyToManyOptions,
 >(
 	target: TTarget,
 	options?: TOptions,

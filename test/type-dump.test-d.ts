@@ -1,11 +1,7 @@
 import type { schema } from "../examples/blog/schema.js";
-import type {
-	OutgoingFkRelations,
-	RelationCreateMap,
-} from "../src/schema/relation-types.js";
+import type { RelationCreateMap } from "../src/schema/relation-types.js";
 
 type Schema = typeof schema._tables;
-type Outgoing = OutgoingFkRelations<Schema, Schema["posts"]["_columns"]>;
 type CreateMap = RelationCreateMap<Schema, "posts">;
 
 type _assertAuthorInCreateMap = CreateMap["author"] extends {

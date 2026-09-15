@@ -1,11 +1,4 @@
-import {
-	access,
-	mkdir,
-	mkdtemp,
-	readdir,
-	readFile,
-	rm,
-} from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInit } from "../src/init/scaffold.js";
@@ -55,6 +48,7 @@ describe("neoorm init", () => {
 		expect(config).toContain('schema: "./schema.ts"');
 		expect(config).toContain('out: "./neoorm"');
 		expect(config).toContain('provider: "postgresql"');
+		expect(config).toContain("// generate: { zod: true }");
 
 		const envExample = await readFile(
 			join(tmpDir, ".env.example"),

@@ -92,12 +92,12 @@ describe("column naming strategies", () => {
 		const manifest = schemaToManifest(schema);
 
 		expect(
-			manifest.tables["camelUsers"]?.columns.find(
+			manifest.tables.camelUsers?.columns.find(
 				(c) => c.tsName === "emailAddress",
 			)?.sqlName,
 		).toBe("emailAddress");
 		expect(
-			manifest.tables["snakeUsers"]?.columns.find(
+			manifest.tables.snakeUsers?.columns.find(
 				(c) => c.tsName === "emailAddress",
 			)?.sqlName,
 		).toBe("email_address");

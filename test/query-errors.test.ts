@@ -1,7 +1,7 @@
 import { defineSchema, id, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
-import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
+import { QueryErrorCode } from "../src/runtime/error-codes.js";
 import { formatQueryError, NeoOrmQueryError } from "../src/runtime/errors.js";
 import type { Executor } from "../src/runtime/executor.js";
 import { enrichPgError } from "../src/runtime/pg-error.js";

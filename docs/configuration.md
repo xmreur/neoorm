@@ -30,6 +30,11 @@ CLI commands load `.env` from the project directory before evaluating this file,
 | `datasource.url` | `string` | required | Connection string (PostgreSQL) or database file path / `:memory:` (SQLite) |
 | `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite: not applicable) |
 | `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
+| `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
+
+### Zod emit
+
+Set `generate.zod` to write `out/zod.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` in the app (`^4`). If it is missing, generate still writes the file and warns. Other validators are not configurable; codegen uses a library-agnostic IR with Zod as the first printer. See [Zod schemas](zod.md).
 
 ### SQLite
 

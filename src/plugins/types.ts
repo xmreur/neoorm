@@ -1,3 +1,4 @@
+import type { ValidationType } from "../codegen/validation/types.js";
 import type { Dialect, ManifestColumn } from "../dialect/types.js";
 import type { ColumnBuilder, ColumnMeta } from "../schema/column.js";
 
@@ -22,6 +23,8 @@ export type ColumnTypePlugin = {
 	createBuilder(options?: Record<string, unknown>): ColumnBuilder<unknown>;
 	columnType(col: ManifestColumn): string;
 	columnTsType(col: ManifestColumn): string;
+	/** Validator-neutral type for generated Select/Create/Update schemas. */
+	columnValidation?(col: ManifestColumn): ValidationType;
 	formatDefault?(
 		col: ManifestColumn,
 		value: unknown,

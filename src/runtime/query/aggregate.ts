@@ -1,6 +1,4 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { compileError } from "../compile-error.js";
-import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
@@ -28,18 +26,18 @@ export function parseAggregateRow(
 	const result: Record<string, unknown> = {};
 
 	if (selectors._count === true) {
-		result["_count"] = row["__count"] ?? 0;
+		result._count = row.__count ?? 0;
 	} else if (selectors._count) {
 		const bucket: Record<string, number> = {};
 		for (const key of Object.keys(selectors._count)) {
 			if (key === "_all") {
-				bucket._all = (row["__count_all"] as number | undefined) ?? 0;
+				bucket._all = (row.__count_all as number | undefined) ?? 0;
 			} else {
 				bucket[key] =
 					(row[`__count_${key}`] as number | undefined) ?? 0;
 			}
 		}
-		result["_count"] = bucket;
+		result._count = bucket;
 	}
 
 	for (const key of ["_avg", "_sum", "_min", "_max"] as const) {

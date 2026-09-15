@@ -11,6 +11,7 @@ import {
 	getOrSetSqlCache,
 	relationByName,
 } from "../src/runtime/query/table-index.js";
+import { defined, manifestTable } from "./helpers/manifest.js";
 
 const schema = defineSchema({
 	users: table({
@@ -27,15 +28,15 @@ const schema = defineSchema({
 describe("table index lookups", () => {
 	const manifest = schemaToManifest(schema);
 	const index = buildManifestIndex(manifest);
-	const usersTable = manifest.tables.users!;
-	const postsTable = manifest.tables.posts!;
-	const usersIndex = index.get("users")!;
+	const usersTable = manifestTable(manifest, "users");
+	const postsTable = manifestTable(manifest, "posts");
+	const usersIndex = defined(index.get("users"), "users table index");
 
 	it("populates columnsBySqlName and effectiveRelationsByName", () => {
 		expect(usersIndex.columnsBySqlName.get("id")?.tsName).toBe("id");
 		expect(usersIndex.effectiveRelationsByName.has("posts")).toBe(true);
 		expect(usersIndex.ownedFkTsNames.has("authorId")).toBe(false);
-		expect(index.get("posts")!.ownedFkTsNames.has("authorId")).toBe(true);
+		expect(index.get("posts")?.ownedFkTsNames.has("authorId")).toBe(true);
 	});
 
 	it("resolves columns and relations via map lookups", () => {
@@ -71,8 +72,8 @@ describe("table index lookups", () => {
 
 	it("caches updatedAt columns and expressions on index", () => {
 		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
-		const postsIndex = blogIndex.get("posts")!;
-		const tagsIndex = blogIndex.get("tags")!;
+		const postsIndex = defined(blogIndex.get("posts"), "posts table index");
+		const tagsIndex = defined(blogIndex.get("tags"), "tags table index");
 
 		expect(postsIndex.updatedAtColumns).toHaveLength(1);
 		expect(postsIndex.updatedAtSetExprs).toEqual(['"updated_at" = NOW()']);
@@ -87,7 +88,7 @@ describe("table index lookups", () => {
 		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
 
 		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
-		const postsIndex = blogIndex.get("posts")!;
+		const postsIndex = defined(blogIndex.get("posts"), "posts table index");
 		expect(postsIndex.needsRowRename).toBe(true);
 		expect(postsIndex.renameColumns.length).toBeGreaterThan(0);
 	});
@@ -109,7 +110,10 @@ describe("table index lookups", () => {
 	});
 
 	it("keeps compiled-query caches bounded under many distinct queries", () => {
-		const tableIndex = buildManifestIndex(manifest).get("users")!;
+		const tableIndex = defined(
+			buildManifestIndex(manifest).get("users"),
+			"users table index",
+		);
 		for (let i = 0; i < 1500; i++) {
 			getOrSetSqlCache(
 				tableIndex.findManySqlBySignature,

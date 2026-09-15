@@ -1,10 +1,4 @@
-import {
-	globSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 function walk(dir) {
@@ -28,7 +22,7 @@ for (const file of files) {
 
 	content = content.replace(
 		/import\s*\{([^}]*)\}\s*from\s*["'](?:\.\.\/src\/schema\/many-to-many|neoorm\/schema)["'];?\n/g,
-		(match, imports) => {
+		(_match, imports) => {
 			const parts = imports
 				.split(",")
 				.map((p) => p.trim())

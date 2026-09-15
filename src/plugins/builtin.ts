@@ -1,3 +1,4 @@
+import type { ValidationType } from "../codegen/validation/types.js";
 import type { ManifestColumn } from "../dialect/types.js";
 import { parseDbJsonValue } from "../runtime/parse-db-json.js";
 import type {
@@ -17,6 +18,11 @@ import {
 	type NumericConstraintMethods,
 	type TextConstraintMethods,
 } from "../schema/column-constraints.js";
+import {
+	createJsonValidationExtras,
+	type JsonColumnBuilder,
+	type JsonValidationMethods,
+} from "../schema/json-column.js";
 import { jsonWhereOperators } from "./json/operators.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
@@ -134,6 +140,9 @@ const idType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string" };
+	},
 };
 
 const textType: ColumnTypePlugin = {
@@ -163,6 +172,9 @@ const textType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string" };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "text" || pgDataType === "character varying";
 	},
@@ -184,6 +196,9 @@ const boolType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "boolean");
+	},
+	columnValidation() {
+		return { kind: "boolean" };
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
@@ -224,6 +239,9 @@ const intType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "number");
 	},
+	columnValidation() {
+		return { kind: "number", int: true };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "integer" || pgDataType === "smallint";
 	},
@@ -253,6 +271,9 @@ const bigintType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "bigint");
 	},
+	columnValidation() {
+		return { kind: "bigint" };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "bigint";
 	},
@@ -280,6 +301,9 @@ const timestampType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "Date");
+	},
+	columnValidation() {
+		return { kind: "date" };
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
@@ -325,6 +349,9 @@ const uuidType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string", format: "uuid" };
+	},
 	introspect(_pgDataType, udtName) {
 		return udtName === "uuid";
 	},
@@ -332,20 +359,37 @@ const uuidType: ColumnTypePlugin = {
 
 const jsonType: ColumnTypePlugin = {
 	kind: "json",
-	createBuilder() {
-		return createColumnBuilder<unknown, ColumnMeta & { kind: "json" }>({
-			kind: "json",
-			nullable: true,
-			unique: false,
-			primary: false,
-			defaultNow: false,
-		});
+	createBuilder(options?: Record<string, unknown>) {
+		const validation = options?.validation as ValidationType | undefined;
+		return createColumnBuilder<
+			unknown,
+			ColumnMeta & { kind: "json" },
+			JsonValidationMethods
+		>(
+			{
+				kind: "json",
+				nullable: true,
+				unique: false,
+				primary: false,
+				defaultNow: false,
+				...(validation !== undefined ? { validation } : {}),
+			},
+			(rebuild, meta) => createJsonValidationExtras(meta, rebuild),
+		);
 	},
 	columnType() {
 		return "JSON";
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "unknown");
+	},
+	columnValidation(col) {
+		return (
+			col.validation ?? {
+				kind: "record",
+				value: { kind: "unknown" },
+			}
+		);
 	},
 	formatDefault: formatJsonDefault,
 	deserializeValue(col, dbValue) {
@@ -359,20 +403,37 @@ const jsonType: ColumnTypePlugin = {
 
 const jsonbType: ColumnTypePlugin = {
 	kind: "jsonb",
-	createBuilder() {
-		return createColumnBuilder<unknown, ColumnMeta & { kind: "jsonb" }>({
-			kind: "jsonb",
-			nullable: true,
-			unique: false,
-			primary: false,
-			defaultNow: false,
-		});
+	createBuilder(options?: Record<string, unknown>) {
+		const validation = options?.validation as ValidationType | undefined;
+		return createColumnBuilder<
+			unknown,
+			ColumnMeta & { kind: "jsonb" },
+			JsonValidationMethods
+		>(
+			{
+				kind: "jsonb",
+				nullable: true,
+				unique: false,
+				primary: false,
+				defaultNow: false,
+				...(validation !== undefined ? { validation } : {}),
+			},
+			(rebuild, meta) => createJsonValidationExtras(meta, rebuild),
+		);
 	},
 	columnType() {
 		return "JSONB";
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "unknown");
+	},
+	columnValidation(col) {
+		return (
+			col.validation ?? {
+				kind: "record",
+				value: { kind: "unknown" },
+			}
+		);
 	},
 	formatDefault: formatJsonDefault,
 	deserializeValue(col, dbValue) {
@@ -416,6 +477,9 @@ const decimalType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "string");
 	},
+	columnValidation() {
+		return { kind: "string" };
+	},
 	introspect(pgDataType) {
 		return pgDataType === "numeric";
 	},
@@ -444,6 +508,9 @@ const serialType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "number");
+	},
+	columnValidation() {
+		return { kind: "number", int: true };
 	},
 };
 
@@ -474,6 +541,19 @@ const enumColumnType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return enumUnionTsType(col);
 	},
+	columnValidation(col) {
+		const values = col.typeOptions?.values as readonly string[] | undefined;
+		const first = values?.[0];
+		if (first === undefined || !values) {
+			return { kind: "string" };
+		}
+		const name = col.typeOptions?.name as string | undefined;
+		return {
+			kind: "enum",
+			values: [first, ...values.slice(1)] as [string, ...string[]],
+			...(typeof name === "string" ? { name } : {}),
+		};
+	},
 };
 
 const byteaType: ColumnTypePlugin = {
@@ -495,6 +575,9 @@ const byteaType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "Buffer");
+	},
+	columnValidation() {
+		return { kind: "instance", tsName: "Buffer" };
 	},
 	serializeValue(_col, value) {
 		if (value instanceof Uint8Array && !(value instanceof Buffer)) {
@@ -535,6 +618,9 @@ const textArrayType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return col.nullable ? "string[] | null" : "string[]";
 	},
+	columnValidation() {
+		return { kind: "array", element: { kind: "string" } };
+	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
 		if (dialect?.name === "sqlite") return JSON.stringify(value);
@@ -569,6 +655,9 @@ const intArrayType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return col.nullable ? "number[] | null" : "number[]";
+	},
+	columnValidation() {
+		return { kind: "array", element: { kind: "number", int: true } };
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
@@ -608,6 +697,9 @@ const citextType: ColumnTypePlugin = {
 	},
 	columnTsType(col) {
 		return scalarTsType(col, "string");
+	},
+	columnValidation() {
+		return { kind: "string" };
 	},
 	introspect(_pgDataType, udtName) {
 		return udtName === "citext";
@@ -704,14 +796,22 @@ export function uuid(options?: UuidOptions): ColumnBuilder<string | null> {
 	) as ColumnBuilder<string | null>;
 }
 
-/** `JSON` column. */
-export function json<T = unknown>(): ColumnBuilder<T | null> {
-	return jsonType.createBuilder() as ColumnBuilder<T | null>;
+/** `JSON` column. Default Zod shape matches `Record<string, unknown>`. */
+export function json<T = Record<string, unknown>>(
+	validation?: ValidationType,
+): JsonColumnBuilder<T | null> {
+	return jsonType.createBuilder(
+		validation !== undefined ? { validation } : undefined,
+	) as JsonColumnBuilder<T | null>;
 }
 
-/** `JSONB` column (PostgreSQL; `JSON` on SQLite). */
-export function jsonb<T = unknown>(): ColumnBuilder<T | null> {
-	return jsonbType.createBuilder() as ColumnBuilder<T | null>;
+/** `JSONB` column (PostgreSQL; `JSON` on SQLite). Default Zod shape matches `Record<string, unknown>`. */
+export function jsonb<T = Record<string, unknown>>(
+	validation?: ValidationType,
+): JsonColumnBuilder<T | null> {
+	return jsonbType.createBuilder(
+		validation !== undefined ? { validation } : undefined,
+	) as JsonColumnBuilder<T | null>;
 }
 
 /** `NUMERIC` column — use string values to avoid float loss. */

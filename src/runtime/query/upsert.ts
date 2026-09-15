@@ -1,6 +1,4 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { compileError } from "../compile-error.js";
-import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
 	buildUpsertQuery,

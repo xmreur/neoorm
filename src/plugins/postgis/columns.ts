@@ -1,3 +1,7 @@
+import type {
+	ValidationField,
+	ValidationType,
+} from "../../codegen/validation/types.js";
 import type { ManifestColumn } from "../../dialect/types.js";
 import { schemaError } from "../../runtime/error-builders.js";
 import { SchemaErrorCode } from "../../runtime/error-codes.js";
@@ -167,6 +171,58 @@ function spatialWriteExpression(
 	return `ST_SetSRID(ST_GeomFromGeoJSON($${paramIndex}::json), ${srid})`;
 }
 
+const NUMBER_TYPE: ValidationType = { kind: "number" };
+
+function requiredField(name: string, type: ValidationType): ValidationField {
+	return { name, type, nullable: false, optional: false };
+}
+
+function geoJsonPointValidation(): ValidationType {
+	return {
+		kind: "object",
+		fields: [
+			requiredField("type", { kind: "literal", value: "Point" }),
+			requiredField("coordinates", {
+				kind: "union",
+				variants: [
+					{ kind: "tuple", elements: [NUMBER_TYPE, NUMBER_TYPE] },
+					{
+						kind: "tuple",
+						elements: [NUMBER_TYPE, NUMBER_TYPE, NUMBER_TYPE],
+					},
+				],
+			}),
+		],
+	};
+}
+
+function geoJsonPolygonValidation(): ValidationType {
+	return {
+		kind: "object",
+		fields: [
+			requiredField("type", { kind: "literal", value: "Polygon" }),
+			requiredField("coordinates", {
+				kind: "array",
+				element: {
+					kind: "array",
+					element: { kind: "array", element: NUMBER_TYPE },
+				},
+			}),
+		],
+	};
+}
+
+function geoJsonGeometryValidation(): ValidationType {
+	return {
+		kind: "union",
+		variants: [
+			geoJsonPointValidation(),
+			geoJsonPolygonValidation(),
+			{ kind: "unknown" },
+		],
+	};
+}
+
 function createSpatialTypePlugin(
 	kind: "geometry" | "geography" | "point",
 	base: "geometry" | "geography",
@@ -202,6 +258,11 @@ function createSpatialTypePlugin(
 			const tsType =
 				kind === "point" ? "GeoJsonPoint" : "GeoJsonGeometry";
 			return col.nullable ? `${tsType} | null` : tsType;
+		},
+		columnValidation() {
+			return kind === "point"
+				? geoJsonPointValidation()
+				: geoJsonGeometryValidation();
 		},
 		selectExpression: spatialSelectExpression,
 		writeExpression: spatialWriteExpression,

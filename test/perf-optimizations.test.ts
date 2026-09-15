@@ -20,6 +20,7 @@ import {
 	updateManyAndReturnRecords,
 	updateManyRecords,
 } from "../src/runtime/query/update.js";
+import { defined, manifestTable } from "./helpers/manifest.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
 const schema = defineSchema({
@@ -216,12 +217,12 @@ describe("read path optimizations", () => {
 		const rows = await findMany(executor, runtime, "users");
 
 		expect(rows).toHaveLength(1);
-		expect(executor.queries[0]?.sql).toBe(tableIndex!.findAllSql);
+		expect(executor.queries[0]?.sql).toBe(tableIndex?.findAllSql);
 	});
 
 	it("findAll SQL aliases renamed columns to ts names", () => {
 		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
-		const usersIndex = blogIndex.get("users")!;
+		const usersIndex = defined(blogIndex.get("users"), "users table index");
 		expect(usersIndex.findAllSql).toContain('AS "createdAt"');
 		expect(usersIndex.selectUsesColumnAliases).toBe(true);
 	});
@@ -413,7 +414,7 @@ describe("read path optimizations", () => {
 		const row = await findById(executor, runtime, "users", "u1");
 
 		expect(row).toEqual({ id: "u1", name: "Alice" });
-		expect(executor.queries[0]?.sql).toBe(tableIndex!.findByIdSql);
+		expect(executor.queries[0]?.sql).toBe(tableIndex?.findByIdSql);
 	});
 });
 
@@ -421,13 +422,12 @@ describe("SQL template cache", () => {
 	it("insert SQL cache uses canonical column order regardless of key order", () => {
 		const runtime = createRuntime();
 		const tableIndex = runtime.tableIndex?.get("users");
-		const users = runtime.manifest.tables.users;
+		const users = manifestTable(runtime.manifest, "users");
 		expect(tableIndex).toBeDefined();
-		expect(users).toBeDefined();
 
 		const sql = getCachedInsertQuery(
 			tableIndex,
-			users!,
+			users,
 			["name", "id"],
 			"pk",
 			runtime.tableIndex,
@@ -436,7 +436,7 @@ describe("SQL template cache", () => {
 
 		const sqlAgain = getCachedInsertQuery(
 			tableIndex,
-			users!,
+			users,
 			["id", "name"],
 			"pk",
 			runtime.tableIndex,
@@ -446,7 +446,7 @@ describe("SQL template cache", () => {
 
 	it("where clause cache returns same result for identical filters", () => {
 		const runtime = createRuntime();
-		const users = runtime.manifest.tables.users!;
+		const users = manifestTable(runtime.manifest, "users");
 		const manifestIndex = runtime.tableIndex;
 		if (!manifestIndex) {
 			throw new Error("expected table index");

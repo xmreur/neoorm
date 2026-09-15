@@ -18,6 +18,8 @@ export type CoreColumnKind =
 export type ColumnKind = CoreColumnKind | (string & {});
 
 /** Runtime metadata attached to a column builder. */
+import type { ValidationType } from "../codegen/validation/types.js";
+
 export type ColumnMeta = {
 	kind: ColumnKind;
 	nullable: boolean;
@@ -36,6 +38,12 @@ export type ColumnMeta = {
 	checkMinLength?: number | undefined;
 	checkMaxLength?: number | undefined;
 	checkNotEmpty?: boolean | undefined;
+	/** Client-side email format (Zod emit). Not a SQL CHECK. */
+	checkEmail?: boolean | undefined;
+	/** Client-side URL format (Zod emit). Not a SQL CHECK. */
+	checkUrl?: boolean | undefined;
+	/** JSON column validation shape for Zod codegen. Not a SQL CHECK. */
+	validation?: ValidationType | undefined;
 };
 
 type UpdatedAtMeta = { updatedAt: true };
@@ -202,6 +210,10 @@ export type TextColumnBuilder<
 	minLength(n: number): TextColumnBuilder<TValue, TMeta>;
 	/** Reject empty strings via CHECK (`char_length > 0`). */
 	notEmpty(): TextColumnBuilder<TValue, TMeta>;
+	/** Require an email address in generated validation schemas (not a SQL CHECK). */
+	email(): TextColumnBuilder<TValue, TMeta>;
+	/** Require a URL in generated validation schemas (not a SQL CHECK). */
+	url(): TextColumnBuilder<TValue, TMeta>;
 };
 
 /** Numeric column builder with min/max/positive constraint helpers. */

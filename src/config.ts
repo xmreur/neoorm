@@ -24,6 +24,10 @@ export type NeoOrmConfig = {
 		/** Enum storage mode for PostgreSQL. @default "check" */
 		enum?: "check" | "union" | "native";
 	};
+	generate?: {
+		/** Emit Zod Select/Create/Update schemas to `out/zod.ts`. @default false */
+		zod?: boolean;
+	};
 };
 
 const SUPPORTED_ENUM_MODES = ["check", "union", "native"] as const;
@@ -94,6 +98,8 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 		);
 	}
 
+	const generate = parseGenerateOptions(config.generate);
+
 	return {
 		schema,
 		out,
@@ -105,7 +111,32 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 				: {}),
 			...(datasource.enum !== undefined ? { enum: datasource.enum } : {}),
 		},
+		...(generate ? { generate } : {}),
 	};
+}
+
+function parseGenerateOptions(
+	value: unknown,
+): NeoOrmConfig["generate"] | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (!isRecord(value)) {
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			"neoorm.config.ts generate must be an object",
+		);
+	}
+	if (value.zod !== undefined && typeof value.zod !== "boolean") {
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			"neoorm.config.ts generate.zod must be a boolean",
+		);
+	}
+	if (value.zod === undefined) {
+		return undefined;
+	}
+	return { zod: value.zod };
 }
 
 /** Type-safe config object for `neoorm.config.ts`. */

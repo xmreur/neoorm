@@ -157,6 +157,10 @@ export type TextConstraintMethods = {
 		n: number,
 	): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
 	notEmpty(): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
+	/** Require an email address in generated validation schemas (not a SQL CHECK). */
+	email(): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
+	/** Require a URL in generated validation schemas (not a SQL CHECK). */
+	url(): ColumnBuilder<unknown, ColumnMeta> & TextConstraintMethods;
 };
 
 export type NumericConstraintMethods = {
@@ -194,6 +198,14 @@ export function createTextConstraintExtras<TValue, TMeta extends ColumnMeta>(
 		/** Reject empty strings via CHECK (`char_length > 0`). */
 		notEmpty() {
 			return rebuild({ ...meta, checkNotEmpty: true } as TMeta);
+		},
+		/** Require an email address in generated validation schemas. */
+		email() {
+			return rebuild({ ...meta, checkEmail: true } as TMeta);
+		},
+		/** Require a URL in generated validation schemas. */
+		url() {
+			return rebuild({ ...meta, checkUrl: true } as TMeta);
 		},
 	};
 }

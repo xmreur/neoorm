@@ -76,8 +76,8 @@ describe("createManyAndReturn", () => {
 		);
 
 		expect(rows).toHaveLength(2);
-		expect(rows[0]?.["email"]).toBe("a@example.com");
-		expect(rows[1]?.["email"]).toBe("b@example.com");
+		expect(rows[0]?.email).toBe("a@example.com");
+		expect(rows[1]?.email).toBe("b@example.com");
 		expect(executor.queries[0]?.sql).toContain("RETURNING");
 	});
 

@@ -21,7 +21,7 @@ Options:
 
 ## `neoorm generate`
 
-Generate manifest, typed client, models, includes, and migrations from your schema.
+Generate manifest, typed client, models, includes, and migrations from your schema. With `generate.zod` in config, also writes `out/zod.ts` (install `zod` `^4`; generate warns if it is missing).
 
 ```
 neoorm generate [options]

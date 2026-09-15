@@ -18,7 +18,7 @@ import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest
 import { introspectToManifest } from "../src/introspect/to-manifest.js";
 import { dbPush, pushCurrentSchema } from "../src/migrate/runner.js";
 import { pgClient, sqliteClient } from "../src/runtime/driver.js";
-import { manifestTableFromRecord } from "./helpers/manifest.js";
+import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -133,7 +133,7 @@ describe("db push uses schema.ts", () => {
 			),
 		).toBe(false);
 		expect(hashManifest(compiled.manifest)).not.toBe(
-			hashManifest(snapshot!),
+			hashManifest(defined(snapshot, "snapshot")),
 		);
 
 		await rm(workDir, { recursive: true, force: true });

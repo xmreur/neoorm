@@ -9,6 +9,7 @@
 <p>
   <a href="#quick-start"><strong>Quick start</strong></a> ·
   <a href="docs/getting-started.md"><strong>Getting started</strong></a> ·
+  <a href="docs/zod.md"><strong>Zod schemas</strong></a> ·
   <a href="docs/cli.md"><strong>CLI reference</strong></a> ·
   <a href="examples/blog/queries.example.ts"><strong>Example</strong></a>
 </p>
@@ -70,7 +71,7 @@ const posts = await db.posts.findMany({
 <table>
   <tr>
     <td width="50%"><strong>🧩 Schema DSL</strong><br/>Accessor-based tables (`table({…})`), fluent FKs (`fk("users")`), `many("tags")`, `id()`, `timestamps()`, array extras, checks, and partial indexes.</td>
-    <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL.</td>
+    <td width="50%"><strong>📦 Code generation</strong><br/>`neoorm generate` emits a typed client, models with payload types, include types, a manifest, and migration SQL. Set `generate.zod` to also emit Select/Create/Update Zod schemas (`out/zod.ts`).</td>
   </tr>
   <tr>
     <td><strong>🔍 Rich queries</strong><br/>`findMany`, `findById`, `findUnique`, `count`, `aggregate`, `groupBy`. Where operators for strings, numbers, dates, JSONB, and nulls. `AND/OR/NOT` combinators.</td>

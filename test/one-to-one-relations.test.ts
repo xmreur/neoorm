@@ -107,7 +107,7 @@ describe("one-to-one relations", () => {
 			profile: true,
 		});
 
-		expect(rowAt(parentRows, 0)["profile"]).toEqual({
+		expect(rowAt(parentRows, 0).profile).toEqual({
 			id: "profile_1",
 			userId: "user_1",
 			bio: "hello",
@@ -138,7 +138,7 @@ describe("one-to-one relations", () => {
 			profile: true,
 		});
 
-		expect(rowAt(parentRows, 0)["profile"]).toBeNull();
+		expect(rowAt(parentRows, 0).profile).toBeNull();
 	});
 
 	it("create emits an inverse one-to-one child create with the FK set to the parent id", async () => {

@@ -121,4 +121,20 @@ describe("PostGIS spatial SQL types", () => {
 			subtype: "Point",
 		});
 	});
+
+	it("exposes GeoJSON validation IR from columnValidation", () => {
+		const pointIr = pointType.columnValidation?.(spatialColumn("point"));
+		expect(pointIr?.kind).toBe("object");
+		if (pointIr?.kind !== "object") {
+			return;
+		}
+		expect(pointIr.fields[0]?.type).toEqual({
+			kind: "literal",
+			value: "Point",
+		});
+		const geometryIr = geometryType.columnValidation?.(
+			spatialColumn("geometry"),
+		);
+		expect(geometryIr?.kind).toBe("union");
+	});
 });

@@ -1,4 +1,4 @@
-import type { ColumnDef, TableDef } from "../schema/table.js";
+import type { TableDef } from "../schema/table.js";
 import type {
 	AggregateArgs,
 	CountArgs,
@@ -9,7 +9,6 @@ import type {
 	DeleteManyAndReturnArgs,
 	DeleteManyArgs,
 	ExistsArgs,
-	FindFirstArgs,
 	FindManyArgs,
 	FindOrCreateArgs,
 	FindOrCreateResult,

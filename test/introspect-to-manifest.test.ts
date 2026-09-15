@@ -5,7 +5,6 @@ import {
 	resolvePgColumnKind,
 } from "../src/introspect/to-manifest.js";
 import { pgClient } from "../src/runtime/driver.js";
-import { manifestTable } from "./helpers/manifest.js";
 
 type QueryCall = {
 	sql: string;
@@ -220,8 +219,8 @@ describe("introspectToManifest", () => {
 		const manifest = await introspectToManifest(pgClient(pool), {
 			schema: "tenant_a",
 		});
-		const accounts = manifest.tables["accounts"];
-		const auditLogs = manifest.tables["auditLogs"];
+		const accounts = manifest.tables.accounts;
+		const auditLogs = manifest.tables.auditLogs;
 
 		expect(accounts?.sqlName).toBe("accounts");
 		expect(auditLogs?.sqlName).toBe("audit_log");
@@ -480,7 +479,7 @@ describe("introspectToManifest constraints", () => {
 		const manifest = await introspectToManifest(
 			pgClient(createConstraintMockPool()),
 		);
-		const postTags = manifest.tables["postTags"];
+		const postTags = manifest.tables.postTags;
 
 		expect(postTags?.primaryKey).toEqual(["post_id", "tag_id"]);
 		expect(

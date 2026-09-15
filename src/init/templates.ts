@@ -23,6 +23,7 @@ export default defineConfig({
     url: ${urlLiteral},
     enum: "check",
   },
+  // generate: { zod: true },
 });
 `;
 }
