@@ -38,11 +38,11 @@ export type ColumnMeta = {
 	checkMinLength?: number | undefined;
 	checkMaxLength?: number | undefined;
 	checkNotEmpty?: boolean | undefined;
-	/** Client-side email format (Zod emit). Not a SQL CHECK. */
+	/** Client-side email format (validation codegen). Not a SQL CHECK. */
 	checkEmail?: boolean | undefined;
-	/** Client-side URL format (Zod emit). Not a SQL CHECK. */
+	/** Client-side URL format (validation codegen). Not a SQL CHECK. */
 	checkUrl?: boolean | undefined;
-	/** JSON column validation shape for Zod codegen. Not a SQL CHECK. */
+	/** JSON column validation shape for validation codegen. Not a SQL CHECK. */
 	validation?: ValidationType | undefined;
 };
 

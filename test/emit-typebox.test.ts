@@ -1,0 +1,380 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import Value from "typebox/value";
+import { describe, expect, it } from "vitest";
+import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { emitTypeboxTs } from "../src/codegen/validation/emit-typebox.js";
+import { validationFromManifest } from "../src/codegen/validation/from-manifest.js";
+import type { ValidationIR } from "../src/codegen/validation/types.js";
+import type { SchemaDef } from "../src/schema/define-schema.js";
+import {
+	bigint,
+	bytea,
+	decimal,
+	defineSchema,
+	enumType,
+	fk,
+	id,
+	int,
+	jsonb,
+	many,
+	table,
+	text,
+	timestamp,
+	timestamps,
+	uuid,
+} from "../src/schema/index.js";
+import type { TableDef } from "../src/schema/table.js";
+
+function emitFromSchema<T extends Record<string, TableDef>>(
+	schema: SchemaDef<T>,
+): string {
+	return emitTypeboxTs(validationFromManifest(schemaToManifest(schema)));
+}
+
+describe("emitTypeboxTs", () => {
+	it("prints select/create/update schemas from IR only", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				users: table({
+					id: uuid().primary(),
+					email: text().notNull(),
+					name: text(),
+					password: text().notNull().hidden(),
+					...timestamps(),
+				}),
+			}),
+		);
+
+		expect(source).toContain('import Type from "typebox";');
+		expect(source).toContain('import Format from "typebox/format";');
+		expect(source).toContain(
+			'if (!Format.Has("uuid")) Format.Set("uuid", Format.IsUuid);',
+		);
+		expect(source).toContain(
+			'if (!Format.Has("email")) Format.Set("email", Format.IsEmail);',
+		);
+		expect(source).toContain(
+			'if (!Format.Has("date-time")) Format.Set("date-time", Format.IsDateTime);',
+		);
+		expect(source).toContain("export const UserSchema = Type.Object({");
+		expect(source).toContain('id: Type.String({ format: "uuid" })');
+		expect(source).toContain('email: Type.String({ format: "email" })');
+		expect(source).toContain(
+			"name: Type.Union([Type.String(), Type.Null()])",
+		);
+		const selectSource = source.slice(
+			source.indexOf("export const UserSchema"),
+			source.indexOf("export const UserCreateSchema"),
+		);
+		expect(selectSource).not.toContain("password");
+		expect(source).toContain("password: Type.String()");
+		expect(source).toContain("password: Type.Optional(Type.String())");
+		expect(source).toContain("createdAt: dateValue");
+		expect(source).toContain("updatedAt: dateValue");
+		expect(source).toContain("Type.Codec(");
+		expect(source).toContain('Type.String({ format: "date-time" })');
+		expect(source).toContain(
+			"export type UserSelect = Type.StaticDecode<typeof UserSchema>;",
+		);
+		expect(source).toContain(
+			"export type UserCreate = Type.StaticDecode<typeof UserCreateSchema>;",
+		);
+		expect(source).toContain(
+			"export type UserUpdate = Type.StaticDecode<typeof UserUpdateSchema>;",
+		);
+		expect(source).toContain(
+			"export const UserCreateSchema = Type.Object({",
+		);
+		expect(source).toContain(
+			"name: Type.Optional(Type.Union([Type.String(), Type.Null()]))",
+		);
+		expect(source).not.toMatch(/UserCreateSchema[\s\S]*\bid: /);
+		expect(source).not.toMatch(/UserCreateSchema[\s\S]*createdAt/);
+		expect(source).not.toMatch(/UserCreateSchema[\s\S]*updatedAt/);
+		expect(source).toContain(
+			"export const UserUpdateSchema = Type.Object({",
+		);
+		expect(source).toContain(
+			'email: Type.Optional(Type.String({ format: "email" }))',
+		);
+		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*createdAt/);
+		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*updatedAt/);
+		expect(source).toContain(
+			"users: { select: UserSchema, create: UserCreateSchema, update: UserUpdateSchema }",
+		);
+	});
+
+	it("emits named enums, uuid FKs, json unknown, and decimal refine", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				users: table({
+					id: uuid().primary(),
+				}),
+				posts: table({
+					id: id(),
+					authorId: fk("users").notNull(),
+					status: enumType(["draft", "published"]).notNull(),
+					metadata: jsonb(),
+					price: decimal().positive(),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			'export const PostStatusSchema = Type.Enum(["draft","published"]);',
+		);
+		expect(source).toContain(
+			"export type PostStatus = Type.StaticDecode<typeof PostStatusSchema>;",
+		);
+		expect(source).toContain("status: PostStatusSchema");
+		expect(source).toContain('authorId: Type.String({ format: "uuid" })');
+		expect(source).toContain(
+			"metadata: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])",
+		);
+		expect(source).toContain(
+			"price: Type.Union([Type.Refine(Type.String(), (value) => Number(value) > 0), Type.Null()])",
+		);
+	});
+
+	it("maps string length, int min, bigint min, and Buffer custom", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				items: table({
+					id: id(),
+					title: text().notNull().minLength(1).maxLength(20),
+					count: int().notNull().min(0).max(10),
+					amount: bigint().notNull().min(0n),
+					blob: bytea(),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			"title: Type.String({ minLength: 1, maxLength: 20 })",
+		);
+		expect(source).toContain(
+			"count: Type.Integer({ minimum: 0, maximum: 10 })",
+		);
+		expect(source).toContain(
+			'amount: Type.BigInt({ minimum: BigInt("0") })',
+		);
+		expect(source).toContain(
+			"const bufferValue = Type.Refine(Type.Unsafe({}), (value) => Buffer.isBuffer(value));",
+		);
+		expect(source).toContain(
+			"blob: Type.Union([bufferValue, Type.Null()])",
+		);
+	});
+
+	it("emits email format for email names, *Email names, and .email()", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				users: table({
+					id: id(),
+					email: text({ maxLength: 255 }).notNull(),
+					contactEmail: text(),
+					handle: text().notNull().email(),
+					title: text().notNull(),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			'email: Type.String({ format: "email", maxLength: 255 })',
+		);
+		expect(source).toContain(
+			'contactEmail: Type.Union([Type.String({ format: "email" }), Type.Null()])',
+		);
+		expect(source).toContain('handle: Type.String({ format: "email" })');
+		expect(source).toContain("title: Type.String()");
+	});
+
+	it("emits url format for url names, *Url names, and .url()", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				users: table({
+					id: id(),
+					url: text().notNull(),
+					avatarUrl: text(),
+					website: text().notNull().url(),
+					title: text().notNull(),
+				}),
+			}),
+		);
+
+		expect(source).toContain('url: Type.String({ format: "url" })');
+		expect(source).toContain(
+			'avatarUrl: Type.Union([Type.String({ format: "url" }), Type.Null()])',
+		);
+		expect(source).toContain('website: Type.String({ format: "url" })');
+		expect(source).toContain("title: Type.String()");
+		expect(source).toContain(
+			'if (!Format.Has("url")) Format.Set("url", Format.IsUrl);',
+		);
+	});
+
+	it("does not inspect ManifestColumn kinds — unknown IR prints Type.Unknown()", () => {
+		const ir: ValidationIR = {
+			enums: [],
+			tables: [
+				{
+					accessor: "widgets",
+					modelName: "Widget",
+					select: [
+						{
+							name: "payload",
+							type: { kind: "unknown" },
+							nullable: false,
+							optional: false,
+						},
+					],
+					create: [
+						{
+							name: "payload",
+							type: { kind: "unknown" },
+							nullable: false,
+							optional: false,
+						},
+					],
+					update: [
+						{
+							name: "payload",
+							type: { kind: "unknown" },
+							nullable: false,
+							optional: true,
+						},
+					],
+				},
+			],
+		};
+		const source = emitTypeboxTs(ir);
+		expect(source).toContain("payload: Type.Unknown()");
+		expect(source).toContain("payload: Type.Optional(Type.Unknown())");
+		expect(source).not.toContain("dateValue");
+		expect(source).not.toContain("typebox/format");
+	});
+
+	it("parses Date instances and ISO strings into Date", async () => {
+		const source = emitFromSchema(
+			defineSchema({
+				events: table({
+					id: uuid().primary(),
+					startsAt: timestamp().notNull(),
+				}),
+			}),
+		);
+		const tmpRoot = join(import.meta.dirname, ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		const dir = await mkdtemp(join(tmpRoot, "typebox-date-"));
+		const file = join(dir, "typebox.ts");
+		try {
+			await writeFile(file, source, "utf-8");
+			const mod = (await import(pathToFileURL(file).href)) as {
+				EventSchema: object;
+			};
+			const fromIso = Value.Decode(mod.EventSchema, {
+				id: "11111111-1111-4111-8111-111111111111",
+				startsAt: "2020-01-01T00:00:00.000Z",
+			}) as { startsAt: Date };
+			expect(fromIso.startsAt).toBeInstanceOf(Date);
+			expect(fromIso.startsAt.toISOString()).toBe(
+				"2020-01-01T00:00:00.000Z",
+			);
+			const instant = new Date("2021-06-15T12:30:00.000Z");
+			const fromDate = Value.Decode(mod.EventSchema, {
+				id: "11111111-1111-4111-8111-111111111111",
+				startsAt: instant,
+			}) as { startsAt: Date };
+			expect(fromDate.startsAt).toBeInstanceOf(Date);
+			expect(fromDate.startsAt.toISOString()).toBe(instant.toISOString());
+			const fromOffset = Value.Decode(mod.EventSchema, {
+				id: "11111111-1111-4111-8111-111111111111",
+				startsAt: "2020-01-01T00:00:00.000+02:00",
+			}) as { startsAt: Date };
+			expect(fromOffset.startsAt).toBeInstanceOf(Date);
+			expect(fromOffset.startsAt.toISOString()).toBe(
+				"2019-12-31T22:00:00.000Z",
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("emits junction LinkCreateSchema and skips empty UpdateSchema", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				posts: table({
+					id: id(),
+					tags: many("tags"),
+				}),
+				tags: table({
+					id: id(),
+					slug: text().notNull(),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			"// Many-to-many junction for posts.tags ↔ tags.posts.",
+		);
+		expect(source).toContain("tags: { connect: [{ id }] }");
+		expect(source).toContain(
+			"export const PostsTagLinkCreateSchema = Type.Object({",
+		);
+		expect(source).toContain("postId: Type.String()");
+		expect(source).toContain("tagId: Type.String()");
+		expect(source).toContain(
+			"export const PostsTagCreateSchema = PostsTagLinkCreateSchema;",
+		);
+		expect(source).toContain(
+			"export type PostsTagLinkCreate = Type.StaticDecode<typeof PostsTagLinkCreateSchema>;",
+		);
+		expect(source).toContain(
+			"export type PostsTagCreate = Type.StaticDecode<typeof PostsTagCreateSchema>;",
+		);
+		expect(source).not.toContain("PostsTagUpdateSchema");
+		expect(source).toContain(
+			"// No scalar updates on junction rows — use nested relation writes on posts.tags",
+		);
+		expect(source).toContain(
+			"posts_tags: { select: PostsTagSchema, create: PostsTagCreateSchema }",
+		);
+		expect(source).not.toMatch(
+			/posts_tags: \{ select: PostsTagSchema, create: PostsTagCreateSchema, update:/,
+		);
+	});
+
+	it("emits junction UpdateSchema when the through table has extra columns", () => {
+		const source = emitFromSchema(
+			defineSchema({
+				posts: table({
+					id: id(),
+					tags: many("tags", { through: "posts_tags" }),
+				}),
+				tags: table({ id: id() }),
+				posts_tags: table({
+					postId: fk("posts").primary(),
+					tagId: fk("tags").primary(),
+					priority: int().notNull().default(0),
+				}),
+			}),
+		);
+
+		expect(source).toContain(
+			"export const PostsTagLinkCreateSchema = Type.Object({",
+		);
+		expect(source).toContain("postId: Type.String()");
+		expect(source).toContain("tagId: Type.String()");
+		expect(source).toContain("priority: Type.Optional(Type.Integer())");
+		expect(source).toContain(
+			"export const PostsTagUpdateSchema = Type.Object({",
+		);
+		expect(source).toContain("priority: Type.Optional(Type.Integer())");
+		expect(source).not.toMatch(/PostsTagUpdateSchema[\s\S]*postId:/);
+		expect(source).toContain(
+			"posts_tags: { select: PostsTagSchema, create: PostsTagCreateSchema, update: PostsTagUpdateSchema }",
+		);
+	});
+});

@@ -148,7 +148,7 @@ export const schema = defineSchema({
 
 ## Column checks
 
-Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not runtime validators by themselves. With [`generate.zod`](zod.md), the same helpers are copied into generated Zod schemas at your API boundary.
+Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not runtime validators by themselves. With [`generate.zod`](zod.md) or [`generate.typebox`](typebox.md), the same helpers are copied into generated validation schemas at your API boundary.
 
 ### Typed constraint helpers
 
@@ -172,7 +172,7 @@ views: int().notNull().min(0)
 price: decimal({ precision: 10, scale: 2 }).notNull().positive()
 ```
 
-`.email()` and `.url()` are validation-only: they do not emit a SQL CHECK. With [`generate.zod`](zod.md), columns named `email` or ending in `Email` (`contactEmail`) become `z.email()`, and columns named `url` or ending in `Url` (`avatarUrl`) become `z.url()`. You can also mark any `text` / `citext` column with `.email()` or `.url()`. Foreign keys follow the **referenced** column (`authorEmail` pointing at a uuid PK stays a uuid).
+`.email()` and `.url()` are validation-only: they do not emit a SQL CHECK. With [`generate.zod`](zod.md) or [`generate.typebox`](typebox.md), columns named `email` or ending in `Email` (`contactEmail`) become email-format strings, and columns named `url` or ending in `Url` (`avatarUrl`) become URL-format strings. You can also mark any `text` / `citext` column with `.email()` or `.url()`. Foreign keys follow the **referenced** column (`authorEmail` pointing at a uuid PK stays a uuid).
 
 `citext` length helpers use CHECK only (no `VARCHAR`). NULL still bypasses CHECK — pair `.notEmpty()` with `.notNull()` to reject empty strings.
 

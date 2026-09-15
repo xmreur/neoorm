@@ -5,7 +5,7 @@ export type JsonValidationMethods = {
 	schema(validation: ValidationType): JsonColumnBuilder<unknown | null>;
 };
 
-/** JSON / JSONB column builder with optional validation IR for Zod codegen. */
+/** JSON / JSONB column builder with optional validation IR for validation codegen. */
 export type JsonColumnBuilder<TValue> = ColumnBuilder<TValue, ColumnMeta> &
 	JsonValidationMethods;
 

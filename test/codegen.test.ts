@@ -2,7 +2,11 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { generateFromSchema, zodPeerWarning } from "../src/codegen/generate.js";
+import {
+	generateFromSchema,
+	typeboxPeerWarning,
+	zodPeerWarning,
+} from "../src/codegen/generate.js";
 import { atIndex } from "./helpers/manifest.js";
 
 describe("codegen", () => {
@@ -128,7 +132,7 @@ describe("codegen", () => {
 		await rm(outDir, { recursive: true, force: true });
 	});
 
-	it("does not write zod.ts by default", async () => {
+	it("does not write zod.ts or typebox.ts by default", async () => {
 		await rm(outDir, { recursive: true, force: true });
 		const schemaPath = join(
 			import.meta.dirname,
@@ -138,11 +142,15 @@ describe("codegen", () => {
 		await expect(
 			readFile(join(outDir, "zod.ts"), "utf-8"),
 		).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(
+			readFile(join(outDir, "typebox.ts"), "utf-8"),
+		).rejects.toMatchObject({ code: "ENOENT" });
 		const clientContent = await readFile(
 			join(outDir, "client.ts"),
 			"utf-8",
 		);
 		expect(clientContent).not.toContain("./zod.js");
+		expect(clientContent).not.toContain("./typebox.js");
 		await rm(outDir, { recursive: true, force: true });
 	});
 
@@ -177,6 +185,71 @@ describe("codegen", () => {
 		).rejects.toMatchObject({ code: "ENOENT" });
 		await rm(outDir, { recursive: true, force: true });
 	});
+
+	it("writes typebox.ts and re-exports it from client when typebox is enabled", async () => {
+		await rm(outDir, { recursive: true, force: true });
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		const { warnings } = await generateFromSchema(schemaPath, outDir, {
+			typebox: true,
+		});
+		const typeboxContent = await readFile(
+			join(outDir, "typebox.ts"),
+			"utf-8",
+		);
+		expect(typeboxContent).toContain('import Type from "typebox";');
+		expect(typeboxContent).toContain("export const UserCreateSchema");
+		expect(typeboxContent).toContain("export type UserSelect");
+		expect(typeboxContent).toContain("export type UserCreate");
+		expect(typeboxContent).toContain(
+			'avatarUrl: Type.Union([Type.String({ format: "url" }), Type.Null()])',
+		);
+		const clientContent = await readFile(
+			join(outDir, "client.ts"),
+			"utf-8",
+		);
+		expect(clientContent).toContain('export * from "./typebox.js"');
+		expect(clientContent).not.toContain("./zod.js");
+		expect(
+			warnings.some((warning) =>
+				warning.includes('"typebox" is not installed'),
+			),
+		).toBe(false);
+		await generateFromSchema(schemaPath, outDir);
+		await expect(
+			readFile(join(outDir, "typebox.ts"), "utf-8"),
+		).rejects.toMatchObject({ code: "ENOENT" });
+		await rm(outDir, { recursive: true, force: true });
+	});
+
+	it("namespaces TypeBox exports when both printers are enabled", async () => {
+		await rm(outDir, { recursive: true, force: true });
+		const schemaPath = join(
+			import.meta.dirname,
+			"../examples/blog/schema.ts",
+		);
+		await generateFromSchema(schemaPath, outDir, {
+			zod: true,
+			typebox: true,
+		});
+		const clientContent = await readFile(
+			join(outDir, "client.ts"),
+			"utf-8",
+		);
+		expect(clientContent).toContain('export * from "./zod.js"');
+		expect(clientContent).toContain(
+			'export * as typebox from "./typebox.js"',
+		);
+		await expect(
+			readFile(join(outDir, "zod.ts"), "utf-8"),
+		).resolves.toContain("export const UserCreateSchema");
+		await expect(
+			readFile(join(outDir, "typebox.ts"), "utf-8"),
+		).resolves.toContain("export const UserCreateSchema");
+		await rm(outDir, { recursive: true, force: true });
+	});
 });
 
 describe("zodPeerWarning", () => {
@@ -189,6 +262,23 @@ describe("zodPeerWarning", () => {
 		try {
 			expect(zodPeerWarning(dir)).toBe(
 				'generate.zod is enabled but "zod" is not installed. Run: bun add zod',
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("typeboxPeerWarning", () => {
+	it("is silent when typebox can be resolved from the project", () => {
+		expect(typeboxPeerWarning(process.cwd())).toBeUndefined();
+	});
+
+	it("warns when typebox cannot be resolved", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "neoorm-no-typebox-"));
+		try {
+			expect(typeboxPeerWarning(dir)).toBe(
+				'generate.typebox is enabled but "typebox" is not installed. Run: bun add typebox',
 			);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

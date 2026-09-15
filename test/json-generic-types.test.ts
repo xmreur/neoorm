@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compileSchemaToManifest } from "../src/codegen/generate.js";
+import { emitTypeboxTs } from "../src/codegen/validation/emit-typebox.js";
 import { emitZodTs } from "../src/codegen/validation/emit-zod.js";
 import { validationFromManifest } from "../src/codegen/validation/from-manifest.js";
 import type { ValidationField } from "../src/codegen/validation/types.js";
@@ -24,7 +25,7 @@ function fieldNamed(fields: ValidationField[], name: string): ValidationField {
 	);
 }
 
-describe("json/jsonb generic type arguments for Zod", () => {
+describe("json/jsonb generic type arguments for validation codegen", () => {
 	it("maps inline object generics to validation object IR", async () => {
 		const tmpRoot = join(import.meta.dirname, ".tmp");
 		await mkdir(tmpRoot, { recursive: true });
@@ -72,6 +73,59 @@ export const schema = defineSchema({
 			const zod = emitZodTs(validationFromManifest(manifest));
 			expect(zod).toContain(
 				"metadata: z.object({ featured: z.boolean(), category: z.string().optional() }).nullable()",
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("maps inline object generics when only typebox is enabled", async () => {
+		const tmpRoot = join(import.meta.dirname, ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		const dir = await mkdtemp(join(tmpRoot, "json-generic-"));
+		const schemaPath = join(dir, "schema.ts");
+		try {
+			await writeFile(
+				schemaPath,
+				`import { defineSchema, id, jsonb, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+  posts: table({
+    id: id(),
+    metadata: jsonb<{ featured: boolean; category?: string }>(),
+  }),
+});
+`,
+				"utf-8",
+			);
+			const { manifest } = await compileSchemaToManifest(schemaPath, {
+				typebox: true,
+			});
+			const posts = manifest.tables.posts;
+			const metadata = posts?.columns.find(
+				(col) => col.tsName === "metadata",
+			);
+			expect(metadata?.validation).toEqual({
+				kind: "object",
+				fields: [
+					{
+						name: "featured",
+						type: { kind: "boolean" },
+						nullable: false,
+						optional: false,
+					},
+					{
+						name: "category",
+						type: { kind: "string" },
+						nullable: false,
+						optional: true,
+					},
+				],
+			});
+
+			const typebox = emitTypeboxTs(validationFromManifest(manifest));
+			expect(typebox).toContain(
+				"metadata: Type.Union([Type.Object({ featured: Type.Boolean(), category: Type.Optional(Type.String()) }), Type.Null()])",
 			);
 		} finally {
 			await rm(dir, { recursive: true, force: true });

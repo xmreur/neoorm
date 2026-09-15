@@ -27,6 +27,8 @@ export type NeoOrmConfig = {
 	generate?: {
 		/** Emit Zod Select/Create/Update schemas to `out/zod.ts`. @default false */
 		zod?: boolean;
+		/** Emit TypeBox Select/Create/Update schemas to `out/typebox.ts`. @default false */
+		typebox?: boolean;
 	};
 };
 
@@ -127,16 +129,31 @@ function parseGenerateOptions(
 			"neoorm.config.ts generate must be an object",
 		);
 	}
-	if (value.zod !== undefined && typeof value.zod !== "boolean") {
-		throw schemaError(
-			SchemaErrorCode.invalid_config,
-			"neoorm.config.ts generate.zod must be a boolean",
-		);
-	}
-	if (value.zod === undefined) {
+	const zod = parseGenerateFlag(value.zod, "zod");
+	const typebox = parseGenerateFlag(value.typebox, "typebox");
+	if (zod === undefined && typebox === undefined) {
 		return undefined;
 	}
-	return { zod: value.zod };
+	return {
+		...(zod !== undefined ? { zod } : {}),
+		...(typebox !== undefined ? { typebox } : {}),
+	};
+}
+
+function parseGenerateFlag(
+	value: unknown,
+	key: "zod" | "typebox",
+): boolean | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (typeof value !== "boolean") {
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			`neoorm.config.ts generate.${key} must be a boolean`,
+		);
+	}
+	return value;
 }
 
 /** Type-safe config object for `neoorm.config.ts`. */

@@ -31,10 +31,11 @@ CLI commands load `.env` from the project directory before evaluating this file,
 | `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite: not applicable) |
 | `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
 | `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
+| `generate.typebox` | `boolean` | `false` | Emit Select/Create/Update TypeBox schemas to `out/typebox.ts`. See [TypeBox schemas](typebox.md). |
 
-### Zod emit
+### Validation emit
 
-Set `generate.zod` to write `out/zod.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` in the app (`^4`). If it is missing, generate still writes the file and warns. Other validators are not configurable; codegen uses a library-agnostic IR with Zod as the first printer. See [Zod schemas](zod.md).
+Set `generate.zod` to write `out/zod.ts` and/or `generate.typebox` to write `out/typebox.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` (`^4`) and/or `typebox` (`^1`) in the app. If a printer is enabled and its peer is missing, generate still writes the file and warns. Codegen uses a library-agnostic IR; Zod and TypeBox are the shipped printers. See [Zod schemas](zod.md) and [TypeBox schemas](typebox.md).
 
 ### SQLite
 
