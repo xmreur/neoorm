@@ -340,7 +340,11 @@ describe("sqlite runtime", () => {
 			),
 		).toEqual(["ts"]);
 		expect(
-			(withTags?.tags?.[0] as Record<string, unknown>)?._parent_id,
+			(
+				(withTags?.tags as { slug: string }[] | undefined)?.[0] as
+					| Record<string, unknown>
+					| undefined
+			)?._parent_id,
 		).toBeUndefined();
 
 		const inverse = (await orm.tags.findById(

@@ -352,6 +352,8 @@ export type AggregateArgs<
 	_max?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
 };
 
+type EmptyAggregateSlice = Record<never, never>;
+
 export type InferAggregateResult<TArgs> = Expand<
 	(TArgs extends { _count: true }
 		? { _count: number }
@@ -363,19 +365,19 @@ export type InferAggregateResult<TArgs> = Expand<
 						[K in keyof C as C[K] extends true ? K : never]: number;
 					};
 				}
-			: Record<string, never>) &
+			: EmptyAggregateSlice) &
 		(TArgs extends { _avg: infer S extends Record<string, true> }
 			? { _avg: InferAggregateBucket<S> }
-			: Record<string, never>) &
+			: EmptyAggregateSlice) &
 		(TArgs extends { _sum: infer S extends Record<string, true> }
 			? { _sum: InferAggregateBucket<S> }
-			: Record<string, never>) &
+			: EmptyAggregateSlice) &
 		(TArgs extends { _min: infer S extends Record<string, true> }
 			? { _min: InferAggregateBucket<S> }
-			: Record<string, never>) &
+			: EmptyAggregateSlice) &
 		(TArgs extends { _max: infer S extends Record<string, true> }
 			? { _max: InferAggregateBucket<S> }
-			: Record<string, never>)
+			: EmptyAggregateSlice)
 >;
 
 export type NumericHaving = Expand<{
