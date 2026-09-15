@@ -51,6 +51,11 @@ function emitType(type: ValidationType): string {
 				: `z.enum(${JSON.stringify(type.values)})`;
 		case "unknown":
 			return "z.unknown()";
+		case "record": {
+			const keyExpr =
+				type.key !== undefined ? emitType(type.key) : "z.string()";
+			return `z.record(${keyExpr}, ${emitType(type.value)})`;
+		}
 		case "array":
 			return `z.array(${emitType(type.element)})`;
 		case "object":
@@ -158,6 +163,7 @@ function applyConstraints(
 		case "date":
 		case "enum":
 		case "unknown":
+		case "record":
 		case "array":
 		case "object":
 		case "union":
@@ -216,6 +222,7 @@ function typeHasDate(type: ValidationType): boolean {
 		case "boolean":
 		case "enum":
 		case "unknown":
+		case "record":
 		case "literal":
 		case "instance":
 			return false;

@@ -1,3 +1,4 @@
+import type { ValidationType } from "../codegen/validation/types.js";
 import type { DatabaseProvider } from "../datasource-provider.js";
 
 export type CoreColumnKind =
@@ -42,6 +43,8 @@ export type ManifestColumn = {
 	checkEmail?: boolean;
 	/** Client-side URL format for validation emit. Ignored by migration diffs. */
 	checkUrl?: boolean;
+	/** JSON column validation shape for codegen. Ignored by migration diffs. */
+	validation?: ValidationType;
 };
 
 export type ManifestEnumType = {

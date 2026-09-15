@@ -1,3 +1,4 @@
+import type { ValidationType } from "../codegen/validation/types.js";
 import type { ManifestColumn } from "../dialect/types.js";
 import { parseDbJsonValue } from "../runtime/parse-db-json.js";
 import type {
@@ -11,6 +12,11 @@ import {
 	createColumnBuilder,
 	createTimestampColumnBuilder,
 } from "../schema/column.js";
+import {
+	createJsonValidationExtras,
+	type JsonColumnBuilder,
+	type JsonValidationMethods,
+} from "../schema/json-column.js";
 import {
 	createNumericConstraintExtras,
 	createTextConstraintExtras,
@@ -353,14 +359,23 @@ const uuidType: ColumnTypePlugin = {
 
 const jsonType: ColumnTypePlugin = {
 	kind: "json",
-	createBuilder() {
-		return createColumnBuilder<unknown, ColumnMeta & { kind: "json" }>({
-			kind: "json",
-			nullable: true,
-			unique: false,
-			primary: false,
-			defaultNow: false,
-		});
+	createBuilder(options?: Record<string, unknown>) {
+		const validation = options?.validation as ValidationType | undefined;
+		return createColumnBuilder<
+			unknown,
+			ColumnMeta & { kind: "json" },
+			JsonValidationMethods
+		>(
+			{
+				kind: "json",
+				nullable: true,
+				unique: false,
+				primary: false,
+				defaultNow: false,
+				...(validation !== undefined ? { validation } : {}),
+			},
+			(rebuild, meta) => createJsonValidationExtras(meta, rebuild),
+		);
 	},
 	columnType() {
 		return "JSON";
@@ -368,8 +383,13 @@ const jsonType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "unknown");
 	},
-	columnValidation() {
-		return { kind: "unknown" };
+	columnValidation(col) {
+		return (
+			col.validation ?? {
+				kind: "record",
+				value: { kind: "unknown" },
+			}
+		);
 	},
 	formatDefault: formatJsonDefault,
 	deserializeValue(col, dbValue) {
@@ -383,14 +403,23 @@ const jsonType: ColumnTypePlugin = {
 
 const jsonbType: ColumnTypePlugin = {
 	kind: "jsonb",
-	createBuilder() {
-		return createColumnBuilder<unknown, ColumnMeta & { kind: "jsonb" }>({
-			kind: "jsonb",
-			nullable: true,
-			unique: false,
-			primary: false,
-			defaultNow: false,
-		});
+	createBuilder(options?: Record<string, unknown>) {
+		const validation = options?.validation as ValidationType | undefined;
+		return createColumnBuilder<
+			unknown,
+			ColumnMeta & { kind: "jsonb" },
+			JsonValidationMethods
+		>(
+			{
+				kind: "jsonb",
+				nullable: true,
+				unique: false,
+				primary: false,
+				defaultNow: false,
+				...(validation !== undefined ? { validation } : {}),
+			},
+			(rebuild, meta) => createJsonValidationExtras(meta, rebuild),
+		);
 	},
 	columnType() {
 		return "JSONB";
@@ -398,8 +427,13 @@ const jsonbType: ColumnTypePlugin = {
 	columnTsType(col) {
 		return scalarTsType(col, "unknown");
 	},
-	columnValidation() {
-		return { kind: "unknown" };
+	columnValidation(col) {
+		return (
+			col.validation ?? {
+				kind: "record",
+				value: { kind: "unknown" },
+			}
+		);
 	},
 	formatDefault: formatJsonDefault,
 	deserializeValue(col, dbValue) {
@@ -762,14 +796,22 @@ export function uuid(options?: UuidOptions): ColumnBuilder<string | null> {
 	) as ColumnBuilder<string | null>;
 }
 
-/** `JSON` column. */
-export function json<T = unknown>(): ColumnBuilder<T | null> {
-	return jsonType.createBuilder() as ColumnBuilder<T | null>;
+/** `JSON` column. Default Zod shape matches `Record<string, unknown>`. */
+export function json<T = Record<string, unknown>>(
+	validation?: ValidationType,
+): JsonColumnBuilder<T | null> {
+	return jsonType.createBuilder(
+		validation !== undefined ? { validation } : undefined,
+	) as JsonColumnBuilder<T | null>;
 }
 
-/** `JSONB` column (PostgreSQL; `JSON` on SQLite). */
-export function jsonb<T = unknown>(): ColumnBuilder<T | null> {
-	return jsonbType.createBuilder() as ColumnBuilder<T | null>;
+/** `JSONB` column (PostgreSQL; `JSON` on SQLite). Default Zod shape matches `Record<string, unknown>`. */
+export function jsonb<T = Record<string, unknown>>(
+	validation?: ValidationType,
+): JsonColumnBuilder<T | null> {
+	return jsonbType.createBuilder(
+		validation !== undefined ? { validation } : undefined,
+	) as JsonColumnBuilder<T | null>;
 }
 
 /** `NUMERIC` column — use string values to avoid float loss. */

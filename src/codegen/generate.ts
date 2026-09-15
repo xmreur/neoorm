@@ -30,6 +30,7 @@ import {
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
 import { emitZodTs } from "./validation/emit-zod.js";
+import { applyJsonGenericTypesFromSchema } from "./validation/json-generic-types.js";
 import { validationFromManifest } from "./validation/from-manifest.js";
 
 function dialectForProvider(provider: DatabaseProvider | undefined): Dialect {
@@ -412,6 +413,9 @@ async function compileSchemaToManifestInner(
 		...(options.url ? { url: options.url } : {}),
 	});
 	const manifest = applySchemaToManifest(schemaManifest, options.schema);
+	if (options.zod === true) {
+		await applyJsonGenericTypesFromSchema(schemaPath, manifest);
+	}
 	const warnings = collectRedundantMapWarnings(schema);
 
 	const errors = validateManifest(manifest);

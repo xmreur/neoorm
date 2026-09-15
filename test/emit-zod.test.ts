@@ -110,7 +110,9 @@ describe("emitZodTs", () => {
 		);
 		expect(source).toContain("status: PostStatusSchema");
 		expect(source).toContain("authorId: z.uuid()");
-		expect(source).toContain("metadata: z.unknown().nullable()");
+		expect(source).toContain(
+			"metadata: z.record(z.string(), z.unknown()).nullable()",
+		);
 		expect(source).toContain(
 			"price: z.string().refine((value) => Number(value) > 0).nullable()",
 		);

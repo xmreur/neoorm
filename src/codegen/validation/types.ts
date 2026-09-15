@@ -15,6 +15,11 @@ export type ValidationType =
 			name?: string;
 	  }
 	| { kind: "unknown" }
+	| {
+			kind: "record";
+			key?: ValidationType;
+			value: ValidationType;
+	  }
 	| { kind: "array"; element: ValidationType }
 	| { kind: "object"; fields: ValidationField[] }
 	| { kind: "union"; variants: ValidationType[] }

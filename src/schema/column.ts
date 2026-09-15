@@ -18,6 +18,8 @@ export type CoreColumnKind =
 export type ColumnKind = CoreColumnKind | (string & {});
 
 /** Runtime metadata attached to a column builder. */
+import type { ValidationType } from "../codegen/validation/types.js";
+
 export type ColumnMeta = {
 	kind: ColumnKind;
 	nullable: boolean;
@@ -40,6 +42,8 @@ export type ColumnMeta = {
 	checkEmail?: boolean | undefined;
 	/** Client-side URL format (Zod emit). Not a SQL CHECK. */
 	checkUrl?: boolean | undefined;
+	/** JSON column validation shape for Zod codegen. Not a SQL CHECK. */
+	validation?: ValidationType | undefined;
 };
 
 type UpdatedAtMeta = { updatedAt: true };

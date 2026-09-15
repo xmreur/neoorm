@@ -81,13 +81,31 @@ Typed schema helpers map into Zod:
 | `.min()` / `.max()` / `.positive()` on int/serial/bigint | matching number/bigint checks |
 | same helpers on `decimal()` | `z.string().refine(...)` |
 | `enumType([...])` | hoisted `z.enum` |
-| `json()` / `jsonb()` | `z.unknown()` |
+| `json()` / `jsonb()` with no type arg | `z.record(z.string(), z.unknown())` |
+| `jsonb<Record<string, unknown>>()` | `z.record(z.string(), z.unknown())` |
+| `jsonb<{ featured: boolean }>()` (inline object type) | `z.object({ featured: z.boolean(), … })` |
+| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`z.object`, nested `z.record`, …); wins over generics |
 | `timestamp()` | `Date` or ISO datetime string → `Date` |
 
-Raw `.check("sql")` is not mapped. `jsonb<MyType>()` generics are erased — extend the field:
+Raw `.check("sql")` is not mapped. With `generate.zod: true`, codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `z.object`, `Record<K,V>` to `z.record`, and primitives to the matching Zod types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
 
 ```ts
-const PostCreateBody = PostCreateSchema.extend({
-  metadata: z.record(z.string(), z.unknown()),
-});
+metadata: jsonb<{ featured: boolean; category?: string }>(),
+// → metadata: z.object({ featured: z.boolean(), category: z.string().optional() }).nullable()
+```
+
+For shapes codegen cannot infer from the generic, use `.schema()`:
+
+```ts
+metadata: jsonb().schema({
+  kind: "object",
+  fields: [
+    {
+      name: "featured",
+      type: { kind: "boolean" },
+      nullable: false,
+      optional: false,
+    },
+  ],
+}),
 ```

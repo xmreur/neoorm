@@ -401,6 +401,9 @@ function copyStructuredConstraints(
 	if (meta.checkUrl === true) {
 		result.checkUrl = true;
 	}
+	if (meta.validation !== undefined) {
+		result.validation = meta.validation;
+	}
 }
 
 function extrasToManifest(

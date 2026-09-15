@@ -119,6 +119,9 @@ function resolveColumnType(
 	col: ManifestColumn,
 	manifest: Manifest,
 ): ValidationType {
+	if (col.validation !== undefined) {
+		return withStringFormat(col, col.validation);
+	}
 	if (col.kind === "fk") {
 		const referenced = findFkReferencedColumn(col, manifest);
 		if (referenced && referenced.kind !== "fk") {
@@ -220,6 +223,16 @@ function rewriteType(
 		case "literal":
 		case "instance":
 			return type;
+		case "record":
+			return {
+				kind: "record",
+				...(type.key !== undefined
+					? {
+							key: rewriteType(type.key, preferredName, intern),
+						}
+					: {}),
+				value: rewriteType(type.value, preferredName, intern),
+			};
 		default: {
 			const _exhaustive: never = type;
 			return _exhaustive;

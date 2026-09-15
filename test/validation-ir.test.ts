@@ -259,10 +259,11 @@ describe("validationFromManifest", () => {
 		expect(fieldNamed(posts.create, "authorId").optional).toBe(false);
 	});
 
-	it("maps json columns to unknown and does not emit relation keys", () => {
+	it("maps json columns to record validation and does not emit relation keys", () => {
 		const posts = tableNamed(ir, "posts");
 		expect(fieldNamed(posts.select, "metadata").type).toEqual({
-			kind: "unknown",
+			kind: "record",
+			value: { kind: "unknown" },
 		});
 		expect(posts.select.some((field) => field.name === "tags")).toBe(false);
 		expect(posts.create.some((field) => field.name === "author")).toBe(
