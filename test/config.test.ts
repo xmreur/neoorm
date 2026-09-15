@@ -307,6 +307,85 @@ export default {
 			},
 		);
 	});
+
+	it("loads generate.typebox when true or false", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { typebox: true },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ typebox: true });
+			},
+		);
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { typebox: false },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ typebox: false });
+			},
+		);
+	});
+
+	it("loads generate.typebox without generate.zod", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { typebox: true },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.generate).toEqual({ typebox: true });
+				expect(config.generate?.zod).toBeUndefined();
+			},
+		);
+	});
+
+	it("rejects invalid generate.typebox values", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: "postgresql://postgres:postgres@localhost:5432/app",
+  },
+  generate: { typebox: "yes" },
+};
+`,
+			async (dir) => {
+				await expect(loadConfig(dir)).rejects.toThrow(
+					"neoorm.config.ts generate.typebox must be a boolean",
+				);
+			},
+		);
+	});
 });
 
 function restoreEnv(key: string, previous: string | undefined): void {

@@ -102,7 +102,7 @@ export function summarizeGenerateOutcome(params: {
 export function formatGenerateSummary(
 	summary: GenerateSummary,
 	outDir: string,
-	options?: { zod?: boolean },
+	options?: { zod?: boolean; typebox?: boolean },
 ): string[] {
 	const lines: string[] = [];
 
@@ -164,6 +164,9 @@ export function formatGenerateSummary(
 
 	if (options?.zod === true) {
 		lines.push(`  Generated Zod schemas at ${outDir}/zod.ts`);
+	}
+	if (options?.typebox === true) {
+		lines.push(`  Generated TypeBox schemas at ${outDir}/typebox.ts`);
 	}
 
 	return lines;

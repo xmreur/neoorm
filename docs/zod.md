@@ -1,6 +1,6 @@
 # Zod schemas
 
-`neoorm generate` can print Select, Create, and Update **scalar** Zod schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; Zod is the printer shipped today. Other libraries are not configurable yet.
+`neoorm generate` can print Select, Create, and Update **scalar** Zod schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; Zod and [TypeBox](typebox.md) are the printers shipped today.
 
 Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
 
@@ -104,7 +104,7 @@ Typed schema helpers map into Zod:
 | `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`z.object`, nested `z.record`, …); wins over generics |
 | `timestamp()` | `Date` or ISO datetime string → `Date` |
 
-Raw `.check("sql")` is not mapped. With `generate.zod: true`, codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `z.object`, `Record<K,V>` to `z.record`, and primitives to the matching Zod types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
+Raw `.check("sql")` is not mapped. With `generate.zod: true` or `generate.typebox: true`, codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `z.object`, `Record<K,V>` to `z.record`, and primitives to the matching Zod types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
 
 ```ts
 metadata: jsonb<{ featured: boolean; category?: string }>(),

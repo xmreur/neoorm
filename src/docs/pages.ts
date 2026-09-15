@@ -13,6 +13,7 @@ const PAGE_ORDER = [
 	"examples",
 	"schema",
 	"zod",
+	"typebox",
 	"queries",
 	"relations",
 	"transactions",

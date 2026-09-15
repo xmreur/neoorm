@@ -48,7 +48,7 @@ users: table({
 
 See the plugin registry source for `ColumnTypePlugin` and `NeoOrmPlugin` interfaces.
 
-Column types may implement `columnValidation(col)` returning a validator-neutral IR node (`{ kind: "string" }`, `{ kind: "enum", values }`, GeoJSON `object` / `union`, and so on). Zod codegen — and later emitters — print that IR. Omit the hook to fall back to `unknown`.
+Column types may implement `columnValidation(col)` returning a validator-neutral IR node (`{ kind: "string" }`, `{ kind: "enum", values }`, GeoJSON `object` / `union`, and so on). Zod and TypeBox codegen print that IR. Omit the hook to fall back to `unknown`.
 
 To type `where` operators, augment `PluginColumnWhereOperators` on `neoorm/schema` with your column kind:
 

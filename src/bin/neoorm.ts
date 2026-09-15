@@ -193,6 +193,7 @@ function generateOptionsFromConfig(
 		...(config.datasource.url ? { url: config.datasource.url } : {}),
 		...(dbSchema ? { schema: dbSchema } : {}),
 		...(config.generate?.zod === true ? { zod: true } : {}),
+		...(config.generate?.typebox === true ? { typebox: true } : {}),
 	};
 }
 
@@ -213,6 +214,7 @@ async function runGenerateCommand(options: {
 
 	for (const line of formatGenerateSummary(summary, outDir, {
 		...(config.generate?.zod === true ? { zod: true } : {}),
+		...(config.generate?.typebox === true ? { typebox: true } : {}),
 	})) {
 		console.log(line);
 	}
@@ -514,6 +516,9 @@ program
 							{
 								...(config.generate?.zod === true
 									? { zod: true }
+									: {}),
+								...(config.generate?.typebox === true
+									? { typebox: true }
 									: {}),
 							},
 						)) {

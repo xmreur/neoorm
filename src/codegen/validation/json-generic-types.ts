@@ -292,7 +292,7 @@ function splitTopLevelGenericArgs(input: string): string[] {
 
 /**
  * Read `json()` / `jsonb()` type arguments from `schema.ts` and attach them to
- * manifest columns for Zod codegen. Explicit `.schema()` validation wins.
+ * manifest columns for validation codegen. Explicit `.schema()` validation wins.
  */
 export async function applyJsonGenericTypesFromSchema(
 	schemaPath: string,
