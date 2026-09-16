@@ -1,6 +1,4 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
-import { compileError } from "../runtime/compile-error.js";
-import { QueryErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import {
@@ -310,11 +308,7 @@ const whereOperators: OperatorMap = {
 	contains: (col, i) => `${col} LIKE $${i}`,
 	startsWith: (col, i) => `${col} LIKE $${i}`,
 	endsWith: (col, i) => `${col} LIKE $${i}`,
-	search: () => {
-		compileError("search is not supported on sqlite", {
-			code: QueryErrorCode.unsupported_operation,
-		});
-	},
+	search: (col, i) => `${col} REGEXP $${i}`,
 	gt: (col, i) => `${col} > $${i}`,
 	gte: (col, i) => `${col} >= $${i}`,
 	lt: (col, i) => `${col} < $${i}`,
@@ -346,11 +340,8 @@ export const sqliteDialect: Dialect = {
 	emitAddForeignKey,
 	whereOperators,
 	ilike: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
-	regex: () => {
-		compileError("search is not supported on sqlite", {
-			code: QueryErrorCode.unsupported_operation,
-		});
-	},
+	regex: (col, i, insensitive) =>
+		insensitive ? `regexp_i($${i}, ${col})` : `${col} REGEXP $${i}`,
 	insertIgnoreModifier: () => "",
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
 	upsertConflictSql: (conflictCols, setClauses) =>

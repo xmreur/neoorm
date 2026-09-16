@@ -502,17 +502,47 @@ describe("sqlite runtime", () => {
 		db.close();
 	});
 
-	it("rejects distinct (DISTINCT ON) for sqlite", async () => {
+	it("emulates DISTINCT ON and matches search with REGEXP", async () => {
 		const { db } = await setup();
 		const orm = makeOrm(manifest, db);
-		await orm.users.create({ data: { email: "a@x", name: "a" } });
+		await orm.users.create({ data: { email: "a@x", name: "same" } });
+		await orm.users.create({ data: { email: "b@x", name: "same" } });
+		await orm.users.create({ data: { email: "c@x", name: "other" } });
 
-		await expect(
-			orm.users.findMany({
-				distinct: ["email"],
-				orderBy: { email: "asc" },
-			}),
-		).rejects.toThrow(/distinct is not supported on SQLite/);
+		const distinct = await orm.users.findMany({
+			distinct: ["name"],
+			orderBy: { name: "asc" },
+		});
+		expect(distinct.map((row) => row.name).sort()).toEqual([
+			"other",
+			"same",
+		]);
+
+		const author = await orm.users.findFirst({
+			where: { email: "a@x" },
+		});
+		await orm.posts.create({
+			data: {
+				title: "NeoORM sqlite",
+				author: { connect: { id: author?.id as number } },
+			},
+		});
+		await orm.posts.create({
+			data: {
+				title: "other",
+				author: { connect: { id: author?.id as number } },
+			},
+		});
+
+		const hits = await orm.posts.findMany({
+			where: { title: { search: "^Neo" } },
+		});
+		expect(hits.map((row) => row.title)).toEqual(["NeoORM sqlite"]);
+
+		const caseInsensitive = await orm.posts.findMany({
+			where: { title: { search: "^neo", mode: "insensitive" } },
+		});
+		expect(caseInsensitive).toHaveLength(1);
 		db.close();
 	});
 
