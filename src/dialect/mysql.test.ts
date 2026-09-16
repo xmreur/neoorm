@@ -143,7 +143,10 @@ describe("mysql dialect", () => {
 			}),
 			posts: table({
 				id: serial().primary(),
-				authorId: fk("users.id").as("author").inverse("posts").notNull(),
+				authorId: fk("users.id")
+					.as("author")
+					.inverse("posts")
+					.notNull(),
 			}),
 		});
 		const manifest = schemaToManifest(schema, undefined, {
