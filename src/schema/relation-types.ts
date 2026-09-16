@@ -2,7 +2,12 @@ import type { ColumnBuilder } from "./column.js";
 import type { ColumnWhereInput, InferColumnValue } from "./column-where.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
 import type { FkBuilder, FkMeta } from "./relation.js";
-import type { ColumnDef, ScalarColumnKeys, TableDef } from "./table.js";
+import type {
+	ColumnDef,
+	ScalarColumnKeys,
+	TableDef,
+	TableExtra,
+} from "./table.js";
 
 type IsPrimary<T> =
 	T extends ColumnBuilder<unknown, infer M>
@@ -64,17 +69,46 @@ export type InferInsertRow<
 };
 
 /** Primary-key reference for relation `connect` writes (`{ id }` when the PK is `id`). */
+export type ExtraPrimaryKeyColumns<TExtras extends readonly TableExtra[]> =
+	Extract<
+		TExtras[number],
+		{ kind: "primaryKey"; columns: readonly string[] }
+	> extends { columns: infer C }
+		? C extends readonly (infer N)[]
+			? [string] extends [N]
+				? never
+				: N
+			: never
+		: never;
+
+export type ConnectPkName<
+	TColumns extends Record<string, ColumnDef>,
+	TExtras extends readonly TableExtra[] = readonly TableExtra[],
+> =
+	| ScalarPkName<TColumns>
+	| (ExtraPrimaryKeyColumns<TExtras> & keyof TColumns & string);
+
 export type ConnectInput<
 	TColumns extends Record<string, ColumnDef>,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
-> = [ScalarPkName<TColumns>] extends [never]
+	TExtras extends readonly TableExtra[] = readonly TableExtra[],
+> = [ConnectPkName<TColumns, TExtras>] extends [never]
 	? { id: string }
 	: {
-			[K in ScalarPkName<TColumns>]: InferColumnValue<
+			[K in ConnectPkName<TColumns, TExtras>]: InferColumnValue<
 				TColumns[K],
 				TSchema
 			>;
 		};
+
+type TableConnectInput<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = ConnectInput<
+	TSchema[TAccessor]["_columns"],
+	TSchema,
+	TSchema[TAccessor]["_extras"]
+>;
 
 export type ConnectOrCreateItem<
 	TColumns extends Record<string, ColumnDef>,
@@ -1166,8 +1200,12 @@ type ToOneRelationWriteForAccessor<
 	TFkColumn extends ColumnDef,
 > = TAccessor extends keyof TSchema & string
 	? {
-			connect?: ConnectInput<TSchema[TAccessor]["_columns"], TSchema>;
+			connect?: TableConnectInput<TSchema, TAccessor>;
 			create?: InferInsertRow<TSchema[TAccessor]["_columns"], TSchema>;
+			connectOrCreate?: ConnectOrCreateItem<
+				TSchema[TAccessor]["_columns"],
+				TSchema
+			>;
 		} & DisconnectWriteForFk<TFkColumn>
 	: never;
 
@@ -1214,17 +1252,10 @@ type M2MRelationWriteForAccessor<
 	TTargetAccessor extends keyof TSchema & string,
 > = TTargetAccessor extends keyof TSchema & string
 	? {
-			connect?: ConnectInput<
-				TSchema[TTargetAccessor]["_columns"],
-				TSchema
-			>[];
-			disconnect?:
-				| true
-				| ConnectInput<TSchema[TTargetAccessor]["_columns"], TSchema>[];
-			delete?:
-				| true
-				| ConnectInput<TSchema[TTargetAccessor]["_columns"], TSchema>[];
-			set?: ConnectInput<TSchema[TTargetAccessor]["_columns"], TSchema>[];
+			connect?: TableConnectInput<TSchema, TTargetAccessor>[];
+			disconnect?: true | TableConnectInput<TSchema, TTargetAccessor>[];
+			delete?: true | TableConnectInput<TSchema, TTargetAccessor>[];
+			set?: TableConnectInput<TSchema, TTargetAccessor>[];
 			connectOrCreate?: ConnectOrCreateItem<
 				TSchema[TTargetAccessor]["_columns"],
 				TSchema

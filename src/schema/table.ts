@@ -96,20 +96,22 @@ export type ColumnNaming = "snakeCase" | "camelCase";
 /** Options for {@link table}. */
 export type TableOptions<
 	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+	TExtras extends readonly TableExtra[] = readonly TableExtra[],
 > = {
 	columnNaming?: ColumnNaming;
-	extras?: (t: ColumnRefs<TColumns>) => readonly TableExtra[];
+	extras?: (t: ColumnRefs<TColumns>) => TExtras;
 };
 
 export type TableDef<
 	TName extends string = string,
 	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
 	TTargetRef extends string = string,
+	TExtras extends readonly TableExtra[] = readonly TableExtra[],
 > = {
 	readonly _tableName: TName;
 	readonly _accessor?: string;
 	readonly _columns: TColumns;
-	readonly _extras: readonly TableExtra[];
+	readonly _extras: TExtras;
 	readonly _targetRef: TTargetRef;
 	readonly _columnNaming?: ColumnNaming;
 };
@@ -150,7 +152,9 @@ export function unique(...columns: readonly string[]): IndexBuilder {
 }
 
 /** Declare a composite primary key (use in table extras). */
-export function primaryKey(...columns: readonly string[]): PrimaryKeyDef {
+export function primaryKey<C extends string>(
+	...columns: readonly C[]
+): { kind: "primaryKey"; columns: readonly C[] } {
 	return { kind: "primaryKey", columns };
 }
 
@@ -201,12 +205,13 @@ function configColumnNaming(
 function buildTableDef<
 	TName extends string,
 	TColumns extends Record<string, ColumnDef>,
+	TExtras extends readonly TableExtra[],
 >(
 	sqlName: TName,
 	columns: TColumns,
-	extras: readonly TableExtra[],
+	extras: TExtras,
 	columnNaming?: ColumnNaming,
-): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
+): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`, TExtras> &
 	TableColumns<TName, TColumns> {
 	const pkColumnName = findPrimaryKeyColumn(columns);
 
@@ -219,7 +224,8 @@ function buildTableDef<
 	} as unknown as TableDef<
 		TName,
 		TColumns,
-		`${TName}.${PkColumnName<TColumns>}`
+		`${TName}.${PkColumnName<TColumns>}`,
+		TExtras
 	> &
 		TableColumns<TName, TColumns>;
 
@@ -228,7 +234,8 @@ function buildTableDef<
 	return Object.assign(def, columns) as TableDef<
 		TName,
 		TColumns,
-		`${TName}.${PkColumnName<TColumns>}`
+		`${TName}.${PkColumnName<TColumns>}`,
+		TExtras
 	> &
 		TableColumns<TName, TColumns>;
 }
@@ -248,23 +255,27 @@ function buildTableDef<
  * }),
  * ```
  */
-export function table<TColumns extends Record<string, ColumnDef>>(
+export function table<
+	TColumns extends Record<string, ColumnDef>,
+	TExtras extends readonly TableExtra[] = readonly [],
+>(
 	columns: TColumns,
 	config?:
-		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])
-		| TableOptions<TColumns>,
-): TableDef<"", TColumns, `.${PkColumnName<TColumns>}`> &
+		| ((t: ColumnRefs<TColumns>) => TExtras)
+		| TableOptions<TColumns, TExtras>,
+): TableDef<"", TColumns, `.${PkColumnName<TColumns>}`, TExtras> &
 	TableColumns<"", TColumns>;
 export function table<
 	TName extends string,
 	TColumns extends Record<string, ColumnDef>,
+	TExtras extends readonly TableExtra[] = readonly [],
 >(
 	sqlName: TName,
 	columns: TColumns,
 	config?:
-		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])
-		| TableOptions<TColumns>,
-): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`> &
+		| ((t: ColumnRefs<TColumns>) => TExtras)
+		| TableOptions<TColumns, TExtras>,
+): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`, TExtras> &
 	TableColumns<TName, TColumns>;
 export function table(
 	first: string | Record<string, ColumnDef>,

@@ -216,13 +216,23 @@ export function findOrCreatePk(
 		where: Record<string, unknown>;
 		create: Record<string, unknown>;
 	},
-): Promise<string> {
+	fkTsName?: string,
+): Promise<unknown> {
 	return findOrCreateRecord(executor, runtime, tableAccessor, {
 		where: item.where,
 		create: item.create,
 	}).then(({ record }) => {
 		const table = runtime.manifest.tables[tableAccessor];
 		if (!table) compileError(`Unknown table: ${tableAccessor}`);
+		if (fkTsName) {
+			const value = record[fkTsName];
+			if (value == null) {
+				compileError(
+					`Missing primary key "${fkTsName}" on table "${tableAccessor}"`,
+				);
+			}
+			return value;
+		}
 		return rowScalarPkValue(record, table);
 	});
 }
