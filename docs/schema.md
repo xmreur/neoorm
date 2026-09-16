@@ -211,7 +211,7 @@ Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`. `unique()` 
 ],
 ```
 
-Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are not usable as `findUnique` / `upsert` targets.
+Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
 
 ## Many-to-many
 

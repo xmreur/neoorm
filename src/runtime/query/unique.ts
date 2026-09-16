@@ -19,6 +19,7 @@ export type UniqueWhereOperation =
 export type UniqueConstraint = {
 	sqlColumns: readonly string[];
 	tsKeys: readonly string[];
+	whereSql?: string;
 };
 
 export type AssertedUniqueWhere = {
@@ -172,8 +173,9 @@ export function resolveUniqueConstraint(
 		}
 	}
 
+	let partial: UniqueConstraint | null = null;
 	for (const index of table.indexes) {
-		if (!index.unique || index.whereSql) continue;
+		if (!index.unique) continue;
 
 		const indexTsNames = index.columns
 			.map(
@@ -182,12 +184,28 @@ export function resolveUniqueConstraint(
 			)
 			.filter((name): name is string => name !== undefined);
 
-		if (matchesKeys(indexTsNames, whereKeyList)) {
-			return { sqlColumns: index.columns, tsKeys: indexTsNames };
-		}
+		if (!matchesKeys(indexTsNames, whereKeyList)) continue;
+
+		const matched: UniqueConstraint = {
+			sqlColumns: index.columns,
+			tsKeys: indexTsNames,
+			...(index.whereSql ? { whereSql: index.whereSql } : {}),
+		};
+		if (!index.whereSql) return matched;
+		partial ??= matched;
 	}
 
-	return null;
+	return partial;
+}
+
+/** AND a partial unique index predicate onto a compiled `WHERE` clause. */
+export function appendUniquePredicate(
+	whereSql: string,
+	predicateSql?: string,
+): string {
+	if (!predicateSql) return whereSql;
+	if (!whereSql) return `WHERE ${predicateSql}`;
+	return `${whereSql} AND (${predicateSql})`;
 }
 
 export function assertUniqueWhere(
@@ -201,7 +219,7 @@ export function assertUniqueWhere(
 	if (!constraint) {
 		throw queryCompileError(
 			uniqueWhereQueryOperation(operation),
-			`${operation} requires a unique \`where\` clause (primary key, @unique column, or composite unique index) for table "${table.accessor}"`,
+			`${operation} requires a unique \`where\` clause (primary key, @unique column, composite unique index, or partial unique index) for table "${table.accessor}"`,
 			{
 				code: QueryErrorCode.unique_where_invalid,
 				tableAccessor: table.accessor,

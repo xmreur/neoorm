@@ -37,7 +37,7 @@ import {
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
 import { getTableIndex, relationByName, requireTable } from "./table-index.js";
-import { assertUniqueWhere } from "./unique.js";
+import { appendUniquePredicate, assertUniqueWhere } from "./unique.js";
 import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
@@ -65,6 +65,7 @@ async function runUpdate(
 		returnUpdated?: boolean;
 		scalarData?: Record<string, unknown>;
 		relationWrites?: ParsedRelationWrite[];
+		uniquePredicateSql?: string;
 	},
 ): Promise<Record<string, unknown> | null> {
 	const dialect = runtime.dialect ?? postgresDialect;
@@ -96,7 +97,7 @@ async function runUpdate(
 		runCreate,
 	);
 
-	const { sql: whereSql, params: whereParams } = compileWhere(
+	const compiledWhere = compileWhere(
 		manifest,
 		table,
 		args.where,
@@ -104,6 +105,11 @@ async function runUpdate(
 		1,
 		runtime.tableIndex,
 	);
+	const whereSql = appendUniquePredicate(
+		compiledWhere.sql,
+		args.uniquePredicateSql,
+	);
+	const whereParams = compiledWhere.params;
 
 	if (!whereSql) {
 		throw queryCompileError("update", "Update requires a where clause", {
@@ -291,7 +297,7 @@ export async function updateRecord(
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
-	const { where } = assertUniqueWhere(
+	const { constraint, where } = assertUniqueWhere(
 		table,
 		args.where,
 		"update",
@@ -313,7 +319,14 @@ export async function updateRecord(
 		split.relationWrites,
 	);
 
-	const runArgs = { ...args, ...split, where };
+	const runArgs = {
+		...args,
+		...split,
+		where,
+		...(constraint.whereSql !== undefined
+			? { uniquePredicateSql: constraint.whereSql }
+			: {}),
+	};
 
 	if (executor.inTransaction || !needsTransaction) {
 		return runUpdate(executor, runtime, tableAccessor, runArgs);

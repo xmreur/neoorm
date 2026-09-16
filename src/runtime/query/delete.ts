@@ -21,7 +21,7 @@ import { mapRowsToTs } from "./map-row.js";
 import { fetchRowsByWhere } from "./mutation-returning.js";
 import { resolvePkWhere } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
-import { assertUniqueWhere } from "./unique.js";
+import { appendUniquePredicate, assertUniqueWhere } from "./unique.js";
 
 export async function deleteRecord(
 	executor: Executor,
@@ -36,14 +36,14 @@ export async function deleteRecord(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "delete");
-	const { where } = assertUniqueWhere(
+	const { constraint, where } = assertUniqueWhere(
 		table,
 		args.where,
 		"delete",
 		getTableIndex(runtime.tableIndex, tableAccessor),
 	);
 
-	const { sql: whereSql, params } = compileWhere(
+	const compiledWhere = compileWhere(
 		manifest,
 		table,
 		where,
@@ -51,6 +51,11 @@ export async function deleteRecord(
 		1,
 		runtime.tableIndex,
 	);
+	const whereSql = appendUniquePredicate(
+		compiledWhere.sql,
+		constraint.whereSql,
+	);
+	const params = compiledWhere.params;
 
 	if (!whereSql) {
 		throw queryCompileError("delete", "Delete requires a where clause", {

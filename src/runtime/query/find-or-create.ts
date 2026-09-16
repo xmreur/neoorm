@@ -33,6 +33,7 @@ export type FindOrCreateArgs = {
 
 function toFindLookupArgs(
 	args: FindOrCreateArgs,
+	andSql?: string,
 ): Parameters<typeof findMany>[3] {
 	return {
 		where: args.where,
@@ -43,6 +44,7 @@ function toFindLookupArgs(
 		...(args.includeHidden !== undefined
 			? { includeHidden: args.includeHidden }
 			: {}),
+		...(andSql !== undefined ? { andSql } : {}),
 	};
 }
 
@@ -107,6 +109,7 @@ export async function findOrCreateRecord(
 			tableAccessor,
 			lookupArgs,
 			createData,
+			constraint.whereSql,
 		);
 	}
 
@@ -125,6 +128,8 @@ export async function findOrCreateRecord(
 		runtime.tableIndex,
 		projection.hasProjection ? projection.sqlColumns : undefined,
 		projection.includeHidden,
+		dialect,
+		constraint.whereSql,
 	);
 
 	const row = await runQueryOne<Record<string, unknown>>(
@@ -155,6 +160,7 @@ async function findOrCreateWithoutReturning(
 	tableAccessor: string,
 	args: FindOrCreateArgs,
 	createData: Record<string, unknown>,
+	andSql?: string,
 ): Promise<FindOrCreateResult> {
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
@@ -163,7 +169,7 @@ async function findOrCreateWithoutReturning(
 		executor,
 		runtime,
 		tableAccessor,
-		toFindLookupArgs(args),
+		toFindLookupArgs(args, andSql),
 	);
 	if (existing.length > 0) {
 		const existingRow = existing[0];
@@ -196,7 +202,7 @@ async function findOrCreateWithoutReturning(
 			executor,
 			runtime,
 			tableAccessor,
-			toFindLookupArgs(args),
+			toFindLookupArgs(args, andSql),
 		);
 		if (retry.length > 0) {
 			const retryRow = retry[0];

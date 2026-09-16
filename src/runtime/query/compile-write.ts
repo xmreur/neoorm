@@ -190,6 +190,7 @@ export function buildUpsertQuery(
 	manifestIndex?: ManifestIndex,
 	dialect: Dialect = postgresDialect,
 	updateOps?: readonly AtomicUpdateOp[],
+	conflictWhereSql?: string,
 ): string {
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
@@ -241,7 +242,7 @@ export function buildUpsertQuery(
 	const returning = dialect.supportsReturning
 		? ` RETURNING ${selectCols}`
 		: "";
-	return `INSERT INTO ${dialect.tableRef(table)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ${dialect.upsertConflictSql(conflictCols, allUpdateSets.join(", "))}${returning}`;
+	return `INSERT INTO ${dialect.tableRef(table)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ${dialect.upsertConflictSql(conflictCols, allUpdateSets.join(", "), conflictWhereSql)}${returning}`;
 }
 
 export const FIND_OR_CREATE_FLAG = "__neoorm_created";
@@ -254,6 +255,7 @@ export function buildFindOrCreateQuery(
 	select?: readonly string[],
 	includeHidden?: boolean,
 	dialect: Dialect = postgresDialect,
+	conflictWhereSql?: string,
 ): string {
 	if (conflictSqlColumns.length === 0) {
 		compileError("findOrCreate requires a unique conflict target");
@@ -289,7 +291,7 @@ export function buildFindOrCreateQuery(
 	// No-op DO UPDATE so RETURNING always yields the conflict row. A follow-up
 	// SELECT (UNION) can miss a concurrent insert under REPEATABLE READ /
 	// SERIALIZABLE. xmax = 0 is the inserted tuple; a locked/updated row is not.
-	return `INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ${dialect.upsertConflictSql(conflictCols, noOpSets.join(", "))} RETURNING ${selectCols}, (xmax = 0) AS ${dialect.quoteIdentifier(FIND_OR_CREATE_FLAG)}`;
+	return `INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ${dialect.upsertConflictSql(conflictCols, noOpSets.join(", "), conflictWhereSql)} RETURNING ${selectCols}, (xmax = 0) AS ${dialect.quoteIdentifier(FIND_OR_CREATE_FLAG)}`;
 }
 
 export type InsertReturning = "full" | "pk" | "none";
