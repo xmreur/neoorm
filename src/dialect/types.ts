@@ -226,7 +226,11 @@ export type Dialect = {
 	/** Prefix between `INSERT` and `INTO`, e.g. `"IGNORE "` on MySQL. */
 	insertIgnoreModifier(): string;
 	onConflictDoNothing(): string;
-	upsertConflictSql(conflictCols: string, setClauses: string): string;
+	upsertConflictSql(
+		conflictCols: string,
+		setClauses: string,
+		conflictWhere?: string,
+	): string;
 	excludedRef(quotedCol: string): string;
 	defaultNowExpression(): string;
 	emitCreateMigrationsTable(tableRef: string): string;

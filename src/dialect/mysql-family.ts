@@ -31,7 +31,11 @@ export type MysqlFamilyDialectOptions = {
 	unsupportedLabel: string;
 	citextCollation: string;
 	dropCheckKind: "check" | "constraint";
-	upsertConflictSql: (conflictCols: string, setClauses: string) => string;
+	upsertConflictSql: (
+		conflictCols: string,
+		setClauses: string,
+		conflictWhere?: string,
+	) => string;
 	excludedRef: (quotedCol: string) => string;
 	search: (col: string, i: number) => string;
 	regex: (col: string, i: number, insensitive: boolean) => string;

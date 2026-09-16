@@ -30,7 +30,7 @@ await db.users.findFirst({
 const user = await db.users.findUnique({ where: { slug: "hello" } });
 ```
 
-Unique `where` (`findUnique`, `upsert`, `findOrCreate`, singular `update`/`delete`) is scalar equality per unique field — `{ email: "a@b.com" }`, not a filter. `{ equals: value }` is accepted and unwrapped to the scalar. Other operators (`contains`, `in`, `mode: "insensitive"`) throw `unique_where_invalid`.
+Unique `where` (`findUnique`, `upsert`, `findOrCreate`, singular `update`/`delete`) is scalar equality per unique field — `{ email: "a@b.com" }`, not a filter. `{ equals: value }` is accepted and unwrapped to the scalar. Other operators (`contains`, `in`, `mode: "insensitive"`) throw `unique_where_invalid`. Partial unique indexes are valid targets: pass the indexed columns; the index `WHERE` is applied automatically so the lookup stays unique.
 
 ## Create
 
@@ -73,7 +73,7 @@ Unknown keys in `data` fail at compile time (`unknown_column`), same as `where`.
 
 ## Update
 
-Singular `update` requires a unique `where` (primary key, `@unique` column, or composite unique index), same as `findUnique`. Use `updateMany` when the filter can match multiple rows.
+Singular `update` requires a unique `where` (primary key, `@unique` column, composite unique index, or partial unique index), same as `findUnique`. Use `updateMany` when the filter can match multiple rows.
 
 ```ts
 // Returns {} on success, null if no row matched

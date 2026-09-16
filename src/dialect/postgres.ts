@@ -615,8 +615,10 @@ export const postgresDialect: Dialect = {
 		insensitive ? `${col} ~* $${i}` : `${col} ~ $${i}`,
 	insertIgnoreModifier: () => "",
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
-	upsertConflictSql: (conflictCols, setClauses) =>
-		`ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`,
+	upsertConflictSql: (conflictCols, setClauses, conflictWhere) =>
+		conflictWhere
+			? `ON CONFLICT (${conflictCols}) WHERE ${conflictWhere} DO UPDATE SET ${setClauses}`
+			: `ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`,
 	excludedRef: (quotedCol) => `excluded.${quotedCol}`,
 	defaultNowExpression,
 	emitCreateMigrationsTable: (ref) =>

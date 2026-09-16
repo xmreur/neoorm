@@ -139,7 +139,7 @@ export async function findUnique(
 	const table = requireTable(manifest, tableAccessor, "select");
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	const { where } = assertUniqueWhere(
+	const { constraint, where } = assertUniqueWhere(
 		table,
 		args.where,
 		"findUnique",
@@ -153,6 +153,9 @@ export async function findUnique(
 		...(args.with !== undefined ? { with: args.with } : {}),
 		...(args.includeHidden !== undefined
 			? { includeHidden: args.includeHidden }
+			: {}),
+		...(constraint.whereSql !== undefined
+			? { andSql: constraint.whereSql }
 			: {}),
 	});
 }

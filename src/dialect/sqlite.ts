@@ -344,8 +344,10 @@ export const sqliteDialect: Dialect = {
 		insensitive ? `regexp_i($${i}, ${col})` : `${col} REGEXP $${i}`,
 	insertIgnoreModifier: () => "",
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
-	upsertConflictSql: (conflictCols, setClauses) =>
-		`ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`,
+	upsertConflictSql: (conflictCols, setClauses, conflictWhere) =>
+		conflictWhere
+			? `ON CONFLICT (${conflictCols}) WHERE ${conflictWhere} DO UPDATE SET ${setClauses}`
+			: `ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`,
 	excludedRef: (quotedCol) => `excluded.${quotedCol}`,
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>

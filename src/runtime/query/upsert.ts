@@ -75,6 +75,7 @@ export async function upsertRecord(
 		runtime.tableIndex,
 		dialect,
 		updateOps,
+		constraint.whereSql,
 	);
 	const upsertParams = [...insertValues, ...updateValues];
 
@@ -101,6 +102,9 @@ export async function upsertRecord(
 			const col = table.columns.find((c) => c.tsName === tsName);
 			return `${dialect.quoteIdentifier(col?.sqlName ?? tsName)} = $${i + 1}`;
 		});
+		if (constraint.whereSql) {
+			whereParts.push(`(${constraint.whereSql})`);
+		}
 		const rows = await fetchRowsByWhere(
 			executor,
 			runtime,

@@ -60,6 +60,7 @@ import {
 	type ManifestIndex,
 	requireTable,
 } from "./table-index.js";
+import { appendUniquePredicate } from "./unique.js";
 
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
@@ -775,6 +776,8 @@ type FindManyArgs = {
 	omit?: readonly string[] | Record<string, boolean | undefined>;
 	with?: Record<string, WithInput>;
 	includeHidden?: boolean;
+	/** Extra AND predicate (partial unique index `WHERE`). */
+	andSql?: string;
 };
 
 type FindByIdArgs = {
@@ -989,7 +992,7 @@ export async function findMany(
 		return [];
 	}
 
-	const whereSql = compiledWhere.sql;
+	const whereSql = appendUniquePredicate(compiledWhere.sql, args?.andSql);
 	const params = compiledWhere.params;
 
 	const hasWith = Boolean(args?.with && Object.keys(args.with).length > 0);
@@ -1080,7 +1083,8 @@ export async function findFirst(
 			return null;
 		}
 
-		const { sql: whereSql, params } = compiledWhere;
+		const { params } = compiledWhere;
+		const whereSql = appendUniquePredicate(compiledWhere.sql, args?.andSql);
 		const distinctOn = normalizeSelectColumns(args?.distinct);
 		validateDistinctOrderBy(distinctOn, args?.orderBy);
 		assertDistinctOnSupported(distinctOn, dialect);
@@ -1153,7 +1157,7 @@ export async function findFirst(
 		table,
 		tableIndex,
 		{ ...args, with: args?.with ?? {}, take: 1 },
-		compiledWhere.sql,
+		appendUniquePredicate(compiledWhere.sql, args?.andSql),
 		compiledWhere.params,
 		{ useHasManyAggregate: false },
 		projection,

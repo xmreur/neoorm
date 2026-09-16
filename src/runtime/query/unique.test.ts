@@ -5,6 +5,7 @@ import { QueryErrorCode } from "../error-codes.js";
 import { QueryCompileError } from "../errors.js";
 import type { Executor } from "../executor.js";
 import { FIND_OR_CREATE_FLAG } from "./compile.js";
+import { findUnique } from "./count.js";
 import { deleteRecord } from "./delete.js";
 import type { QueryRuntime } from "./execute.js";
 import { findOrCreateRecord } from "./find-or-create.js";
@@ -100,7 +101,7 @@ describe("resolveUniqueConstraint", () => {
 		});
 	});
 
-	it("does not treat a partial unique index as a findUnique target", () => {
+	it("matches a partial unique index", () => {
 		const table: ManifestTable = {
 			...postsTable(),
 			columns: postsTable().columns.map((col) =>
@@ -115,7 +116,37 @@ describe("resolveUniqueConstraint", () => {
 				},
 			],
 		};
-		expect(resolveUniqueConstraint(table, { slug: "hello" })).toBeNull();
+		expect(resolveUniqueConstraint(table, { slug: "hello" })).toEqual({
+			sqlColumns: ["slug"],
+			tsKeys: ["slug"],
+			whereSql: '"published" = true',
+		});
+	});
+
+	it("prefers a non-partial unique index over a partial unique on the same columns", () => {
+		const table: ManifestTable = {
+			...postsTable(),
+			columns: postsTable().columns.map((col) =>
+				col.tsName === "slug" ? { ...col, unique: false } : col,
+			),
+			indexes: [
+				{
+					name: "slug_published",
+					columns: ["slug"],
+					unique: true,
+					whereSql: '"published" = true',
+				},
+				{
+					name: "slug_key",
+					columns: ["slug"],
+					unique: true,
+				},
+			],
+		};
+		expect(resolveUniqueConstraint(table, { slug: "hello" })).toEqual({
+			sqlColumns: ["slug"],
+			tsKeys: ["slug"],
+		});
 	});
 
 	it("rejects a non-unique filter", () => {
@@ -192,14 +223,27 @@ describe("assertUniqueWhere", () => {
 function capturingExecutor(): {
 	executor: Executor;
 	params: unknown[];
+	sql: string[];
 } {
-	const captured: { params: unknown[] } = { params: [] };
+	const captured: { params: unknown[]; sql: string[] } = {
+		params: [],
+		sql: [],
+	};
 	const executor: Executor = {
-		query: async () => [],
+		query: async (sql: string, params?: unknown[]) => {
+			captured.sql.push(sql);
+			captured.params.splice(
+				0,
+				captured.params.length,
+				...(params ?? []),
+			);
+			return [];
+		},
 		queryOne: async <T = Record<string, unknown>>(
-			_sql: string,
+			sql: string,
 			params?: unknown[],
 		) => {
+			captured.sql.push(sql);
 			captured.params.splice(
 				0,
 				captured.params.length,
@@ -213,10 +257,13 @@ function capturingExecutor(): {
 				[FIND_OR_CREATE_FLAG]: true,
 			} as T;
 		},
-		execute: async () => ({ rows: [], rowCount: 0 }),
+		execute: async (sql: string) => {
+			captured.sql.push(sql);
+			return { rows: [], rowCount: 0 };
+		},
 		transaction: async (fn) => fn(executor),
 	};
-	return { executor, params: captured.params };
+	return { executor, params: captured.params, sql: captured.sql };
 }
 
 describe("singular update/delete unique where", () => {
@@ -297,5 +344,65 @@ describe("upsert/findOrCreate unique where scalars", () => {
 					Object.hasOwn(value, "equals"),
 			),
 		).toBe(false);
+	});
+});
+
+function partialSlugPostsTable(): ManifestTable {
+	return {
+		...postsTable(),
+		columns: postsTable().columns.map((col) =>
+			col.tsName === "slug" ? { ...col, unique: false } : col,
+		),
+		indexes: [
+			{
+				name: "posts_slug_published_key",
+				columns: ["slug"],
+				unique: true,
+				whereSql: '"published" = true',
+			},
+		],
+	};
+}
+
+function partialSlugPostsRuntime(): QueryRuntime {
+	const manifest = emptyManifest();
+	manifest.tables.posts = partialSlugPostsTable();
+	return {
+		manifest,
+		tableIndex: buildManifestIndex(manifest),
+	};
+}
+
+describe("partial unique index targets", () => {
+	it("findUnique ANDs the index predicate", async () => {
+		const { executor, sql } = capturingExecutor();
+		await findUnique(executor, partialSlugPostsRuntime(), "posts", {
+			where: { slug: "hello" },
+		});
+		expect(sql[0]).toContain('"slug" = $1');
+		expect(sql[0]).toContain('("published" = true)');
+	});
+
+	it("upsert uses ON CONFLICT WHERE the index predicate", async () => {
+		const { executor, sql } = capturingExecutor();
+		await upsertRecord(executor, partialSlugPostsRuntime(), "posts", {
+			where: { slug: "hello" },
+			create: { published: true },
+			update: { published: true },
+		});
+		expect(sql[0]).toContain(
+			'ON CONFLICT ("slug") WHERE "published" = true DO UPDATE SET',
+		);
+	});
+
+	it("findOrCreate uses ON CONFLICT WHERE the index predicate", async () => {
+		const { executor, sql } = capturingExecutor();
+		await findOrCreateRecord(executor, partialSlugPostsRuntime(), "posts", {
+			where: { slug: "hello" },
+			create: { published: true },
+		});
+		expect(sql[0]).toContain(
+			'ON CONFLICT ("slug") WHERE "published" = true DO UPDATE SET',
+		);
 	});
 });
