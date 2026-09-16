@@ -52,6 +52,10 @@ export function mysqlColumnType(
 	if (col.kind === "fk" && manifest) {
 		const targetCol = findFkReferencedColumn(col, manifest);
 		if (targetCol && targetCol !== col) {
+			// Match referenced storage type but never copy AUTO_INCREMENT onto FK columns.
+			if (targetCol.kind === "serial") {
+				return "INT";
+			}
 			return mysqlColumnType(targetCol, manifest);
 		}
 	}

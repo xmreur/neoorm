@@ -5,6 +5,7 @@ import { buildUpsertQuery } from "../runtime/query/compile-write.js";
 import {
 	bool,
 	defineSchema,
+	fk,
 	id,
 	index,
 	int,
@@ -132,6 +133,28 @@ describe("mysql dialect", () => {
 		if (!users) return;
 		const sql = mysqlDialect.emitCreateTable(users, { manifest });
 		expect(sql).toContain("AUTO_INCREMENT PRIMARY KEY");
+	});
+
+	it("does not put AUTO_INCREMENT on foreign keys to serial columns", () => {
+		const schema = defineSchema({
+			users: table({
+				id: serial().primary(),
+				name: text().notNull(),
+			}),
+			posts: table({
+				id: serial().primary(),
+				authorId: fk("users.id").as("author").inverse("posts").notNull(),
+			}),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const posts = manifest.tables.posts;
+		expect(posts).toBeDefined();
+		if (!posts) return;
+		const sql = mysqlDialect.emitCreateTable(posts, { manifest });
+		expect(sql).toMatch(/`author_id` INT NOT NULL/);
+		expect(sql).not.toMatch(/`author_id`[^\n]*AUTO_INCREMENT/);
 	});
 
 	it("compiles IN lists with JSON_TABLE and upsert without RETURNING", () => {
