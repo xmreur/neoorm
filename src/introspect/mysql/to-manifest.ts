@@ -2,6 +2,7 @@ import { quoteMysqlIdentifier } from "../../dialect/mysql.js";
 import type {
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestIndexKey,
 	ManifestTable,
@@ -11,6 +12,7 @@ import {
 	columnTsNameFromSqlName,
 	tableAccessorFromSqlName,
 } from "../../utils/case.js";
+import { groupForeignKeyRows, mapReferentialAction } from "../group-fks.js";
 
 type TableRow = { table_name: string };
 
@@ -33,6 +35,8 @@ type FkRow = {
 	referenced_column_name: string;
 	constraint_name: string;
 	delete_rule: string;
+	update_rule: string;
+	ordinal_position: number;
 };
 
 type IndexRow = {
@@ -50,18 +54,7 @@ type CheckRow = {
 };
 
 function mapDeleteRule(rule: string): string | undefined {
-	switch (rule.toUpperCase()) {
-		case "CASCADE":
-			return "cascade";
-		case "SET NULL":
-			return "set null";
-		case "RESTRICT":
-			return "restrict";
-		case "NO ACTION":
-			return "no action";
-		default:
-			return undefined;
-	}
+	return mapReferentialAction(rule);
 }
 
 function parseEnumValues(columnType: string): string[] | undefined {
@@ -235,7 +228,9 @@ async function introspectMysqlTable(
 			        k.REFERENCED_TABLE_NAME AS referenced_table_name,
 			        k.REFERENCED_COLUMN_NAME AS referenced_column_name,
 			        k.CONSTRAINT_NAME AS constraint_name,
-			        r.DELETE_RULE AS delete_rule
+			        r.DELETE_RULE AS delete_rule,
+			        r.UPDATE_RULE AS update_rule,
+			        k.ORDINAL_POSITION AS ordinal_position
 			 FROM information_schema.KEY_COLUMN_USAGE k
 			 JOIN information_schema.REFERENTIAL_CONSTRAINTS r
 			   ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
@@ -247,7 +242,25 @@ async function introspectMysqlTable(
 			[tableName],
 		)
 	).rows;
-	const fkByColumn = new Map(fks.map((row) => [row.column_name, row]));
+	const groupedFks = groupForeignKeyRows(
+		fks.map((row) => ({
+			constraintName: row.constraint_name,
+			columnName: row.column_name,
+			foreignTable: row.referenced_table_name,
+			foreignColumn: row.referenced_column_name,
+			ordinal: row.ordinal_position,
+			onDelete: mapDeleteRule(row.delete_rule),
+			onUpdate: mapDeleteRule(row.update_rule),
+		})),
+	);
+	const fkByColumn = new Map(
+		groupedFks
+			.filter((fk) => fk.columns.length === 1)
+			.flatMap((fk) => {
+				const col = fk.columns[0];
+				return col ? [[col.columnName, fk] as const] : [];
+			}),
+	);
 
 	const checks = (
 		await client.query<CheckRow>(
@@ -303,10 +316,11 @@ async function introspectMysqlTable(
 			column.defaultValue = defaults.defaultValue;
 		}
 		if (fk) {
-			column.fkTarget = `${fk.referenced_table_name}.${fk.referenced_column_name}`;
-			column.fkConstraintName = fk.constraint_name;
-			const onDelete = mapDeleteRule(fk.delete_rule);
-			if (onDelete) column.onDelete = onDelete;
+			const local = fk.columns[0];
+			column.fkTarget = `${local?.foreignTable}.${local?.foreignColumn}`;
+			column.fkConstraintName = fk.constraintName;
+			if (fk.onDelete) column.onDelete = fk.onDelete;
+			if (fk.onUpdate) column.onUpdate = fk.onUpdate;
 		}
 		if (
 			check &&
@@ -317,6 +331,20 @@ async function introspectMysqlTable(
 		return column;
 	});
 
+	const foreignKeys: ManifestForeignKey[] = groupedFks
+		.filter((fk) => fk.columns.length > 1)
+		.map((fk) => {
+			const manifestFk: ManifestForeignKey = {
+				name: fk.constraintName,
+				columns: fk.columns.map((col) => col.columnName),
+				targetTable: fk.columns[0]?.foreignTable ?? "",
+				targetColumns: fk.columns.map((col) => col.foreignColumn),
+			};
+			if (fk.onDelete) manifestFk.onDelete = fk.onDelete;
+			if (fk.onUpdate) manifestFk.onUpdate = fk.onUpdate;
+			return manifestFk;
+		});
+
 	return {
 		accessor: tableAccessorFromSqlName(tableName),
 		sqlName: tableName,
@@ -324,6 +352,7 @@ async function introspectMysqlTable(
 		relations: [],
 		indexes,
 		primaryKey,
+		...(foreignKeys.length > 0 ? { foreignKeys } : {}),
 	};
 }
 

@@ -1,4 +1,5 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
+import { relationFkPairs } from "../../dialect/fk.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
@@ -114,10 +115,14 @@ export type ManifestIndex = Map<string, TableIndex>;
 function buildOwnedFkTsNames(table: ManifestTable): Set<string> {
 	const owned = new Set<string>();
 	for (const rel of table.relations) {
-		const ownsFk = table.columns.some(
-			(c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
-		);
-		if (ownsFk) owned.add(rel.fkColumn);
+		for (const pair of relationFkPairs(rel)) {
+			const ownsFk = table.columns.some(
+				(c) =>
+					c.tsName === pair.fkColumn ||
+					c.sqlName === pair.fkSqlColumn,
+			);
+			if (ownsFk) owned.add(pair.fkColumn);
+		}
 	}
 	return owned;
 }
@@ -279,9 +284,17 @@ export function tableOwnsFk(
 	table: ManifestTable,
 	rel: ManifestRelation,
 ): boolean {
-	if (tableIndex?.ownedFkTsNames.has(rel.fkColumn)) return true;
-	return table.columns.some(
-		(c) => c.tsName === rel.fkColumn || c.sqlName === rel.fkSqlColumn,
+	const pairs = relationFkPairs(rel);
+	if (
+		tableIndex &&
+		pairs.every((pair) => tableIndex.ownedFkTsNames.has(pair.fkColumn))
+	) {
+		return true;
+	}
+	return pairs.every((pair) =>
+		table.columns.some(
+			(c) => c.tsName === pair.fkColumn || c.sqlName === pair.fkSqlColumn,
+		),
 	);
 }
 

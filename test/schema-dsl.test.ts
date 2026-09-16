@@ -8,9 +8,11 @@ import {
 	defineSchema,
 	expr,
 	fk,
+	foreignKey,
 	id,
 	index,
 	manyToMany,
+	primaryKey,
 	table,
 	text,
 	timestamps,
@@ -306,5 +308,105 @@ describe("schema DSL 0.6", () => {
 		expect(() => schemaToManifest(schema)).toThrow(
 			/UNIQUE indexes cannot use gin/,
 		);
+	});
+
+	it("emits onUpdate, deferrable, and composite foreignKey extras", () => {
+		const schema = defineSchema({
+			users: table(
+				{
+					tenantId: text().notNull(),
+					id: text().notNull(),
+				},
+				(t) => [primaryKey(t.tenantId, t.id)],
+			),
+			orders: table(
+				{
+					id: id(),
+					tenantId: text().notNull(),
+					userId: text().notNull(),
+				},
+				(t) => [
+					foreignKey(t.tenantId, t.userId)
+						.references("users", "tenantId", "id")
+						.as("user")
+						.inverse("orders")
+						.onDelete("cascade")
+						.onUpdate("cascade")
+						.deferrable("deferred"),
+				],
+			),
+		});
+		const posts = defineSchema({
+			users: table({ id: uuid().primary() }),
+			posts: table({
+				id: id(),
+				authorId: fk("users")
+					.notNull()
+					.onDelete("restrict")
+					.onUpdate("cascade")
+					.deferrable("immediate"),
+			}),
+		});
+		const postManifest = schemaToManifest(posts);
+		const postsTable = manifestTable(postManifest, "posts");
+		const author = postsTable.columns.find((c) => c.tsName === "authorId");
+		expect(author?.onUpdate).toBe("cascade");
+		expect(author?.deferrable).toBe("immediate");
+		expect(
+			postgresDialect.emitCreateTable(postsTable, {
+				inlineForeignKeys: true,
+			}),
+		).toContain("ON UPDATE CASCADE");
+		expect(
+			postgresDialect.emitCreateTable(postsTable, {
+				inlineForeignKeys: true,
+			}),
+		).toContain("DEFERRABLE INITIALLY IMMEDIATE");
+
+		const manifest = schemaToManifest(schema);
+		const orders = manifestTable(manifest, "orders");
+		expect(orders.foreignKeys).toEqual([
+			expect.objectContaining({
+				columns: ["tenant_id", "user_id"],
+				targetTable: "users",
+				targetColumns: ["tenant_id", "id"],
+				onDelete: "cascade",
+				onUpdate: "cascade",
+				deferrable: "deferred",
+			}),
+		]);
+		expect(orders.relations).toContainEqual(
+			expect.objectContaining({
+				name: "user",
+				fkColumns: ["tenantId", "userId"],
+				cardinality: "one",
+			}),
+		);
+		const users = manifestTable(manifest, "users");
+		expect(users.relations).toContainEqual(
+			expect.objectContaining({
+				name: "orders",
+				cardinality: "many",
+			}),
+		);
+		const sql = postgresDialect.emitCreateTable(orders, {
+			inlineForeignKeys: true,
+		});
+		expect(sql).toContain(
+			'FOREIGN KEY ("tenant_id", "user_id") REFERENCES "users"("tenant_id", "id") ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED',
+		);
+	});
+
+	it("rejects deferrable FKs on MySQL", () => {
+		const schema = defineSchema({
+			users: table({ id: uuid().primary() }),
+			posts: table({
+				id: id(),
+				authorId: fk("users").deferrable("deferred"),
+			}),
+		});
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "mysql" }),
+		).toThrow(/does not support deferrable foreign keys/);
 	});
 });

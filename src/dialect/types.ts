@@ -27,6 +27,8 @@ export type ManifestColumn = {
 	fkAs?: string;
 	fkInverse?: string;
 	onDelete?: string;
+	onUpdate?: string;
+	deferrable?: string;
 	fkConstraintName?: string;
 	uniqueConstraintName?: string;
 	storageSqlType?: string;
@@ -58,9 +60,25 @@ export type ManifestRelation = {
 	fkColumn: string;
 	fkSqlColumn: string;
 	targetColumn: string;
+	fkColumns?: readonly string[];
+	fkSqlColumns?: readonly string[];
+	targetColumns?: readonly string[];
+	referencedSqlColumns?: readonly string[];
 	cardinality: "one" | "many";
 	inverse: string;
 	onDelete?: string;
+	onUpdate?: string;
+	deferrable?: string;
+};
+
+export type ManifestForeignKey = {
+	name: string;
+	columns: readonly string[];
+	targetTable: string;
+	targetColumns: readonly string[];
+	onDelete?: string;
+	onUpdate?: string;
+	deferrable?: string;
 };
 
 export type ManifestManyToMany = {
@@ -106,6 +124,7 @@ export type ManifestTable = {
 	relations: ManifestRelation[];
 	indexes: ManifestIndex[];
 	primaryKey: readonly string[];
+	foreignKeys?: ManifestForeignKey[];
 };
 
 export type Manifest = {
@@ -157,7 +176,15 @@ export type ColumnAlter = {
 
 export type FkChange = {
 	column: string;
-	add?: { target: string; onDelete?: string; constraintName?: string };
+	columns?: readonly string[];
+	add?: {
+		target: string;
+		targetColumns?: readonly string[];
+		onDelete?: string;
+		onUpdate?: string;
+		deferrable?: string;
+		constraintName?: string;
+	};
 	drop?: string;
 };
 
@@ -231,6 +258,10 @@ export type Dialect = {
 		manifest?: Manifest,
 	): string[];
 	emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string;
+	emitAddTableForeignKey(
+		table: ManifestTable,
+		fk: ManifestForeignKey,
+	): string;
 	whereOperators: OperatorMap;
 	ilike(sqlColumn: string, paramIndex: number): string;
 	regex(sqlColumn: string, paramIndex: number, insensitive: boolean): string;

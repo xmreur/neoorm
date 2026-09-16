@@ -1,7 +1,13 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
-import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
+import {
+	columnFkClause,
+	emitFkChangeAdd,
+	findFkReferencedColumn,
+	parseFkTarget,
+	tableForeignKeyClause,
+} from "./fk.js";
 import {
 	formatIndexKeyList,
 	indexUsingClause,
@@ -15,6 +21,7 @@ import type {
 	Dialect,
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestTable,
 	OperatorMap,
@@ -378,13 +385,15 @@ function emitCreateTable(
 			if (col.kind === "fk" && col.fkTarget) {
 				const { tableSql: targetTable, columnSql: targetCol } =
 					parseFkTarget(col.fkTarget);
-				const onDelete = col.onDelete
-					? ` ON DELETE ${col.onDelete.toUpperCase()}`
-					: "";
 				lines.push(
-					`  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable)}(${q(targetCol)})${onDelete}`,
+					`  ${columnFkClause(q, col, sameSchemaRef(table, targetTable), targetCol)}`,
 				);
 			}
+		}
+		for (const fk of table.foreignKeys ?? []) {
+			lines.push(
+				`  ${tableForeignKeyClause(q, fk, sameSchemaRef(table, fk.targetTable))}`,
+			);
 		}
 	}
 
@@ -436,10 +445,14 @@ function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {
 	const constraintName =
 		col.fkConstraintName ??
 		resolveFkConstraintName(table.sqlName, col.sqlName);
-	const onDelete = col.onDelete
-		? ` ON DELETE ${col.onDelete.toUpperCase()}`
-		: "";
-	return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(constraintName)} FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${sameSchemaRef(table, targetTable)}(${q(targetCol)})${onDelete};`;
+	return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(constraintName)} ${columnFkClause(q, col, sameSchemaRef(table, targetTable), targetCol)};`;
+}
+
+function emitAddTableForeignKey(
+	table: ManifestTable,
+	fk: ManifestForeignKey,
+): string {
+	return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(fk.name)} ${tableForeignKeyClause(q, fk, sameSchemaRef(table, fk.targetTable))};`;
 }
 
 function emitAlterColumn(
@@ -570,22 +583,13 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 	if (diff.fkChanges) {
 		for (const change of diff.fkChanges) {
 			if (change.add) {
-				const col = table.columns.find(
-					(c) => c.sqlName === change.column,
+				const sql = emitFkChangeAdd(
+					table,
+					change,
+					(col) => emitAddForeignKey(table, col),
+					(fk) => emitAddTableForeignKey(table, fk),
 				);
-				if (col?.fkTarget) {
-					const fkCol: ManifestColumn = {
-						...col,
-						fkTarget: change.add.target,
-					};
-					if (change.add.onDelete !== undefined) {
-						fkCol.onDelete = change.add.onDelete;
-					}
-					if (change.add.constraintName !== undefined) {
-						fkCol.fkConstraintName = change.add.constraintName;
-					}
-					stmts.push(emitAddForeignKey(table, fkCol));
-				}
+				if (sql) stmts.push(sql);
 			}
 		}
 	}
@@ -612,6 +616,7 @@ export const postgresDialect: Dialect = {
 	emitAlterTable,
 	emitAlterColumn,
 	emitAddForeignKey,
+	emitAddTableForeignKey,
 	whereOperators,
 	ilike: (col, i) => `${col} ILIKE $${i}`,
 	regex: (col, i, insensitive) =>

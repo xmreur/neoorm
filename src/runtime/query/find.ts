@@ -1,3 +1,4 @@
+import { relationFkPairs } from "../../dialect/fk.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import {
 	dialectDisplayName,
@@ -476,54 +477,108 @@ async function loadOneRelation(
 		relation.cardinality === "one" &&
 		tableOwnsFkColumn(parentTable, relation)
 	) {
-		const fkValues = parentRows
-			.map((r) => r[relation.fkColumn])
-			.filter((v) => v != null);
-
-		if (fkValues.length === 0) return;
-
-		const placeholders = fkValues.map((_, i) => `$${i + 1}`).join(", ");
-		const targetPkCol = dialect.quoteIdentifier(
-			targetRelationPkSql(targetTable, relation),
+		const pairs = relationFkPairs(relation);
+		const parentWithFk = parentRows.filter((row) =>
+			pairs.every((pair) => row[pair.fkColumn] != null),
 		);
+		if (parentWithFk.length === 0) return;
+
 		const selectCols = columnsForSelect(
 			targetTable,
 			withSpec,
 			runtime.tableIndex,
 		);
-		const [targetPkTsName] = primaryKeyTsNames(targetTable);
-		if (!targetPkTsName) {
-			compileError(
-				`No primary key defined for table "${targetTable.accessor}"`,
-			);
-		}
-
-		const { extraWhere, extraParams } = compileBatchedRelationWhere(
-			runtime,
-			targetTable,
-			nestedSpec?.where,
-			fkValues.length,
-		);
-
-		const rows = await runQuery(
-			executor,
-			runtime,
-			{ operation: "select", tableAccessor: targetTable.accessor },
-			`SELECT ${selectCols} FROM ${dialect.tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})${extraWhere}`,
-			[...fkValues, ...extraParams],
-		);
-
 		const targetTableIndex = getTableIndex(
 			runtime.tableIndex,
 			targetTable.accessor,
 		);
-		const mapped = mapRowsToTs(targetTableIndex, targetTable, rows);
-		const byId = new Map(mapped.map((r) => [String(r[targetPkTsName]), r]));
 
+		if (pairs.length === 1) {
+			const fkValues = parentWithFk.map((r) => r[relation.fkColumn]);
+			const placeholders = fkValues.map((_, i) => `$${i + 1}`).join(", ");
+			const targetPkCol = dialect.quoteIdentifier(
+				targetRelationPkSql(targetTable, relation),
+			);
+			const [targetPkTsName] = primaryKeyTsNames(targetTable);
+			if (!targetPkTsName) {
+				compileError(
+					`No primary key defined for table "${targetTable.accessor}"`,
+				);
+			}
+			const { extraWhere, extraParams } = compileBatchedRelationWhere(
+				runtime,
+				targetTable,
+				nestedSpec?.where,
+				fkValues.length,
+			);
+			const rows = await runQuery(
+				executor,
+				runtime,
+				{ operation: "select", tableAccessor: targetTable.accessor },
+				`SELECT ${selectCols} FROM ${dialect.tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})${extraWhere}`,
+				[...fkValues, ...extraParams],
+			);
+			const mapped = mapRowsToTs(targetTableIndex, targetTable, rows);
+			const byId = new Map(
+				mapped.map((r) => [String(r[targetPkTsName]), r]),
+			);
+			for (const parent of parentRows) {
+				const fkVal = parent[relation.fkColumn];
+				parent[relationName] =
+					fkVal != null ? (byId.get(fkVal as string) ?? null) : null;
+			}
+			return;
+		}
+
+		const params: unknown[] = [];
+		const orSql = parentWithFk
+			.map((parent) => {
+				const andSql = pairs.map((pair) => {
+					params.push(parent[pair.fkColumn]);
+					return `${dialect.quoteIdentifier(pair.targetColumn)} = $${params.length}`;
+				});
+				return `(${andSql.join(" AND ")})`;
+			})
+			.join(" OR ");
+		const { extraWhere, extraParams } = compileBatchedRelationWhere(
+			runtime,
+			targetTable,
+			nestedSpec?.where,
+			params.length,
+		);
+		const rows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "select", tableAccessor: targetTable.accessor },
+			`SELECT ${selectCols} FROM ${dialect.tableRef(targetTable)} WHERE (${orSql})${extraWhere}`,
+			[...params, ...extraParams],
+		);
+		const mapped = mapRowsToTs(targetTableIndex, targetTable, rows);
+		const byKey = new Map(
+			mapped.map((row) => [
+				pairs
+					.map((pair) => {
+						const ts =
+							targetTable.columns.find(
+								(col) =>
+									col.sqlName === pair.targetColumn ||
+									col.tsName === pair.targetColumn,
+							)?.tsName ?? pair.targetColumn;
+						return String(row[ts] ?? "");
+					})
+					.join("\0"),
+				row,
+			]),
+		);
 		for (const parent of parentRows) {
-			const fkVal = parent[relation.fkColumn];
-			parent[relationName] =
-				fkVal != null ? (byId.get(fkVal as string) ?? null) : null;
+			const key = pairs
+				.map((pair) => String(parent[pair.fkColumn] ?? ""))
+				.join("\0");
+			parent[relationName] = pairs.every(
+				(pair) => parent[pair.fkColumn] != null,
+			)
+				? (byKey.get(key) ?? null)
+				: null;
 		}
 	} else {
 		const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);

@@ -100,7 +100,9 @@ Fluent modifiers (no options bag):
 |--------|--------|
 | `.as("author")` | override relation name on this table (default: strip `Id` from column name) |
 | `.inverse("articles")` | override relation name on the target table (rare — see defaults below) |
-| `.onDelete("cascade" \| "restrict" \| "set null" \| "no action")` | FK action |
+| `.onDelete("cascade" \| "restrict" \| "set null" \| "no action")` | FK `ON DELETE` |
+| `.onUpdate("cascade" \| "restrict" \| "set null" \| "no action")` | FK `ON UPDATE` |
+| `.deferrable("immediate" \| "deferred")` | `DEFERRABLE` (Postgres and SQLite; rejected on MySQL/MariaDB) |
 | `.notNull()` | `NOT NULL` |
 | `.unique()` | `UNIQUE` — unique FKs infer a **singular** inverse (`profiles.userId` → `users.profile`) |
 | `.primary()` | part of composite PK |
@@ -122,6 +124,39 @@ postTags: table("post_tags", {
 ```
 
 Multiple `.primary()` columns infer a composite key. `primaryKey(t.colA, t.colB)` in extras is optional when you want to name the key without marking every column.
+
+### Composite foreign keys
+
+Use table extras `foreignKey()` when several local columns form one constraint (and one relation). Do not also mark those columns `fk()`.
+
+```ts
+orders: table(
+  {
+    id: id(),
+    tenantId: text().notNull(),
+    userId: text().notNull(),
+  },
+  (t) => [
+    foreignKey(t.tenantId, t.userId)
+      .references("users", "tenantId", "id")
+      .as("user")
+      .inverse("orders")
+      .onDelete("cascade")
+      .onUpdate("cascade"),
+  ],
+),
+```
+
+The target column list must match a primary key or unique index. `.as()` and `.inverse()` are required. Connect still uses the target table's full primary key:
+
+```ts
+await db.orders.create({
+  data: {
+    tenantId: "acme",
+    user: { connect: { tenantId: "acme", id: userId } },
+  },
+});
+```
 
 ### Self-relations
 

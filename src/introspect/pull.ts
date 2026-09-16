@@ -49,6 +49,7 @@ const SCHEMA_IMPORT_ORDER = [
 	"textArray",
 	"intArray",
 	"fk",
+	"foreignKey",
 	"expr",
 	"index",
 	"unique",
@@ -90,7 +91,12 @@ function emitPostgresSchema(manifest: Manifest): string {
 			);
 		}
 
-		const extras = emitTableExtras(table, tsNameBySql, usedBuilders);
+		const extras = emitTableExtras(
+			table,
+			tsNameBySql,
+			usedBuilders,
+			manifest,
+		);
 		blockLines.push(tableClose(columnNaming, extras));
 		tableBlocks.push(blockLines.join("\n"));
 	}
@@ -251,6 +257,12 @@ function emitColumnModifiers(
 	if (col.onDelete && col.onDelete !== "no action") {
 		def += `.onDelete("${escapeTsString(col.onDelete)}")`;
 	}
+	if (col.onUpdate && col.onUpdate !== "no action") {
+		def += `.onUpdate("${escapeTsString(col.onUpdate)}")`;
+	}
+	if (col.deferrable) {
+		def += `.deferrable("${escapeTsString(col.deferrable)}")`;
+	}
 	if (col.defaultNow) {
 		def += ".defaultNow()";
 	} else if (col.defaultValue !== undefined) {
@@ -336,6 +348,7 @@ function emitTableExtras(
 	table: ManifestTable,
 	tsNameBySql: Map<string, string>,
 	usedBuilders?: Set<string>,
+	manifest?: Manifest,
 ): string[] {
 	const extras: string[] = [];
 	for (const index of table.indexes) {
@@ -372,6 +385,43 @@ function emitTableExtras(
 				.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
 				.join(", ")}),`,
 		);
+	}
+	for (const fk of table.foreignKeys ?? []) {
+		usedBuilders?.add("foreignKey");
+		const target = manifest
+			? Object.values(manifest.tables).find(
+					(item) => item.sqlName === fk.targetTable,
+				)
+			: undefined;
+		const localCols = fk.columns
+			.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+			.join(", ");
+		const targetCols = fk.targetColumns
+			.map((sqlName) => {
+				const ts =
+					target?.columns.find((col) => col.sqlName === sqlName)
+						?.tsName ?? sqlName;
+				return `"${escapeTsString(ts)}"`;
+			})
+			.join(", ");
+		const accessor = target?.accessor ?? fk.targetTable;
+		const firstLocal = tsNameBySql.get(fk.columns[0] ?? "") ?? "ref";
+		const asName = inferFkAs(firstLocal);
+		let extra = `foreignKey(${localCols}).references("${escapeTsString(accessor)}", ${targetCols}).as("${escapeTsString(asName)}").inverse("${escapeTsString(table.accessor)}")`;
+		if (fk.onDelete && fk.onDelete !== "no action") {
+			extra += `.onDelete("${escapeTsString(fk.onDelete)}")`;
+		}
+		if (fk.onUpdate && fk.onUpdate !== "no action") {
+			extra += `.onUpdate("${escapeTsString(fk.onUpdate)}")`;
+		}
+		if (fk.deferrable) {
+			extra += `.deferrable("${escapeTsString(fk.deferrable)}")`;
+		}
+		const defaultName = `${table.sqlName}_${fk.columns.join("_")}_fkey`;
+		if (fk.name !== defaultName) {
+			extra += `.map("${escapeTsString(fk.name)}")`;
+		}
+		extras.push(`    ${extra},`);
 	}
 	return extras;
 }
@@ -468,6 +518,12 @@ function sqliteColumnDef(
 		if (col.onDelete) {
 			def += `.onDelete("${col.onDelete}")`;
 		}
+		if (col.onUpdate) {
+			def += `.onUpdate("${col.onUpdate}")`;
+		}
+		if (col.deferrable) {
+			def += `.deferrable("${col.deferrable}")`;
+		}
 		if (col.primary) {
 			def += ".primary()";
 		} else if (!col.nullable) {
@@ -512,7 +568,7 @@ export async function introspectSqlite(
 			lines.push(`    ${sqliteColumnDef(col, table, manifest)}`);
 		}
 
-		const extras = emitTableExtras(table, tsNameBySql);
+		const extras = emitTableExtras(table, tsNameBySql, undefined, manifest);
 
 		if (extras.length > 0) {
 			lines.push(
@@ -540,6 +596,7 @@ ${extras.join("\n")}
 		`  bytea,`,
 		`  serial,`,
 		`  fk,`,
+		`  foreignKey,`,
 		`  index,`,
 		`  unique,`,
 		`  primaryKey,`,

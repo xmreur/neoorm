@@ -2,7 +2,12 @@ import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
 import type { ColumnBuilder, ColumnMeta } from "./column.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
-import type { FkBuilder } from "./relation.js";
+import type {
+	FkBuilder,
+	FkDeferrable,
+	OnDeleteAction,
+	OnUpdateAction,
+} from "./relation.js";
 import { registerTable } from "./table-registry.js";
 
 export type ColumnDef = ColumnBuilder<unknown> | FkBuilder | ManyToManyExtra;
@@ -101,7 +106,69 @@ export type PrimaryKeyDef = {
 	columns: readonly string[];
 };
 
-export type TableExtra = IndexDef | PrimaryKeyDef | IndexBuilder;
+export type ForeignKeyDef<
+	TAs extends string = string,
+	TInverse extends string = string,
+	TTarget extends string = string,
+> = {
+	kind: "foreignKey";
+	columns: readonly string[];
+	targetTable: TTarget;
+	targetColumns: readonly string[];
+	_as: TAs;
+	_inverse: TInverse;
+	_onDelete?: OnDeleteAction;
+	_onUpdate?: OnUpdateAction;
+	_deferrable?: FkDeferrable;
+	constraintName?: string;
+};
+
+export type ForeignKeyBuilder<
+	TAs extends string = string,
+	TInverse extends string = string,
+	TTarget extends string = string,
+> = {
+	readonly kind: "foreignKey";
+	readonly columns: readonly string[];
+	readonly targetTable: TTarget;
+	readonly targetColumns: readonly string[];
+	readonly _as: TAs;
+	readonly _inverse: TInverse;
+	readonly _onDelete?: OnDeleteAction;
+	readonly _onUpdate?: OnUpdateAction;
+	readonly _deferrable?: FkDeferrable;
+	readonly constraintName?: string;
+	/** Target table accessor and referenced column names. */
+	references<TNext extends string>(
+		table: TNext,
+		...targetColumns: readonly string[]
+	): ForeignKeyBuilder<TAs, TInverse, TNext>;
+	/** Relation name on this table. */
+	as<TNext extends string>(
+		name: TNext,
+	): ForeignKeyBuilder<TNext, TInverse, TTarget>;
+	/** Relation name on the target table. */
+	inverse<TNext extends string>(
+		name: TNext,
+	): ForeignKeyBuilder<TAs, TNext, TTarget>;
+	/** `ON DELETE` action for the composite foreign-key constraint. */
+	onDelete(action: OnDeleteAction): ForeignKeyBuilder<TAs, TInverse, TTarget>;
+	/** `ON UPDATE` action for the composite foreign-key constraint. */
+	onUpdate(action: OnUpdateAction): ForeignKeyBuilder<TAs, TInverse, TTarget>;
+	/** Mark the constraint `DEFERRABLE` (Postgres and SQLite). */
+	deferrable(
+		timing?: FkDeferrable,
+	): ForeignKeyBuilder<TAs, TInverse, TTarget>;
+	/** Map to a database constraint name. */
+	map(name: string): ForeignKeyBuilder<TAs, TInverse, TTarget>;
+};
+
+export type TableExtra =
+	| IndexDef
+	| PrimaryKeyDef
+	| IndexBuilder
+	| ForeignKeyDef
+	| ForeignKeyBuilder;
 
 export type ColumnNaming = "snakeCase" | "camelCase";
 
@@ -211,6 +278,74 @@ export function primaryKey<C extends string>(
 	...columns: readonly C[]
 ): { kind: "primaryKey"; columns: readonly C[] } {
 	return { kind: "primaryKey", columns };
+}
+
+function createForeignKeyBuilder<
+	TAs extends string,
+	TInverse extends string,
+	TTarget extends string,
+>(
+	state: ForeignKeyDef<TAs, TInverse, TTarget>,
+): ForeignKeyBuilder<TAs, TInverse, TTarget> {
+	return {
+		kind: "foreignKey",
+		columns: state.columns,
+		targetTable: state.targetTable,
+		targetColumns: state.targetColumns,
+		_as: state._as,
+		_inverse: state._inverse,
+		...(state._onDelete ? { _onDelete: state._onDelete } : {}),
+		...(state._onUpdate ? { _onUpdate: state._onUpdate } : {}),
+		...(state._deferrable ? { _deferrable: state._deferrable } : {}),
+		...(state.constraintName
+			? { constraintName: state.constraintName }
+			: {}),
+		references<TNext extends string>(
+			table: TNext,
+			...targetColumns: readonly string[]
+		) {
+			return createForeignKeyBuilder({
+				...state,
+				targetTable: table,
+				targetColumns,
+			});
+		},
+		as<TNext extends string>(name: TNext) {
+			return createForeignKeyBuilder({ ...state, _as: name });
+		},
+		inverse<TNext extends string>(name: TNext) {
+			return createForeignKeyBuilder({ ...state, _inverse: name });
+		},
+		onDelete(action: OnDeleteAction) {
+			return createForeignKeyBuilder({ ...state, _onDelete: action });
+		},
+		onUpdate(action: OnUpdateAction) {
+			return createForeignKeyBuilder({ ...state, _onUpdate: action });
+		},
+		deferrable(timing: FkDeferrable = "immediate") {
+			return createForeignKeyBuilder({ ...state, _deferrable: timing });
+		},
+		map(name: string) {
+			return createForeignKeyBuilder({ ...state, constraintName: name });
+		},
+	};
+}
+
+/**
+ * Declare a composite foreign-key constraint as a first-class relation
+ * (use in table extras). Local columns must not also be `fk()`.
+ */
+export function foreignKey(
+	...columns: readonly string[]
+): ForeignKeyBuilder<"", "", ""> {
+	return createForeignKeyBuilder({
+		kind: "foreignKey",
+		columns,
+		targetTable: "",
+		targetColumns: [],
+		_as: "",
+		_inverse: "",
+	});
 }
 
 function isColumnMap(value: unknown): value is Record<string, ColumnDef> {

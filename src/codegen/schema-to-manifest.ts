@@ -9,6 +9,7 @@ import { resolveIndexSqlName } from "../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestManyToMany,
 	ManifestRelation,
@@ -44,6 +45,7 @@ import {
 import {
 	type ColumnDef,
 	type ColumnNaming,
+	type ForeignKeyDef,
 	findPrimaryKeyColumn,
 	type IndexKeyInput,
 	type IndexMethod,
@@ -329,6 +331,18 @@ function columnToManifest(
 		if (meta.onDelete !== undefined) {
 			result.onDelete = meta.onDelete;
 		}
+		if (meta.onUpdate !== undefined) {
+			result.onUpdate = meta.onUpdate;
+		}
+		if (meta.deferrable !== undefined) {
+			if (isMysqlFamilyProvider(provider)) {
+				throw schemaError(
+					"invalid_column",
+					`${isMariadbProvider(provider) ? "MariaDB" : "MySQL"} does not support deferrable foreign keys`,
+				);
+			}
+			result.deferrable = meta.deferrable;
+		}
 		if (meta.hidden === true) {
 			result.hidden = true;
 		}
@@ -476,9 +490,14 @@ function extrasToManifest(
 	tableSqlName: string,
 	columnNaming: ColumnNaming,
 	provider?: DatabaseProvider,
-): { indexes: ManifestIndex[]; primaryKey: string[] } {
+): {
+	indexes: ManifestIndex[];
+	primaryKey: string[];
+	compositeFks: ForeignKeyDef[];
+} {
 	const indexes: ManifestIndex[] = [];
 	let primaryKey: string[] = [];
+	const compositeFks: ForeignKeyDef[] = [];
 
 	for (const extra of extras) {
 		if (extra.kind === "index") {
@@ -562,10 +581,146 @@ function extrasToManifest(
 					columnNaming,
 				),
 			);
+		} else if (extra.kind === "foreignKey") {
+			compositeFks.push(extra);
 		}
 	}
 
-	return { indexes, primaryKey };
+	return { indexes, primaryKey, compositeFks };
+}
+
+function rejectMysqlDeferrable(
+	provider: DatabaseProvider | undefined,
+	deferrable: string | undefined,
+): void {
+	if (!deferrable) return;
+	if (isMysqlFamilyProvider(provider)) {
+		throw schemaError(
+			"invalid_column",
+			`${isMariadbProvider(provider) ? "MariaDB" : "MySQL"} does not support deferrable foreign keys`,
+		);
+	}
+}
+
+function resolveCompositeForeignKeys(args: {
+	accessor: string;
+	tableSqlName: string;
+	columns: ManifestColumn[];
+	extras: ForeignKeyDef[];
+	columnNaming: ColumnNaming;
+	localDefs: Record<string, ColumnDef>;
+	schemaTables: Record<string, TableDef>;
+	provider?: DatabaseProvider | undefined;
+}): ManifestForeignKey[] {
+	const result: ManifestForeignKey[] = [];
+	for (const extra of args.extras) {
+		if (!extra._as) {
+			throw schemaError(
+				"invalid_column",
+				`foreignKey() on "${args.accessor}" requires .as("relationName")`,
+			);
+		}
+		if (!extra._inverse) {
+			throw schemaError(
+				"invalid_column",
+				`foreignKey() on "${args.accessor}" requires .inverse("relationName")`,
+			);
+		}
+		if (!extra.targetTable) {
+			throw schemaError(
+				"invalid_column",
+				`foreignKey() on "${args.accessor}" requires .references("table", ...)`,
+			);
+		}
+		if (extra.columns.length < 2) {
+			throw schemaError(
+				"invalid_column",
+				`foreignKey() on "${args.accessor}" needs at least two local columns (use fk() for a single-column relation)`,
+			);
+		}
+		if (extra.columns.length !== extra.targetColumns.length) {
+			throw schemaError(
+				"invalid_column",
+				`foreignKey() on "${args.accessor}" local and referenced column counts must match`,
+			);
+		}
+		rejectMysqlDeferrable(args.provider, extra._deferrable);
+
+		const targetDef = args.schemaTables[extra.targetTable];
+		if (!targetDef) {
+			throw schemaError(
+				"unknown_fk_target",
+				`foreignKey() on "${args.accessor}" references unknown table accessor "${extra.targetTable}"`,
+				{ tableAccessor: args.accessor },
+				suggestSchemaTableAccessor(
+					extra.targetTable,
+					args.schemaTables,
+				),
+			);
+		}
+
+		const localSql: string[] = [];
+		for (const tsName of extra.columns) {
+			const def = requireColumnDef(args.localDefs, tsName, args.accessor);
+			if (isFkBuilder(def)) {
+				throw schemaError(
+					"invalid_column",
+					`foreignKey() column "${tsName}" on "${args.accessor}" must not also be fk()`,
+				);
+			}
+			localSql.push(resolveSqlName(tsName, def, args.columnNaming));
+		}
+
+		const targetNaming = targetDef._columnNaming ?? args.columnNaming;
+		const targetSql: string[] = [];
+		for (const tsName of extra.targetColumns) {
+			const def = requireColumnDef(
+				targetDef._columns,
+				tsName,
+				extra.targetTable,
+			);
+			targetSql.push(resolveSqlName(tsName, def, targetNaming));
+		}
+
+		const fk: ManifestForeignKey = {
+			name:
+				extra.constraintName ??
+				`${args.tableSqlName}_${localSql.join("_")}_fkey`,
+			columns: localSql,
+			targetTable: targetDef._tableName,
+			targetColumns: targetSql,
+		};
+		if (extra._onDelete !== undefined) fk.onDelete = extra._onDelete;
+		if (extra._onUpdate !== undefined) fk.onUpdate = extra._onUpdate;
+		if (extra._deferrable !== undefined) fk.deferrable = extra._deferrable;
+		result.push(fk);
+	}
+	return result;
+}
+
+function columnSetIsUnique(
+	table: ManifestTable,
+	sqlNames: readonly string[],
+): boolean {
+	if (sqlNames.length === 0) return false;
+	if (
+		table.primaryKey.length === sqlNames.length &&
+		sqlNames.every((name) => table.primaryKey.includes(name))
+	) {
+		return true;
+	}
+	if (sqlNames.length === 1) {
+		return isUniqueColumn(table, sqlNames[0] ?? "");
+	}
+	return table.indexes.some(
+		(idx) =>
+			idx.unique &&
+			!idx.whereSql &&
+			!(idx.using && idx.using !== "btree") &&
+			!(idx.keys?.some((key) => key.expr) ?? false) &&
+			idx.columns.length === sqlNames.length &&
+			sqlNames.every((name) => idx.columns.includes(name)),
+	);
 }
 
 function buildRelations(
@@ -604,9 +759,56 @@ function buildRelations(
 		if (col.onDelete !== undefined) {
 			rel.onDelete = col.onDelete;
 		}
+		if (col.onUpdate !== undefined) {
+			rel.onUpdate = col.onUpdate;
+		}
+		if (col.deferrable !== undefined) {
+			rel.deferrable = col.deferrable;
+		}
 		relations.push(rel);
 	}
 
+	return relations;
+}
+
+function extraFkRelations(
+	table: ManifestTable,
+	schemaTable: TableDef,
+): ManifestRelation[] {
+	const relations: ManifestRelation[] = [];
+	const extras = schemaTable._extras.filter(
+		(extra): extra is ForeignKeyDef => extra.kind === "foreignKey",
+	);
+	const fks = table.foreignKeys ?? [];
+	for (let i = 0; i < extras.length; i++) {
+		const extra = extras[i];
+		const fk = fks[i];
+		if (!extra || !fk) continue;
+		const targetAccessor = extra.targetTable;
+		const localTs = extra.columns;
+		const firstLocal = localTs[0];
+		const firstSql = fk.columns[0];
+		const firstTarget = fk.targetColumns[0];
+		if (!firstLocal || !firstSql || !firstTarget) continue;
+		const rel: ManifestRelation = {
+			name: extra._as,
+			targetTable: fk.targetTable,
+			targetAccessor,
+			fkColumn: firstLocal,
+			fkSqlColumn: firstSql,
+			targetColumn: firstTarget,
+			fkColumns: localTs,
+			fkSqlColumns: fk.columns,
+			targetColumns: fk.targetColumns,
+			referencedSqlColumns: fk.targetColumns,
+			cardinality: "one",
+			inverse: extra._inverse,
+		};
+		if (extra._onDelete !== undefined) rel.onDelete = extra._onDelete;
+		if (extra._onUpdate !== undefined) rel.onUpdate = extra._onUpdate;
+		if (extra._deferrable !== undefined) rel.deferrable = extra._deferrable;
+		relations.push(rel);
+	}
 	return relations;
 }
 
@@ -701,7 +903,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				),
 			);
 
-		const { indexes, primaryKey } = extrasToManifest(
+		const { indexes, primaryKey, compositeFks } = extrasToManifest(
 			tableDef._extras,
 			tableDef._columns,
 			tableDef._tableName,
@@ -763,6 +965,20 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			relations: [],
 			indexes,
 			primaryKey: pk,
+			...(compositeFks.length > 0
+				? {
+						foreignKeys: resolveCompositeForeignKeys({
+							accessor,
+							tableSqlName: tableDef._tableName,
+							columns,
+							extras: compositeFks,
+							columnNaming,
+							localDefs: tableDef._columns,
+							schemaTables: tables,
+							...(provider ? { provider } : {}),
+						}),
+					}
+				: {}),
 		};
 	}
 
@@ -929,19 +1145,44 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	}
 
 	for (const table of Object.values(manifestTables)) {
-		table.relations = buildRelations(
-			table.columns,
-			table.accessor,
-			sqlNameToAccessor,
-			manifestTables,
-		);
+		for (const fk of table.foreignKeys ?? []) {
+			const target = Object.values(manifestTables).find(
+				(item) => item.sqlName === fk.targetTable,
+			);
+			if (!target) {
+				throw schemaError(
+					"unknown_fk_target",
+					`foreignKey on "${table.accessor}" references unknown table ${fk.targetTable}`,
+				);
+			}
+			if (!columnSetIsUnique(target, fk.targetColumns)) {
+				throw schemaError(
+					"invalid_column",
+					`foreignKey on "${table.accessor}" target (${fk.targetColumns.join(", ")}) must be a primary key or unique index on "${target.accessor}"`,
+				);
+			}
+		}
+		const schemaTable = tables[table.accessor];
+		table.relations = [
+			...buildRelations(
+				table.columns,
+				table.accessor,
+				sqlNameToAccessor,
+				manifestTables,
+			),
+			...(schemaTable ? extraFkRelations(table, schemaTable) : []),
+		];
 	}
 
 	for (const table of Object.values(manifestTables)) {
 		if (autoJunctionAccessors.has(table.accessor)) continue;
 		const fkRelations = table.relations.filter((rel) => {
-			const col = table.columns.find((c) => c.fkAs === rel.name);
-			return col?.kind === "fk";
+			const names = rel.fkColumns ?? [rel.fkColumn];
+			return names.every((name) =>
+				table.columns.some(
+					(col) => col.tsName === name || col.sqlName === name,
+				),
+			);
 		});
 
 		for (const rel of fkRelations) {
@@ -972,18 +1213,32 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				);
 			}
 
-			inverseTable.relations.push({
+			const localSql = rel.fkSqlColumns ?? [rel.fkSqlColumn];
+			const inverseRel: ManifestRelation = {
 				name: rel.inverse,
 				targetTable: table.sqlName,
 				targetAccessor: table.accessor,
 				fkColumn: rel.fkColumn,
 				fkSqlColumn: rel.fkSqlColumn,
 				targetColumn: table.primaryKey[0] ?? rel.targetColumn,
-				cardinality: isUniqueColumn(table, rel.fkSqlColumn)
+				cardinality: columnSetIsUnique(table, localSql)
 					? "one"
 					: "many",
 				inverse: rel.name,
-			});
+			};
+			if (rel.fkColumns) inverseRel.fkColumns = rel.fkColumns;
+			if (rel.fkSqlColumns) inverseRel.fkSqlColumns = rel.fkSqlColumns;
+			if (table.primaryKey.length > 1) {
+				inverseRel.targetColumns = table.primaryKey;
+			}
+			inverseRel.referencedSqlColumns = rel.referencedSqlColumns ??
+				rel.targetColumns ?? [rel.targetColumn];
+			if (rel.onDelete !== undefined) inverseRel.onDelete = rel.onDelete;
+			if (rel.onUpdate !== undefined) inverseRel.onUpdate = rel.onUpdate;
+			if (rel.deferrable !== undefined) {
+				inverseRel.deferrable = rel.deferrable;
+			}
+			inverseTable.relations.push(inverseRel);
 		}
 	}
 
@@ -1102,6 +1357,18 @@ export function validateManifest(manifest: Manifest): SchemaValidationIssue[] {
 						`Import the plugin that provides the "${col.kind}" column type`,
 						"Register plugins in neoorm.config.ts if using a custom type",
 					],
+				});
+			}
+		}
+
+		for (const fk of table.foreignKeys ?? []) {
+			const target = Object.values(manifest.tables).find(
+				(item) => item.sqlName === fk.targetTable,
+			);
+			if (!target) {
+				errors.push({
+					code: "unknown_fk_target",
+					message: `FK constraint ${fk.name} on ${table.accessor} references unknown table ${fk.targetTable}`,
 				});
 			}
 		}

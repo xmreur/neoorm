@@ -10,6 +10,7 @@ const DOCUMENTED_FUNCTIONS: { export: string; file: string }[] = [
 	{ export: "defineSchema", file: "src/schema/define-schema.ts" },
 	{ export: "table", file: "src/schema/table.ts" },
 	{ export: "fk", file: "src/schema/relation.ts" },
+	{ export: "foreignKey", file: "src/schema/table.ts" },
 	{ export: "many", file: "src/schema/many-to-many.ts" },
 	{ export: "timestamps", file: "src/schema/column.ts" },
 	{ export: "id", file: "src/plugins/builtin.ts" },
@@ -53,6 +54,8 @@ const DOCUMENTED_BUILDER_METHODS: { method: string; file: string }[] = [
 	{ method: "as", file: "src/schema/relation.ts" },
 	{ method: "inverse", file: "src/schema/relation.ts" },
 	{ method: "onDelete", file: "src/schema/relation.ts" },
+	{ method: "onUpdate", file: "src/schema/relation.ts" },
+	{ method: "deferrable", file: "src/schema/relation.ts" },
 	{ method: "where", file: "src/schema/table.ts" },
 ];
 

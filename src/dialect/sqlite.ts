@@ -1,7 +1,12 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
 import { compileError } from "../runtime/compile-error.js";
 import { QueryErrorCode } from "../runtime/error-codes.js";
-import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
+import {
+	columnFkClause,
+	findFkReferencedColumn,
+	parseFkTarget,
+	tableForeignKeyClause,
+} from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import {
 	formatIndexKeyList,
@@ -15,6 +20,7 @@ import type {
 	Dialect,
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestTable,
 	OperatorMap,
@@ -146,13 +152,13 @@ function emitCreateTable(
 			if (col.kind === "fk" && col.fkTarget) {
 				const { tableSql: targetTable, columnSql: targetCol } =
 					parseFkTarget(col.fkTarget);
-				const onDelete = col.onDelete
-					? ` ON DELETE ${col.onDelete.toUpperCase()}`
-					: "";
 				lines.push(
-					`  FOREIGN KEY (${q(col.sqlName)}) REFERENCES ${q(targetTable)}(${q(targetCol)})${onDelete}`,
+					`  ${columnFkClause(q, col, q(targetTable), targetCol)}`,
 				);
 			}
+		}
+		for (const fk of table.foreignKeys ?? []) {
+			lines.push(`  ${tableForeignKeyClause(q, fk, q(fk.targetTable))}`);
 		}
 	}
 
@@ -191,6 +197,13 @@ function emitDropConstraint(
 function emitAddForeignKey(
 	_table: ManifestTable,
 	_col: ManifestColumn,
+): string {
+	return "";
+}
+
+function emitAddTableForeignKey(
+	_table: ManifestTable,
+	_fk: ManifestForeignKey,
 ): string {
 	return "";
 }
@@ -346,6 +359,7 @@ export const sqliteDialect: Dialect = {
 	emitAlterTable,
 	emitAlterColumn,
 	emitAddForeignKey,
+	emitAddTableForeignKey,
 	whereOperators,
 	ilike: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
 	regex: (col, i, insensitive) =>

@@ -10,7 +10,7 @@
 | **One-to-many** (inverse) | `create`, `connect`, `disconnect`, `set`, `delete` |
 | **Many-to-many** | `connect`, `connectOrCreate`, `disconnect`, `set`, `delete` |
 
-`connect`, `set`, `disconnect`, and `delete` identify related rows by the **target table's primary key**: `{ id: ... }` or `{ userId: ... }` for a scalar PK, or an object with **every** PK column for a composite key. The FK column still stores a single referenced value.
+`connect`, `set`, `disconnect`, and `delete` identify related rows by the **target table's primary key**: `{ id: ... }` or `{ userId: ... }` for a scalar PK, or an object with **every** PK column for a composite key. A single-column `fk()` still stores one referenced value; a composite `foreignKey()` extra assigns **each** local column from the matching target field (never a concatenated PK string).
 
 A relation field must be a **pure write bag**: every key is one of those operations. Mixing a write op with extra fields (`{ create: { name: "A" }, foo: 1 }`), passing a scalar, or passing `{}` throws `invalid_nested_write` — the parent row is not written. To-one `connectOrCreate` cannot be mixed with `connect` or `create`.
 
