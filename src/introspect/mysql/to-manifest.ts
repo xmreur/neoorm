@@ -99,17 +99,25 @@ function mysqlTypeToKind(
 	) {
 		return { kind: "int" };
 	}
+	if (dataType === "float") {
+		return { kind: "real" };
+	}
+	if (dataType === "double" || dataType === "double precision") {
+		return { kind: "double" };
+	}
 	if (dataType === "json") {
 		return { kind: "jsonb" };
 	}
 	if (dataType === "longtext") {
 		return { kind: "text" };
 	}
-	if (
-		dataType === "datetime" ||
-		dataType === "timestamp" ||
-		dataType === "date"
-	) {
+	if (dataType === "date") {
+		return { kind: "date" };
+	}
+	if (dataType === "time") {
+		return { kind: "time" };
+	}
+	if (dataType === "datetime" || dataType === "timestamp") {
 		return { kind: "timestamp" };
 	}
 	if (
@@ -119,12 +127,7 @@ function mysqlTypeToKind(
 	) {
 		return { kind: "bytea" };
 	}
-	if (
-		dataType === "decimal" ||
-		dataType === "numeric" ||
-		dataType === "double" ||
-		dataType === "float"
-	) {
+	if (dataType === "decimal" || dataType === "numeric") {
 		const typeOptions: Record<string, unknown> = {};
 		if (row.numeric_precision != null)
 			typeOptions.precision = Number(row.numeric_precision);

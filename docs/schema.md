@@ -48,10 +48,21 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `decimal()` / `numeric()` | `NUMERIC` | `string \| null` | Use strings to avoid float loss |
 | `enumType(["a", "b"])` | mode-dependent | union literals | See [Enum columns](#enum-columns) |
 | `bytea()` | `BYTEA` | `Buffer \| null` | |
-| `textArray()` / `intArray()` | arrays | arrays \| null | |
+| `textArray()` / `intArray()` | arrays | arrays \| null | JSON on SQLite/MySQL |
+| `uuidArray()` | `UUID[]` | `string[] \| null` | JSON on SQLite/MySQL |
+| `enumArray(["a", "b"])` | `TEXT[]` or `name[]` | union arrays \| null | Same enum storage mode as `enumType`; JSON on SQLite/MySQL |
+| `real()` / `float()` | `REAL` | `number \| null` | 32-bit. Prisma `Float` is `double()`. MySQL `FLOAT`, SQLite `REAL` |
+| `double()` | `DOUBLE PRECISION` | `number \| null` | MySQL `DOUBLE`, SQLite `REAL` |
+| `date()` | `DATE` | `string \| null` | `YYYY-MM-DD`, not `Date`. SQLite `TEXT`, MySQL `DATE` |
+| `time()` | `TIME` | `string \| null` | SQLite `TEXT`, MySQL `TIME` |
+| `interval()` | `INTERVAL` | `string \| null` | SQLite `TEXT`; rejected on MySQL/MariaDB |
+| `inet()` / `cidr()` | `INET` / `CIDR` | `string \| null` | SQLite `TEXT`; rejected on MySQL/MariaDB |
+| `xml()` | `XML` | `string \| null` | MySQL `LONGTEXT`, SQLite `TEXT` |
+| `money()` | `MONEY` | `string \| null` | MySQL `DECIMAL(19,4)`, SQLite `TEXT` |
+| `int4Range()` / `int8Range()` / `numRange()` / `tsRange()` / `tstzRange()` / `dateRange()` | matching PG ranges | `string \| null` | PostgreSQL only (rejected on SQLite and MySQL/MariaDB) |
 | `citext()` | `CITEXT` | `string \| null` | Requires `citext` extension |
 
-All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, `.notEmpty()`, `.email()`, and `.url()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`) add `.min()`, `.max()`, and `.positive()`.
+All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, `.notEmpty()`, `.email()`, and `.url()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`, `real`, `double`) add `.min()`, `.max()`, and `.positive()`.
 
 `.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses.
 

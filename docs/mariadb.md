@@ -77,12 +77,19 @@ bunx neoorm migrate reset --force
 | `bool()` | `TINYINT(1)` |
 | `int()` | `INT` |
 | `bigint()` | `BIGINT` |
+| `real()` / `float()` | `FLOAT` |
+| `double()` | `DOUBLE` |
 | `serial()` | `INT NOT NULL AUTO_INCREMENT` |
 | `timestamp()` | `DATETIME(6)` + `CURRENT_TIMESTAMP(6)` |
+| `date()` | `DATE` |
+| `time()` | `TIME` |
 | `json()` / `jsonb()` | `JSON` (LONGTEXT + `json_valid()` CHECK under the hood) |
 | `decimal()` | `DECIMAL(p,s)` |
+| `money()` | `DECIMAL(19,4)` |
+| `xml()` | `LONGTEXT` |
 | `bytea()` | `BLOB` |
 | arrays / `citext()` | `JSON` / `VARCHAR` + `utf8mb4_uca1400_ai_ci` |
+| `interval()`, `inet()`, `cidr()`, ranges | rejected at schema compile |
 | `enum: "check"` | `VARCHAR` + `CHECK` |
 | `enum: "native"` | column `ENUM('a','b')` |
 
@@ -116,6 +123,7 @@ bunx neoorm migrate reset --force
 | `distinct` (`DISTINCT ON`) | supported | throws |
 | Partial indexes `index({ where })` | supported | rejected at schema compile |
 | PostGIS | supported | rejected |
+| `interval` / `inet` / `cidr` / range types | supported | rejected at schema compile |
 | `datasource.schema` | multi-schema | ignored (URL database) |
 
 `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.

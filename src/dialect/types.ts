@@ -7,6 +7,23 @@ export type CoreColumnKind =
 	| "bool"
 	| "int"
 	| "timestamp"
+	| "real"
+	| "double"
+	| "date"
+	| "time"
+	| "interval"
+	| "inet"
+	| "cidr"
+	| "xml"
+	| "money"
+	| "int4Range"
+	| "int8Range"
+	| "numRange"
+	| "tsRange"
+	| "tstzRange"
+	| "dateRange"
+	| "uuidArray"
+	| "enumArray"
 	| "fk";
 export type ColumnKindMeta = CoreColumnKind | (string & {});
 

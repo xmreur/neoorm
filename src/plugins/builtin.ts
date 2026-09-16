@@ -324,11 +324,7 @@ const timestampType: ColumnTypePlugin = {
 		return new Date(dbValue as string);
 	},
 	introspect(pgDataType) {
-		return (
-			pgDataType.includes("timestamp") ||
-			pgDataType === "date" ||
-			pgDataType === "time without time zone"
-		);
+		return pgDataType.includes("timestamp");
 	},
 	updatedAtExpression(_col, dialect) {
 		return dialect?.defaultNowExpression() ?? "NOW()";
@@ -682,6 +678,272 @@ const intArrayType: ColumnTypePlugin = {
 	},
 };
 
+function createNumericFloatPlugin(
+	kind: "real" | "double",
+	sqlType: string,
+	introspect: (pgDataType: string, udtName: string) => boolean,
+): ColumnTypePlugin {
+	return {
+		kind,
+		createBuilder() {
+			return createColumnBuilder<
+				number | null,
+				ColumnMeta & { kind: typeof kind },
+				NumericConstraintMethods
+			>(
+				{
+					kind,
+					nullable: true,
+					unique: false,
+					primary: false,
+					defaultNow: false,
+				},
+				(rebuild, meta) => createNumericConstraintExtras(meta, rebuild),
+			);
+		},
+		columnType() {
+			return sqlType;
+		},
+		columnTsType(col) {
+			return scalarTsType(col, "number");
+		},
+		columnValidation() {
+			return { kind: "number" };
+		},
+		introspect,
+	};
+}
+
+function createStringScalarPlugin(
+	kind: string,
+	sqlType: string,
+	introspect: (pgDataType: string, udtName: string) => boolean,
+): ColumnTypePlugin {
+	return {
+		kind,
+		createBuilder() {
+			return createColumnBuilder<string | null, ColumnMeta>({
+				kind,
+				nullable: true,
+				unique: false,
+				primary: false,
+				defaultNow: false,
+			});
+		},
+		columnType() {
+			return sqlType;
+		},
+		columnTsType(col) {
+			return scalarTsType(col, "string");
+		},
+		columnValidation() {
+			return { kind: "string" };
+		},
+		introspect,
+	};
+}
+
+const realType = createNumericFloatPlugin(
+	"real",
+	"REAL",
+	(pgDataType, udtName) => pgDataType === "real" || udtName === "float4",
+);
+
+const doubleType = createNumericFloatPlugin(
+	"double",
+	"DOUBLE PRECISION",
+	(pgDataType, udtName) =>
+		pgDataType === "double precision" || udtName === "float8",
+);
+
+const dateType = createStringScalarPlugin(
+	"date",
+	"DATE",
+	(pgDataType) => pgDataType === "date",
+);
+
+const timeType = createStringScalarPlugin(
+	"time",
+	"TIME",
+	(pgDataType) =>
+		pgDataType === "time without time zone" ||
+		pgDataType === "time with time zone" ||
+		pgDataType === "time",
+);
+
+const intervalType = createStringScalarPlugin(
+	"interval",
+	"INTERVAL",
+	(pgDataType) => pgDataType === "interval",
+);
+
+const inetType = createStringScalarPlugin(
+	"inet",
+	"INET",
+	(pgDataType, udtName) => pgDataType === "inet" || udtName === "inet",
+);
+
+const cidrType = createStringScalarPlugin(
+	"cidr",
+	"CIDR",
+	(pgDataType, udtName) => pgDataType === "cidr" || udtName === "cidr",
+);
+
+const xmlType = createStringScalarPlugin(
+	"xml",
+	"XML",
+	(pgDataType, udtName) => pgDataType === "xml" || udtName === "xml",
+);
+
+const moneyType = createStringScalarPlugin(
+	"money",
+	"MONEY",
+	(pgDataType, udtName) => pgDataType === "money" || udtName === "money",
+);
+
+const int4RangeType = createStringScalarPlugin(
+	"int4Range",
+	"INT4RANGE",
+	(_pg, udtName) => udtName === "int4range",
+);
+const int8RangeType = createStringScalarPlugin(
+	"int8Range",
+	"INT8RANGE",
+	(_pg, udtName) => udtName === "int8range",
+);
+const numRangeType = createStringScalarPlugin(
+	"numRange",
+	"NUMRANGE",
+	(_pg, udtName) => udtName === "numrange",
+);
+const tsRangeType = createStringScalarPlugin(
+	"tsRange",
+	"TSRANGE",
+	(_pg, udtName) => udtName === "tsrange",
+);
+const tstzRangeType = createStringScalarPlugin(
+	"tstzRange",
+	"TSTZRANGE",
+	(_pg, udtName) => udtName === "tstzrange",
+);
+const dateRangeType = createStringScalarPlugin(
+	"dateRange",
+	"DATERANGE",
+	(_pg, udtName) => udtName === "daterange",
+);
+
+const uuidArrayType: ColumnTypePlugin = {
+	kind: "uuidArray",
+	createBuilder() {
+		return createColumnBuilder<
+			string[] | null,
+			ColumnMeta & { kind: "uuidArray" }
+		>({
+			kind: "uuidArray",
+			nullable: true,
+			unique: false,
+			primary: false,
+			defaultNow: false,
+		});
+	},
+	columnType() {
+		return "UUID[]";
+	},
+	columnTsType(col) {
+		return col.nullable ? "string[] | null" : "string[]";
+	},
+	columnValidation() {
+		return { kind: "array", element: { kind: "string", format: "uuid" } };
+	},
+	serializeValue(_col, value, dialect) {
+		if (value === null || value === undefined) return value;
+		if (isSqliteOrMysqlFamily(dialect)) return JSON.stringify(value);
+		return value;
+	},
+	deserializeValue(col, dbValue) {
+		if (dbValue === null || dbValue === undefined) return dbValue;
+		if (Array.isArray(dbValue)) return dbValue;
+		return parseJsonValue(dbValue, col);
+	},
+	introspect(pgDataType, udtName) {
+		return pgDataType === "ARRAY" && udtName === "_uuid";
+	},
+};
+
+function enumArrayTsType(col: ManifestColumn): string {
+	const values = col.typeOptions?.values as readonly string[] | undefined;
+	if (!values || values.length === 0) {
+		return col.nullable ? "string[] | null" : "string[]";
+	}
+	const union = values.map((value) => JSON.stringify(value)).join(" | ");
+	return col.nullable ? `(${union})[] | null` : `(${union})[]`;
+}
+
+function enumArraySqlType(col: ManifestColumn): string {
+	const nativeTypeName = col.typeOptions?.nativeTypeName as
+		| string
+		| undefined;
+	if (nativeTypeName) {
+		return `${nativeTypeName}[]`;
+	}
+	return "TEXT[]";
+}
+
+const enumArrayType: ColumnTypePlugin = {
+	kind: "enumArray",
+	createBuilder(options?: Record<string, unknown>) {
+		const values = options?.values as readonly string[];
+		const name = options?.name as string | undefined;
+		const typeOptions: Record<string, unknown> = { values };
+		if (name !== undefined) {
+			typeOptions.name = name;
+		}
+		return createColumnBuilder<
+			string[] | null,
+			ColumnMeta & { kind: "enumArray" }
+		>({
+			kind: "enumArray",
+			nullable: true,
+			unique: false,
+			primary: false,
+			defaultNow: false,
+			typeOptions,
+		});
+	},
+	columnType(col) {
+		return enumArraySqlType(col);
+	},
+	columnTsType(col) {
+		return enumArrayTsType(col);
+	},
+	columnValidation(col) {
+		const values = col.typeOptions?.values as readonly string[] | undefined;
+		const first = values?.[0];
+		if (first === undefined || !values) {
+			return { kind: "array", element: { kind: "string" } };
+		}
+		const name = col.typeOptions?.name as string | undefined;
+		return {
+			kind: "array",
+			element: {
+				kind: "enum",
+				values: [first, ...values.slice(1)] as [string, ...string[]],
+				...(typeof name === "string" ? { name } : {}),
+			},
+		};
+	},
+	serializeValue(_col, value, dialect) {
+		if (value === null || value === undefined) return value;
+		if (isSqliteOrMysqlFamily(dialect)) return JSON.stringify(value);
+		return value;
+	},
+	deserializeValue(col, dbValue) {
+		if (dbValue === null || dbValue === undefined) return dbValue;
+		if (Array.isArray(dbValue)) return dbValue;
+		return parseJsonValue(dbValue, col);
+	},
+};
+
 const citextType: ColumnTypePlugin = {
 	kind: "citext",
 	createBuilder() {
@@ -732,6 +994,23 @@ export const builtinPlugin: NeoOrmPlugin = {
 		byteaType,
 		textArrayType,
 		intArrayType,
+		realType,
+		doubleType,
+		dateType,
+		timeType,
+		intervalType,
+		inetType,
+		cidrType,
+		xmlType,
+		moneyType,
+		int4RangeType,
+		int8RangeType,
+		numRangeType,
+		tsRangeType,
+		tstzRangeType,
+		dateRangeType,
+		uuidArrayType,
+		enumArrayType,
 	],
 };
 
@@ -873,6 +1152,117 @@ export function textArray(): ColumnBuilder<string[] | null> {
 /** `INTEGER[]` array column. */
 export function intArray(): ColumnBuilder<number[] | null> {
 	return intArrayType.createBuilder() as ColumnBuilder<number[] | null>;
+}
+
+/** `REAL` / `float4` column. Maps to `FLOAT` on MySQL. Prisma `Float` is {@link double}. */
+export function real(): NumericColumnBuilder<
+	number | null,
+	ColumnMeta & { kind: "real" }
+> {
+	return realType.createBuilder() as NumericColumnBuilder<
+		number | null,
+		ColumnMeta & { kind: "real" }
+	>;
+}
+
+/** Alias for {@link real}. */
+export function float(): NumericColumnBuilder<
+	number | null,
+	ColumnMeta & { kind: "real" }
+> {
+	return real();
+}
+
+/** `DOUBLE PRECISION` / `float8` column. Maps to `DOUBLE` on MySQL. Closest to Prisma `Float`. */
+export function double(): NumericColumnBuilder<
+	number | null,
+	ColumnMeta & { kind: "double" }
+> {
+	return doubleType.createBuilder() as NumericColumnBuilder<
+		number | null,
+		ColumnMeta & { kind: "double" }
+	>;
+}
+
+/** `DATE` column (`YYYY-MM-DD` string, not `Date`). */
+export function date(): ColumnBuilder<string | null> {
+	return dateType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `TIME` column (string). */
+export function time(): ColumnBuilder<string | null> {
+	return timeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `INTERVAL` column (string). PostgreSQL native; SQLite `TEXT`; rejected on MySQL/MariaDB. */
+export function interval(): ColumnBuilder<string | null> {
+	return intervalType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `INET` column (string). PostgreSQL native; SQLite `TEXT`; rejected on MySQL/MariaDB. */
+export function inet(): ColumnBuilder<string | null> {
+	return inetType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `CIDR` column (string). PostgreSQL native; SQLite `TEXT`; rejected on MySQL/MariaDB. */
+export function cidr(): ColumnBuilder<string | null> {
+	return cidrType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `XML` column. Maps to `LONGTEXT` on MySQL and `TEXT` on SQLite. */
+export function xml(): ColumnBuilder<string | null> {
+	return xmlType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `MONEY` column (string). Maps to `DECIMAL(19,4)` on MySQL and `TEXT` on SQLite. */
+export function money(): ColumnBuilder<string | null> {
+	return moneyType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** PostgreSQL `int4range` (string). Rejected on SQLite and MySQL/MariaDB. */
+export function int4Range(): ColumnBuilder<string | null> {
+	return int4RangeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** PostgreSQL `int8range` (string). Rejected on SQLite and MySQL/MariaDB. */
+export function int8Range(): ColumnBuilder<string | null> {
+	return int8RangeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** PostgreSQL `numrange` (string). Rejected on SQLite and MySQL/MariaDB. */
+export function numRange(): ColumnBuilder<string | null> {
+	return numRangeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** PostgreSQL `tsrange` (string). Rejected on SQLite and MySQL/MariaDB. */
+export function tsRange(): ColumnBuilder<string | null> {
+	return tsRangeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** PostgreSQL `tstzrange` (string). Rejected on SQLite and MySQL/MariaDB. */
+export function tstzRange(): ColumnBuilder<string | null> {
+	return tstzRangeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** PostgreSQL `daterange` (string). Rejected on SQLite and MySQL/MariaDB. */
+export function dateRange(): ColumnBuilder<string | null> {
+	return dateRangeType.createBuilder() as ColumnBuilder<string | null>;
+}
+
+/** `UUID[]` array column. JSON on SQLite/MySQL. */
+export function uuidArray(): ColumnBuilder<string[] | null> {
+	return uuidArrayType.createBuilder() as ColumnBuilder<string[] | null>;
+}
+
+/** Enum array column. Native `name[]` or `TEXT[]` on Postgres; JSON on SQLite/MySQL. */
+export function enumArray<const T extends readonly [string, ...string[]]>(
+	values: T,
+	options?: EnumTypeOptions,
+): ColumnBuilder<T[number][] | null> {
+	return enumArrayType.createBuilder({
+		values,
+		...(options?.name !== undefined ? { name: options.name } : {}),
+	}) as ColumnBuilder<T[number][] | null>;
 }
 
 /** `CITEXT` case-insensitive text (requires `citext` extension). */

@@ -13,6 +13,23 @@ export type CoreColumnKind =
 	| "bytea"
 	| "textArray"
 	| "intArray"
+	| "uuidArray"
+	| "enumArray"
+	| "real"
+	| "double"
+	| "date"
+	| "time"
+	| "interval"
+	| "inet"
+	| "cidr"
+	| "xml"
+	| "money"
+	| "int4Range"
+	| "int8Range"
+	| "numRange"
+	| "tsRange"
+	| "tstzRange"
+	| "dateRange"
 	| "citext"
 	| "fk";
 export type ColumnKind = CoreColumnKind | (string & {});
@@ -444,18 +461,36 @@ export {
 	bigint,
 	bool,
 	bytea,
+	cidr,
 	citext,
+	date,
+	dateRange,
 	decimal,
+	double,
+	enumArray,
 	enumType,
+	float,
 	id,
+	inet,
 	int,
+	int4Range,
+	int8Range,
 	intArray,
+	interval,
 	json,
 	jsonb,
+	money,
 	numeric,
+	numRange,
+	real,
 	serial,
 	text,
 	textArray,
+	time,
 	timestamp,
+	tsRange,
+	tstzRange,
 	uuid,
+	uuidArray,
+	xml,
 } from "../plugins/builtin.js";

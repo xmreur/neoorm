@@ -46,8 +46,25 @@ const SCHEMA_IMPORT_ORDER = [
 	"bytea",
 	"citext",
 	"enumType",
+	"enumArray",
 	"textArray",
 	"intArray",
+	"uuidArray",
+	"real",
+	"double",
+	"date",
+	"time",
+	"interval",
+	"inet",
+	"cidr",
+	"xml",
+	"money",
+	"int4Range",
+	"int8Range",
+	"numRange",
+	"tsRange",
+	"tstzRange",
+	"dateRange",
 	"fk",
 	"foreignKey",
 	"expr",
@@ -183,6 +200,20 @@ function emitScalarBuilder(
 				? `, { name: "${escapeTsString(nativeName)}" }`
 				: "";
 		return `enumType([${quoted.join(", ")}]${nameArg})`;
+	}
+
+	if (col.kind === "enumArray") {
+		usedBuilders.add("enumArray");
+		const values =
+			(col.typeOptions?.values as readonly string[] | undefined) ?? [];
+		const quoted = values.map((value) => `"${escapeTsString(value)}"`);
+		const nativeName =
+			col.typeOptions?.nativeTypeName ?? col.typeOptions?.name;
+		const nameArg =
+			typeof nativeName === "string"
+				? `, { name: "${escapeTsString(nativeName)}" }`
+				: "";
+		return `enumArray([${quoted.join(", ")}]${nameArg})`;
 	}
 
 	if (col.kind === "decimal") {
@@ -464,8 +495,36 @@ function sqliteColumnBuilder(col: ManifestColumn): string {
 			return "decimal";
 		case "jsonb":
 			return "jsonb";
+		case "json":
+			return "json";
 		case "bytea":
 			return "bytea";
+		case "real":
+			return "real";
+		case "double":
+			return "double";
+		case "date":
+			return "date";
+		case "time":
+			return "time";
+		case "interval":
+			return "interval";
+		case "inet":
+			return "inet";
+		case "cidr":
+			return "cidr";
+		case "xml":
+			return "xml";
+		case "money":
+			return "money";
+		case "uuid":
+			return "uuid";
+		case "textArray":
+			return "textArray";
+		case "intArray":
+			return "intArray";
+		case "uuidArray":
+			return "uuidArray";
 		default:
 			return "text";
 	}

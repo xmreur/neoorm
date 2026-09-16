@@ -81,6 +81,33 @@ function sqliteTypeToKind(
 	defaultNow = false,
 ): ManifestColumn["kind"] {
 	const t = declaredType.toUpperCase();
+	if (t === "DATE") {
+		return "date";
+	}
+	if (t === "TIME") {
+		return "time";
+	}
+	if (t === "INTERVAL") {
+		return "interval";
+	}
+	if (t === "INET") {
+		return "inet";
+	}
+	if (t === "CIDR") {
+		return "cidr";
+	}
+	if (t === "XML") {
+		return "xml";
+	}
+	if (t === "MONEY") {
+		return "money";
+	}
+	if (t === "REAL" || t.includes("FLOA")) {
+		return "real";
+	}
+	if (t.includes("DOUB")) {
+		return "double";
+	}
 	if (t.includes("INT")) {
 		return "int";
 	}
@@ -90,23 +117,13 @@ function sqliteTypeToKind(
 	if (t.includes("BLOB") || t.includes("BINARY")) {
 		return "bytea";
 	}
-	if (
-		t.includes("REAL") ||
-		t.includes("FLOA") ||
-		t.includes("DOUB") ||
-		t.includes("DEC") ||
-		t.includes("NUMERIC")
-	) {
+	if (t.includes("DEC") || t.includes("NUMERIC")) {
 		return "decimal";
 	}
 	if (t.includes("BOOL")) {
 		return "bool";
 	}
-	if (
-		t.includes("TIMESTAMP") ||
-		t.includes("DATETIME") ||
-		t.includes("DATE")
-	) {
+	if (t.includes("TIMESTAMP") || t.includes("DATETIME")) {
 		return "timestamp";
 	}
 	if (t.includes("JSON")) {
