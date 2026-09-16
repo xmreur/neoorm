@@ -9,13 +9,16 @@ import { mariadbDialect } from "../dialect/mariadb.js";
 import { mysqlDialect } from "../dialect/mysql.js";
 import {
 	applySchemaToManifest,
+	DEFAULT_PG_SCHEMA,
 	postgresDialect,
+	quoteQualifiedIdentifier,
 	resolvePgSchemaName,
 } from "../dialect/postgres.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
+import { qualifyTableIdentifiers } from "../sql/qualify-tables.js";
 import { sqlFragment } from "../sql/template.js";
 import type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
@@ -402,6 +405,24 @@ function buildClient<
 	options?: { transactional?: boolean },
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	const transactional = options?.transactional ?? false;
+	const tableSqlNames = new Set(
+		Object.values(runtime.manifest.tables).map((table) => table.sqlName),
+	);
+	const tenantSchema =
+		runtime.schema &&
+		runtime.schema !== DEFAULT_PG_SCHEMA &&
+		(runtime.dialect === undefined || runtime.dialect === postgresDialect)
+			? runtime.schema
+			: undefined;
+
+	const rewriteRawSql = (text: string): string => {
+		if (!tenantSchema) return text;
+		return qualifyTableIdentifiers(text, {
+			tableNames: tableSqlNames,
+			qualify: (sqlName) =>
+				quoteQualifiedIdentifier(tenantSchema, sqlName),
+		});
+	};
 
 	const client = {
 		sql<T = Record<string, unknown>>(
@@ -413,13 +434,19 @@ function buildClient<
 				executor,
 				runtime,
 				{ operation: "raw" },
-				text,
+				rewriteRawSql(text),
 				params,
 			);
 		},
 
 		sqlId(name: string) {
 			const dialect = runtime.dialect ?? postgresDialect;
+			if (tenantSchema && tableSqlNames.has(name)) {
+				return sqlFragment(
+					quoteQualifiedIdentifier(tenantSchema, name),
+					[],
+				);
+			}
 			return sqlFragment(dialect.quoteIdentifier(name), []);
 		},
 
@@ -428,7 +455,7 @@ function buildClient<
 				executor,
 				runtime,
 				{ operation: "raw" },
-				query.text,
+				rewriteRawSql(query.text),
 				query.params,
 			);
 		},

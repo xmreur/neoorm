@@ -534,17 +534,19 @@ export type TypedNeoOrmClient<
 	 * Run a parameterized SQL template. Uses the same compiler as `neoorm/sql`
 	 * (`sql`, `sqlId`, nested fragments, `sqlBuilder.compile()`). Use this tag
 	 * for HAVING and other raw tails around a compiled builder fragment.
+	 * PostgreSQL tenant `schema` qualifies unqualified manifest table names.
 	 */
 	sql<T = Record<string, unknown>>(
 		strings: TemplateStringsArray,
 		...values: unknown[]
 	): Promise<T[]>;
-	/** Dialect-aware identifier quoting for interpolating into {@link TypedNeoOrmClient.sql}. */
+	/** Dialect-aware identifier quoting for interpolating into {@link TypedNeoOrmClient.sql}. Table names are schema-qualified when PostgreSQL `schema` is set. */
 	sqlId(name: string): {
 		readonly _kind: "fragment";
 		readonly text: string;
 		readonly params: readonly unknown[];
 	};
+	/** Run already-compiled SQL. PostgreSQL tenant `schema` qualifies unqualified manifest table names. */
 	execute(query: {
 		text: string;
 		params: unknown[];
