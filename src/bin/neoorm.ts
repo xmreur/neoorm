@@ -6,6 +6,7 @@ import { Command } from "commander";
 import { Pool } from "pg";
 import packageJson from "../../package.json" with { type: "json" };
 import {
+	compileSchemaToManifest,
 	formatGenerateSummary,
 	generateFromSchema,
 } from "../codegen/generate.js";
@@ -265,6 +266,24 @@ async function runGenerateCommand(options: {
 	}
 }
 
+export async function runValidateCommand(): Promise<void> {
+	const cwd = process.cwd();
+	const config = await loadConfig(cwd);
+	const schemaPath = resolve(cwd, config.schema);
+	const dbSchema = config.datasource.schema;
+	const { manifest, warnings } = await compileSchemaToManifest(
+		schemaPath,
+		generateOptionsFromConfig(config, {}, dbSchema),
+	);
+	for (const warning of warnings) {
+		console.warn(`Warning: ${warning}`);
+	}
+	const names = Object.keys(manifest.tables).sort();
+	console.log(
+		`Validation passed: config and schema are valid (${names.length} tables: ${names.join(", ")})`,
+	);
+}
+
 function normalizeProvider(input: string): InitProvider | null {
 	const v = input.trim().toLowerCase();
 	if (v === "postgresql" || v === "postgres" || v === "pg")
@@ -389,6 +408,18 @@ program
 	.action(async (options: { acceptDataLoss?: boolean }) => {
 		try {
 			await runGenerateCommand(options);
+		} catch (err) {
+			printCliError(err);
+			process.exit(1);
+		}
+	});
+
+program
+	.command("validate")
+	.description("Validate neoorm.config.ts and schema without writing files")
+	.action(async () => {
+		try {
+			await runValidateCommand();
 		} catch (err) {
 			printCliError(err);
 			process.exit(1);
@@ -666,7 +697,12 @@ program
 		await runDbPull(config, opts);
 	});
 
-program.parseAsync(process.argv).catch((err: unknown) => {
-	printCliError(err);
-	process.exit(1);
-});
+if (
+	process.env.VITEST !== "true" &&
+	process.env.VITEST_WORKER_ID === undefined
+) {
+	program.parseAsync(process.argv).catch((err: unknown) => {
+		printCliError(err);
+		process.exit(1);
+	});
+}
