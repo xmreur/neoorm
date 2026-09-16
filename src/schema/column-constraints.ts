@@ -1,5 +1,6 @@
 import {
 	type DatabaseProvider,
+	isMysqlProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
 import type { ManifestColumn } from "../dialect/types.js";
@@ -8,7 +9,13 @@ import { SchemaErrorCode } from "../runtime/error-codes.js";
 import type { ColumnBuilder, ColumnMeta } from "./column.js";
 
 /** Quote a SQL column identifier for CHECK expressions. */
-export function quoteSqlColumn(sqlName: string): string {
+export function quoteSqlColumn(
+	sqlName: string,
+	provider?: DatabaseProvider,
+): string {
+	if (isMysqlProvider(provider)) {
+		return `\`${sqlName.replace(/`/g, "``")}\``;
+	}
 	return `"${sqlName.replace(/"/g, '""')}"`;
 }
 
@@ -77,7 +84,7 @@ export function compileColumnCheckConstraints(
 	>,
 	provider?: DatabaseProvider,
 ): string | undefined {
-	const quoted = quoteSqlColumn(col.sqlName);
+	const quoted = quoteSqlColumn(col.sqlName, provider);
 	const lengthFn = lengthFunction(provider);
 	const parts: string[] = [];
 

@@ -1,5 +1,5 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
-import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	Manifest,
@@ -153,12 +153,18 @@ export function buildTableIndex(
 		const expr =
 			plugin?.updatedAtExpression?.(col, dialect) ??
 			dialect.defaultNowExpression();
-		return `${quoteIdentifier(col.sqlName)} = ${expr}`;
+		return `${dialect.quoteIdentifier(col.sqlName)} = ${expr}`;
 	});
 
 	let findByIdSql = "";
 	try {
-		findByIdSql = buildFindByIdQuery(table);
+		findByIdSql = buildFindByIdQuery(
+			table,
+			undefined,
+			undefined,
+			undefined,
+			dialect,
+		);
 	} catch {
 		findByIdSql = "";
 	}
@@ -177,7 +183,7 @@ export function buildTableIndex(
 		relationsByName,
 		effectiveRelationsByName,
 		ownedFkTsNames: buildOwnedFkTsNames(table),
-		findAllSql: buildFindAllQuery(table),
+		findAllSql: buildFindAllQuery(table, dialect),
 		findByIdSql,
 		deserializeColumns,
 		renameColumns,

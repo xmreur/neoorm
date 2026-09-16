@@ -11,14 +11,20 @@ import {
 } from "../codegen/generate.js";
 import { loadConfig } from "../config.js";
 import {
+	isMysqlProvider,
 	isPostgresProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
 import { postgresDialect } from "../dialect/postgres.js";
+import { dialectForProvider } from "../dialect/resolve.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect } from "../dialect/types.js";
 import { formatInitNextSteps, runInit } from "../init/scaffold.js";
-import { introspectPostgres, introspectSqlite } from "../introspect/pull.js";
+import {
+	introspectMysql,
+	introspectPostgres,
+	introspectSqlite,
+} from "../introspect/pull.js";
 import {
 	dbPushWarnings,
 	formatMigrateStatus,
@@ -31,6 +37,10 @@ import {
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
 import { isNeoOrmError } from "../runtime/errors.js";
+import {
+	createMysqlPoolFromUrl,
+	mysqlClient,
+} from "../runtime/mysql-driver.js";
 import { openSqliteDatabase } from "../runtime/sqlite-open.js";
 
 type ConnectedDb = {
@@ -48,6 +58,15 @@ function connectDb(
 		return {
 			client,
 			dialect: sqliteDialect,
+			close: () => client.close(),
+		};
+	}
+	if (isMysqlProvider(config.datasource.provider)) {
+		const pool = createMysqlPoolFromUrl(config.datasource.url);
+		const client = mysqlClient(pool, { ownsPool: true });
+		return {
+			client,
+			dialect: dialectForProvider("mysql"),
 			close: () => client.close(),
 		};
 	}
@@ -142,10 +161,12 @@ async function runDbPull(
 	try {
 		const content = isSqliteProvider(config.datasource.provider)
 			? await introspectSqlite(client)
-			: await introspectPostgres(
-					client,
-					dbSchema ? { schema: dbSchema } : {},
-				);
+			: isMysqlProvider(config.datasource.provider)
+				? await introspectMysql(client)
+				: await introspectPostgres(
+						client,
+						dbSchema ? { schema: dbSchema } : {},
+					);
 		const outputPath = resolve(cwd, options.output ?? "schema.pulled.ts");
 		await writeFile(outputPath, content, "utf-8");
 		console.log(`Schema written to ${outputPath}`);
@@ -228,25 +249,29 @@ async function runGenerateCommand(options: {
 	}
 }
 
-function normalizeProvider(input: string): "postgresql" | "sqlite" | null {
+function normalizeProvider(
+	input: string,
+): "postgresql" | "sqlite" | "mysql" | null {
 	const v = input.trim().toLowerCase();
 	if (v === "postgresql" || v === "postgres" || v === "pg")
 		return "postgresql";
 	if (v === "sqlite") return "sqlite";
+	if (v === "mysql") return "mysql";
 	return null;
 }
 
-async function promptForProvider(): Promise<"postgresql" | "sqlite"> {
+async function promptForProvider(): Promise<"postgresql" | "sqlite" | "mysql"> {
 	const rl = createInterface({
 		input: process.stdin,
 		output: process.stdout,
 	});
 	try {
 		const answer = await rl.question(
-			"Database provider? (1) PostgreSQL  (2) SQLite [1]: ",
+			"Database provider? (1) PostgreSQL  (2) SQLite  (3) MySQL [1]: ",
 		);
 		const trimmed = answer.trim().toLowerCase();
 		if (trimmed === "2" || trimmed === "sqlite") return "sqlite";
+		if (trimmed === "3" || trimmed === "mysql") return "mysql";
 		if (
 			trimmed === "" ||
 			trimmed === "1" ||
@@ -272,7 +297,7 @@ program
 	.option("--out <dir>", "Generated output directory", "./neoorm")
 	.option(
 		"--provider <provider>",
-		"Database provider (postgresql|postgres|sqlite)",
+		"Database provider (postgresql|postgres|sqlite|mysql)",
 	)
 	.option("--database-url <url>", "Database URL / file path")
 	.action(
@@ -286,12 +311,12 @@ program
 			const cwd = process.cwd();
 
 			try {
-				let provider: "postgresql" | "sqlite" | undefined;
+				let provider: "postgresql" | "sqlite" | "mysql" | undefined;
 				if (options.provider) {
 					const normalized = normalizeProvider(options.provider);
 					if (!normalized) {
 						console.error(
-							`--provider must be one of: postgresql, sqlite (got "${options.provider}")`,
+							`--provider must be one of: postgresql, sqlite, mysql (got "${options.provider}")`,
 						);
 						process.exit(1);
 					}
@@ -419,9 +444,9 @@ program
 						},
 					);
 					console.log(
-						isSqliteProvider(config.datasource.provider)
-							? "✓ Database reset (all tables dropped and recreated)"
-							: `✓ Database schema reset (${dbSchema ?? "public"} schema dropped and recreated)`,
+						isPostgresProvider(config.datasource.provider)
+							? `✓ Database schema reset (${dbSchema ?? "public"} schema dropped and recreated)`
+							: "✓ Database reset (all tables dropped and recreated)",
 					);
 					if (options.skipApply) {
 						console.log(

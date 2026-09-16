@@ -1,4 +1,4 @@
-import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -51,6 +51,6 @@ export function updatedAtSetExpressions(
 		const expr =
 			plugin?.updatedAtExpression?.(col, dialect) ??
 			dialect.defaultNowExpression();
-		return `${quoteIdentifier(col.sqlName)} = ${expr}`;
+		return `${dialect.quoteIdentifier(col.sqlName)} = ${expr}`;
 	});
 }

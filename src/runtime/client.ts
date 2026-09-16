@@ -1,8 +1,10 @@
 import { Pool, type PoolConfig } from "pg";
 import {
 	type DatabaseProvider,
+	isMysqlProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
+import { mysqlDialect } from "../dialect/mysql.js";
 import {
 	applySchemaToManifest,
 	postgresDialect,
@@ -12,6 +14,7 @@ import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Manifest } from "../dialect/types.js";
 import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
+import { sqlFragment } from "../sql/template.js";
 import type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
 import { queryError, schemaError } from "./error-builders.js";
@@ -24,6 +27,12 @@ import {
 	type ExecutorOptions,
 	type QueryHooks,
 } from "./executor.js";
+import {
+	createMysqlPoolFromUrl,
+	MYSQL2_PEER_MISSING,
+	type MysqlPoolLike,
+	mysqlClient,
+} from "./mysql-driver.js";
 import { aggregateRecords } from "./query/aggregate.js";
 import type { OrderByInput } from "./query/compile.js";
 import { countRecords, existsRecords, findUnique } from "./query/count.js";
@@ -401,6 +410,11 @@ function buildClient<
 			);
 		},
 
+		sqlId(name: string) {
+			const dialect = runtime.dialect ?? postgresDialect;
+			return sqlFragment(dialect.quoteIdentifier(name), []);
+		},
+
 		execute(query: { text: string; params: unknown[] }) {
 			return runQuery(
 				executor,
@@ -559,6 +573,36 @@ export function createNeoOrmClient<
 		return createNeoOrmSqliteClient(manifest, db, sqliteOptions, true);
 	}
 
+	if (
+		isMysqlProvider(options.provider) ||
+		isMysqlProvider(manifest.provider)
+	) {
+		const url =
+			options.connectionString ??
+			process.env.MYSQL_URL ??
+			process.env.DATABASE_URL ??
+			manifest.url;
+		if (!url) {
+			throw schemaError(
+				SchemaErrorCode.invalid_config,
+				"MYSQL_URL or DATABASE_URL is required for MySQL",
+			);
+		}
+		let pool: MysqlPoolLike;
+		try {
+			pool = createMysqlPoolFromUrl(url);
+		} catch (err) {
+			if (err instanceof Error && err.message === MYSQL2_PEER_MISSING) {
+				throw schemaError(
+					SchemaErrorCode.invalid_config,
+					MYSQL2_PEER_MISSING,
+				);
+			}
+			throw err;
+		}
+		return createNeoOrmMysqlClient(manifest, pool, options, true);
+	}
+
 	const url =
 		options.connectionString ?? process.env.DATABASE_URL ?? manifest.url;
 	if (!url) {
@@ -678,6 +722,79 @@ export function createNeoOrmClientFromSqlite<
 	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	return createNeoOrmSqliteClient(manifest, db, options, false);
+}
+
+/**
+ * Create a typed NeoOrm client from an existing mysql2 promise pool.
+ *
+ * `$disconnect()` does not call `pool.end()`. The caller owns the pool.
+ */
+export function createNeoOrmClientFromMysql<
+	TTables extends Record<string, TableDef>,
+	TIncludes extends Record<
+		keyof TTables & string,
+		unknown
+	> = DefaultWithMap<TTables>,
+	TRowPayloads extends Record<
+		keyof TTables & string,
+		Record<string, unknown>
+	> = DefaultRowPayloadMap<TTables>,
+>(
+	manifest: Manifest,
+	pool: MysqlPoolLike,
+	options?: Pick<
+		NeoOrmClientOptions,
+		"migrationsDir" | "beforeQuery" | "afterQuery"
+	>,
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	return createNeoOrmMysqlClient(manifest, pool, options, false);
+}
+
+function createNeoOrmMysqlClient<
+	TTables extends Record<string, TableDef>,
+	TIncludes extends Record<
+		keyof TTables & string,
+		unknown
+	> = DefaultWithMap<TTables>,
+	TRowPayloads extends Record<
+		keyof TTables & string,
+		Record<string, unknown>
+	> = DefaultRowPayloadMap<TTables>,
+>(
+	manifest: Manifest,
+	pool: MysqlPoolLike,
+	options:
+		| Pick<
+				NeoOrmClientOptions,
+				"migrationsDir" | "beforeQuery" | "afterQuery"
+		  >
+		| undefined,
+	ownsPool: boolean,
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	ensurePlugins(manifest);
+
+	const driver = mysqlClient(pool, { ownsPool });
+	const appliedManifest = applySchemaToManifest(manifest, undefined);
+	const runtime: QueryRuntime = {
+		manifest: appliedManifest,
+		tableIndex: buildManifestIndex(appliedManifest, mysqlDialect),
+		driver,
+		dialect: mysqlDialect,
+		...(options?.migrationsDir !== undefined
+			? { migrationsDir: options.migrationsDir }
+			: {}),
+	};
+
+	const executor = createSqliteExecutor(driver, pickExecutorOptions(options));
+	return buildClient<TTables, TIncludes, TRowPayloads>(
+		executor,
+		runtime,
+		ownsPool
+			? async () => {
+					await driver.close();
+				}
+			: noopDisconnect,
+	);
 }
 
 function createNeoOrmSqliteClient<

@@ -13,7 +13,7 @@ export type InitOptions = {
 	schemaPath?: string;
 	outDir?: string;
 	force?: boolean;
-	provider?: "postgresql" | "sqlite";
+	provider?: "postgresql" | "sqlite" | "mysql";
 	databaseUrl?: string;
 };
 

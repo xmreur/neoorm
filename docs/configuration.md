@@ -26,9 +26,9 @@ CLI commands load `.env` from the project directory before evaluating this file,
 |-----|------|---------|-------------|
 | `schema` | `string` | required | Path to the schema file |
 | `out` | `string` | required | Output directory for generated files |
-| `datasource.provider` | `"postgresql" \| "postgres" \| "sqlite"` | required | Database provider. `"postgres"` is an alias of `"postgresql"`. |
-| `datasource.url` | `string` | required | Connection string (PostgreSQL) or database file path / `:memory:` (SQLite) |
-| `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite: not applicable) |
+| `datasource.provider` | `"postgresql" \| "postgres" \| "sqlite" \| "mysql"` | required | Database provider. `"postgres"` is an alias of `"postgresql"`. |
+| `datasource.url` | `string` | required | Connection string (PostgreSQL / MySQL) or database file path / `:memory:` (SQLite) |
+| `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite and MySQL: not applicable) |
 | `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
 | `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
 | `generate.typebox` | `boolean` | `false` | Emit Select/Create/Update TypeBox schemas to `out/typebox.ts`. See [TypeBox schemas](typebox.md). |
@@ -49,7 +49,7 @@ datasource: {
 },
 ```
 
-`datasource.schema` and `datasource.enum: "native"` are PostgreSQL-only and ignored on SQLite. See [SQLite](sqlite.md).
+`datasource.schema` is PostgreSQL-only (ignored on SQLite and MySQL). `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL column `ENUM`. See [SQLite](sqlite.md) and [MySQL](mysql.md).
 
 ### Enum modes
 
@@ -57,4 +57,4 @@ datasource: {
 |------|-----|----------------|
 | `check` (default) | `TEXT` + `CHECK (...)` | yes |
 | `union` | `TEXT` | no (TypeScript union only) |
-| `native` | Postgres `CREATE TYPE ... AS ENUM` | yes (PostgreSQL only) |
+| `native` | Postgres `CREATE TYPE ... AS ENUM` or MySQL column `ENUM` | yes |

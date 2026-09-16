@@ -19,6 +19,7 @@ import type { TransactionOptions } from "./types.js";
 export type ExecuteResult<T = Record<string, unknown>> = {
 	rows: T[];
 	rowCount: number;
+	insertId?: number | bigint;
 };
 
 export type QueryMethod = "query" | "queryOne" | "execute";
@@ -359,7 +360,13 @@ function createExecutorFromDriver(
 					params: unknown[] = [],
 				): Promise<ExecuteResult<T>> {
 					const result = await driver.query<T>(text, params);
-					return { rows: result.rows, rowCount: result.rowCount };
+					return {
+						rows: result.rows,
+						rowCount: result.rowCount,
+						...(result.insertId !== undefined
+							? { insertId: result.insertId }
+							: {}),
+					};
 				},
 			},
 			hooks,

@@ -4,11 +4,11 @@ import {
 	buildUpsertQuery,
 	dataToSqlValues,
 	dataToUpdateAssignments,
-	upsertAtomicValues,
 } from "./compile.js";
-import { type QueryRuntime, runQueryOne } from "./execute.js";
+import { type QueryRuntime, runExecute, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { mapRowToTs } from "./map-row.js";
+import { fetchRowsByWhere } from "./mutation-returning.js";
 import { fillMissingPrimaryKeys } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
@@ -76,19 +76,47 @@ export async function upsertRecord(
 		dialect,
 		updateOps,
 	);
-	const row = await runQueryOne(
-		executor,
-		runtime,
-		{ operation: "upsert", tableAccessor },
-		upsertSql,
-		[...insertValues, ...upsertAtomicValues(updateOps, updateValues)],
-	);
+	const upsertParams = [...insertValues, ...updateValues];
 
-	const result = mapRowToTs(
-		getTableIndex(runtime.tableIndex, tableAccessor),
-		table,
-		row,
-	);
+	let result: Record<string, unknown>;
+	if (dialect.supportsReturning) {
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			{ operation: "upsert", tableAccessor },
+			upsertSql,
+			upsertParams,
+		);
+		result = mapRowToTs(tableIndex, table, row);
+	} else {
+		await runExecute(
+			executor,
+			runtime,
+			{ operation: "upsert", tableAccessor },
+			upsertSql,
+			upsertParams,
+		);
+		const lookups = Object.entries(uniqueWhere);
+		const whereParts = lookups.map(([tsName, _value], i) => {
+			const col = table.columns.find((c) => c.tsName === tsName);
+			return `${dialect.quoteIdentifier(col?.sqlName ?? tsName)} = $${i + 1}`;
+		});
+		const rows = await fetchRowsByWhere(
+			executor,
+			runtime,
+			table,
+			tableAccessor,
+			whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "",
+			lookups.map(([, value]) => value),
+			"upsert",
+		);
+		const reloaded = rows[0];
+		if (!reloaded) {
+			result = { ...createData, ...updateData };
+		} else {
+			result = reloaded;
+		}
+	}
 
 	if (args.with) {
 		const [withLoaded] = await loadRelations(

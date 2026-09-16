@@ -1,14 +1,16 @@
 export function neoormConfigTemplate(
 	schemaPath: string,
 	outDir: string,
-	provider: "postgresql" | "sqlite" = "postgresql",
+	provider: "postgresql" | "sqlite" | "mysql" = "postgresql",
 	databaseUrl?: string,
 ): string {
 	const url =
 		databaseUrl ??
 		(provider === "sqlite"
 			? "./dev.db"
-			: "postgresql://postgres:postgres@localhost:5432/myapp");
+			: provider === "mysql"
+				? "mysql://root@localhost:3306/myapp"
+				: "postgresql://postgres:postgres@localhost:5432/myapp");
 	const urlLiteral =
 		provider === "sqlite" && !databaseUrl
 			? `"${url}"`
@@ -63,11 +65,15 @@ export const schema = defineSchema({
 }
 
 export function envExampleTemplate(
-	provider: "postgresql" | "sqlite" = "postgresql",
+	provider: "postgresql" | "sqlite" | "mysql" = "postgresql",
 	databaseUrl?: string,
 ): string {
 	if (provider === "sqlite") {
 		return `DATABASE_URL=${databaseUrl ?? "./dev.db"}
+`;
+	}
+	if (provider === "mysql") {
+		return `DATABASE_URL=${databaseUrl ?? "mysql://root@localhost:3306/myapp"}
 `;
 	}
 	return `DATABASE_URL=${databaseUrl ?? "postgresql://postgres:postgres@localhost:5432/myapp"}

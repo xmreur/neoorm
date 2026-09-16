@@ -88,7 +88,7 @@ describe("findUnique / count / upsert SQL", () => {
 		);
 		expect(query).toContain("INSERT INTO");
 		expect(query).toContain('ON CONFLICT ("email") DO UPDATE SET');
-		expect(query).toContain('"name" = excluded."name"');
+		expect(query).toContain('"name" = $4');
 		expect(query).toContain("RETURNING");
 	});
 });

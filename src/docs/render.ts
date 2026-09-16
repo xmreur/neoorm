@@ -115,7 +115,7 @@ export function renderDocsIndex(nav: DocsPage[], version: string): string {
 		nav,
 		`<section class="hero">
         <h1>NeoOrm documentation</h1>
-        <p>TypeScript-first PostgreSQL and SQLite ORM with schema DSL, codegen, and typed relations.</p>
+        <p>TypeScript-first PostgreSQL, SQLite, and MySQL ORM with schema DSL, codegen, and typed relations.</p>
       </section>
       <section class="cards">${cards}</section>`,
 	);

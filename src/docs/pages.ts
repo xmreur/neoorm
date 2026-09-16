@@ -23,6 +23,7 @@ const PAGE_ORDER = [
 	"cli",
 	"configuration",
 	"sqlite",
+	"mysql",
 	"plugins",
 ] as const;
 

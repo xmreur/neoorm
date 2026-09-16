@@ -1,8 +1,4 @@
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestManyToMany,
@@ -383,6 +379,7 @@ async function deleteJunctionRows(
 	parentId: string,
 	rightIds?: string[],
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return;
@@ -400,11 +397,11 @@ async function deleteJunctionRows(
 	if (!parentCol || !otherCol) return;
 
 	const params: unknown[] = [parentId];
-	let sql = `DELETE FROM ${tableRef(throughTable)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`;
+	let sql = `DELETE FROM ${dialect.tableRef(throughTable)} WHERE ${dialect.quoteIdentifier(parentCol.sqlName)} = $1`;
 
 	if (rightIds && rightIds.length > 0) {
 		const placeholders = rightIds.map((_, i) => `$${i + 2}`).join(", ");
-		sql += ` AND ${quoteIdentifier(otherCol.sqlName)} IN (${placeholders})`;
+		sql += ` AND ${dialect.quoteIdentifier(otherCol.sqlName)} IN (${placeholders})`;
 		params.push(...rightIds);
 	}
 
@@ -438,6 +435,7 @@ async function connectInverseMany(
 	parentId: string,
 	childIds: string[],
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable || childIds.length === 0) return;
@@ -448,14 +446,14 @@ async function connectInverseMany(
 		getTableIndex(runtime.tableIndex, targetTable.accessor),
 	);
 	const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
-	const targetPkCol = quoteIdentifier(
+	const targetPkCol = dialect.quoteIdentifier(
 		targetRelationPkSql(targetTable, relation),
 	);
 	await runQuery(
 		executor,
 		runtime,
 		{ operation: "update", tableAccessor: relation.targetAccessor },
-		`UPDATE ${tableRef(targetTable)} SET ${quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
+		`UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
 		[parentId, ...childIds],
 	);
 }
@@ -467,6 +465,7 @@ async function disconnectInverseMany(
 	parentId: string,
 	childIds: string[] | undefined,
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return;
@@ -483,11 +482,11 @@ async function disconnectInverseMany(
 	}
 
 	const params: unknown[] = [parentId];
-	let sql = `UPDATE ${tableRef(targetTable)} SET ${quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
+	let sql = `UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = $1`;
 
 	if (childIds && childIds.length > 0) {
 		const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
-		const targetPkCol = quoteIdentifier(
+		const targetPkCol = dialect.quoteIdentifier(
 			targetRelationPkSql(targetTable, relation),
 		);
 		sql += ` AND ${targetPkCol} IN (${placeholders})`;
@@ -527,6 +526,7 @@ async function deleteInverseManyChildren(
 	parentId: string,
 	childIds: string[] | undefined,
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return;
@@ -536,11 +536,11 @@ async function deleteInverseManyChildren(
 		relation,
 		getTableIndex(runtime.tableIndex, targetTable.accessor),
 	);
-	const targetPkCol = quoteIdentifier(
+	const targetPkCol = dialect.quoteIdentifier(
 		targetRelationPkSql(targetTable, relation),
 	);
 	const params: unknown[] = [parentId];
-	let sql = `DELETE FROM ${tableRef(targetTable)} WHERE ${quoteIdentifier(fkCol.sqlName)} = $1`;
+	let sql = `DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = $1`;
 
 	if (childIds && childIds.length > 0) {
 		const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
@@ -564,6 +564,7 @@ async function listM2MLinkedIds(
 	parentAccessor: string,
 	parentId: string,
 ): Promise<string[]> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const throughTable = manifest.tables[m2m.throughAccessor];
 	if (!throughTable) return [];
@@ -584,7 +585,7 @@ async function listM2MLinkedIds(
 		executor,
 		runtime,
 		{ operation: "select", tableAccessor: throughTable.accessor },
-		`SELECT ${quoteIdentifier(otherCol.sqlName)} FROM ${tableRef(throughTable)} WHERE ${quoteIdentifier(parentCol.sqlName)} = $1`,
+		`SELECT ${dialect.quoteIdentifier(otherCol.sqlName)} FROM ${dialect.tableRef(throughTable)} WHERE ${dialect.quoteIdentifier(parentCol.sqlName)} = $1`,
 		[parentId],
 	);
 
@@ -601,6 +602,7 @@ async function deleteM2MRelated(
 	parentId: string,
 	relatedIds: string[] | undefined,
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const isLeft = m2m.leftAccessor === tableAccessor;
 	const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
@@ -627,13 +629,13 @@ async function deleteM2MRelated(
 		ids,
 	);
 
-	const targetPkCol = quoteIdentifier(primaryKeySqlName(targetTable));
+	const targetPkCol = dialect.quoteIdentifier(primaryKeySqlName(targetTable));
 	const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
 	await runQuery(
 		executor,
 		runtime,
 		{ operation: "delete", tableAccessor: targetAccessor },
-		`DELETE FROM ${tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})`,
+		`DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})`,
 		ids,
 	);
 }

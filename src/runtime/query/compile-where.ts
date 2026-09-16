@@ -1,9 +1,5 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	Manifest,
@@ -181,18 +177,27 @@ export function serializeColumnValue(
 	return value;
 }
 
-function defaultColumnRef(col: ManifestColumn): string {
-	return quoteIdentifier(col.sqlName);
+function defaultColumnRef(
+	col: ManifestColumn,
+	dialect: Dialect = postgresDialect,
+): string {
+	return dialect.quoteIdentifier(col.sqlName);
 }
 
-function qualifiedColumnRefForTable(table: ManifestTable) {
+function qualifiedColumnRefForTable(
+	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
+) {
 	return (col: ManifestColumn) =>
-		`${tableRef(table)}.${quoteIdentifier(col.sqlName)}`;
+		`${dialect.tableRef(table)}.${dialect.quoteIdentifier(col.sqlName)}`;
 }
 
-function parentPkRef(table: ManifestTable): string {
+function parentPkRef(
+	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
+): string {
 	const pkSql = primaryKeySqlName(table);
-	return `${tableRef(table)}.${quoteIdentifier(pkSql)}`;
+	return `${dialect.tableRef(table)}.${dialect.quoteIdentifier(pkSql)}`;
 }
 
 function knownWhereOperatorNames(
@@ -326,6 +331,13 @@ function compileColumnCondition(
 				: transform
 					? transform(serializeColumnValue(col, value, dialect))
 					: serializeColumnValue(col, value, dialect);
+		if (
+			(operator === "in" || operator === "notIn") &&
+			Array.isArray(paramValue) &&
+			dialect.name === "mysql"
+		) {
+			paramValue = JSON.stringify(paramValue);
+		}
 		if (operator === "equals" && queryMode === "insensitive") {
 			paramValue = escapeLikePattern(String(paramValue));
 		}
@@ -386,7 +398,7 @@ function compileRelationCondition(
 
 		const relAlias = "_rel";
 		const columnRef = (col: ManifestColumn) =>
-			`${quoteIdentifier(relAlias)}.${quoteIdentifier(col.sqlName)}`;
+			`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
 		const nested = compileWhereNode(
 			manifest,
 			targetTable,
@@ -402,13 +414,13 @@ function compileRelationCondition(
 			relation.fkColumn,
 		);
 		const parentFkRef = parentFkCol
-			? `${tableRef(parentTable)}.${quoteIdentifier(parentFkCol.sqlName)}`
-			: `${tableRef(parentTable)}.${quoteIdentifier(relation.fkSqlColumn)}`;
+			? `${dialect.tableRef(parentTable)}.${dialect.quoteIdentifier(parentFkCol.sqlName)}`
+			: `${dialect.tableRef(parentTable)}.${dialect.quoteIdentifier(relation.fkSqlColumn)}`;
 		const targetPkSql = targetRelationPkSql(targetTable, relation);
-		const joinCond = `${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${parentFkRef}`;
+		const joinCond = `${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(targetPkSql)} = ${parentFkRef}`;
 		const whereParts = [joinCond];
 		if (nested.sql) whereParts.push(nested.sql);
-		const existsSql = `SELECT 1 FROM ${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
+		const existsSql = `SELECT 1 FROM ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
 		return compiledResult(
 			compileExistsSubquery(existsSql, false),
 			nested.params,
@@ -475,7 +487,7 @@ function compileRelationCondition(
 
 	const relAlias = "_rel";
 	const columnRef = (col: ManifestColumn) =>
-		`${quoteIdentifier(relAlias)}.${quoteIdentifier(col.sqlName)}`;
+		`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
 	const nested = compileWhereNode(
 		manifest,
 		targetTable,
@@ -499,14 +511,14 @@ function compileRelationCondition(
 		const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 		const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
 		const targetPkSql = targetRelationPkSql(targetTable);
-		fromClause = `${tableRef(throughTable)} AS ${quoteIdentifier(junctionAlias)} INNER JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)} ON ${quoteIdentifier(relAlias)}.${quoteIdentifier(targetPkSql)} = ${quoteIdentifier(junctionAlias)}.${quoteIdentifier(targetFkCol)}`;
+		fromClause = `${dialect.tableRef(throughTable)} AS ${dialect.quoteIdentifier(junctionAlias)} INNER JOIN ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)} ON ${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(targetPkSql)} = ${dialect.quoteIdentifier(junctionAlias)}.${dialect.quoteIdentifier(targetFkCol)}`;
 		joinParts.push(
-			`${quoteIdentifier(junctionAlias)}.${quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable)}`,
+			`${dialect.quoteIdentifier(junctionAlias)}.${dialect.quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable, dialect)}`,
 		);
 	} else {
-		fromClause = `${tableRef(targetTable)} AS ${quoteIdentifier(relAlias)}`;
+		fromClause = `${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)}`;
 		joinParts.push(
-			`${quoteIdentifier(relAlias)}.${quoteIdentifier(relation.fkSqlColumn)} = ${parentPkRef(parentTable)}`,
+			`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(relation.fkSqlColumn)} = ${parentPkRef(parentTable, dialect)}`,
 		);
 	}
 
@@ -740,10 +752,10 @@ export function compileWhere(
 
 	const columnRef = tableAlias
 		? (col: ManifestColumn) =>
-				`${quoteIdentifier(tableAlias)}.${quoteIdentifier(col.sqlName)}`
+				`${dialect.quoteIdentifier(tableAlias)}.${dialect.quoteIdentifier(col.sqlName)}`
 		: qualifyColumns
-			? qualifiedColumnRefForTable(table)
-			: defaultColumnRef;
+			? qualifiedColumnRefForTable(table, dialect)
+			: (col: ManifestColumn) => defaultColumnRef(col, dialect);
 
 	const result = compileWhereNode(
 		manifest,
@@ -998,17 +1010,25 @@ export function getCachedOrderByClause(
 	orderBy: OrderByInput | undefined,
 	tableAlias?: string,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	if (!orderBy || Object.keys(orderBy).length === 0) return "";
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const shape = orderByShapeKey(orderBy, tableAlias);
 	if (!shape) return "";
+	const cacheKey = `${dialect.name}|${shape}`;
 	if (!tableIndex) {
-		return compileOrderBy(table, orderBy, tableAlias, manifestIndex);
+		return compileOrderBy(
+			table,
+			orderBy,
+			tableAlias,
+			manifestIndex,
+			dialect,
+		);
 	}
-	return getOrSetSqlCache(tableIndex.orderBySqlByShape, shape, () =>
-		compileOrderBy(table, orderBy, tableAlias, manifestIndex),
+	return getOrSetSqlCache(tableIndex.orderBySqlByShape, cacheKey, () =>
+		compileOrderBy(table, orderBy, tableAlias, manifestIndex, dialect),
 	);
 }
 
@@ -1027,11 +1047,12 @@ export function compileOrderBy(
 	orderBy: OrderByInput | undefined,
 	tableAlias?: string,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	if (!orderBy || Object.keys(orderBy).length === 0) return "";
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const prefix = tableAlias ? `${quoteIdentifier(tableAlias)}.` : "";
+	const prefix = tableAlias ? `${dialect.quoteIdentifier(tableAlias)}.` : "";
 	const parts: string[] = [];
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
 		if (tsKey === "_count" || typeof direction !== "string") continue;
@@ -1043,7 +1064,7 @@ export function compileOrderBy(
 			"select",
 		);
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
-		parts.push(`${prefix}${quoteIdentifier(col.sqlName)} ${dir}`);
+		parts.push(`${prefix}${dialect.quoteIdentifier(col.sqlName)} ${dir}`);
 	}
 
 	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
@@ -1075,20 +1096,31 @@ export function columnsForOutput(
 	return table.columns.filter((col) => col.hidden !== true);
 }
 
-function aliasToTsName(expression: string, col: ManifestColumn): string {
+function aliasToTsName(
+	expression: string,
+	col: ManifestColumn,
+	dialect: Dialect = postgresDialect,
+): string {
 	if (col.sqlName === col.tsName) return expression;
-	return `${expression} AS ${quoteIdentifier(col.tsName)}`;
+	return `${expression} AS ${dialect.quoteIdentifier(col.tsName)}`;
 }
 
-function selectExpression(col: ManifestColumn): string {
+function selectExpression(
+	col: ManifestColumn,
+	dialect: Dialect = postgresDialect,
+): string {
 	if (col.kind === "fk") {
-		return aliasToTsName(quoteIdentifier(col.sqlName), col);
+		return aliasToTsName(
+			dialect.quoteIdentifier(col.sqlName),
+			col,
+			dialect,
+		);
 	}
 	const plugin = getColumnType(col.kind);
 	if (plugin?.selectExpression) {
-		return aliasToTsName(plugin.selectExpression(col), col);
+		return aliasToTsName(plugin.selectExpression(col), col, dialect);
 	}
-	return aliasToTsName(quoteIdentifier(col.sqlName), col);
+	return aliasToTsName(dialect.quoteIdentifier(col.sqlName), col, dialect);
 }
 
 export function buildSelectColumns(
@@ -1097,12 +1129,15 @@ export function buildSelectColumns(
 	manifestIndex?: ManifestIndex,
 	includeHidden?: boolean,
 	tableAlias?: string,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols = columnsForOutput(tableIndex, table, select, includeHidden);
-	const prefix = tableAlias ? `${quoteIdentifier(tableAlias)}.` : "";
+	const prefix = tableAlias ? `${dialect.quoteIdentifier(tableAlias)}.` : "";
 
-	return cols.map((c) => `${prefix}${selectExpression(c)}`).join(", ");
+	return cols
+		.map((c) => `${prefix}${selectExpression(c, dialect)}`)
+		.join(", ");
 }
 
 export function buildQualifiedSelectColumns(
@@ -1110,12 +1145,13 @@ export function buildQualifiedSelectColumns(
 	select?: readonly string[],
 	manifestIndex?: ManifestIndex,
 	includeHidden?: boolean,
+	dialect: Dialect = postgresDialect,
 ): string {
-	const ref = tableRef(table);
+	const ref = dialect.tableRef(table);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const cols = columnsForOutput(tableIndex, table, select, includeHidden);
 
-	return cols.map((c) => `${ref}.${selectExpression(c)}`).join(", ");
+	return cols.map((c) => `${ref}.${selectExpression(c, dialect)}`).join(", ");
 }
 
 export function buildFindByIdQuery(
@@ -1123,20 +1159,26 @@ export function buildFindByIdQuery(
 	select?: readonly string[],
 	manifestIndex?: ManifestIndex,
 	includeHidden?: boolean,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const { sqlName } = requireScalarPrimaryKey(table);
-	const sqlCol = quoteIdentifier(sqlName);
+	const sqlCol = dialect.quoteIdentifier(sqlName);
 	const selectCols = buildSelectColumns(
 		table,
 		select,
 		manifestIndex,
 		includeHidden,
+		undefined,
+		dialect,
 	);
-	return `SELECT ${selectCols} FROM ${tableRef(table)} WHERE ${sqlCol} = $1`;
+	return `SELECT ${selectCols} FROM ${dialect.tableRef(table)} WHERE ${sqlCol} = $1`;
 }
 
-export function buildFindAllQuery(table: ManifestTable): string {
-	return `SELECT ${buildSelectColumns(table)} FROM ${tableRef(table)}`;
+export function buildFindAllQuery(
+	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
+): string {
+	return `SELECT ${buildSelectColumns(table, undefined, undefined, undefined, undefined, dialect)} FROM ${dialect.tableRef(table)}`;
 }
 
 export function normalizeLimitOffset(value: unknown, label: string): number {
@@ -1161,6 +1203,7 @@ export function buildFindManyQuery(
 	groupBySql?: string,
 	select?: readonly string[],
 	includeHidden?: boolean,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
@@ -1170,15 +1213,23 @@ export function buildFindManyQuery(
 				select,
 				manifestIndex,
 				includeHidden,
+				dialect,
 			)
-		: buildSelectColumns(table, select, manifestIndex, includeHidden);
+		: buildSelectColumns(
+				table,
+				select,
+				manifestIndex,
+				includeHidden,
+				undefined,
+				dialect,
+			);
 	let sql = "SELECT ";
 	if (distinctOn && distinctOn.length > 0) {
 		const distinctCols = columnsByTsNames(tableIndex, table, distinctOn)
 			.map((col) =>
 				hasJoins
-					? `${tableRef(table)}.${quoteIdentifier(col.sqlName)}`
-					: quoteIdentifier(col.sqlName),
+					? `${dialect.tableRef(table)}.${dialect.quoteIdentifier(col.sqlName)}`
+					: dialect.quoteIdentifier(col.sqlName),
 			)
 			.join(", ");
 		sql += `DISTINCT ON (${distinctCols}) `;
@@ -1189,7 +1240,7 @@ export function buildFindManyQuery(
 		sql += `, ${extraSelectCols.join(", ")}`;
 	}
 
-	sql += ` FROM ${tableRef(table)}`;
+	sql += ` FROM ${dialect.tableRef(table)}`;
 
 	if (joinClauses && joinClauses.length > 0) {
 		sql += ` ${joinClauses.join(" ")}`;
@@ -1218,6 +1269,7 @@ export function buildPaginateQuery(
 	manifestIndex?: ManifestIndex,
 	select?: readonly string[],
 	includeHidden?: boolean,
+	dialect: Dialect = postgresDialect,
 ): string {
 	return buildFindManyQuery(
 		table,
@@ -1232,14 +1284,16 @@ export function buildPaginateQuery(
 		undefined,
 		select,
 		includeHidden,
+		dialect,
 	);
 }
 
 export function buildExistsQuery(
 	table: ManifestTable,
 	whereSql: string,
+	dialect: Dialect = postgresDialect,
 ): string {
-	let sql = `SELECT 1 FROM ${tableRef(table)}`;
+	let sql = `SELECT 1 FROM ${dialect.tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	sql += " LIMIT 1";
 	return sql;

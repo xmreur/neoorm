@@ -136,7 +136,7 @@ const db = createNeoOrmClient(manifest, {
 });
 ```
 
-See [SQLite](sqlite.md).
+See [SQLite](sqlite.md) and [MySQL](mysql.md).
 
 ## Tenant-specific schemas
 

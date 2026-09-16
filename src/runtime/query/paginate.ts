@@ -138,7 +138,7 @@ export async function paginateRecords(
 
 	const backward = Boolean(args.before) && args.after === undefined;
 	const queryOrderSpec = backward ? flipOrderSpec(orderSpec) : orderSpec;
-	const orderSql = compileOrderByFromSpec(queryOrderSpec);
+	const orderSql = compileOrderByFromSpec(queryOrderSpec, dialect);
 	const plan = planRelationLoad(
 		manifest,
 		table,

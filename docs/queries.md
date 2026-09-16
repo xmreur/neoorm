@@ -181,7 +181,7 @@ Atomically insert a row or return an existing one when a unique constraint match
 
 Postgres issues `INSERT … ON CONFLICT DO UPDATE` with a no-op assignment so `RETURNING` always includes the row — including when a concurrent session already inserted it. `created` is `(xmax = 0)` (inserted vs existing). A no-op update can fire `UPDATE` triggers; column values are not changed.
 
-Under `SERIALIZABLE` (and sometimes `REPEATABLE READ`), a concurrent insert can still abort the transaction with a serialization failure. Retry the whole `$transaction`. SQLite uses find-then-insert and retries the find after a unique violation.
+Under `SERIALIZABLE` (and sometimes `REPEATABLE READ`), a concurrent insert can still abort the transaction with a serialization failure. Retry the whole `$transaction`. SQLite and MySQL use find-then-insert and retry the find after a unique violation.
 
 ```ts
 const { record, created } = await db.tags.findOrCreate({
@@ -221,9 +221,9 @@ Unknown column names and operators fail at compile time (`unknown_column`, with 
 
 `contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode. `%` and `_` in the search string are matched literally (`ESCAPE '\'`).
 
-`search` is POSIX regex (`~`, or `~*` with `mode: "insensitive"`). It is PostgreSQL-only; SQLite throws.
+`search` is POSIX regex on PostgreSQL (`~`, or `~*` with `mode: "insensitive"`), `REGEXP_LIKE` on MySQL 8, and throws on SQLite.
 
-JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path).
+JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path). On MySQL they compile to `JSON_CONTAINS`, `JSON_CONTAINS_PATH`, and `JSON_EXTRACT`.
 
 ```ts
 await db.posts.findMany({
@@ -321,7 +321,7 @@ await db.users.findMany({
 });
 ```
 
-Not supported on SQLite (`DISTINCT ON` is PostgreSQL-only) — it throws `distinct is not supported on SQLite`. Use `groupBy({ by: [...] })` or a raw `db.sql` query instead.
+Not supported on SQLite or MySQL (`DISTINCT ON` is PostgreSQL-only) — it throws. Use `groupBy({ by: [...] })` or a raw `db.sql` query instead.
 
 ## Eager loading with `with`
 

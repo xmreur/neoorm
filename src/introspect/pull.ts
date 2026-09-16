@@ -11,6 +11,7 @@ import {
 	toCamelCase,
 } from "../utils/case.js";
 import { singularize } from "../utils/inflect.js";
+import { introspectMysqlToManifest } from "./mysql/to-manifest.js";
 import { introspectSqliteToManifest } from "./sqlite/to-manifest.js";
 import { introspectToManifest } from "./to-manifest.js";
 
@@ -424,6 +425,11 @@ function sqliteColumnDef(
 		def += ".notNull()";
 	}
 	return `${def},`;
+}
+
+export async function introspectMysql(client: DatabaseClient): Promise<string> {
+	const manifest = await introspectMysqlToManifest(client);
+	return emitPostgresSchema(manifest);
 }
 
 export async function introspectSqlite(

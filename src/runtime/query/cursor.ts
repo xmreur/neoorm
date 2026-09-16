@@ -1,4 +1,4 @@
-import { postgresDialect, quoteIdentifier } from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -104,10 +104,13 @@ export function resolveOrderSpec(
 	return specs;
 }
 
-export function compileOrderByFromSpec(orderSpec: OrderKeySpec[]): string {
+export function compileOrderByFromSpec(
+	orderSpec: OrderKeySpec[],
+	dialect: Dialect = postgresDialect,
+): string {
 	const parts = orderSpec.map(
 		(key) =>
-			`${quoteIdentifier(key.sqlName)} ${key.direction.toUpperCase()}`,
+			`${dialect.quoteIdentifier(key.sqlName)} ${key.direction.toUpperCase()}`,
 	);
 	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
 }
@@ -163,7 +166,7 @@ export function compileCursorWhere(
 	const operator =
 		bound === "before" ? invertTupleOperator(afterOperator) : afterOperator;
 	const colRefs = orderSpec
-		.map((key) => quoteIdentifier(key.sqlName))
+		.map((key) => dialect.quoteIdentifier(key.sqlName))
 		.join(", ");
 	const placeholders = orderSpec
 		.map((_, index) => `$${startParamIndex + index}`)

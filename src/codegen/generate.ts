@@ -3,12 +3,9 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	type DatabaseProvider,
-	isSqliteProvider,
-} from "../datasource-provider.js";
-import { applySchemaToManifest, postgresDialect } from "../dialect/postgres.js";
-import { sqliteDialect } from "../dialect/sqlite.js";
+import type { DatabaseProvider } from "../datasource-provider.js";
+import { applySchemaToManifest } from "../dialect/postgres.js";
+import { dialectForProvider } from "../dialect/resolve.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { schemaError } from "../runtime/error-builders.js";
@@ -35,10 +32,6 @@ import { emitTypeboxTs } from "./validation/emit-typebox.js";
 import { emitZodTs } from "./validation/emit-zod.js";
 import { validationFromManifest } from "./validation/from-manifest.js";
 import { applyJsonGenericTypesFromSchema } from "./validation/json-generic-types.js";
-
-function dialectForProvider(provider: DatabaseProvider | undefined): Dialect {
-	return isSqliteProvider(provider) ? sqliteDialect : postgresDialect;
-}
 
 export const ZOD_PEER_MISSING_WARNING =
 	'generate.zod is enabled but "zod" is not installed. Run: bun add zod';

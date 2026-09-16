@@ -16,6 +16,7 @@ import {
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
+import { fetchInsertedRow, fetchRowsByWhere } from "./mutation-returning.js";
 import {
 	fillMissingPrimaryKeys,
 	rowScalarPkValue,
@@ -117,6 +118,7 @@ export async function runCreate(
 			keys,
 			"none",
 			runtime.tableIndex,
+			dialect,
 		);
 		const { rowCount } = await runExecute(
 			executor,
@@ -129,13 +131,14 @@ export async function runCreate(
 			compileError(`Insert failed for table "${tableAccessor}"`);
 		}
 		result = { ...scalarData };
-	} else {
+	} else if (dialect.supportsReturning) {
 		const insertSql = getCachedInsertQuery(
 			tableIndex,
 			table,
 			keys,
 			returning,
 			runtime.tableIndex,
+			dialect,
 		);
 		const row = await runQueryOne(
 			executor,
@@ -145,6 +148,34 @@ export async function runCreate(
 			values,
 		);
 		result = { ...scalarData, ...mapRowToTs(tableIndex, table, row) };
+	} else {
+		const insertSql = getCachedInsertQuery(
+			tableIndex,
+			table,
+			keys,
+			"none",
+			runtime.tableIndex,
+			dialect,
+		);
+		const executed = await runExecute(
+			executor,
+			runtime,
+			{ operation: "insert", tableAccessor },
+			insertSql,
+			values,
+		);
+		if (executed.rowCount === 0) {
+			compileError(`Insert failed for table "${tableAccessor}"`);
+		}
+		result = await fetchInsertedRow(
+			executor,
+			runtime,
+			table,
+			scalarData,
+			executed.insertId,
+			returning,
+			tableAccessor,
+		);
 	}
 
 	if (!hasPrimaryKey && relationWrites.length > 0) {
@@ -239,14 +270,24 @@ export async function createManyRecords(
 		args.skipDuplicates === true,
 		runtime.dialect ?? postgresDialect,
 	);
-	const result = await runQuery(
+	if ((runtime.dialect ?? postgresDialect).supportsReturning) {
+		const result = await runQuery(
+			executor,
+			runtime,
+			{ operation: "insert", tableAccessor },
+			sql,
+			values,
+		);
+		return result.length;
+	}
+	const executed = await runExecute(
 		executor,
 		runtime,
 		{ operation: "insert", tableAccessor },
 		sql,
 		values,
 	);
-	return result.length;
+	return executed.rowCount;
 }
 
 export async function createManyAndReturnRecords(
@@ -261,27 +302,56 @@ export async function createManyAndReturnRecords(
 	const prepared = prepareCreateManyRows(runtime, tableAccessor, args.data);
 	if (!prepared) return [];
 
-	const { table, dataKeys, valueRows, values } = prepared;
+	const { table, dataKeys, valueRows, values, scalarRows } = prepared;
+	const dialect = runtime.dialect ?? postgresDialect;
 	const sql = buildInsertManyQuery(
 		table,
 		dataKeys,
 		valueRows,
 		runtime.tableIndex,
 		args.skipDuplicates === true,
-		runtime.dialect ?? postgresDialect,
+		dialect,
 	);
-	const rows = await runQuery(
+	if (dialect.supportsReturning) {
+		const rows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "insert", tableAccessor },
+			sql,
+			values,
+		);
+		return mapRowsToTs(
+			getTableIndex(runtime.tableIndex, tableAccessor),
+			table,
+			rows,
+		);
+	}
+
+	await runExecute(
 		executor,
 		runtime,
 		{ operation: "insert", tableAccessor },
 		sql,
 		values,
 	);
-	return mapRowsToTs(
-		getTableIndex(runtime.tableIndex, tableAccessor),
-		table,
-		rows,
-	);
+	const pkTs = table.columns.find((c) => c.primary)?.tsName;
+	if (pkTs && scalarRows.every((row) => row[pkTs] != null)) {
+		const pkValues = scalarRows.map((row) => row[pkTs]);
+		const col = dialect.quoteIdentifier(
+			table.columns.find((c) => c.tsName === pkTs)?.sqlName ?? pkTs,
+		);
+		const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+		return fetchRowsByWhere(
+			executor,
+			runtime,
+			table,
+			tableAccessor,
+			`WHERE ${col} IN (${placeholders})`,
+			pkValues,
+			"insert",
+		);
+	}
+	return scalarRows;
 }
 
 function prepareCreateManyRows(
@@ -293,6 +363,7 @@ function prepareCreateManyRows(
 	dataKeys: string[];
 	valueRows: string[];
 	values: unknown[];
+	scalarRows: Record<string, unknown>[];
 } | null {
 	if (data.length === 0) return null;
 
@@ -364,5 +435,5 @@ function prepareCreateManyRows(
 		rowValues,
 		runtime.tableIndex,
 	);
-	return { table, dataKeys, valueRows, values };
+	return { table, dataKeys, valueRows, values, scalarRows };
 }

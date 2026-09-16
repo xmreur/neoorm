@@ -1,4 +1,6 @@
 import type { ManifestColumn } from "../../dialect/types.js";
+import { compileError } from "../../runtime/compile-error.js";
+import { QueryErrorCode } from "../../runtime/error-codes.js";
 import type { PluginWhereOperator } from "../types.js";
 import { geoJsonToParam } from "./geojson.js";
 
@@ -6,9 +8,18 @@ function geomFromGeoJson(paramIndex: number): string {
 	return `ST_GeomFromGeoJSON($${paramIndex}::json)`;
 }
 
+function assertPostgres(dialectName: string): void {
+	if (dialectName !== "postgresql") {
+		compileError(`PostGIS operators are not supported on ${dialectName}`, {
+			code: QueryErrorCode.unsupported_operation,
+		});
+	}
+}
+
 export const postgisWhereOperators: Record<string, PluginWhereOperator> = {
 	intersects: {
-		compile(sqlCol, value, _col, startParamIndex) {
+		compile(sqlCol, value, _col, startParamIndex, dialect) {
+			assertPostgres(dialect.name);
 			return {
 				sql: `ST_Intersects(${sqlCol}, ${geomFromGeoJson(startParamIndex)})`,
 				params: [geoJsonToParam(value)],
@@ -16,7 +27,8 @@ export const postgisWhereOperators: Record<string, PluginWhereOperator> = {
 		},
 	},
 	within: {
-		compile(sqlCol, value, _col, startParamIndex) {
+		compile(sqlCol, value, _col, startParamIndex, dialect) {
+			assertPostgres(dialect.name);
 			return {
 				sql: `ST_Within(${sqlCol}, ${geomFromGeoJson(startParamIndex)})`,
 				params: [geoJsonToParam(value)],
@@ -24,7 +36,8 @@ export const postgisWhereOperators: Record<string, PluginWhereOperator> = {
 		},
 	},
 	dWithin: {
-		compile(sqlCol, value, _col, startParamIndex) {
+		compile(sqlCol, value, _col, startParamIndex, dialect) {
+			assertPostgres(dialect.name);
 			const payload = value as { geometry: unknown; distance: number };
 			return {
 				sql: `ST_DWithin(${sqlCol}, ${geomFromGeoJson(startParamIndex)}, $${startParamIndex + 1})`,

@@ -15,6 +15,7 @@ import {
 	resolvePgSchemaName,
 } from "../dialect/postgres.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
+import { introspectMysqlToManifest } from "../introspect/mysql/to-manifest.js";
 import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
 import { introspectToManifest } from "../introspect/to-manifest.js";
 import type { DatabaseClient } from "../runtime/driver.js";
@@ -44,13 +45,21 @@ function pgMigrateAdvisoryLockKeys(schema?: string): [number, number] {
 }
 
 function migrationsTableRef(dialect: Dialect, schema?: string): string {
-	if (dialect.name === "sqlite") {
-		return dialect.quoteIdentifier(MIGRATIONS_TABLE);
+	switch (dialect.name) {
+		case "sqlite":
+		case "mysql":
+			return dialect.quoteIdentifier(MIGRATIONS_TABLE);
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(schema);
+			return schemaName === DEFAULT_PG_SCHEMA
+				? dialect.quoteIdentifier(MIGRATIONS_TABLE)
+				: quoteQualifiedIdentifier(schemaName, MIGRATIONS_TABLE);
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
 	}
-	const schemaName = resolvePgSchemaName(schema);
-	return schemaName === DEFAULT_PG_SCHEMA
-		? dialect.quoteIdentifier(MIGRATIONS_TABLE)
-		: quoteQualifiedIdentifier(schemaName, MIGRATIONS_TABLE);
 }
 
 async function migrationsLedgerHasChecksumColumn(
@@ -58,25 +67,43 @@ async function migrationsLedgerHasChecksumColumn(
 	dialect: Dialect,
 	schema?: string,
 ): Promise<boolean> {
-	if (dialect.name === "sqlite") {
-		const result = await client.query<{ name: string }>(
-			`PRAGMA table_info(${dialect.quoteIdentifier(MIGRATIONS_TABLE)})`,
-		);
-		return result.rows.some((row) => row.name === "checksum");
+	switch (dialect.name) {
+		case "sqlite": {
+			const result = await client.query<{ name: string }>(
+				`PRAGMA table_info(${dialect.quoteIdentifier(MIGRATIONS_TABLE)})`,
+			);
+			return result.rows.some((row) => row.name === "checksum");
+		}
+		case "mysql": {
+			const result = await client.query<{ exists: number | string }>(
+				`SELECT COUNT(*) AS exists
+				 FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE()
+				   AND TABLE_NAME = $1
+				   AND COLUMN_NAME = 'checksum'`,
+				[MIGRATIONS_TABLE],
+			);
+			return Number(result.rows[0]?.exists ?? 0) > 0;
+		}
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(schema);
+			const result = await client.query<{ exists: boolean }>(
+				`SELECT EXISTS (
+					SELECT 1
+					FROM information_schema.columns
+					WHERE table_schema = $1
+						AND table_name = $2
+						AND column_name = 'checksum'
+				) AS exists`,
+				[schemaName, MIGRATIONS_TABLE],
+			);
+			return result.rows[0]?.exists === true;
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
 	}
-
-	const schemaName = resolvePgSchemaName(schema);
-	const result = await client.query<{ exists: boolean }>(
-		`SELECT EXISTS (
-			SELECT 1
-			FROM information_schema.columns
-			WHERE table_schema = $1
-				AND table_name = $2
-				AND column_name = 'checksum'
-		) AS exists`,
-		[schemaName, MIGRATIONS_TABLE],
-	);
-	return result.rows[0]?.exists === true;
 }
 
 async function ensureMigrationsChecksumColumn(
@@ -113,24 +140,50 @@ async function withMigrateDeployLock<T>(
 	schema: string | undefined,
 	fn: (locked: DatabaseClient) => Promise<T>,
 ): Promise<T> {
-	if (dialect.name === "sqlite") {
-		// PRAGMA foreign_keys is a no-op inside a transaction. Disable
-		// before BEGIN IMMEDIATE so table rebuilds can DROP a parent.
-		return withSqliteForeignKeysOff(client, () =>
-			client.transaction(fn, { isolationLevel: "Serializable" }),
-		);
+	switch (dialect.name) {
+		case "sqlite":
+			// PRAGMA foreign_keys is a no-op inside a transaction. Disable
+			// before BEGIN IMMEDIATE so table rebuilds can DROP a parent.
+			return withSqliteForeignKeysOff(client, () =>
+				client.transaction(fn, { isolationLevel: "Serializable" }),
+			);
+		case "mysql":
+			return withMysqlDeployLock(client, fn);
+		case "postgresql":
+			// Session-level pg_advisory_lock on pool.query would bind a random
+			// connection. An xact lock on the deploy transaction stays on that
+			// backend until COMMIT, so a second deploy cannot apply the same files.
+			return client.transaction(async (tx) => {
+				const [classid, objid] = pgMigrateAdvisoryLockKeys(schema);
+				await tx.query("SELECT pg_advisory_xact_lock($1, $2)", [
+					classid,
+					objid,
+				]);
+				return fn(tx);
+			});
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
 	}
+}
 
-	// Session-level pg_advisory_lock on pool.query would bind a random
-	// connection. An xact lock on the deploy transaction stays on that
-	// backend until COMMIT, so a second deploy cannot apply the same files.
+async function withMysqlDeployLock<T>(
+	client: DatabaseClient,
+	fn: (locked: DatabaseClient) => Promise<T>,
+): Promise<T> {
 	return client.transaction(async (tx) => {
-		const [classid, objid] = pgMigrateAdvisoryLockKeys(schema);
-		await tx.query("SELECT pg_advisory_xact_lock($1, $2)", [
-			classid,
-			objid,
-		]);
-		return fn(tx);
+		const dbResult = await tx.query<{ db: string | null }>(
+			"SELECT DATABASE() AS db",
+		);
+		const dbName = dbResult.rows[0]?.db ?? "neoorm";
+		const lockName = `neoorm.migrate.${dbName}`.slice(0, 64);
+		await tx.query("SELECT GET_LOCK($1, $2)", [lockName, 30]);
+		try {
+			return await fn(tx);
+		} finally {
+			await tx.query("SELECT RELEASE_LOCK($1)", [lockName]);
+		}
 	});
 }
 
@@ -337,24 +390,51 @@ export async function resetDatabaseSchema(
 	dialect: Dialect,
 	schema?: string,
 ): Promise<void> {
-	if (dialect.name === "sqlite") {
-		const result = await client.query<{ name: string }>(
-			`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
-		);
-		for (const row of result.rows) {
-			await client.query(
-				`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.name)}`,
+	switch (dialect.name) {
+		case "sqlite": {
+			const result = await client.query<{ name: string }>(
+				`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
 			);
+			for (const row of result.rows) {
+				await client.query(
+					`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.name)}`,
+				);
+			}
+			return;
 		}
-		return;
-	}
-
-	const schemaName = resolvePgSchemaName(schema);
-	const schemaSql = dialect.quoteIdentifier(schemaName);
-	await client.query(`
+		case "mysql": {
+			await client.query("SET FOREIGN_KEY_CHECKS=0");
+			try {
+				const result = await client.query<{ table_name: string }>(
+					`SELECT TABLE_NAME AS table_name
+					 FROM information_schema.TABLES
+					 WHERE TABLE_SCHEMA = DATABASE()
+					   AND TABLE_TYPE = 'BASE TABLE'`,
+				);
+				for (const row of result.rows) {
+					await client.query(
+						`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.table_name)}`,
+					);
+				}
+			} finally {
+				await client.query("SET FOREIGN_KEY_CHECKS=1");
+			}
+			return;
+		}
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(schema);
+			const schemaSql = dialect.quoteIdentifier(schemaName);
+			await client.query(`
     DROP SCHEMA ${schemaSql} CASCADE;
     CREATE SCHEMA ${schemaSql};
   `);
+			return;
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
+	}
 }
 
 export async function migrateReset(
@@ -363,7 +443,7 @@ export async function migrateReset(
 	migrationsDir: string,
 	options: { force: boolean; skipApply?: boolean; schema?: string },
 ): Promise<{ reapplied: string[] }> {
-	if (dialect.name === "sqlite") {
+	if (dialect.name !== "postgresql") {
 		if (!options.force) {
 			throw schemaError(
 				SchemaErrorCode.migration_guard,
@@ -671,16 +751,28 @@ export async function dbPush(
 	let live: Manifest;
 	let qualifiedTarget: Manifest;
 
-	if (dialect.name === "sqlite") {
-		live = await introspectSqliteToManifest(client);
-		qualifiedTarget = target;
-	} else {
-		const schemaName = resolvePgSchemaName(options.schema);
-		live = applySchemaToManifest(
-			await introspectToManifest(client, { schema: schemaName }),
-			schemaName,
-		);
-		qualifiedTarget = applySchemaToManifest(target, schemaName);
+	switch (dialect.name) {
+		case "sqlite":
+			live = await introspectSqliteToManifest(client);
+			qualifiedTarget = target;
+			break;
+		case "mysql":
+			live = await introspectMysqlToManifest(client);
+			qualifiedTarget = target;
+			break;
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(options.schema);
+			live = applySchemaToManifest(
+				await introspectToManifest(client, { schema: schemaName }),
+				schemaName,
+			);
+			qualifiedTarget = applySchemaToManifest(target, schemaName);
+			break;
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
 	}
 
 	const manifestDiff = diffManifest(live, qualifiedTarget, dialect);

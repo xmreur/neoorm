@@ -1,9 +1,10 @@
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
-import type { ManifestManyToMany, ManifestTable } from "../../dialect/types.js";
+import { postgresDialect } from "../../dialect/postgres.js";
+import { dialectDisplayName } from "../../dialect/resolve.js";
+import type {
+	Dialect,
+	ManifestManyToMany,
+	ManifestTable,
+} from "../../dialect/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
 import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
@@ -229,7 +230,7 @@ async function countRelationLinks(
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return new Map();
 
-	const fkCol = quoteIdentifier(relation.fkSqlColumn);
+	const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
 	const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
 	let extraWhere = "";
 	let extraParams: unknown[] = [];
@@ -250,7 +251,7 @@ async function countRelationLinks(
 		}
 	}
 
-	const sql = `SELECT ${fkCol} AS parent_id, ${dialect.castToInt("COUNT(*)")} AS count FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
+	const sql = `SELECT ${fkCol} AS parent_id, ${dialect.castToInt("COUNT(*)")} AS count FROM ${dialect.tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere} GROUP BY ${fkCol}`;
 	const rows = await runQuery<{ parent_id: string; count: number }>(
 		executor,
 		runtime,
@@ -295,7 +296,7 @@ async function countM2MLinks(
 			1,
 			runtime.tableIndex,
 		);
-		joinSql = ` JOIN ${tableRef(targetTable)} t ON t.${quoteIdentifier(targetRelationPkSql(targetTable))} = j.${quoteIdentifier(targetFkCol)}`;
+		joinSql = ` JOIN ${dialect.tableRef(targetTable)} t ON t.${dialect.quoteIdentifier(targetRelationPkSql(targetTable))} = j.${dialect.quoteIdentifier(targetFkCol)}`;
 		if (compiled.sql) {
 			const adjusted = rebaseParamRefs(compiled.sql, parentIds.length);
 			extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
@@ -303,7 +304,7 @@ async function countM2MLinks(
 		}
 	}
 
-	const sql = `SELECT j.${quoteIdentifier(parentFkCol)} AS parent_id, ${dialect.castToInt("COUNT(*)")} AS count FROM ${tableRef(throughTable)} j${joinSql} WHERE j.${quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${quoteIdentifier(parentFkCol)}`;
+	const sql = `SELECT j.${dialect.quoteIdentifier(parentFkCol)} AS parent_id, ${dialect.castToInt("COUNT(*)")} AS count FROM ${dialect.tableRef(throughTable)} j${joinSql} WHERE j.${dialect.quoteIdentifier(parentFkCol)} IN (${placeholders})${extraWhere} GROUP BY j.${dialect.quoteIdentifier(parentFkCol)}`;
 	const rows = await runQuery<{ parent_id: string; count: number }>(
 		executor,
 		runtime,
@@ -367,8 +368,17 @@ function applyPerParentTakeSkip(args: {
 	orderBySql: string;
 	take?: number | undefined;
 	skip?: number | undefined;
+	dialect: Dialect;
 }): string {
-	const { selectList, fromSql, partitionBy, orderBySql, take, skip } = args;
+	const {
+		selectList,
+		fromSql,
+		partitionBy,
+		orderBySql,
+		take,
+		skip,
+		dialect,
+	} = args;
 	if (take === undefined && skip === undefined) {
 		return `SELECT ${selectList} ${fromSql}${orderBySql ? ` ${orderBySql}` : ""}`;
 	}
@@ -376,8 +386,8 @@ function applyPerParentTakeSkip(args: {
 	const takeN =
 		take !== undefined ? normalizeLimitOffset(take, "take") : undefined;
 	const skipN = skip !== undefined ? normalizeLimitOffset(skip, "skip") : 0;
-	const rank = quoteIdentifier(BATCH_ROW_NUMBER);
-	const ranked = quoteIdentifier(BATCH_RANKED_ALIAS);
+	const rank = dialect.quoteIdentifier(BATCH_ROW_NUMBER);
+	const ranked = dialect.quoteIdentifier(BATCH_RANKED_ALIAS);
 	const overOrder = orderBySql ? ` ${orderBySql}` : "";
 	const filter =
 		takeN !== undefined
@@ -420,6 +430,7 @@ async function loadOneRelation(
 ): Promise<void> {
 	if (parentRows.length === 0) return;
 
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const m2m = findM2M(manifest, parentTable.accessor, relationName);
 	if (m2m) {
@@ -457,7 +468,7 @@ async function loadOneRelation(
 		if (fkValues.length === 0) return;
 
 		const placeholders = fkValues.map((_, i) => `$${i + 1}`).join(", ");
-		const targetPkCol = quoteIdentifier(
+		const targetPkCol = dialect.quoteIdentifier(
 			targetRelationPkSql(targetTable, relation),
 		);
 		const selectCols = columnsForSelect(
@@ -483,7 +494,7 @@ async function loadOneRelation(
 			executor,
 			runtime,
 			{ operation: "select", tableAccessor: targetTable.accessor },
-			`SELECT ${selectCols} FROM ${tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})${extraWhere}`,
+			`SELECT ${selectCols} FROM ${dialect.tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})${extraWhere}`,
 			[...fkValues, ...extraParams],
 		);
 
@@ -500,14 +511,14 @@ async function loadOneRelation(
 				fkVal != null ? (byId.get(fkVal as string) ?? null) : null;
 		}
 	} else {
-		const fkCol = quoteIdentifier(relation.fkSqlColumn);
+		const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
 		const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
 		const selectCols = columnsForSelect(
 			targetTable,
 			withSpec,
 			runtime.tableIndex,
 		);
-		const parentIdSelect = `${fkCol} AS ${quoteIdentifier(BATCH_PARENT_ID)}`;
+		const parentIdSelect = `${fkCol} AS ${dialect.quoteIdentifier(BATCH_PARENT_ID)}`;
 		const { extraWhere, extraParams } = compileBatchedRelationWhere(
 			runtime,
 			targetTable,
@@ -520,15 +531,17 @@ async function loadOneRelation(
 					nestedSpec.orderBy,
 					undefined,
 					runtime.tableIndex,
+					dialect,
 				)
 			: "";
 		const sql = applyPerParentTakeSkip({
 			selectList: `${selectCols}, ${parentIdSelect}`,
-			fromSql: `FROM ${tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere}`,
+			fromSql: `FROM ${dialect.tableRef(targetTable)} WHERE ${fkCol} IN (${placeholders})${extraWhere}`,
 			partitionBy: fkCol,
 			orderBySql,
 			take: nestedSpec?.take,
 			skip: nestedSpec?.skip,
+			dialect,
 		});
 
 		const rows = await runQuery(
@@ -613,6 +626,7 @@ async function loadM2MRelation(
 	relationName: string,
 	withSpec: WithInput,
 ): Promise<void> {
+	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const isLeft = m2m.leftAccessor === parentTable.accessor;
 	const targetAccessor = isLeft ? m2m.rightAccessor : m2m.leftAccessor;
@@ -636,9 +650,11 @@ async function loadM2MRelation(
 		runtime.tableIndex,
 		"t",
 	);
-	const targetPkCol = quoteIdentifier(targetRelationPkSql(targetTable));
-	const parentFkSql = quoteIdentifier(parentFkCol);
-	const targetFkSql = quoteIdentifier(targetFkCol);
+	const targetPkCol = dialect.quoteIdentifier(
+		targetRelationPkSql(targetTable),
+	);
+	const parentFkSql = dialect.quoteIdentifier(parentFkCol);
+	const targetFkSql = dialect.quoteIdentifier(targetFkCol);
 	const { extraWhere, extraParams } = compileBatchedRelationWhere(
 		runtime,
 		targetTable,
@@ -652,15 +668,17 @@ async function loadM2MRelation(
 				nestedSpec.orderBy,
 				"t",
 				runtime.tableIndex,
+				dialect,
 			)
 		: "";
 	const sql = applyPerParentTakeSkip({
-		selectList: `${selectCols}, j.${parentFkSql} AS ${quoteIdentifier(BATCH_PARENT_ID)}`,
-		fromSql: `FROM ${tableRef(throughTable)} j JOIN ${tableRef(targetTable)} t ON t.${targetPkCol} = j.${targetFkSql} WHERE j.${parentFkSql} IN (${placeholders})${extraWhere}`,
+		selectList: `${selectCols}, j.${parentFkSql} AS ${dialect.quoteIdentifier(BATCH_PARENT_ID)}`,
+		fromSql: `FROM ${dialect.tableRef(throughTable)} j JOIN ${dialect.tableRef(targetTable)} t ON t.${targetPkCol} = j.${targetFkSql} WHERE j.${parentFkSql} IN (${placeholders})${extraWhere}`,
 		partitionBy: `j.${parentFkSql}`,
 		orderBySql,
 		take: nestedSpec?.take,
 		skip: nestedSpec?.skip,
+		dialect,
 	});
 
 	const rows = await runQuery(
@@ -812,6 +830,7 @@ async function executeFindManyWithRelations(
 		args.orderBy as Record<string, unknown> | undefined,
 		plan,
 		runtime.tableIndex,
+		dialect,
 	);
 	const orderSqlForWith =
 		countOrderSql ||
@@ -820,6 +839,7 @@ async function executeFindManyWithRelations(
 			args.orderBy,
 			needsQualifiedRefs ? table.sqlName : undefined,
 			runtime.tableIndex,
+			dialect,
 		);
 
 	const joinClauses =
@@ -833,9 +853,9 @@ async function executeFindManyWithRelations(
 	const groupBySql = buildCountAggregateGroupBy(plan);
 
 	const distinctOn = normalizeSelectColumns(args.distinct);
-	if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
+	if (distinctOn && distinctOn.length > 0 && dialect.name !== "postgresql") {
 		compileError(
-			"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
+			`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
 		);
 	}
 	const withSignature = withShapeSignature(args.with);
@@ -860,6 +880,7 @@ async function executeFindManyWithRelations(
 			groupBySql || undefined,
 			projection.sqlColumns,
 			projection.includeHidden,
+			dialect,
 		),
 	);
 
@@ -944,9 +965,9 @@ export async function findMany(
 	const distinctOn = normalizeSelectColumns(args?.distinct);
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
 
-	if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
+	if (distinctOn && distinctOn.length > 0 && dialect.name !== "postgresql") {
 		compileError(
-			"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
+			`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
 		);
 	}
 
@@ -973,6 +994,7 @@ export async function findMany(
 			args?.orderBy,
 			undefined,
 			runtime.tableIndex,
+			dialect,
 		);
 		const projSig = projectionSignature(
 			projection.sqlColumns,
@@ -993,6 +1015,7 @@ export async function findMany(
 				undefined,
 				projection.sqlColumns,
 				projection.includeHidden,
+				dialect,
 			),
 		);
 
@@ -1055,9 +1078,13 @@ export async function findFirst(
 		const distinctOn = normalizeSelectColumns(args?.distinct);
 		validateDistinctOrderBy(distinctOn, args?.orderBy);
 
-		if (distinctOn && distinctOn.length > 0 && dialect.name === "sqlite") {
+		if (
+			distinctOn &&
+			distinctOn.length > 0 &&
+			dialect.name !== "postgresql"
+		) {
 			compileError(
-				"distinct is not supported on SQLite (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.",
+				`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
 			);
 		}
 
@@ -1066,6 +1093,7 @@ export async function findFirst(
 			args?.orderBy,
 			undefined,
 			runtime.tableIndex,
+			dialect,
 		);
 
 		const projSig = projectionSignature(
@@ -1087,6 +1115,7 @@ export async function findFirst(
 				undefined,
 				projection.sqlColumns,
 				projection.includeHidden,
+				dialect,
 			),
 		);
 

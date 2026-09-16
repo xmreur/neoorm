@@ -27,8 +27,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: neoorm
+          MYSQL_DATABASE: neoorm_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pneoorm"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/neoorm_test
+      MYSQL_URL: mysql://root:neoorm@127.0.0.1:3306/neoorm_test
     steps:
       - uses: actions/checkout@v4
 

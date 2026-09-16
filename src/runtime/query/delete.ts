@@ -5,7 +5,6 @@ import type { Executor } from "../executor.js";
 import {
 	buildDeleteManyQuery,
 	buildDeleteQuery,
-	buildSelectColumns,
 	compileWhere,
 	getCachedDeleteManyQuery,
 	getCachedWhereClause,
@@ -18,7 +17,8 @@ import {
 	runQueryOne,
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
-import { mapRowsToTs, mapRowToTs } from "./map-row.js";
+import { mapRowsToTs } from "./map-row.js";
+import { fetchRowsByWhere } from "./mutation-returning.js";
 import { resolvePkWhere } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
 import { assertUniqueWhere } from "./unique.js";
@@ -63,7 +63,7 @@ export async function deleteRecord(
 	const needsReturning = args.returnDeleted || args.with;
 
 	if (!needsReturning) {
-		const query = buildDeleteManyQuery(table, whereSql);
+		const query = buildDeleteManyQuery(table, whereSql, dialect);
 		const { rowCount } = await runExecute(
 			executor,
 			runtime,
@@ -74,28 +74,63 @@ export async function deleteRecord(
 		return rowCount > 0 ? {} : null;
 	}
 
-	const returning = args.returnDeleted || args.with ? "full" : "pk";
-	const query = buildDeleteQuery(
+	if (dialect.supportsReturning) {
+		const query = buildDeleteQuery(
+			table,
+			whereSql,
+			"full",
+			runtime.tableIndex,
+			dialect,
+		);
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			{ operation: "delete", tableAccessor },
+			query,
+			params,
+		);
+		if (!row) return null;
+		const mapped = mapRowsToTs(
+			getTableIndex(runtime.tableIndex, tableAccessor),
+			table,
+			[row],
+		);
+		const result = mapped[0] ?? null;
+		if (!result) return null;
+
+		if (args.with) {
+			const [withLoaded] = await loadRelations(
+				executor,
+				runtime,
+				table,
+				[result],
+				args.with,
+			);
+			return withLoaded ?? result;
+		}
+
+		return result;
+	}
+
+	const preRows = await fetchRowsByWhere(
+		executor,
+		runtime,
 		table,
+		tableAccessor,
 		whereSql,
-		returning,
-		runtime.tableIndex,
+		params,
+		"select",
 	);
-	const row = await runQueryOne(
+	if (preRows.length === 0) return null;
+	await runExecute(
 		executor,
 		runtime,
 		{ operation: "delete", tableAccessor },
-		query,
+		buildDeleteManyQuery(table, whereSql, dialect),
 		params,
 	);
-	if (!row) return null;
-
-	const result = mapRowToTs(
-		getTableIndex(runtime.tableIndex, tableAccessor),
-		table,
-		row,
-	);
-
+	const result = preRows[0] ?? null;
+	if (!result) return null;
 	if (args.with) {
 		const [withLoaded] = await loadRelations(
 			executor,
@@ -106,7 +141,6 @@ export async function deleteRecord(
 		);
 		return withLoaded ?? result;
 	}
-
 	return result;
 }
 
@@ -140,7 +174,12 @@ export async function deleteManyRecords(
 	}
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	const query = getCachedDeleteManyQuery(tableIndex, table, whereSql);
+	const query = getCachedDeleteManyQuery(
+		tableIndex,
+		table,
+		whereSql,
+		dialect,
+	);
 	const { rowCount } = await runExecute(
 		executor,
 		runtime,
@@ -181,15 +220,47 @@ export async function deleteManyAndReturnRecords(
 	}
 
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	const query = getCachedDeleteManyQuery(tableIndex, table, whereSql);
-	const rows = await runQuery(
+	const query = getCachedDeleteManyQuery(
+		tableIndex,
+		table,
+		whereSql,
+		dialect,
+	);
+	if (dialect.supportsReturning) {
+		const rows = await runQuery(
+			executor,
+			runtime,
+			{ operation: "delete", tableAccessor },
+			buildDeleteQuery(
+				table,
+				whereSql,
+				"full",
+				runtime.tableIndex,
+				dialect,
+			),
+			params,
+		);
+		return mapRowsToTs(tableIndex, table, rows);
+	}
+
+	const preRows = await fetchRowsByWhere(
+		executor,
+		runtime,
+		table,
+		tableAccessor,
+		whereSql,
+		params,
+		"select",
+	);
+	if (preRows.length === 0) return [];
+	await runExecute(
 		executor,
 		runtime,
 		{ operation: "delete", tableAccessor },
-		`${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex)}`,
+		query,
 		params,
 	);
-	return mapRowsToTs(tableIndex, table, rows);
+	return preRows;
 }
 
 export async function deleteById(

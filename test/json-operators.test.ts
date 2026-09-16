@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { sqliteClient } from "../src/runtime/driver.js";
@@ -272,5 +273,45 @@ describe("json where operators (sqlite runtime)", () => {
 		).toEqual(["1"]);
 
 		await client.close();
+	});
+});
+
+describe("json where operators (mysql)", () => {
+	const manifest = schemaToManifest(schema);
+	const posts = manifestTable(manifest, "posts");
+
+	it("compiles jsonContains with JSON_CONTAINS", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ metadata: { jsonContains: { featured: true } } },
+			mysqlDialect,
+		);
+		expect(sql).toContain("JSON_CONTAINS");
+		expect(params[0]).toBe(JSON.stringify({ featured: true }));
+	});
+
+	it("compiles hasKey with JSON_CONTAINS_PATH", () => {
+		const { sql } = compileWhere(
+			manifest,
+			posts,
+			{ metadata: { hasKey: "featured" } },
+			mysqlDialect,
+		);
+		expect(sql).toContain("JSON_CONTAINS_PATH");
+	});
+
+	it("compiles path extract", () => {
+		const { sql } = compileWhere(
+			manifest,
+			posts,
+			{
+				metadata: {
+					path: { segments: ["category"], equals: "engineering" },
+				},
+			},
+			mysqlDialect,
+		);
+		expect(sql).toContain("JSON_EXTRACT");
 	});
 });

@@ -459,7 +459,7 @@ const db = createNeoOrmClient(manifest, {
 });
 ```
 
-See [SQLite](sqlite.md) for type mapping and limitations.
+See [SQLite](sqlite.md) and [MySQL](mysql.md) for type mapping and limitations.
 
 Log compiled SQL:
 
