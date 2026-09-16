@@ -11,6 +11,7 @@ import type { TransactionOptions } from "./types.js";
 export type DriverResult<T = Record<string, unknown>> = {
 	rows: T[];
 	rowCount: number;
+	insertId?: number | bigint;
 };
 
 export type DatabaseClient = {

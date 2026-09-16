@@ -28,6 +28,21 @@ export function buildBeginSql(options?: TransactionOptions): string {
 	return parts.join(" ");
 }
 
+export function buildMysqlBeginStatements(
+	options?: TransactionOptions,
+): string[] {
+	const stmts: string[] = [];
+	if (options?.isolationLevel) {
+		stmts.push(
+			`SET TRANSACTION ISOLATION LEVEL ${isolationLevelSql[options.isolationLevel]}`,
+		);
+	}
+	stmts.push(
+		options?.readOnly ? "START TRANSACTION READ ONLY" : "START TRANSACTION",
+	);
+	return stmts;
+}
+
 export function buildSavepointName(id: number): string {
 	return `neoorm_sp_${id}`;
 }

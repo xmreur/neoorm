@@ -1,8 +1,4 @@
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -36,20 +32,22 @@ export type AggregateSelectors = {
 function countSqlCol(
 	table: ManifestTable,
 	tsName: string,
+	dialect: Dialect = postgresDialect,
 	manifestIndex?: ManifestIndex,
 ): string | undefined {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const col = columnByTsName(tableIndex, table, tsName);
 	if (!col) return undefined;
-	return quoteIdentifier(col.sqlName);
+	return dialect.quoteIdentifier(col.sqlName);
 }
 
 export function requireCountSqlCol(
 	table: ManifestTable,
 	tsName: string,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
-	const sqlCol = countSqlCol(table, tsName, manifestIndex);
+	const sqlCol = countSqlCol(table, tsName, dialect, manifestIndex);
 	if (sqlCol) {
 		return sqlCol;
 	}
@@ -116,17 +114,22 @@ export function buildCountQuery(
 		if (parts.length === 0) {
 			compileError("count select requires at least one field");
 		}
-		let sql = `SELECT ${parts.join(", ")} FROM ${tableRef(table)}`;
+		let sql = `SELECT ${parts.join(", ")} FROM ${dialect.tableRef(table)}`;
 		if (whereSql) sql += ` ${whereSql}`;
 		return sql;
 	}
 
 	let expr = "COUNT(*)";
 	if (distinct) {
-		const sqlCol = requireCountSqlCol(table, distinct, manifestIndex);
+		const sqlCol = requireCountSqlCol(
+			table,
+			distinct,
+			manifestIndex,
+			dialect,
+		);
 		expr = `COUNT(DISTINCT ${sqlCol})`;
 	}
-	let sql = `SELECT ${dialect.castToInt(expr)} AS count FROM ${tableRef(table)}`;
+	let sql = `SELECT ${dialect.castToInt(expr)} AS count FROM ${dialect.tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	return sql;
 }
@@ -143,9 +146,9 @@ export function countSelectParts(
 	}
 	for (const key of Object.keys(select).sort()) {
 		if (key === "_all") continue;
-		const sqlCol = requireCountSqlCol(table, key, manifestIndex);
+		const sqlCol = requireCountSqlCol(table, key, manifestIndex, dialect);
 		parts.push(
-			`${dialect.castToInt(`COUNT(${sqlCol})`)} AS ${quoteIdentifier(key)}`,
+			`${dialect.castToInt(`COUNT(${sqlCol})`)} AS ${dialect.quoteIdentifier(key)}`,
 		);
 	}
 	return parts;
@@ -160,7 +163,7 @@ function aggregateSqlCol(
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const col = columnByTsName(tableIndex, table, tsName);
 	if (!col) return undefined;
-	const sqlCol = quoteIdentifier(col.sqlName);
+	const sqlCol = dialect.quoteIdentifier(col.sqlName);
 	if (col.kind === "decimal") return dialect.castToNumeric(sqlCol);
 	return sqlCol;
 }
@@ -214,7 +217,12 @@ export function aggregateSelectParts(
 				parts.push(`${dialect.castToInt("COUNT(*)")} AS "__count_all"`);
 				continue;
 			}
-			const sqlCol = requireCountSqlCol(table, key, manifestIndex);
+			const sqlCol = requireCountSqlCol(
+				table,
+				key,
+				manifestIndex,
+				dialect,
+			);
 			parts.push(
 				`${dialect.castToInt(`COUNT(${sqlCol})`)} AS "__count_${key}"`,
 			);
@@ -257,7 +265,7 @@ export function buildAggregateQuery(
 		compileError("aggregate requires at least one selector");
 	}
 
-	let sql = `SELECT ${parts.join(", ")} FROM ${tableRef(table)}`;
+	let sql = `SELECT ${parts.join(", ")} FROM ${dialect.tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	return sql;
 }
@@ -369,10 +377,11 @@ function countStarExpr(): string {
 function countFieldExpr(
 	table: ManifestTable,
 	field: string,
-	manifestIndex?: ManifestIndex,
+	manifestIndex: ManifestIndex | undefined,
+	dialect: Dialect = postgresDialect,
 ): string {
 	if (field === "_all") return countStarExpr();
-	return `COUNT(${requireCountSqlCol(table, field, manifestIndex)})`;
+	return `COUNT(${requireCountSqlCol(table, field, manifestIndex, dialect)})`;
 }
 
 function requireSelectedFieldAgg(
@@ -425,7 +434,11 @@ function compileHavingCompare(
 				conditions.push(
 					dialect.whereOperators[op](expr, nextParamIndex),
 				);
-				params.push(value);
+				params.push(
+					dialect.name === "mysql" && Array.isArray(value)
+						? JSON.stringify(value)
+						: value,
+				);
 				nextParamIndex++;
 				break;
 			}
@@ -548,7 +561,12 @@ export function compileHaving(
 							`having._count.${field}`,
 						);
 						pushCompare(
-							countFieldExpr(table, field, manifestIndex),
+							countFieldExpr(
+								table,
+								field,
+								manifestIndex,
+								dialect,
+							),
 							fieldSpec,
 						);
 						continue;
@@ -564,7 +582,7 @@ export function compileHaving(
 						`having._count.${field}`,
 					);
 					pushCompare(
-						countFieldExpr(table, field, manifestIndex),
+						countFieldExpr(table, field, manifestIndex, dialect),
 						fieldSpec as Record<string, unknown>,
 					);
 				}
@@ -638,7 +656,7 @@ export function compileGroupByOrderBy(
 				);
 				const dir = colDir.toUpperCase() === "DESC" ? "DESC" : "ASC";
 				parts.push(
-					`${countFieldExpr(table, field, manifestIndex)} ${dir}`,
+					`${countFieldExpr(table, field, manifestIndex, dialect)} ${dir}`,
 				);
 			}
 			continue;
@@ -686,7 +704,7 @@ export function compileGroupByOrderBy(
 			"select",
 		);
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
-		parts.push(`${quoteIdentifier(col.sqlName)} ${dir}`);
+		parts.push(`${dialect.quoteIdentifier(col.sqlName)} ${dir}`);
 	}
 
 	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
@@ -731,10 +749,10 @@ export function buildGroupByQuery(
 	const selectList =
 		aggParts.length > 0 ? `${selectBy}, ${aggParts.join(", ")}` : selectBy;
 	const groupList = byCols
-		.map((col) => quoteIdentifier(col.sqlName))
+		.map((col) => dialect.quoteIdentifier(col.sqlName))
 		.join(", ");
 
-	let sql = `SELECT ${selectList} FROM ${tableRef(table)}`;
+	let sql = `SELECT ${selectList} FROM ${dialect.tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	sql += ` GROUP BY ${groupList}`;
 	if (havingSql) sql += ` ${havingSql}`;

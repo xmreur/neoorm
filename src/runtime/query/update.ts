@@ -1,8 +1,4 @@
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
 import { QueryErrorCode } from "../error-codes.js";
@@ -26,6 +22,7 @@ import {
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
+import { fetchRowsByWhere } from "./mutation-returning.js";
 import {
 	primaryKeySqlName,
 	resolvePkWhere,
@@ -144,7 +141,7 @@ async function runUpdate(
 	let result: Record<string, unknown> | null;
 
 	if (keys.length === 0 && exprSets.length === 0) {
-		const selectSql = `SELECT * FROM ${tableRef(table)} ${whereSql} LIMIT 1`;
+		const selectSql = `SELECT * FROM ${dialect.tableRef(table)} ${whereSql} LIMIT 1`;
 		const row = await runQueryOne(
 			executor,
 			runtime,
@@ -181,25 +178,75 @@ async function runUpdate(
 		} else {
 			const returning: UpdateReturning =
 				args.returnUpdated || args.with ? "full" : "pk";
-			const query = buildUpdateQuery(
-				table,
-				keys,
-				whereSql,
-				exprSets,
-				runtime.tableIndex,
-				returning,
-				dialect,
-				ops,
-			);
-			const row = await runQueryOne(
-				executor,
-				runtime,
-				{ operation: "update", tableAccessor },
-				query,
-				[...values, ...whereParams],
-			);
-			if (!row) return null;
-			result = mapRowToTs(tableIndex, table, row);
+			if (dialect.supportsReturning) {
+				const query = buildUpdateQuery(
+					table,
+					keys,
+					whereSql,
+					exprSets,
+					runtime.tableIndex,
+					returning,
+					dialect,
+					ops,
+				);
+				const row = await runQueryOne(
+					executor,
+					runtime,
+					{ operation: "update", tableAccessor },
+					query,
+					[...values, ...whereParams],
+				);
+				if (!row) return null;
+				result = mapRowToTs(tableIndex, table, row);
+			} else {
+				const preRows = await fetchRowsByWhere(
+					executor,
+					runtime,
+					table,
+					tableAccessor,
+					whereSql,
+					whereParams,
+					"select",
+				);
+				if (preRows.length === 0) return null;
+				const query = buildUpdateQuery(
+					table,
+					keys,
+					whereSql,
+					exprSets,
+					runtime.tableIndex,
+					"none",
+					dialect,
+					ops,
+				);
+				await runExecute(
+					executor,
+					runtime,
+					{ operation: "update", tableAccessor },
+					query,
+					[...values, ...whereParams],
+				);
+				const pkTs = table.columns.find((c) => c.primary)?.tsName;
+				const pkValue = pkTs ? preRows[0]?.[pkTs] : undefined;
+				if (pkTs && pkValue != null) {
+					const col = dialect.quoteIdentifier(
+						table.columns.find((c) => c.tsName === pkTs)?.sqlName ??
+							pkTs,
+					);
+					const reloaded = await fetchRowsByWhere(
+						executor,
+						runtime,
+						table,
+						tableAccessor,
+						`WHERE ${col} = $1`,
+						[pkValue],
+						"update",
+					);
+					result = reloaded[0] ?? preRows[0] ?? {};
+				} else {
+					result = preRows[0] ?? {};
+				}
+			}
 		}
 	}
 
@@ -379,17 +426,60 @@ async function runUpdateMany(
 			ops,
 		);
 		if (returnRows || needsPostRelationWrites) {
-			const returning = returnRows
-				? selectCols
-				: quoteIdentifier(primaryKeySqlName(table));
-			const rows = await runQuery(
-				executor,
-				runtime,
-				{ operation: "update", tableAccessor },
-				`${query} RETURNING ${returning}`,
-				[...values, ...whereParams],
-			);
-			mappedRows = mapRowsToTs(tableIndex, table, rows);
+			if (dialect.supportsReturning) {
+				const returning = returnRows
+					? selectCols
+					: dialect.quoteIdentifier(primaryKeySqlName(table));
+				const rows = await runQuery(
+					executor,
+					runtime,
+					{ operation: "update", tableAccessor },
+					`${query} RETURNING ${returning}`,
+					[...values, ...whereParams],
+				);
+				mappedRows = mapRowsToTs(tableIndex, table, rows);
+			} else {
+				mappedRows = await fetchRowsByWhere(
+					executor,
+					runtime,
+					table,
+					tableAccessor,
+					whereSql,
+					whereParams,
+					"select",
+				);
+				await runExecute(
+					executor,
+					runtime,
+					{ operation: "update", tableAccessor },
+					query,
+					[...values, ...whereParams],
+				);
+				if (returnRows && mappedRows.length > 0) {
+					const pkTs = table.columns.find((c) => c.primary)?.tsName;
+					if (pkTs) {
+						const pkValues = mappedRows
+							.map((row) => row[pkTs])
+							.filter((value) => value != null);
+						const col = dialect.quoteIdentifier(
+							table.columns.find((c) => c.tsName === pkTs)
+								?.sqlName ?? pkTs,
+						);
+						const placeholders = pkValues
+							.map((_, i) => `$${i + 1}`)
+							.join(", ");
+						mappedRows = await fetchRowsByWhere(
+							executor,
+							runtime,
+							table,
+							tableAccessor,
+							`WHERE ${col} IN (${placeholders})`,
+							pkValues,
+							"update",
+						);
+					}
+				}
+			}
 			if (needsPostRelationWrites) {
 				parentIds = mappedRows.map((row) =>
 					rowScalarPkValue(row, table),
@@ -409,8 +499,8 @@ async function runUpdateMany(
 	} else {
 		const selectList = returnRows
 			? selectCols
-			: quoteIdentifier(primaryKeySqlName(table));
-		let selectSql = `SELECT ${selectList} FROM ${tableRef(table)}`;
+			: dialect.quoteIdentifier(primaryKeySqlName(table));
+		let selectSql = `SELECT ${selectList} FROM ${dialect.tableRef(table)}`;
 		if (whereSql) selectSql += ` ${whereSql}`;
 		const rows = await runQuery(
 			executor,
@@ -499,14 +589,52 @@ async function runUpdateManyScalar(
 		ops,
 	);
 	if (returnRows) {
-		const rows = await runQuery(
+		if (dialect.supportsReturning) {
+			const rows = await runQuery(
+				executor,
+				runtime,
+				{ operation: "update", tableAccessor },
+				`${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex, undefined, undefined, dialect)}`,
+				[...values, ...whereParams],
+			);
+			return mapRowsToTs(tableIndex, table, rows);
+		}
+		const preRows = await fetchRowsByWhere(
+			executor,
+			runtime,
+			table,
+			tableAccessor,
+			whereSql,
+			whereParams,
+			"select",
+		);
+		await runExecute(
 			executor,
 			runtime,
 			{ operation: "update", tableAccessor },
-			`${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex)}`,
+			query,
 			[...values, ...whereParams],
 		);
-		return mapRowsToTs(tableIndex, table, rows);
+		const pkTs = table.columns.find((c) => c.primary)?.tsName;
+		if (pkTs && preRows.length > 0) {
+			const pkValues = preRows
+				.map((row) => row[pkTs])
+				.filter((value) => value != null);
+			const col = dialect.quoteIdentifier(
+				table.columns.find((c) => c.tsName === pkTs)?.sqlName ?? pkTs,
+			);
+			const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+			return fetchRowsByWhere(
+				executor,
+				runtime,
+				table,
+				tableAccessor,
+				`WHERE ${col} IN (${placeholders})`,
+				pkValues,
+				"update",
+			);
+		}
+		return preRows;
 	}
 	const { rowCount } = await runExecute(
 		executor,

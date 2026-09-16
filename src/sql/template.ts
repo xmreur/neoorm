@@ -34,6 +34,21 @@ function scanSingleQuoted(sql: string, start: number): number {
 	return sql.length;
 }
 
+function scanBacktickQuoted(sql: string, start: number): number {
+	let i = start + 1;
+	while (i < sql.length) {
+		if (sql[i] === "`") {
+			if (sql[i + 1] === "`") {
+				i += 2;
+				continue;
+			}
+			return i + 1;
+		}
+		i++;
+	}
+	return sql.length;
+}
+
 function scanDoubleQuoted(sql: string, start: number): number {
 	let i = start + 1;
 	while (i < sql.length) {
@@ -80,6 +95,12 @@ export function rebaseParamRefs(sql: string, offset: number): string {
 		}
 		if (ch === '"') {
 			const end = scanDoubleQuoted(sql, i);
+			result += sql.slice(i, end);
+			i = end;
+			continue;
+		}
+		if (ch === "`") {
+			const end = scanBacktickQuoted(sql, i);
 			result += sql.slice(i, end);
 			i = end;
 			continue;

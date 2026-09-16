@@ -3,7 +3,7 @@
   <strong>NeoOrm</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
   Schema → codegen → typed client — you own the SQL, we handle the boilerplate.
 
-  PostgreSQL and SQLite dialects ship today &mdash; MySQL and others are on the roadmap.
+  PostgreSQL, SQLite, and MySQL 8 dialects ship today.
 </p>
 
 <p>
@@ -19,9 +19,10 @@
 ```
 bun add neoorm pg        # PostgreSQL
 bun add neoorm           # SQLite (no extra driver needed)
+bun add neoorm mysql2    # MySQL 8
 ```
 
-Requires **Node.js 22.5+** or **Bun** (SQLite uses built-in `node:sqlite` / `bun:sqlite`; see [SQLite](docs/sqlite.md)).
+Requires **Node.js 22.5+** or **Bun** (SQLite uses built-in `node:sqlite` / `bun:sqlite`; see [SQLite](docs/sqlite.md). MySQL needs `mysql2`; see [MySQL](docs/mysql.md)).
 
 ---
 
@@ -34,7 +35,7 @@ Most ORMs force you to learn their query language, fight their type system, or s
 - **Schema as code** — one source of truth for types and the database
 - **Generated client** — zero-cost abstractions, full autocomplete
 - **Relations done right** — nested reads, writes, and filters without N+1 footguns
-- **PostgreSQL powered** — arrays, JSONB, PostGIS, enums, full-text, extensions — no abstraction layer that gets in the way. SQLite ships too for local dev and single-file deployments; MySQL and more are coming.
+- **PostgreSQL powered** — arrays, JSONB, PostGIS, enums, full-text, extensions — no abstraction layer that gets in the way. SQLite ships for local dev and single-file deployments; MySQL 8 ships via optional `mysql2`.
 - **Migrations built-in** — diff your schema, get SQL, deploy. Rollback supported.
 
 ---
@@ -114,6 +115,7 @@ const posts = await db.posts.findMany({
 | [Documentation site](docs/getting-started.md) | Run `neoorm docs` for a local docs browser |
 | [Configuration](docs/configuration.md) | Config file options reference |
 | [SQLite](docs/sqlite.md) | SQLite dialect, drivers, type mapping, limitations |
+| [MySQL](docs/mysql.md) | MySQL 8 dialect, mysql2, type mapping, limitations |
 | [Plugins](docs/plugins.md) | PostGIS, citext, custom plugins |
 
 See [Getting started](docs/getting-started.md) and [Examples](docs/examples.md) to begin, or the [blog example](examples/blog/schema.ts) for a full schema and [queries.example.ts](examples/blog/queries.example.ts) for typed queries and mutations.
@@ -139,7 +141,7 @@ NeoOrm was built because existing TypeScript ORMs either sacrificed type safety 
 - **Schema is the source of truth** — not decorators, not reflection, not a proprietary DSL. Your schema file is plain TypeScript.
 - **Generated code is a compile-time artifact** — no runtime dependency on the schema. Swap the schema, regenerate, everything still compiles.
 - **SQL is not hidden** — the client compiles to parameterized SQL that you can inspect. No magic, no surprises.
-- **PostgreSQL and SQLite first** — we ship Postgres and SQLite dialects and lean into each one's strengths. MySQL and other dialects are on the roadmap and will slot into the same architecture.
+- **PostgreSQL, SQLite, and MySQL first** — we ship Postgres, SQLite, and MySQL 8 dialects and lean into each one's strengths.
 
 ---
 

@@ -100,8 +100,8 @@ export async function findOrCreateRecord(
 	const createData = { ...args.create, ...uniqueWhere };
 	fillMissingPrimaryKeys(table, createData, tableIndex);
 
-	if (dialect.name === "sqlite") {
-		return findOrCreateSqlite(
+	if (!dialect.supportsXmax) {
+		return findOrCreateWithoutReturning(
 			executor,
 			runtime,
 			tableAccessor,
@@ -149,7 +149,7 @@ export async function findOrCreateRecord(
 	);
 }
 
-async function findOrCreateSqlite(
+async function findOrCreateWithoutReturning(
 	executor: Executor,
 	runtime: QueryRuntime,
 	tableAccessor: string,

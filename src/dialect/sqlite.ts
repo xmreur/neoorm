@@ -171,7 +171,7 @@ function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols})${where};`;
 }
 
-function emitDropIndex(indexName: string): string {
+function emitDropIndex(indexName: string, _tableSqlName?: string): string {
 	return `DROP INDEX IF EXISTS ${q(indexName)};`;
 }
 
@@ -327,6 +327,8 @@ const whereOperators: OperatorMap = {
 
 export const sqliteDialect: Dialect = {
 	name: "sqlite",
+	supportsReturning: true,
+	supportsXmax: false,
 	quoteIdentifier: q,
 	tableRef: (table) => q(table.sqlName),
 	columnType: sqliteColumnType,
@@ -349,7 +351,11 @@ export const sqliteDialect: Dialect = {
 			code: QueryErrorCode.unsupported_operation,
 		});
 	},
+	insertIgnoreModifier: () => "",
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
+	upsertConflictSql: (conflictCols, setClauses) =>
+		`ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`,
+	excludedRef: (quotedCol) => `excluded.${quotedCol}`,
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -370,5 +376,8 @@ export const sqliteDialect: Dialect = {
 	},
 	jsonAggExpr(expr) {
 		return `json_group_array(json(${expr}))`;
+	},
+	jsonAggFilterExpr(expr, predicate) {
+		return `json_group_array(json(${expr})) FILTER (WHERE ${predicate})`;
 	},
 };

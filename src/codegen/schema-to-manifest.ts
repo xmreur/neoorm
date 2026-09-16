@@ -1,5 +1,6 @@
 import {
 	type DatabaseProvider,
+	isMysqlProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
 import { parseFkTarget } from "../dialect/fk.js";
@@ -59,6 +60,8 @@ export type SchemaToManifestOptions = {
 	provider?: DatabaseProvider;
 	url?: string;
 };
+
+const POSTGIS_COLUMN_KINDS = new Set(["geometry", "geography", "point"]);
 
 function buildEnumCheckExpression(
 	sqlName: string,
@@ -254,12 +257,14 @@ function compileIndexWhere(
 	for (const [tsName, value] of Object.entries(where)) {
 		const col = requireColumnDef(columns, tsName);
 		const sqlName = resolveSqlName(tsName, col, columnNaming);
-		const quoted = `"${sqlName.replace(/"/g, '""')}"`;
+		const quoted = isMysqlProvider(provider)
+			? `\`${sqlName.replace(/`/g, "``")}\``
+			: `"${sqlName.replace(/"/g, '""')}"`;
 		if (value === null) {
 			parts.push(`${quoted} IS NULL`);
 		} else if (typeof value === "boolean") {
 			parts.push(
-				isSqliteProvider(provider)
+				isSqliteProvider(provider) || isMysqlProvider(provider)
 					? `${quoted} = ${value ? 1 : 0}`
 					: `${quoted} = ${value}`,
 			);
@@ -332,6 +337,12 @@ function columnToManifest(
 	const meta = col._meta;
 	if ("updatedAt" in meta && meta.updatedAt === true) {
 		validateUpdatedAtColumn(tsName, meta.kind);
+	}
+	if (isMysqlProvider(provider) && POSTGIS_COLUMN_KINDS.has(meta.kind)) {
+		throw schemaError(
+			"invalid_column",
+			`PostGIS column kind "${meta.kind}" is not supported on MySQL`,
+		);
 	}
 	const result: ManifestColumn = {
 		tsName,
@@ -436,6 +447,12 @@ function extrasToManifest(
 				unique: extra.unique,
 			};
 			if (wherePredicate) {
+				if (isMysqlProvider(provider)) {
+					throw schemaError(
+						"invalid_column",
+						"MySQL does not support partial indexes (index({ where }))",
+					);
+				}
 				index.whereSql = compileIndexWhere(
 					wherePredicate,
 					columns,

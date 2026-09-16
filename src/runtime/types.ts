@@ -539,6 +539,12 @@ export type TypedNeoOrmClient<
 		strings: TemplateStringsArray,
 		...values: unknown[]
 	): Promise<T[]>;
+	/** Dialect-aware identifier quoting for interpolating into {@link TypedNeoOrmClient.sql}. */
+	sqlId(name: string): {
+		readonly _kind: "fragment";
+		readonly text: string;
+		readonly params: readonly unknown[];
+	};
 	execute(query: {
 		text: string;
 		params: unknown[];

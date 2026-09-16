@@ -402,7 +402,7 @@ function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols})${where};`;
 }
 
-function emitDropIndex(indexName: string): string {
+function emitDropIndex(indexName: string, _tableSqlName?: string): string {
 	return `DROP INDEX IF EXISTS ${q(indexName)};`;
 }
 
@@ -592,6 +592,8 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 
 export const postgresDialect: Dialect = {
 	name: "postgresql",
+	supportsReturning: true,
+	supportsXmax: true,
 	quoteIdentifier: q,
 	tableRef,
 	columnType,
@@ -611,7 +613,11 @@ export const postgresDialect: Dialect = {
 	ilike: (col, i) => `${col} ILIKE $${i}`,
 	regex: (col, i, insensitive) =>
 		insensitive ? `${col} ~* $${i}` : `${col} ~ $${i}`,
+	insertIgnoreModifier: () => "",
 	onConflictDoNothing: () => "ON CONFLICT DO NOTHING",
+	upsertConflictSql: (conflictCols, setClauses) =>
+		`ON CONFLICT (${conflictCols}) DO UPDATE SET ${setClauses}`,
+	excludedRef: (quotedCol) => `excluded.${quotedCol}`,
 	defaultNowExpression,
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -625,5 +631,8 @@ export const postgresDialect: Dialect = {
 	},
 	jsonAggExpr(expr) {
 		return `json_agg(${expr})`;
+	},
+	jsonAggFilterExpr(expr, predicate) {
+		return `json_agg(${expr}) FILTER (WHERE ${predicate})`;
 	},
 };

@@ -1,8 +1,4 @@
-import {
-	postgresDialect,
-	quoteIdentifier,
-	tableRef,
-} from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -158,7 +154,7 @@ function buildSetExpression(
 	op: AtomicUpdateOp = "set",
 	dialect: Dialect = postgresDialect,
 ): string {
-	const sqlCol = quoteIdentifier(col?.sqlName ?? "");
+	const sqlCol = dialect.quoteIdentifier(col?.sqlName ?? "");
 	const placeholder = buildValuePlaceholder(col, paramIndex);
 
 	switch (op) {
@@ -197,7 +193,7 @@ export function buildUpsertQuery(
 ): string {
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
-		return quoteIdentifier(col?.sqlName ?? k);
+		return dialect.quoteIdentifier(col?.sqlName ?? k);
 	});
 	const insertPlaceholders = insertKeys
 		.map((k, i) => {
@@ -205,10 +201,17 @@ export function buildUpsertQuery(
 			return buildValuePlaceholder(col, i + 1);
 		})
 		.join(", ");
-	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
+	const selectCols = buildSelectColumns(
+		table,
+		undefined,
+		manifestIndex,
+		undefined,
+		undefined,
+		dialect,
+	);
 
 	const conflictCols = conflictSqlColumns
-		.map((c) => quoteIdentifier(c))
+		.map((c) => dialect.quoteIdentifier(c))
 		.join(", ");
 
 	let nextParam = insertKeys.length + 1;
@@ -216,10 +219,10 @@ export function buildUpsertQuery(
 		updateKeys.length > 0
 			? updateKeys.map((k, i) => {
 					const col = colByTs(table, k, manifestIndex);
-					const sqlCol = quoteIdentifier(col?.sqlName ?? k);
+					const sqlCol = dialect.quoteIdentifier(col?.sqlName ?? k);
 					const op = updateOps?.[i] ?? "set";
 					if (op === "set") {
-						return `${sqlCol} = excluded.${sqlCol}`;
+						return `${sqlCol} = ${dialect.excludedRef(sqlCol)}`;
 					}
 					const expr = buildSetExpression(
 						col,
@@ -232,14 +235,17 @@ export function buildUpsertQuery(
 				})
 			: exprSets.length === 0
 				? conflictSqlColumns.map((c) => {
-						const sqlCol = quoteIdentifier(c);
-						return `${sqlCol} = excluded.${sqlCol}`;
+						const sqlCol = dialect.quoteIdentifier(c);
+						return `${sqlCol} = ${dialect.excludedRef(sqlCol)}`;
 					})
 				: [];
 
 	const allUpdateSets = [...updateSets, ...exprSets];
 
-	return `INSERT INTO ${tableRef(table)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${allUpdateSets.join(", ")} RETURNING ${selectCols}`;
+	const returning = dialect.supportsReturning
+		? ` RETURNING ${selectCols}`
+		: "";
+	return `INSERT INTO ${dialect.tableRef(table)} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ${dialect.upsertConflictSql(conflictCols, allUpdateSets.join(", "))}${returning}`;
 }
 
 export const FIND_OR_CREATE_FLAG = "__neoorm_created";
@@ -251,6 +257,7 @@ export function buildFindOrCreateQuery(
 	manifestIndex?: ManifestIndex,
 	select?: readonly string[],
 	includeHidden?: boolean,
+	dialect: Dialect = postgresDialect,
 ): string {
 	if (conflictSqlColumns.length === 0) {
 		compileError("findOrCreate requires a unique conflict target");
@@ -258,7 +265,7 @@ export function buildFindOrCreateQuery(
 
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
-		return quoteIdentifier(col?.sqlName ?? k);
+		return dialect.quoteIdentifier(col?.sqlName ?? k);
 	});
 	const insertPlaceholders = insertKeys
 		.map((k, i) => {
@@ -271,20 +278,22 @@ export function buildFindOrCreateQuery(
 		select,
 		manifestIndex,
 		includeHidden,
+		undefined,
+		dialect,
 	);
 	const conflictCols = conflictSqlColumns
-		.map((c) => quoteIdentifier(c))
+		.map((c) => dialect.quoteIdentifier(c))
 		.join(", ");
 	const noOpSets = conflictSqlColumns.map((c) => {
-		const sqlCol = quoteIdentifier(c);
-		return `${sqlCol} = excluded.${sqlCol}`;
+		const sqlCol = dialect.quoteIdentifier(c);
+		return `${sqlCol} = ${dialect.excludedRef(sqlCol)}`;
 	});
-	const tableSql = tableRef(table);
+	const tableSql = dialect.tableRef(table);
 
 	// No-op DO UPDATE so RETURNING always yields the conflict row. A follow-up
 	// SELECT (UNION) can miss a concurrent insert under REPEATABLE READ /
 	// SERIALIZABLE. xmax = 0 is the inserted tuple; a locked/updated row is not.
-	return `INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ON CONFLICT (${conflictCols}) DO UPDATE SET ${noOpSets.join(", ")} RETURNING ${selectCols}, (xmax = 0) AS "${FIND_OR_CREATE_FLAG}"`;
+	return `INSERT INTO ${tableSql} (${insertCols.join(", ")}) VALUES (${insertPlaceholders}) ${dialect.upsertConflictSql(conflictCols, noOpSets.join(", "))} RETURNING ${selectCols}, (xmax = 0) AS ${dialect.quoteIdentifier(FIND_OR_CREATE_FLAG)}`;
 }
 
 export type InsertReturning = "full" | "pk" | "none";
@@ -309,6 +318,7 @@ export function buildInsertQuery(
 	dataKeys: string[],
 	manifestIndex?: ManifestIndex,
 	returning: InsertReturning = "pk",
+	dialect: Dialect = postgresDialect,
 ): string {
 	if (dataKeys.length === 0) {
 		compileError("Cannot build INSERT query with no columns");
@@ -318,7 +328,7 @@ export function buildInsertQuery(
 
 	const cols = orderedKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
-		return quoteIdentifier(col?.sqlName ?? k);
+		return dialect.quoteIdentifier(col?.sqlName ?? k);
 	});
 	const placeholders = orderedKeys
 		.map((k, i) => {
@@ -327,14 +337,21 @@ export function buildInsertQuery(
 		})
 		.join(", ");
 
-	const sql = `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders})`;
-	if (returning === "none") return sql;
+	const sql = `INSERT INTO ${dialect.tableRef(table)} (${cols.join(", ")}) VALUES (${placeholders})`;
+	if (returning === "none" || !dialect.supportsReturning) return sql;
 
 	const effectiveReturning = resolveReturning(table, returning);
 	const returningCols =
 		effectiveReturning === "full"
-			? buildSelectColumns(table, undefined, manifestIndex)
-			: buildReturningPkColumns(table, manifestIndex);
+			? buildSelectColumns(
+					table,
+					undefined,
+					manifestIndex,
+					undefined,
+					undefined,
+					dialect,
+				)
+			: buildReturningPkColumns(table, manifestIndex, dialect);
 	return `${sql} RETURNING ${returningCols}`;
 }
 
@@ -344,14 +361,21 @@ export function getCachedInsertQuery(
 	dataKeys: string[],
 	returning: InsertReturning,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const orderedKeys = [...dataKeys].sort();
-	const cacheKey = `${sortedKeysCacheKey(orderedKeys)}:${returning}`;
+	const cacheKey = `${dialect.name}:${sortedKeysCacheKey(orderedKeys)}:${returning}`;
 	if (!tableIndex) {
-		return buildInsertQuery(table, orderedKeys, manifestIndex, returning);
+		return buildInsertQuery(
+			table,
+			orderedKeys,
+			manifestIndex,
+			returning,
+			dialect,
+		);
 	}
 	return getOrSetSqlCache(tableIndex.insertSqlByKeys, cacheKey, () =>
-		buildInsertQuery(table, orderedKeys, manifestIndex, returning),
+		buildInsertQuery(table, orderedKeys, manifestIndex, returning, dialect),
 	);
 }
 
@@ -406,12 +430,26 @@ export function buildInsertManyQuery(
 
 	const cols = dataKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
-		return quoteIdentifier(col?.sqlName ?? k);
+		return dialect.quoteIdentifier(col?.sqlName ?? k);
 	});
-	const selectCols = buildSelectColumns(table, undefined, manifestIndex);
-	const conflict = skipDuplicates ? ` ${dialect.onConflictDoNothing()}` : "";
+	const selectCols = buildSelectColumns(
+		table,
+		undefined,
+		manifestIndex,
+		undefined,
+		undefined,
+		dialect,
+	);
+	const ignore = skipDuplicates ? dialect.insertIgnoreModifier() : "";
+	const conflict =
+		skipDuplicates && dialect.onConflictDoNothing()
+			? ` ${dialect.onConflictDoNothing()}`
+			: "";
+	const returning = dialect.supportsReturning
+		? ` RETURNING ${selectCols}`
+		: "";
 
-	return `INSERT INTO ${tableRef(table)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")}${conflict} RETURNING ${selectCols}`;
+	return `INSERT ${ignore}INTO ${dialect.tableRef(table)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")}${conflict}${returning}`;
 }
 
 export type UpdateReturning = "full" | "pk" | "none";
@@ -435,30 +473,38 @@ export function buildUpdateQuery(
 	const sets = [...paramSets, ...exprSets];
 	const whereOffset = ordered.keys.length;
 
-	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
+	let sql = `UPDATE ${dialect.tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
 		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
 	}
-	if (returning === "none") return sql;
+	if (returning === "none" || !dialect.supportsReturning) return sql;
 
 	const effectiveReturning = resolveReturning(table, returning);
 	const returningCols =
 		effectiveReturning === "full"
-			? buildSelectColumns(table, undefined, manifestIndex)
-			: buildReturningPkColumns(table, manifestIndex);
+			? buildSelectColumns(
+					table,
+					undefined,
+					manifestIndex,
+					undefined,
+					undefined,
+					dialect,
+				)
+			: buildReturningPkColumns(table, manifestIndex, dialect);
 	return `${sql} RETURNING ${returningCols}`;
 }
 
 export function buildReturningPkColumns(
 	table: ManifestTable,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	return table.primaryKey
 		.map((sqlName) => {
 			const col = columnBySqlName(tableIndex, table, sqlName);
-			return quoteIdentifier(col?.sqlName ?? sqlName);
+			return dialect.quoteIdentifier(col?.sqlName ?? sqlName);
 		})
 		.join(", ");
 }
@@ -468,23 +514,34 @@ export function buildDeleteQuery(
 	whereSql: string,
 	returning: "full" | "pk",
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const effectiveReturning = resolveReturning(table, returning);
 	const selectCols =
 		effectiveReturning === "full"
-			? buildSelectColumns(table, undefined, manifestIndex)
-			: buildReturningPkColumns(table, manifestIndex);
-	let sql = `DELETE FROM ${tableRef(table)}`;
+			? buildSelectColumns(
+					table,
+					undefined,
+					manifestIndex,
+					undefined,
+					undefined,
+					dialect,
+				)
+			: buildReturningPkColumns(table, manifestIndex, dialect);
+	let sql = `DELETE FROM ${dialect.tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
-	sql += ` RETURNING ${selectCols}`;
+	if (dialect.supportsReturning) {
+		sql += ` RETURNING ${selectCols}`;
+	}
 	return sql;
 }
 
 export function buildDeleteManyQuery(
 	table: ManifestTable,
 	whereSql: string,
+	dialect: Dialect = postgresDialect,
 ): string {
-	let sql = `DELETE FROM ${tableRef(table)}`;
+	let sql = `DELETE FROM ${dialect.tableRef(table)}`;
 	if (whereSql) sql += ` ${whereSql}`;
 	return sql;
 }
@@ -507,7 +564,7 @@ export function buildUpdateManyQuery(
 	const sets = [...paramSets, ...exprSets];
 	const whereOffset = ordered.keys.length;
 
-	let sql = `UPDATE ${tableRef(table)} SET ${sets.join(", ")}`;
+	let sql = `UPDATE ${dialect.tableRef(table)} SET ${sets.join(", ")}`;
 	if (whereSql) {
 		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
@@ -558,13 +615,14 @@ export function getCachedDeleteManyQuery(
 	tableIndex: TableIndex | undefined,
 	table: ManifestTable,
 	whereSql: string,
+	dialect: Dialect = postgresDialect,
 ): string {
-	const cacheKey = whereSql || "";
-	if (!tableIndex) return buildDeleteManyQuery(table, whereSql);
+	const cacheKey = `${dialect.name}|${whereSql || ""}`;
+	if (!tableIndex) return buildDeleteManyQuery(table, whereSql, dialect);
 	return getOrSetSqlCache(
 		tableIndex.deleteManySqlByWhereShape,
 		cacheKey,
-		() => buildDeleteManyQuery(table, whereSql),
+		() => buildDeleteManyQuery(table, whereSql, dialect),
 	);
 }
 

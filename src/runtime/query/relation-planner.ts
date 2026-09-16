@@ -1,4 +1,4 @@
-import { quoteIdentifier, tableRef } from "../../dialect/postgres.js";
+import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
 	Manifest,
@@ -166,17 +166,18 @@ function toInlineSpec(withInput: WithInput): InlineRelationSpec | undefined {
 	return typeof withInput === "object" ? withInput : undefined;
 }
 
-function parentPkRef(parentTable: ManifestTable): string {
+function parentPkRef(parentTable: ManifestTable, dialect: Dialect): string {
 	const { sqlName } = requireScalarPrimaryKey(parentTable);
-	return `${tableRef(parentTable)}.${quoteIdentifier(sqlName)}`;
+	return `${dialect.tableRef(parentTable)}.${dialect.quoteIdentifier(sqlName)}`;
 }
 
 function parentPkRefForAlias(
 	parentTable: ManifestTable,
 	parentAlias: string,
+	dialect: Dialect,
 ): string {
 	const { sqlName } = requireScalarPrimaryKey(parentTable);
-	return `${quoteIdentifier(parentAlias)}.${quoteIdentifier(sqlName)}`;
+	return `${dialect.quoteIdentifier(parentAlias)}.${dialect.quoteIdentifier(sqlName)}`;
 }
 
 function columnsForInlineSelect(
@@ -289,10 +290,10 @@ function tryBuildCountAggregatePlan(
 		if (!isSimpleCountSpec(spec)) return undefined;
 	}
 
-	const parentRef = tableRef(parentTable);
+	const parentRef = dialect.tableRef(parentTable);
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	const groupByCols = parentTable.columns.map(
-		(col) => `${parentRef}.${quoteIdentifier(col.sqlName)}`,
+		(col) => `${parentRef}.${dialect.quoteIdentifier(col.sqlName)}`,
 	);
 
 	const joins: string[] = [];
@@ -316,18 +317,18 @@ function tryBuildCountAggregatePlan(
 
 		if (joins.length === 0) {
 			const targetAlias = `_cnt_${relationName}`;
-			const fkCol = quoteIdentifier(relation.fkSqlColumn);
-			const parentPkCol = quoteIdentifier(
+			const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
+			const parentPkCol = dialect.quoteIdentifier(
 				requireScalarPrimaryKey(parentTable).sqlName,
 			);
-			const targetPkCol = quoteIdentifier(
+			const targetPkCol = dialect.quoteIdentifier(
 				targetRelationPkSql(targetTable, relation),
 			);
 			joins.push(
-				`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
+				`LEFT JOIN ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(targetAlias)} ON ${dialect.quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
 			);
 			selectCols.push(
-				`${dialect.castToInt(`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol})`)} AS ${quoteIdentifier(inlineCountColumnAlias(relationName))}`,
+				`${dialect.castToInt(`COUNT(${dialect.quoteIdentifier(targetAlias)}.${targetPkCol})`)} AS ${dialect.quoteIdentifier(inlineCountColumnAlias(relationName))}`,
 			);
 		} else {
 			selectCols.push(
@@ -389,14 +390,14 @@ function tryBuildHasManyAggregatePlan(
 ): HasManyAggregatePlan | undefined {
 	if (chains.length === 0) return undefined;
 
-	const parentRef = tableRef(parentTable);
+	const parentRef = dialect.tableRef(parentTable);
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
-	const parentPkCol = quoteIdentifier(
+	const parentPkCol = dialect.quoteIdentifier(
 		requireScalarPrimaryKey(parentTable).sqlName,
 	);
 
 	const groupByCols = parentTable.columns.map(
-		(col) => `${parentRef}.${quoteIdentifier(col.sqlName)}`,
+		(col) => `${parentRef}.${dialect.quoteIdentifier(col.sqlName)}`,
 	);
 	groupByCols.push(
 		...groupByExpressionsFromJoinSelectCols(toOneJoins.selectCols),
@@ -413,14 +414,14 @@ function tryBuildHasManyAggregatePlan(
 	if (!targetTable) return undefined;
 
 	const targetAlias = `_hm_${relationName}`;
-	const fkCol = quoteIdentifier(relation.fkSqlColumn);
-	const targetPkCol = quoteIdentifier(
+	const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
+	const targetPkCol = dialect.quoteIdentifier(
 		targetRelationPkSql(targetTable, relation),
 	);
 
 	const joins = [
 		...toOneJoins.joins,
-		`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(targetAlias)} ON ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
+		`LEFT JOIN ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(targetAlias)} ON ${dialect.quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}.${parentPkCol}`,
 	];
 
 	const rowExpr = buildHasManyRowExpression(
@@ -430,7 +431,7 @@ function tryBuildHasManyAggregatePlan(
 		manifestIndex,
 	);
 	const selectCols = [
-		`COALESCE(${dialect.jsonAggExpr(rowExpr)} FILTER (WHERE ${quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL), '[]') AS ${quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
+		`COALESCE(${dialect.jsonAggFilterExpr(rowExpr, `${dialect.quoteIdentifier(targetAlias)}.${targetPkCol} IS NOT NULL`)}, '[]') AS ${dialect.quoteIdentifier(inlineRelationColumnAlias(relationName))}`,
 	];
 
 	return {
@@ -445,6 +446,7 @@ function buildJoinClauses(
 	manifest: Manifest,
 	parentTable: ManifestTable,
 	withSpec: Record<string, WithInput>,
+	dialect: Dialect,
 	manifestIndex?: ManifestIndex,
 ): { joins: string[]; selectCols: string[]; joinedRelations: Set<string> } {
 	const joins: string[] = [];
@@ -473,14 +475,14 @@ function buildJoinClauses(
 		if (!targetTable) continue;
 
 		const alias = `__${relationName}`;
-		const parentFkCol = quoteIdentifier(relation.fkSqlColumn);
-		const targetPkCol = quoteIdentifier(
+		const parentFkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
+		const targetPkCol = dialect.quoteIdentifier(
 			targetRelationPkSql(targetTable, relation),
 		);
-		const onClause = `${quoteIdentifier(alias)}.${targetPkCol} = ${tableRef(parentTable)}.${parentFkCol}`;
+		const onClause = `${dialect.quoteIdentifier(alias)}.${targetPkCol} = ${dialect.tableRef(parentTable)}.${parentFkCol}`;
 
 		joins.push(
-			`LEFT JOIN ${tableRef(targetTable)} AS ${quoteIdentifier(alias)} ON ${onClause}`,
+			`LEFT JOIN ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(alias)} ON ${onClause}`,
 		);
 
 		const targetTableIndex = getTableIndex(
@@ -501,7 +503,7 @@ function buildJoinClauses(
 		for (const col of targetCols) {
 			const prefixedName = `__${relationName}__${col.sqlName}`;
 			selectCols.push(
-				`${quoteIdentifier(alias)}.${quoteIdentifier(col.sqlName)} AS ${quoteIdentifier(prefixedName)}`,
+				`${dialect.quoteIdentifier(alias)}.${dialect.quoteIdentifier(col.sqlName)} AS ${dialect.quoteIdentifier(prefixedName)}`,
 			);
 		}
 
@@ -521,10 +523,10 @@ function buildToOneScalarSubquery(
 ): string {
 	const { relation, targetTable } = node;
 	const targetAlias = `${parentRowAlias}_rel`;
-	const targetPkCol = quoteIdentifier(
+	const targetPkCol = dialect.quoteIdentifier(
 		targetRelationPkSql(targetTable, relation),
 	);
-	const parentFkCol = quoteIdentifier(relation.fkSqlColumn);
+	const parentFkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
 	const cols = columnsForInlineSelect(
 		targetTable,
 		node.nestedSpec,
@@ -532,12 +534,14 @@ function buildToOneScalarSubquery(
 	);
 	const refs = cols.map(
 		(col) =>
-			`${quoteIdentifier(targetAlias)}.${quoteIdentifier(col.sqlName)}`,
+			`${dialect.quoteIdentifier(targetAlias)}.${dialect.quoteIdentifier(col.sqlName)}`,
 	);
 	const selectList = refs.join(", ");
-	const outerRefs = cols.map((col) => `sub.${quoteIdentifier(col.sqlName)}`);
+	const outerRefs = cols.map(
+		(col) => `sub.${dialect.quoteIdentifier(col.sqlName)}`,
+	);
 
-	let innerWhere = `${quoteIdentifier(targetAlias)}.${targetPkCol} = ${quoteIdentifier(parentRowAlias)}.${parentFkCol}`;
+	let innerWhere = `${dialect.quoteIdentifier(targetAlias)}.${targetPkCol} = ${dialect.quoteIdentifier(parentRowAlias)}.${parentFkCol}`;
 	if (extra && manifest && node.nestedSpec?.where) {
 		innerWhere = appendNestedWhereSql(
 			innerWhere,
@@ -551,7 +555,7 @@ function buildToOneScalarSubquery(
 		);
 	}
 
-	return `(SELECT ${dialect.rowToJsonObject(cols, outerRefs, "sub")} FROM (SELECT ${selectList} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} WHERE ${innerWhere} LIMIT 1) sub)`;
+	return `(SELECT ${dialect.rowToJsonObject(cols, outerRefs, "sub")} FROM (SELECT ${selectList} FROM ${dialect.tableRef(targetTable)} ${dialect.quoteIdentifier(targetAlias)} WHERE ${innerWhere} LIMIT 1) sub)`;
 }
 
 function buildHasManyRowExpression(
@@ -569,7 +573,7 @@ function buildHasManyRowExpression(
 	);
 	const entries = cols.map(
 		(col) =>
-			`'${col.sqlName}', ${quoteIdentifier(rowAlias)}.${quoteIdentifier(col.sqlName)}`,
+			`'${col.sqlName}', ${dialect.quoteIdentifier(rowAlias)}.${dialect.quoteIdentifier(col.sqlName)}`,
 	);
 	if (node.child) {
 		const nested = buildChildAggregationExpr(
@@ -596,7 +600,7 @@ function buildHasManySubqueryFromRef(
 	extra?: ExtraSqlBuild,
 ): string {
 	const childAlias = `_r_${node.relationName}`;
-	const fkCol = quoteIdentifier(node.relation.fkSqlColumn);
+	const fkCol = dialect.quoteIdentifier(node.relation.fkSqlColumn);
 	const rowExpr = buildHasManyRowExpression(
 		node,
 		childAlias,
@@ -606,7 +610,7 @@ function buildHasManySubqueryFromRef(
 		extra,
 	);
 
-	let sql = `(SELECT ${dialect.jsonAggExpr("agg_row")} FROM (SELECT ${rowExpr} AS agg_row FROM ${tableRef(node.targetTable)} ${quoteIdentifier(childAlias)} WHERE ${quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
+	let sql = `(SELECT ${dialect.jsonAggExpr("agg_row")} FROM (SELECT ${rowExpr} AS agg_row FROM ${dialect.tableRef(node.targetTable)} ${dialect.quoteIdentifier(childAlias)} WHERE ${dialect.quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
 
 	if (extra && manifest && node.nestedSpec?.where) {
 		sql = appendNestedWhereSql(
@@ -667,7 +671,11 @@ function buildChildAggregationExpr(
 		node.relation.cardinality === "many" &&
 		!tableOwnsFkColumn(parentTable, node.relation, parentTableIndex)
 	) {
-		const parentRef = parentPkRefForAlias(parentTable, parentRowAlias);
+		const parentRef = parentPkRefForAlias(
+			parentTable,
+			parentRowAlias,
+			dialect,
+		);
 		return buildHasManySubqueryFromRef(
 			node,
 			parentTable,
@@ -692,7 +700,7 @@ export function buildInlineJsonAggSelectCol(
 	manifest?: Manifest,
 	extra?: ExtraSqlBuild,
 ): string {
-	const parentRef = parentPkRef(parentTable);
+	const parentRef = parentPkRef(parentTable, dialect);
 	const subquery = buildHasManySubqueryFromRef(
 		chain,
 		parentTable,
@@ -702,7 +710,7 @@ export function buildInlineJsonAggSelectCol(
 		manifest,
 		extra,
 	);
-	const alias = quoteIdentifier(
+	const alias = dialect.quoteIdentifier(
 		inlineRelationColumnAlias(chain.relationName),
 	);
 	return `${subquery} AS ${alias}`;
@@ -728,12 +736,12 @@ export function buildInlineCountSelectCol(
 		compileError(`Unknown target table for relation: ${relationName}`);
 	}
 
-	const parentRef = parentPkRef(parentTable);
+	const parentRef = parentPkRef(parentTable, dialect);
 	const targetAlias = `_cnt_${relationName}`;
-	const fkCol = quoteIdentifier(relation.fkSqlColumn);
+	const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
 	const whereFilter = typeof spec === "object" ? spec.where : undefined;
 
-	let extraWhere = `WHERE ${quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}`;
+	let extraWhere = `WHERE ${dialect.quoteIdentifier(targetAlias)}.${fkCol} = ${parentRef}`;
 	if (extra && whereFilter) {
 		extraWhere = appendNestedWhereSql(
 			extraWhere,
@@ -761,8 +769,8 @@ export function buildInlineCountSelectCol(
 		}
 	}
 
-	const subquery = `(SELECT ${dialect.castToInt("COUNT(*)")} FROM ${tableRef(targetTable)} ${quoteIdentifier(targetAlias)} ${extraWhere})`;
-	const alias = quoteIdentifier(inlineCountColumnAlias(relationName));
+	const subquery = `(SELECT ${dialect.castToInt("COUNT(*)")} FROM ${dialect.tableRef(targetTable)} ${dialect.quoteIdentifier(targetAlias)} ${extraWhere})`;
+	const alias = dialect.quoteIdentifier(inlineCountColumnAlias(relationName));
 	return `${subquery} AS ${alias}`;
 }
 
@@ -855,6 +863,7 @@ export function planRelationLoad(
 		manifest,
 		parentTable,
 		joinCandidates,
+		dialect,
 		manifestIndex,
 	);
 
@@ -1165,6 +1174,7 @@ export function compileCountOrderBy(
 	orderBy: Record<string, unknown> | undefined,
 	plan: RelationLoadPlan,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): string {
 	if (!orderBy || !plan.countAggregate) return "";
 
@@ -1200,22 +1210,22 @@ export function compileCountOrderBy(
 		if (!targetTable) continue;
 
 		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
-		const joinedAlias = quoteIdentifier(`_cnt_${relationName}`);
+		const joinedAlias = dialect.quoteIdentifier(`_cnt_${relationName}`);
 		const isJoined = plan.countAggregate.joins.some((join) =>
 			join.includes(`AS ${joinedAlias}`),
 		);
 		if (isJoined) {
 			const targetAlias = `_cnt_${relationName}`;
-			const targetPkCol = quoteIdentifier(
+			const targetPkCol = dialect.quoteIdentifier(
 				targetRelationPkSql(targetTable, relation),
 			);
 			parts.push(
-				`COUNT(${quoteIdentifier(targetAlias)}.${targetPkCol}) ${dir}`,
+				`COUNT(${dialect.quoteIdentifier(targetAlias)}.${targetPkCol}) ${dir}`,
 			);
 			continue;
 		}
 		parts.push(
-			`${quoteIdentifier(inlineCountColumnAlias(relationName))} ${dir}`,
+			`${dialect.quoteIdentifier(inlineCountColumnAlias(relationName))} ${dir}`,
 		);
 	}
 
@@ -1339,7 +1349,7 @@ export function getCachedFindByIdWithQuery(
 	const selectKey = parentSelect ? [...parentSelect].sort().join(",") : "";
 	const signature = `${dialect.name}|${withShapeSignature(withSpec)}|corr|${selectKey}`;
 	const { sqlName } = requireScalarPrimaryKey(table);
-	const pkCol = quoteIdentifier(sqlName);
+	const pkCol = dialect.quoteIdentifier(sqlName);
 
 	const build = (): string => {
 		const joinClauses =
@@ -1362,9 +1372,9 @@ export function getCachedFindByIdWithQuery(
 		);
 		let sql = `SELECT ${selectCols}`;
 		if (extraCols.cols.length > 0) sql += `, ${extraCols.cols.join(", ")}`;
-		sql += ` FROM ${tableRef(table)}`;
+		sql += ` FROM ${dialect.tableRef(table)}`;
 		if (joinClauses) sql += ` ${joinClauses.join(" ")}`;
-		sql += ` WHERE ${tableRef(table)}.${pkCol} = $1`;
+		sql += ` WHERE ${dialect.tableRef(table)}.${pkCol} = $1`;
 		const groupBySql = buildAggregateGroupBy(plan);
 		if (groupBySql) sql += ` ${groupBySql}`;
 		return sql;

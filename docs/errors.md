@@ -48,7 +48,7 @@ Type guards (`isUniqueViolation`, `isQueryCompileError`, `isNeoOrmError`, …) a
 
 ## Query error codes
 
-Codes are **dialect-agnostic** — the same `unique_violation` code is used for PostgreSQL and SQLite.
+Codes are **dialect-agnostic** — the same `unique_violation` code is used for PostgreSQL, SQLite, and MySQL.
 
 | Code | Subclass | Typical HTTP | When |
 |------|----------|--------------|------|

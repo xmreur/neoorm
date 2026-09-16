@@ -163,13 +163,91 @@ function compileSqlite(
 	}
 }
 
+function mysqlJsonPath(segments: readonly string[]): string {
+	let path = "$";
+	for (const segment of segments) {
+		if (/^\d+$/.test(segment)) {
+			path += `[${segment}]`;
+			continue;
+		}
+		if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(segment)) {
+			path += `.${segment}`;
+			continue;
+		}
+		path += `."${segment.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+	}
+	return path;
+}
+
+function compileMysql(
+	op: JsonWhereOp,
+	sqlCol: string,
+	value: unknown,
+	startParamIndex: number,
+): { sql: string; params: unknown[] } {
+	switch (op) {
+		case "jsonContains":
+			return {
+				sql: `JSON_CONTAINS(${sqlCol}, CAST($${startParamIndex} AS JSON))`,
+				params: [jsonParam(value)],
+			};
+		case "hasKey":
+			return {
+				sql: `JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', $${startParamIndex}))`,
+				params: [value],
+			};
+		case "hasAnyKeys":
+			return {
+				sql: `EXISTS (SELECT 1 FROM JSON_TABLE($${startParamIndex}, '$[*]' COLUMNS (k VARCHAR(512) PATH '$')) AS jk WHERE JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', jk.k)))`,
+				params: [jsonParam(value)],
+			};
+		case "hasAllKeys":
+			return {
+				sql: `NOT EXISTS (SELECT 1 FROM JSON_TABLE($${startParamIndex}, '$[*]' COLUMNS (k VARCHAR(512) PATH '$')) AS jk WHERE NOT JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', jk.k)))`,
+				params: [jsonParam(value)],
+			};
+		case "path": {
+			const spec = value as PathSpec;
+			const pathLit = mysqlJsonPath(spec.segments);
+			if (spec.jsonContains !== undefined) {
+				return {
+					sql: `JSON_CONTAINS(JSON_EXTRACT(${sqlCol}, $${startParamIndex}), CAST($${startParamIndex + 1} AS JSON))`,
+					params: [pathLit, jsonParam(spec.jsonContains)],
+				};
+			}
+			return {
+				sql: `JSON_UNQUOTE(JSON_EXTRACT(${sqlCol}, $${startParamIndex})) = $${startParamIndex + 1}`,
+				params: [pathLit, spec.equals],
+			};
+		}
+		default: {
+			const _exhaustive: never = op;
+			return _exhaustive;
+		}
+	}
+}
+
 function jsonOperator(op: JsonWhereOp): PluginWhereOperator {
 	return {
 		compile(sqlCol, value, col, startParamIndex, dialect) {
-			if (dialect.name === "sqlite") {
-				return compileSqlite(op, sqlCol, value, startParamIndex);
+			switch (dialect.name) {
+				case "sqlite":
+					return compileSqlite(op, sqlCol, value, startParamIndex);
+				case "mysql":
+					return compileMysql(op, sqlCol, value, startParamIndex);
+				case "postgresql":
+					return compilePostgres(
+						op,
+						sqlCol,
+						value,
+						col,
+						startParamIndex,
+					);
+				default: {
+					const _never: never = dialect.name;
+					return _never;
+				}
 			}
-			return compilePostgres(op, sqlCol, value, col, startParamIndex);
 		},
 	};
 }

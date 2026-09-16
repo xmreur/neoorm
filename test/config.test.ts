@@ -191,8 +191,8 @@ export default {
 	it("rejects unsupported datasource providers", async () => {
 		await withConfigFile(
 			configSource(`{
-    provider: "mysql",
-    url: "mysql://root@localhost/app",
+    provider: "oracle",
+    url: "oracle://localhost/app",
   }`),
 			async (dir) => {
 				await expect(loadConfig(dir)).rejects.toThrow(

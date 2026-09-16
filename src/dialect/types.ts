@@ -192,8 +192,13 @@ export type CreateTableOptions = {
 	manifest?: Manifest;
 };
 
+export type DialectName = "postgresql" | "sqlite" | "mysql";
+
 export type Dialect = {
-	readonly name: string;
+	readonly name: DialectName;
+	readonly supportsReturning: boolean;
+	/** Postgres-only: xmax is used by findOrCreate to distinguish insert vs conflict. */
+	readonly supportsXmax: boolean;
 	quoteIdentifier(name: string): string;
 	tableRef(table: ManifestTable): string;
 	columnType(col: ManifestColumn, manifest?: Manifest): string;
@@ -206,7 +211,7 @@ export type Dialect = {
 	emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
 	emitDropTable(table: ManifestTable): string;
 	emitCreateIndex(table: ManifestTable, index: ManifestIndex): string;
-	emitDropIndex(indexName: string): string;
+	emitDropIndex(indexName: string, tableSqlName?: string): string;
 	emitDropConstraint(tableSqlName: string, constraintName: string): string;
 	emitAlterTable(table: ManifestTable, diff: TableDiff): string[];
 	emitAlterColumn(
@@ -218,7 +223,11 @@ export type Dialect = {
 	whereOperators: OperatorMap;
 	ilike(sqlColumn: string, paramIndex: number): string;
 	regex(sqlColumn: string, paramIndex: number, insensitive: boolean): string;
+	/** Prefix between `INSERT` and `INTO`, e.g. `"IGNORE "` on MySQL. */
+	insertIgnoreModifier(): string;
 	onConflictDoNothing(): string;
+	upsertConflictSql(conflictCols: string, setClauses: string): string;
+	excludedRef(quotedCol: string): string;
 	defaultNowExpression(): string;
 	emitCreateMigrationsTable(tableRef: string): string;
 	castToInt(expr: string): string;
@@ -230,4 +239,5 @@ export type Dialect = {
 	): string;
 	jsonBuildObjectExpr(entries: string[]): string;
 	jsonAggExpr(expr: string): string;
+	jsonAggFilterExpr(expr: string, predicate: string): string;
 };

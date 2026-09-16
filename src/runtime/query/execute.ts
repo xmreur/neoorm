@@ -12,10 +12,12 @@ import {
 import type { QueryOperation } from "../errors.js";
 import {
 	createQueryError,
+	NeoOrmDriverError,
 	NeoOrmQueryError,
 	type QueryErrorContext,
 } from "../errors.js";
 import type { Executor } from "../executor.js";
+import { enrichMysqlError, isMysqlError } from "../mysql-error.js";
 import {
 	emptyReturningContext,
 	enrichPgError,
@@ -82,6 +84,18 @@ async function resolveMigrationHint(
 	}
 }
 
+function unwrapDriverError(err: unknown): unknown {
+	if (err instanceof NeoOrmDriverError) {
+		return err.cause ?? err;
+	}
+	return err;
+}
+
+function isKnownDriverError(err: unknown): boolean {
+	const inner = unwrapDriverError(err);
+	return isSqliteError(inner) || isPgError(inner) || isMysqlError(inner);
+}
+
 function isSchemaDriftCode(code: string): boolean {
 	if (isSchemaDriftPgCode(code)) {
 		return true;
@@ -96,11 +110,15 @@ async function enrichQueryError(
 	err: unknown,
 ): Promise<QueryErrorContext> {
 	const base = queryBaseContext(ctx, sql);
-	if (isSqliteError(err)) {
-		return enrichSqliteError(err, runtime.manifest, base);
+	const inner = unwrapDriverError(err);
+	if (isSqliteError(inner)) {
+		return enrichSqliteError(inner, runtime.manifest, base);
 	}
-	if (isPgError(err)) {
-		return enrichPgError(err, runtime.manifest, base);
+	if (isPgError(inner)) {
+		return enrichPgError(inner, runtime.manifest, base);
+	}
+	if (isMysqlError(inner)) {
+		return enrichMysqlError(inner, runtime.manifest, base);
 	}
 	throw err;
 }
@@ -142,7 +160,7 @@ export async function runQuery<T = Record<string, unknown>>(
 	try {
 		return await executor.query<T>(sql, params);
 	} catch (err) {
-		if (isSqliteError(err) || isPgError(err)) {
+		if (isKnownDriverError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
@@ -156,11 +174,11 @@ export async function runExecute<T = Record<string, unknown>>(
 	ctx: RunQueryContext,
 	sql: string,
 	params: unknown[] = [],
-): Promise<{ rows: T[]; rowCount: number }> {
+): Promise<{ rows: T[]; rowCount: number; insertId?: number | bigint }> {
 	try {
 		return await executor.execute<T>(sql, params);
 	} catch (err) {
-		if (isSqliteError(err) || isPgError(err)) {
+		if (isKnownDriverError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
@@ -213,7 +231,7 @@ export async function runQueryOne<T = Record<string, unknown>>(
 		if (err instanceof NeoOrmQueryError) {
 			throw err;
 		}
-		if (isSqliteError(err) || isPgError(err)) {
+		if (isKnownDriverError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
 			await throwQueryError(runtime, enriched, err);
 		}
