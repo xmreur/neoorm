@@ -135,6 +135,31 @@ describe("mysql dialect", () => {
 		expect(sql).toContain("AUTO_INCREMENT PRIMARY KEY");
 	});
 
+	it("indexes TEXT columns with a prefix length", () => {
+		const schema = defineSchema({
+			posts: table(
+				{
+					id: serial().primary(),
+					title: text().notNull(),
+				},
+				(t) => [index(t.title)],
+			),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const posts = manifest.tables.posts;
+		expect(posts).toBeDefined();
+		if (!posts) return;
+		const titleIdx = posts.indexes.find((i) => i.columns.includes("title"));
+		expect(titleIdx).toBeDefined();
+		if (!titleIdx) return;
+		const sql = mysqlDialect.emitCreateIndex(posts, titleIdx);
+		expect(sql).toBe(
+			"CREATE INDEX `posts_title_idx` ON `posts` (`title`(191));",
+		);
+	});
+
 	it("does not put AUTO_INCREMENT on foreign keys to serial columns", () => {
 		const schema = defineSchema({
 			users: table({

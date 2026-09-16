@@ -41,6 +41,36 @@ function needsIndexedVarchar(col: ManifestColumn): boolean {
 	return col.primary || col.unique === true;
 }
 
+function mysqlStorageTypeNeedsIndexPrefix(typeSql: string): boolean {
+	const normalized = typeSql.toUpperCase();
+	if (normalized.startsWith("VARCHAR(") || normalized.startsWith("CHAR(")) {
+		return false;
+	}
+	return (
+		normalized === "TEXT" ||
+		normalized === "BLOB" ||
+		normalized.endsWith("TEXT") ||
+		normalized.endsWith("BLOB")
+	);
+}
+
+function mysqlIndexColumnExpr(
+	table: ManifestTable,
+	columnSqlName: string,
+	manifest?: Manifest,
+): string {
+	const quoted = q(columnSqlName);
+	const col = table.columns.find((c) => c.sqlName === columnSqlName);
+	if (!col) {
+		return quoted;
+	}
+	const typeSql = mysqlColumnType(col, manifest);
+	if (mysqlStorageTypeNeedsIndexPrefix(typeSql)) {
+		return `${quoted}(${MYSQL_INDEXED_VARCHAR_LENGTH})`;
+	}
+	return quoted;
+}
+
 export function mysqlColumnType(
 	col: ManifestColumn,
 	manifest?: Manifest,
@@ -248,7 +278,9 @@ function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 		});
 	}
 	const indexName = resolveIndexSqlName(table.sqlName, index);
-	const cols = index.columns.map((c) => q(c)).join(", ");
+	const cols = index.columns
+		.map((c) => mysqlIndexColumnExpr(table, c))
+		.join(", ");
 	const unique = index.unique ? "UNIQUE " : "";
 	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols});`;
 }
@@ -340,8 +372,9 @@ function emitAlterColumn(
 
 	if (alter.setUnique === true) {
 		const constraintName = `${table.sqlName}_${alter.sqlName}_key`;
+		const indexedCol = mysqlIndexColumnExpr(table, alter.sqlName, manifest);
 		stmts.push(
-			`ALTER TABLE ${tableName} ADD UNIQUE INDEX ${q(constraintName)} (${colName});`,
+			`ALTER TABLE ${tableName} ADD UNIQUE INDEX ${q(constraintName)} (${indexedCol});`,
 		);
 	}
 
