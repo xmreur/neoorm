@@ -80,6 +80,15 @@ function pgTypeToKind(
 		return "enum";
 	}
 
+	if (dataType === "ARRAY") {
+		const elementUdt = udtName.startsWith("_")
+			? udtName.slice(1)
+			: undefined;
+		if (elementUdt && enumTypes[elementUdt]) {
+			return "enumArray";
+		}
+	}
+
 	const pluginType = findIntrospectColumnType(dataType, udtName);
 	if (pluginType) {
 		return pluginType.kind;
@@ -117,7 +126,12 @@ function parseDefaultValue(
 		if (columnDefault === "false")
 			return { defaultNow: false, defaultValue: false };
 	}
-	if (kind === "int" || kind === "decimal") {
+	if (
+		kind === "int" ||
+		kind === "decimal" ||
+		kind === "real" ||
+		kind === "double"
+	) {
 		const match = columnDefault.match(/^(-?\d+(?:\.\d+)?)/);
 		if (match) {
 			return {
@@ -503,6 +517,18 @@ async function introspectTable(
 				values: enumTypes[col.udt_name],
 				nativeTypeName: col.udt_name,
 			};
+		}
+
+		if (kind === "enumArray") {
+			const elementUdt = col.udt_name.startsWith("_")
+				? col.udt_name.slice(1)
+				: col.udt_name;
+			if (enumTypes[elementUdt]) {
+				column.typeOptions = {
+					values: enumTypes[elementUdt],
+					nativeTypeName: elementUdt,
+				};
+			}
 		}
 
 		return column;

@@ -2,6 +2,10 @@ import { getColumnTypeOrThrow } from "../plugins/registry.js";
 import { compileError } from "../runtime/compile-error.js";
 import { QueryErrorCode } from "../runtime/error-codes.js";
 import {
+	SQLITE_UNSUPPORTED_COLUMN_KINDS,
+	sqliteUnsupportedColumnKindMessage,
+} from "./column-kind-support.js";
+import {
 	columnFkClause,
 	findFkReferencedColumn,
 	parseFkTarget,
@@ -28,6 +32,7 @@ import type {
 } from "./types.js";
 
 const SQLITE_INTEGER_TYPES = new Set(["int", "serial"]);
+const SQLITE_REAL_TYPES = new Set(["real", "double"]);
 const SQLITE_TEXT_TYPES = new Set([
 	"id",
 	"text",
@@ -37,9 +42,18 @@ const SQLITE_TEXT_TYPES = new Set([
 	"decimal",
 	"textArray",
 	"intArray",
+	"uuidArray",
+	"enumArray",
 	"citext",
 	"enum",
 	"timestamp",
+	"date",
+	"time",
+	"interval",
+	"inet",
+	"cidr",
+	"xml",
+	"money",
 ]);
 
 export function sqliteColumnType(
@@ -61,8 +75,17 @@ export function sqliteColumnType(
 		return "TEXT";
 	}
 
+	if (SQLITE_UNSUPPORTED_COLUMN_KINDS.has(col.kind)) {
+		throw compileError(sqliteUnsupportedColumnKindMessage(col.kind), {
+			code: QueryErrorCode.unsupported_operation,
+		});
+	}
+
 	if (SQLITE_INTEGER_TYPES.has(col.kind)) {
 		return "INTEGER";
+	}
+	if (SQLITE_REAL_TYPES.has(col.kind)) {
+		return "REAL";
 	}
 	if (SQLITE_TEXT_TYPES.has(col.kind)) {
 		return "TEXT";

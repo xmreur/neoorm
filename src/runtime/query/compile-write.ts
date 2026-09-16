@@ -50,7 +50,14 @@ const ATOMIC_UPDATE_OPS = new Set<string>([
 	"set",
 ]);
 
-const NUMERIC_UPDATE_KINDS = new Set(["int", "serial", "decimal", "bigint"]);
+const NUMERIC_UPDATE_KINDS = new Set([
+	"int",
+	"serial",
+	"decimal",
+	"bigint",
+	"real",
+	"double",
+]);
 
 function isNumericUpdateKind(kind: string): boolean {
 	return NUMERIC_UPDATE_KINDS.has(kind);

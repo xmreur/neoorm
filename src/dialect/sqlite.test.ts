@@ -80,6 +80,20 @@ describe("sqlite timestamp column type", () => {
 		expect(createdAt?.defaultNow).toBe(true);
 		db.close();
 	});
+
+	it("introspects DATE and REAL declared types distinctly from timestamp and decimal", async () => {
+		const db = new DatabaseSync(":memory:");
+		db.exec(
+			`CREATE TABLE measures (born DATE, ratio REAL, score DOUBLE, amount NUMERIC)`,
+		);
+		const introspected = await introspectSqliteToManifest(sqliteClient(db));
+		const cols = introspected.tables.measures?.columns ?? [];
+		expect(cols.find((c) => c.sqlName === "born")?.kind).toBe("date");
+		expect(cols.find((c) => c.sqlName === "ratio")?.kind).toBe("real");
+		expect(cols.find((c) => c.sqlName === "score")?.kind).toBe("double");
+		expect(cols.find((c) => c.sqlName === "amount")?.kind).toBe("decimal");
+		db.close();
+	});
 });
 
 describe("sqlite indexes", () => {

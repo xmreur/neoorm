@@ -103,9 +103,11 @@ bunx neoorm migrate reset --force
 
 | Schema builder | SQLite storage |
 |----------------|----------------|
-| `id`, `text`, `uuid`, `json`, `jsonb`, `decimal`, `textArray`, `intArray`, `citext`, `enumType` | `TEXT` |
+| `id`, `text`, `uuid`, `json`, `jsonb`, `decimal`, `textArray`, `intArray`, `uuidArray`, `enumArray`, `citext`, `enumType`, `date`, `time`, `interval`, `inet`, `cidr`, `xml`, `money` | `TEXT` |
 | `int`, `serial` | `INTEGER` |
+| `real`, `double` | `REAL` |
 | `bigint` | `TEXT` |
+| `int4Range` … `dateRange` | rejected at schema compile |
 | `serial().primary()` | `INTEGER PRIMARY KEY AUTOINCREMENT` |
 | `bool` | `BOOLEAN` (stored as 0/1) |
 | `timestamp` | `TEXT` (ISO-8601) |
@@ -122,6 +124,7 @@ bunx neoorm migrate reset --force
 | `search` | POSIX `~` / `~*` | JavaScript `RegExp` via `REGEXP` / `regexp_i` |
 | `datasource.schema` | multi-schema | not applicable |
 | `enum: "native"` | `CREATE TYPE ... AS ENUM` | not applicable (TEXT + CHECK) |
+| range types | supported | rejected at schema compile |
 | transaction options (`readOnly`, `isolationLevel`) | `BEGIN READ ONLY` / `ISOLATION LEVEL` | `readOnly` → `PRAGMA query_only`; `RepeatableRead`/`Serializable` → `BEGIN IMMEDIATE`; other isolation → `BEGIN` |
 | JSON operators | `@>`, `?`, `#>` | `json_patch` / `json_each` / `json_extract` |
 

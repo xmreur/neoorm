@@ -158,6 +158,25 @@ export function pgStorageSqlType(
 			return "JSONB";
 		case "numeric":
 			return "NUMERIC";
+		case "real":
+			return "REAL";
+		case "double precision":
+			return "DOUBLE PRECISION";
+		case "date":
+			return "DATE";
+		case "time without time zone":
+		case "time with time zone":
+			return "TIME";
+		case "interval":
+			return "INTERVAL";
+		case "inet":
+			return "INET";
+		case "cidr":
+			return "CIDR";
+		case "xml":
+			return "XML";
+		case "money":
+			return "MONEY";
 		case "bytea":
 			return "BYTEA";
 		case "ARRAY":
@@ -166,6 +185,12 @@ export function pgStorageSqlType(
 			}
 			if (udtName === "_int4") {
 				return "INTEGER[]";
+			}
+			if (udtName === "_uuid") {
+				return "UUID[]";
+			}
+			if (udtName.startsWith("_")) {
+				return `${udtName.slice(1)}[]`;
 			}
 			return "TEXT[]";
 		default:

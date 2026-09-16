@@ -4,6 +4,12 @@ import {
 	isMysqlFamilyProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
+import {
+	MYSQL_UNSUPPORTED_COLUMN_KINDS,
+	mysqlUnsupportedColumnKindMessage,
+	SQLITE_UNSUPPORTED_COLUMN_KINDS,
+	sqliteUnsupportedColumnKindMessage,
+} from "../dialect/column-kind-support.js";
 import { parseFkTarget } from "../dialect/fk.js";
 import { resolveIndexSqlName } from "../dialect/postgres.js";
 import type {
@@ -135,7 +141,7 @@ function finalizeEnumColumns(
 
 	for (const table of Object.values(manifestTables)) {
 		for (const col of table.columns) {
-			if (col.kind !== "enum") {
+			if (col.kind !== "enum" && col.kind !== "enumArray") {
 				continue;
 			}
 
@@ -147,6 +153,9 @@ function finalizeEnumColumns(
 			}
 
 			if (enumMode === "check") {
+				if (col.kind === "enumArray") {
+					continue;
+				}
 				const enumCheck = buildEnumCheckExpression(
 					col.sqlName,
 					values,
@@ -372,6 +381,27 @@ function columnToManifest(
 		throw schemaError(
 			"invalid_column",
 			`PostGIS column kind "${meta.kind}" is not supported on ${isMariadbProvider(provider) ? "MariaDB" : "MySQL"}`,
+		);
+	}
+	if (
+		isMysqlFamilyProvider(provider) &&
+		MYSQL_UNSUPPORTED_COLUMN_KINDS.has(meta.kind)
+	) {
+		throw schemaError(
+			"invalid_column",
+			mysqlUnsupportedColumnKindMessage(
+				meta.kind,
+				isMariadbProvider(provider) ? "MariaDB" : "MySQL",
+			),
+		);
+	}
+	if (
+		isSqliteProvider(provider) &&
+		SQLITE_UNSUPPORTED_COLUMN_KINDS.has(meta.kind)
+	) {
+		throw schemaError(
+			"invalid_column",
+			sqliteUnsupportedColumnKindMessage(meta.kind),
 		);
 	}
 	const result: ManifestColumn = {

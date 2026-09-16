@@ -200,7 +200,13 @@ export type CreateManyAndReturnArgs<
 type ColumnKindOf<TCol extends ColumnDef> =
 	TCol extends ColumnBuilder<unknown, infer M> ? M["kind"] : never;
 
-type NumericColumnKinds = "int" | "serial" | "decimal" | "bigint";
+type NumericColumnKinds =
+	| "int"
+	| "serial"
+	| "decimal"
+	| "bigint"
+	| "real"
+	| "double";
 
 export type NumericUpdateOps<TAmount, TValue = TAmount> = Expand<{
 	increment?: TAmount;

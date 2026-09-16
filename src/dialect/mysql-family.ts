@@ -3,6 +3,10 @@ import { compileError } from "../runtime/compile-error.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { QueryErrorCode, SchemaErrorCode } from "../runtime/error-codes.js";
 import {
+	MYSQL_UNSUPPORTED_COLUMN_KINDS,
+	mysqlUnsupportedColumnKindMessage,
+} from "./column-kind-support.js";
+import {
 	columnFkClause,
 	emitFkChangeAdd,
 	findFkReferencedColumn,
@@ -113,6 +117,16 @@ function familyColumnType(
 		);
 	}
 
+	if (MYSQL_UNSUPPORTED_COLUMN_KINDS.has(col.kind)) {
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			mysqlUnsupportedColumnKindMessage(
+				col.kind,
+				options.unsupportedLabel,
+			),
+		);
+	}
+
 	switch (col.kind) {
 		case "id":
 			return `VARCHAR(${MYSQL_INDEXED_VARCHAR_LENGTH})`;
@@ -155,7 +169,21 @@ function familyColumnType(
 			return "BLOB";
 		case "textArray":
 		case "intArray":
+		case "uuidArray":
+		case "enumArray":
 			return "JSON";
+		case "real":
+			return "FLOAT";
+		case "double":
+			return "DOUBLE";
+		case "date":
+			return "DATE";
+		case "time":
+			return "TIME";
+		case "xml":
+			return "LONGTEXT";
+		case "money":
+			return "DECIMAL(19,4)";
 		case "citext": {
 			const maxLength = col.typeOptions?.maxLength as number | undefined;
 			const width = maxLength ?? MYSQL_INDEXED_VARCHAR_LENGTH;
