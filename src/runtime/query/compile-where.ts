@@ -1225,20 +1225,30 @@ export function buildFindManyQuery(
 				dialect,
 			);
 	let sql = "SELECT ";
-	if (distinctOn && distinctOn.length > 0) {
-		const distinctCols = columnsByTsNames(tableIndex, table, distinctOn)
-			.map((col) =>
-				hasJoins
-					? `${dialect.tableRef(table)}.${dialect.quoteIdentifier(col.sqlName)}`
-					: dialect.quoteIdentifier(col.sqlName),
-			)
-			.join(", ");
+	const distinctCols =
+		distinctOn && distinctOn.length > 0
+			? columnsByTsNames(tableIndex, table, distinctOn)
+					.map((col) =>
+						hasJoins
+							? `${dialect.tableRef(table)}.${dialect.quoteIdentifier(col.sqlName)}`
+							: dialect.quoteIdentifier(col.sqlName),
+					)
+					.join(", ")
+			: "";
+	const sqliteDistinct = Boolean(distinctCols) && dialect.name === "sqlite";
+	if (distinctCols && dialect.name === "postgresql") {
 		sql += `DISTINCT ON (${distinctCols}) `;
 	}
 	sql += selectCols;
 
 	if (extraSelectCols && extraSelectCols.length > 0) {
 		sql += `, ${extraSelectCols.join(", ")}`;
+	}
+
+	if (sqliteDistinct) {
+		const windowOrder = orderSql.replace(/^\s*ORDER BY\s+/i, "").trim();
+		const rn = dialect.quoteIdentifier("_neoorm_rn");
+		sql += `, ROW_NUMBER() OVER (PARTITION BY ${distinctCols} ORDER BY ${windowOrder}) AS ${rn}`;
 	}
 
 	sql += ` FROM ${dialect.tableRef(table)}`;
@@ -1249,6 +1259,13 @@ export function buildFindManyQuery(
 
 	if (whereSql) sql += ` ${whereSql}`;
 	if (groupBySql) sql += ` ${groupBySql}`;
+
+	if (sqliteDistinct) {
+		const rn = dialect.quoteIdentifier("_neoorm_rn");
+		const alias = dialect.quoteIdentifier("_neoorm_d");
+		sql = `SELECT * FROM (${sql}) AS ${alias} WHERE ${alias}.${rn} = 1`;
+	}
+
 	if (orderSql) sql += ` ${orderSql}`;
 	if (take !== undefined) {
 		sql += ` LIMIT ${normalizeLimitOffset(take, "take")}`;

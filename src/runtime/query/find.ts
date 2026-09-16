@@ -1,5 +1,8 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { dialectDisplayName } from "../../dialect/resolve.js";
+import {
+	dialectDisplayName,
+	dialectSupportsDistinctOn,
+} from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	ManifestManyToMany,
@@ -89,6 +92,17 @@ function isRelationSpec(
 }
 
 type RelationCountSpec = true | { where?: Record<string, unknown> };
+
+function assertDistinctOnSupported(
+	distinctOn: readonly string[] | undefined,
+	dialect: Dialect,
+): void {
+	if (!distinctOn || distinctOn.length === 0) return;
+	if (dialectSupportsDistinctOn(dialect)) return;
+	compileError(
+		`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
+	);
+}
 
 function validateDistinctOrderBy(
 	distinct: readonly string[] | undefined,
@@ -853,11 +867,8 @@ async function executeFindManyWithRelations(
 	const groupBySql = buildCountAggregateGroupBy(plan);
 
 	const distinctOn = normalizeSelectColumns(args.distinct);
-	if (distinctOn && distinctOn.length > 0 && dialect.name !== "postgresql") {
-		compileError(
-			`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
-		);
-	}
+	validateDistinctOrderBy(distinctOn, args.orderBy);
+	assertDistinctOnSupported(distinctOn, dialect);
 	const withSignature = withShapeSignature(args.with);
 	const planMode =
 		planOptions?.useHasManyAggregate === false ? "corr" : "agg";
@@ -964,12 +975,7 @@ export async function findMany(
 
 	const distinctOn = normalizeSelectColumns(args?.distinct);
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
-
-	if (distinctOn && distinctOn.length > 0 && dialect.name !== "postgresql") {
-		compileError(
-			`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
-		);
-	}
+	assertDistinctOnSupported(distinctOn, dialect);
 
 	const compiledWhere = getCachedWhereClause(
 		manifest,
@@ -1077,16 +1083,7 @@ export async function findFirst(
 		const { sql: whereSql, params } = compiledWhere;
 		const distinctOn = normalizeSelectColumns(args?.distinct);
 		validateDistinctOrderBy(distinctOn, args?.orderBy);
-
-		if (
-			distinctOn &&
-			distinctOn.length > 0 &&
-			dialect.name !== "postgresql"
-		) {
-			compileError(
-				`distinct is not supported on ${dialectDisplayName(dialect.name)} (DISTINCT ON is PostgreSQL-only). Use groupBy or orderBy + a manual query instead.`,
-			);
-		}
+		assertDistinctOnSupported(distinctOn, dialect);
 
 		const orderSql = getCachedOrderByClause(
 			table,
@@ -1147,6 +1144,7 @@ export async function findFirst(
 
 	const distinctOn = normalizeSelectColumns(args?.distinct);
 	validateDistinctOrderBy(distinctOn, args?.orderBy);
+	assertDistinctOnSupported(distinctOn, dialect);
 
 	const rows = await executeFindManyWithRelations(
 		executor,

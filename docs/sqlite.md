@@ -118,7 +118,8 @@ bunx neoorm migrate reset --force
 
 | Feature | PostgreSQL | SQLite |
 |---------|-----------|--------|
-| `distinct` (`DISTINCT ON`) | supported | throws `distinct is not supported on SQLite` |
+| `distinct` (`DISTINCT ON`) | supported | `ROW_NUMBER()` per distinct columns (same `orderBy` prefix rule) |
+| `search` | POSIX `~` / `~*` | JavaScript `RegExp` via `REGEXP` / `regexp_i` |
 | `datasource.schema` | multi-schema | not applicable |
 | `enum: "native"` | `CREATE TYPE ... AS ENUM` | not applicable (TEXT + CHECK) |
 | transaction options (`readOnly`, `isolationLevel`) | `BEGIN READ ONLY` / `ISOLATION LEVEL` | `readOnly` → `PRAGMA query_only`; `RepeatableRead`/`Serializable` → `BEGIN IMMEDIATE`; other isolation → `BEGIN` |

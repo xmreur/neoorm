@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
 import type { Executor } from "../src/runtime/executor.js";
 import { buildFindManyQuery } from "../src/runtime/query/compile.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
@@ -23,6 +24,31 @@ describe("distinct findMany", () => {
 
 		expect(sql).toContain('DISTINCT ON ("email")');
 		expect(sql).toContain('ORDER BY "email" ASC');
+	});
+
+	it("emulates DISTINCT ON on sqlite with ROW_NUMBER", () => {
+		const sql = buildFindManyQuery(
+			users,
+			"",
+			'ORDER BY "email" ASC',
+			10,
+			2,
+			["email"],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			sqliteDialect,
+		);
+
+		expect(sql).not.toContain("DISTINCT ON");
+		expect(sql).toContain(
+			'ROW_NUMBER() OVER (PARTITION BY "email" ORDER BY "email" ASC)',
+		);
+		expect(sql).toContain('WHERE "_neoorm_d"."_neoorm_rn" = 1');
+		expect(sql).toMatch(/ORDER BY "email" ASC LIMIT 10 OFFSET 2$/);
 	});
 
 	it("rejects distinct without matching orderBy prefix", async () => {

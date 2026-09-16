@@ -31,6 +31,11 @@ export function isMariadbDialect(dialect: Dialect): boolean {
 	return dialect.name === "mariadb";
 }
 
+/** Postgres DISTINCT ON, or SQLite ROW_NUMBER() emulation of the same. */
+export function dialectSupportsDistinctOn(dialect: Dialect): boolean {
+	return dialect.name === "postgresql" || dialect.name === "sqlite";
+}
+
 export function isMysqlFamilyDialect(dialect: Dialect): boolean {
 	return dialect.name === "mysql" || dialect.name === "mariadb";
 }

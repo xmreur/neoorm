@@ -221,7 +221,7 @@ Unknown column names and operators fail at compile time (`unknown_column`, with 
 
 `contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite). SQLite `LIKE` is ASCII case-insensitive even in default mode. `%` and `_` in the search string are matched literally (`ESCAPE '\'`).
 
-`search` is POSIX regex on PostgreSQL (`~`, or `~*` with `mode: "insensitive"`), `REGEXP_LIKE` on MySQL 8, `REGEXP` on MariaDB, and throws on SQLite.
+`search` is POSIX regex on PostgreSQL (`~`, or `~*` with `mode: "insensitive"`), `REGEXP_LIKE` on MySQL 8, `REGEXP` on MariaDB, and JavaScript `RegExp` (`REGEXP` / `regexp_i`) on SQLite.
 
 JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path). On MySQL and MariaDB they compile to `JSON_CONTAINS`, `JSON_CONTAINS_PATH`, and `JSON_EXTRACT`.
 
@@ -321,7 +321,7 @@ await db.users.findMany({
 });
 ```
 
-Not supported on SQLite, MySQL, or MariaDB (`DISTINCT ON` is PostgreSQL-only) — it throws. Use `groupBy({ by: [...] })` or a raw `db.sql` query instead.
+Not supported on MySQL or MariaDB (`DISTINCT ON` is PostgreSQL-only; SQLite emulates it with `ROW_NUMBER()`). Use `groupBy({ by: [...] })` or a raw `db.sql` query instead.
 
 ## Eager loading with `with`
 
@@ -524,7 +524,7 @@ const byAuthor = await db.posts.groupBy({
 
 Star `_count: true` still works with `having: { _count: { gte: 5 } }` and `orderBy: { _count: "desc" }`.
 
-`where` filters rows before grouping. `having` filters groups (aggregates only). `by` alone lists distinct groups — useful on SQLite where `distinct` is not available.
+`where` filters rows before grouping. `having` filters groups (aggregates only). `by` alone lists distinct groups — useful when you need grouped aggregates rather than `findMany({ distinct })`.
 
 ## Count
 

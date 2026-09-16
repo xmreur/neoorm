@@ -326,15 +326,24 @@ describe("where compilation", () => {
 		expect(params).toEqual(["Ada@Example.com"]);
 	});
 
-	it("throws when compiling search on sqlite", () => {
-		expect(() =>
-			compileWhere(
-				manifest,
-				posts,
-				{ title: { search: "^Neo" } },
-				sqliteDialect,
-			),
-		).toThrow("search is not supported on sqlite");
+	it("compiles search on sqlite as REGEXP", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { search: "^Neo" } },
+			sqliteDialect,
+		);
+		expect(sql).toContain("REGEXP");
+		expect(params).toEqual(["^Neo"]);
+
+		const insensitive = compileWhere(
+			manifest,
+			posts,
+			{ title: { search: "^Neo", mode: "insensitive" } },
+			sqliteDialect,
+		);
+		expect(insensitive.sql).toContain("regexp_i(");
+		expect(insensitive.params).toEqual(["^Neo"]);
 	});
 
 	it("compiles empty OR as false", () => {

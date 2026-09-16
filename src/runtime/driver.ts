@@ -39,6 +39,7 @@ export type SqliteDatabaseLike = {
 	prepare(sql: string): SqliteStatement;
 	exec(sql: string): void;
 	close(): void;
+	function?(name: string, fn: (...args: unknown[]) => unknown): void;
 };
 
 /** Options for {@link sqliteClient} production PRAGMAs. */
@@ -291,11 +292,31 @@ export function sqliteClient(
 	return client;
 }
 
+function sqliteRegexpMatch(
+	pattern: unknown,
+	value: unknown,
+	flags: string,
+): number {
+	if (pattern == null || value == null) return 0;
+	return new RegExp(String(pattern), flags).test(String(value)) ? 1 : 0;
+}
+
+function registerSqliteRegexpFunctions(db: SqliteDatabaseLike): void {
+	if (typeof db.function !== "function") return;
+	db.function("regexp", (pattern: unknown, value: unknown) =>
+		sqliteRegexpMatch(pattern, value, ""),
+	);
+	db.function("regexp_i", (pattern: unknown, value: unknown) =>
+		sqliteRegexpMatch(pattern, value, "i"),
+	);
+}
+
 function applySqlitePragmas(
 	db: SqliteDatabaseLike,
 	options?: SqliteClientOptions,
 ): void {
 	db.exec("PRAGMA foreign_keys = ON");
+	registerSqliteRegexpFunctions(db);
 	if (options?.busyTimeout !== false) {
 		const ms =
 			typeof options?.busyTimeout === "number"
