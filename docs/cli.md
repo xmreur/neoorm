@@ -13,8 +13,8 @@ neoorm init [options]
 Creates `neoorm.config.ts`, `schema.ts`, and `.env.example` only — no codegen or migrations. Run `neoorm migrate dev` afterwards to generate the client and first migration.
 
 Options:
-- `--provider <provider>` — `postgresql` (default), `sqlite`, or `mysql`. `postgres` and `pg` are aliases of `postgresql`. If omitted and running interactively, prompts to choose.
-- `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite, `mysql://root@localhost:3306/myapp` for mysql)
+- `--provider <provider>` — `postgresql` (default), `sqlite`, `mysql`, or `mariadb`. `postgres` and `pg` are aliases of `postgresql`. If omitted and running interactively, prompts to choose.
+- `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite, `mysql://root@localhost:3306/myapp` for mysql, `mariadb://root@localhost:3306/myapp` for mariadb)
 - `--schema <path>` — schema file path (default: `./schema.ts`)
 - `--out <dir>` — generated output directory (default: `./neoorm`)
 - `--force` — overwrite existing scaffold files
@@ -70,7 +70,7 @@ Requires `down.sql` and `snapshot.before.json` in each migration folder (written
 
 ## `neoorm migrate reset`
 
-Drop the `public` schema (PostgreSQL) or all tables (SQLite and MySQL) and re-apply all migrations.
+Drop the `public` schema (PostgreSQL) or all tables (SQLite, MySQL, and MariaDB) and re-apply all migrations.
 
 ```
 neoorm migrate reset --force [--skip-apply]

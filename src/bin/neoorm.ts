@@ -11,6 +11,9 @@ import {
 } from "../codegen/generate.js";
 import { loadConfig } from "../config.js";
 import {
+	type InitProvider,
+	isMariadbProvider,
+	isMysqlFamilyProvider,
 	isMysqlProvider,
 	isPostgresProvider,
 	isSqliteProvider,
@@ -37,6 +40,10 @@ import {
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
 import { isNeoOrmError } from "../runtime/errors.js";
+import {
+	createMariadbPoolFromUrl,
+	mariadbClient,
+} from "../runtime/mariadb-driver.js";
 import {
 	createMysqlPoolFromUrl,
 	mysqlClient,
@@ -67,6 +74,15 @@ function connectDb(
 		return {
 			client,
 			dialect: dialectForProvider("mysql"),
+			close: () => client.close(),
+		};
+	}
+	if (isMariadbProvider(config.datasource.provider)) {
+		const pool = createMariadbPoolFromUrl(config.datasource.url);
+		const client = mariadbClient(pool, { ownsPool: true });
+		return {
+			client,
+			dialect: dialectForProvider("mariadb"),
 			close: () => client.close(),
 		};
 	}
@@ -161,7 +177,7 @@ async function runDbPull(
 	try {
 		const content = isSqliteProvider(config.datasource.provider)
 			? await introspectSqlite(client)
-			: isMysqlProvider(config.datasource.provider)
+			: isMysqlFamilyProvider(config.datasource.provider)
 				? await introspectMysql(client)
 				: await introspectPostgres(
 						client,
@@ -249,29 +265,29 @@ async function runGenerateCommand(options: {
 	}
 }
 
-function normalizeProvider(
-	input: string,
-): "postgresql" | "sqlite" | "mysql" | null {
+function normalizeProvider(input: string): InitProvider | null {
 	const v = input.trim().toLowerCase();
 	if (v === "postgresql" || v === "postgres" || v === "pg")
 		return "postgresql";
 	if (v === "sqlite") return "sqlite";
 	if (v === "mysql") return "mysql";
+	if (v === "mariadb") return "mariadb";
 	return null;
 }
 
-async function promptForProvider(): Promise<"postgresql" | "sqlite" | "mysql"> {
+async function promptForProvider(): Promise<InitProvider> {
 	const rl = createInterface({
 		input: process.stdin,
 		output: process.stdout,
 	});
 	try {
 		const answer = await rl.question(
-			"Database provider? (1) PostgreSQL  (2) SQLite  (3) MySQL [1]: ",
+			"Database provider? (1) PostgreSQL  (2) SQLite  (3) MySQL  (4) MariaDB [1]: ",
 		);
 		const trimmed = answer.trim().toLowerCase();
 		if (trimmed === "2" || trimmed === "sqlite") return "sqlite";
 		if (trimmed === "3" || trimmed === "mysql") return "mysql";
+		if (trimmed === "4" || trimmed === "mariadb") return "mariadb";
 		if (
 			trimmed === "" ||
 			trimmed === "1" ||
@@ -297,7 +313,7 @@ program
 	.option("--out <dir>", "Generated output directory", "./neoorm")
 	.option(
 		"--provider <provider>",
-		"Database provider (postgresql|postgres|sqlite|mysql)",
+		"Database provider (postgresql|postgres|sqlite|mysql|mariadb)",
 	)
 	.option("--database-url <url>", "Database URL / file path")
 	.action(
@@ -311,12 +327,12 @@ program
 			const cwd = process.cwd();
 
 			try {
-				let provider: "postgresql" | "sqlite" | "mysql" | undefined;
+				let provider: InitProvider | undefined;
 				if (options.provider) {
 					const normalized = normalizeProvider(options.provider);
 					if (!normalized) {
 						console.error(
-							`--provider must be one of: postgresql, sqlite, mysql (got "${options.provider}")`,
+							`--provider must be one of: postgresql, sqlite, mysql, mariadb (got "${options.provider}")`,
 						);
 						process.exit(1);
 					}

@@ -1,5 +1,6 @@
 import { access, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import type { InitProvider } from "../datasource-provider.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
 import {
@@ -13,7 +14,7 @@ export type InitOptions = {
 	schemaPath?: string;
 	outDir?: string;
 	force?: boolean;
-	provider?: "postgresql" | "sqlite" | "mysql";
+	provider?: InitProvider;
 	databaseUrl?: string;
 };
 

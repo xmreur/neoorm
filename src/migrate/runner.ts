@@ -48,6 +48,7 @@ function migrationsTableRef(dialect: Dialect, schema?: string): string {
 	switch (dialect.name) {
 		case "sqlite":
 		case "mysql":
+		case "mariadb":
 			return dialect.quoteIdentifier(MIGRATIONS_TABLE);
 		case "postgresql": {
 			const schemaName = resolvePgSchemaName(schema);
@@ -74,7 +75,8 @@ async function migrationsLedgerHasChecksumColumn(
 			);
 			return result.rows.some((row) => row.name === "checksum");
 		}
-		case "mysql": {
+		case "mysql":
+		case "mariadb": {
 			const result = await client.query<{ exists: number | string }>(
 				`SELECT COUNT(*) AS exists
 				 FROM information_schema.COLUMNS
@@ -148,6 +150,7 @@ async function withMigrateDeployLock<T>(
 				client.transaction(fn, { isolationLevel: "Serializable" }),
 			);
 		case "mysql":
+		case "mariadb":
 			return withMysqlDeployLock(client, fn);
 		case "postgresql":
 			// Session-level pg_advisory_lock on pool.query would bind a random
@@ -402,23 +405,28 @@ export async function resetDatabaseSchema(
 			}
 			return;
 		}
-		case "mysql": {
-			await client.query("SET FOREIGN_KEY_CHECKS=0");
-			try {
-				const result = await client.query<{ table_name: string }>(
-					`SELECT TABLE_NAME AS table_name
-					 FROM information_schema.TABLES
-					 WHERE TABLE_SCHEMA = DATABASE()
-					   AND TABLE_TYPE = 'BASE TABLE'`,
-				);
-				for (const row of result.rows) {
-					await client.query(
-						`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.table_name)}`,
+		case "mysql":
+		case "mariadb": {
+			// Session vars must run on one connection; pool.query may use a
+			// different connection per statement.
+			await client.transaction(async (tx) => {
+				await tx.query("SET FOREIGN_KEY_CHECKS=0");
+				try {
+					const result = await tx.query<{ table_name: string }>(
+						`SELECT TABLE_NAME AS table_name
+						 FROM information_schema.TABLES
+						 WHERE TABLE_SCHEMA = DATABASE()
+						   AND TABLE_TYPE = 'BASE TABLE'`,
 					);
+					for (const row of result.rows) {
+						await tx.query(
+							`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.table_name)}`,
+						);
+					}
+				} finally {
+					await tx.query("SET FOREIGN_KEY_CHECKS=1");
 				}
-			} finally {
-				await client.query("SET FOREIGN_KEY_CHECKS=1");
-			}
+			});
 			return;
 		}
 		case "postgresql": {
@@ -757,6 +765,7 @@ export async function dbPush(
 			qualifiedTarget = target;
 			break;
 		case "mysql":
+		case "mariadb":
 			live = await introspectMysqlToManifest(client);
 			qualifiedTarget = target;
 			break;

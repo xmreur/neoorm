@@ -1,9 +1,11 @@
 import { Pool, type PoolConfig } from "pg";
 import {
 	type DatabaseProvider,
+	isMariadbProvider,
 	isMysqlProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
+import { mariadbDialect } from "../dialect/mariadb.js";
 import { mysqlDialect } from "../dialect/mysql.js";
 import {
 	applySchemaToManifest,
@@ -27,6 +29,12 @@ import {
 	type ExecutorOptions,
 	type QueryHooks,
 } from "./executor.js";
+import {
+	createMariadbPoolFromUrl,
+	MARIADB_PEER_MISSING,
+	type MariadbPoolLike,
+	mariadbClient,
+} from "./mariadb-driver.js";
 import {
 	createMysqlPoolFromUrl,
 	MYSQL2_PEER_MISSING,
@@ -603,6 +611,36 @@ export function createNeoOrmClient<
 		return createNeoOrmMysqlClient(manifest, pool, options, true);
 	}
 
+	if (
+		isMariadbProvider(options.provider) ||
+		isMariadbProvider(manifest.provider)
+	) {
+		const url =
+			options.connectionString ??
+			process.env.MARIADB_URL ??
+			process.env.DATABASE_URL ??
+			manifest.url;
+		if (!url) {
+			throw schemaError(
+				SchemaErrorCode.invalid_config,
+				"MARIADB_URL or DATABASE_URL is required for MariaDB",
+			);
+		}
+		let pool: MariadbPoolLike;
+		try {
+			pool = createMariadbPoolFromUrl(url);
+		} catch (err) {
+			if (err instanceof Error && err.message === MARIADB_PEER_MISSING) {
+				throw schemaError(
+					SchemaErrorCode.invalid_config,
+					MARIADB_PEER_MISSING,
+				);
+			}
+			throw err;
+		}
+		return createNeoOrmMariadbClient(manifest, pool, options, true);
+	}
+
 	const url =
 		options.connectionString ?? process.env.DATABASE_URL ?? manifest.url;
 	if (!url) {
@@ -750,6 +788,32 @@ export function createNeoOrmClientFromMysql<
 	return createNeoOrmMysqlClient(manifest, pool, options, false);
 }
 
+/**
+ * Create a typed NeoOrm client from an existing `mariadb` pool.
+ *
+ * `$disconnect()` does not call `pool.end()`. The caller owns the pool.
+ */
+export function createNeoOrmClientFromMariadb<
+	TTables extends Record<string, TableDef>,
+	TIncludes extends Record<
+		keyof TTables & string,
+		unknown
+	> = DefaultWithMap<TTables>,
+	TRowPayloads extends Record<
+		keyof TTables & string,
+		Record<string, unknown>
+	> = DefaultRowPayloadMap<TTables>,
+>(
+	manifest: Manifest,
+	pool: MariadbPoolLike,
+	options?: Pick<
+		NeoOrmClientOptions,
+		"migrationsDir" | "beforeQuery" | "afterQuery"
+	>,
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	return createNeoOrmMariadbClient(manifest, pool, options, false);
+}
+
 function createNeoOrmMysqlClient<
 	TTables extends Record<string, TableDef>,
 	TIncludes extends Record<
@@ -780,6 +844,53 @@ function createNeoOrmMysqlClient<
 		tableIndex: buildManifestIndex(appliedManifest, mysqlDialect),
 		driver,
 		dialect: mysqlDialect,
+		...(options?.migrationsDir !== undefined
+			? { migrationsDir: options.migrationsDir }
+			: {}),
+	};
+
+	const executor = createSqliteExecutor(driver, pickExecutorOptions(options));
+	return buildClient<TTables, TIncludes, TRowPayloads>(
+		executor,
+		runtime,
+		ownsPool
+			? async () => {
+					await driver.close();
+				}
+			: noopDisconnect,
+	);
+}
+
+function createNeoOrmMariadbClient<
+	TTables extends Record<string, TableDef>,
+	TIncludes extends Record<
+		keyof TTables & string,
+		unknown
+	> = DefaultWithMap<TTables>,
+	TRowPayloads extends Record<
+		keyof TTables & string,
+		Record<string, unknown>
+	> = DefaultRowPayloadMap<TTables>,
+>(
+	manifest: Manifest,
+	pool: MariadbPoolLike,
+	options:
+		| Pick<
+				NeoOrmClientOptions,
+				"migrationsDir" | "beforeQuery" | "afterQuery"
+		  >
+		| undefined,
+	ownsPool: boolean,
+): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	ensurePlugins(manifest);
+
+	const driver = mariadbClient(pool, { ownsPool });
+	const appliedManifest = applySchemaToManifest(manifest, undefined);
+	const runtime: QueryRuntime = {
+		manifest: appliedManifest,
+		tableIndex: buildManifestIndex(appliedManifest, mariadbDialect),
+		driver,
+		dialect: mariadbDialect,
 		...(options?.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
 			: {}),

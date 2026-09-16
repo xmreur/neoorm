@@ -17,6 +17,7 @@ const MYSQL_ERRNO = {
 	noReferencedRow: 1452,
 	rowIsReferenced: 1451,
 	checkConstraint: 3819,
+	mariadbConstraintFailed: 4025,
 	noSuchTable: 1146,
 	badField: 1054,
 } as const;
@@ -53,6 +54,7 @@ function headlineForMysql(errno: number | undefined, message: string): string {
 		case MYSQL_ERRNO.rowIsReferenced:
 			return "foreign key violation";
 		case MYSQL_ERRNO.checkConstraint:
+		case MYSQL_ERRNO.mariadbConstraintFailed:
 			return "check constraint violated";
 		case MYSQL_ERRNO.noSuchTable:
 			return "table does not exist";
@@ -73,6 +75,7 @@ function errorCodeForMysql(errno: number | undefined): QueryErrorCodeValue {
 		case MYSQL_ERRNO.rowIsReferenced:
 			return QueryErrorCode.foreign_key_violation;
 		case MYSQL_ERRNO.checkConstraint:
+		case MYSQL_ERRNO.mariadbConstraintFailed:
 			return QueryErrorCode.check_violation;
 		case MYSQL_ERRNO.noSuchTable:
 			return QueryErrorCode.relation_not_found;

@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * NeoOrm — TypeScript-first PostgreSQL, SQLite, and MySQL ORM.
+ * NeoOrm — TypeScript-first PostgreSQL, SQLite, MySQL, and MariaDB ORM.
  *
  * Import the generated client from your `out` directory; use this entry for
  * config, migrations, codegen, and runtime client factories.
@@ -33,6 +33,7 @@ export {
 export type { NeoOrmConfig } from "./config.js";
 export { defineConfig, loadConfig } from "./config.js";
 export type { DatabaseProvider } from "./datasource-provider.js";
+export { mariadbDialect } from "./dialect/mariadb.js";
 export { mysqlDialect } from "./dialect/mysql.js";
 export { postgresDialect } from "./dialect/postgres.js";
 export { sqliteDialect } from "./dialect/sqlite.js";
@@ -88,6 +89,7 @@ export type {
 } from "./runtime/client.js";
 export {
 	createNeoOrmClient,
+	createNeoOrmClientFromMariadb,
 	createNeoOrmClientFromMysql,
 	createNeoOrmClientFromPool,
 	createNeoOrmClientFromSqlite,

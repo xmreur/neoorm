@@ -1,6 +1,7 @@
 import {
 	type DatabaseProvider,
-	isMysqlProvider,
+	isMariadbProvider,
+	isMysqlFamilyProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
 import { parseFkTarget } from "../dialect/fk.js";
@@ -29,7 +30,10 @@ import {
 } from "../runtime/error-hints.js";
 import { resolveFkTargetSqlColumn } from "../runtime/query/primary-key.js";
 import type { ColumnBuilder, ColumnMeta } from "../schema/column.js";
-import { compileColumnCheckConstraints } from "../schema/column-constraints.js";
+import {
+	compileColumnCheckConstraints,
+	quoteSqlColumn,
+} from "../schema/column-constraints.js";
 import type { SchemaDef } from "../schema/define-schema.js";
 import type { ManyToManyExtra } from "../schema/many-to-many.js";
 import {
@@ -66,11 +70,12 @@ const POSTGIS_COLUMN_KINDS = new Set(["geometry", "geography", "point"]);
 function buildEnumCheckExpression(
 	sqlName: string,
 	values: readonly string[],
+	provider?: DatabaseProvider,
 ): string {
 	const quoted = values
 		.map((value) => `'${value.replace(/'/g, "''")}'`)
 		.join(", ");
-	return `"${sqlName.replace(/"/g, '""')}" IN (${quoted})`;
+	return `${quoteSqlColumn(sqlName, provider)} IN (${quoted})`;
 }
 
 function resolveEnumTypeName(
@@ -119,6 +124,7 @@ function autoJunctionName(leftSql: string, rightSql: string): string {
 function finalizeEnumColumns(
 	manifestTables: Record<string, ManifestTable>,
 	enumMode: "check" | "union" | "native",
+	provider?: DatabaseProvider,
 ): Record<string, { values: readonly string[] }> | undefined {
 	const enumTypes: Record<string, { values: readonly string[] }> = {};
 
@@ -136,7 +142,11 @@ function finalizeEnumColumns(
 			}
 
 			if (enumMode === "check") {
-				const enumCheck = buildEnumCheckExpression(col.sqlName, values);
+				const enumCheck = buildEnumCheckExpression(
+					col.sqlName,
+					values,
+					provider,
+				);
 				col.checkExpression = col.checkExpression
 					? `(${col.checkExpression}) AND (${enumCheck})`
 					: enumCheck;
@@ -257,14 +267,14 @@ function compileIndexWhere(
 	for (const [tsName, value] of Object.entries(where)) {
 		const col = requireColumnDef(columns, tsName);
 		const sqlName = resolveSqlName(tsName, col, columnNaming);
-		const quoted = isMysqlProvider(provider)
+		const quoted = isMysqlFamilyProvider(provider)
 			? `\`${sqlName.replace(/`/g, "``")}\``
 			: `"${sqlName.replace(/"/g, '""')}"`;
 		if (value === null) {
 			parts.push(`${quoted} IS NULL`);
 		} else if (typeof value === "boolean") {
 			parts.push(
-				isSqliteProvider(provider) || isMysqlProvider(provider)
+				isSqliteProvider(provider) || isMysqlFamilyProvider(provider)
 					? `${quoted} = ${value ? 1 : 0}`
 					: `${quoted} = ${value}`,
 			);
@@ -338,10 +348,13 @@ function columnToManifest(
 	if ("updatedAt" in meta && meta.updatedAt === true) {
 		validateUpdatedAtColumn(tsName, meta.kind);
 	}
-	if (isMysqlProvider(provider) && POSTGIS_COLUMN_KINDS.has(meta.kind)) {
+	if (
+		isMysqlFamilyProvider(provider) &&
+		POSTGIS_COLUMN_KINDS.has(meta.kind)
+	) {
 		throw schemaError(
 			"invalid_column",
-			`PostGIS column kind "${meta.kind}" is not supported on MySQL`,
+			`PostGIS column kind "${meta.kind}" is not supported on ${isMariadbProvider(provider) ? "MariaDB" : "MySQL"}`,
 		);
 	}
 	const result: ManifestColumn = {
@@ -447,10 +460,10 @@ function extrasToManifest(
 				unique: extra.unique,
 			};
 			if (wherePredicate) {
-				if (isMysqlProvider(provider)) {
+				if (isMysqlFamilyProvider(provider)) {
 					throw schemaError(
 						"invalid_column",
-						"MySQL does not support partial indexes (index({ where }))",
+						`${isMariadbProvider(provider) ? "MariaDB" : "MySQL"} does not support partial indexes (index({ where }))`,
 					);
 				}
 				index.whereSql = compileIndexWhere(
@@ -925,7 +938,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		}
 	}
 
-	const enumTypes = finalizeEnumColumns(manifestTables, enumMode);
+	const enumTypes = finalizeEnumColumns(manifestTables, enumMode, provider);
 
 	const pluginExtensions = collectExtensionsForKinds(
 		Object.values(manifestTables).flatMap((table) =>

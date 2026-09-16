@@ -282,7 +282,7 @@ status: enumType(["draft", "published", "archived"])
   .default("draft"),
 ```
 
-`datasource.enum` in config: `check` (default), `union`, or `native` (PostgreSQL `CREATE TYPE` / MySQL column `ENUM`).
+`datasource.enum` in config: `check` (default), `union`, or `native` (PostgreSQL `CREATE TYPE` / MySQL and MariaDB column `ENUM`).
 
 ## PostgreSQL extensions
 
@@ -297,4 +297,4 @@ Column type plugins still register required extensions automatically.
 
 ## SQLite type mapping
 
-Same DSL; see [SQLite](sqlite.md) and [MySQL](mysql.md) for storage types and limitations.
+Same DSL; see [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md) for storage types and limitations.

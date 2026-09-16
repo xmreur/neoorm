@@ -1,5 +1,6 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
 import { postgresDialect } from "../../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	Manifest,
@@ -334,7 +335,7 @@ function compileColumnCondition(
 		if (
 			(operator === "in" || operator === "notIn") &&
 			Array.isArray(paramValue) &&
-			dialect.name === "mysql"
+			isMysqlFamilyDialect(dialect)
 		) {
 			paramValue = JSON.stringify(paramValue);
 		}

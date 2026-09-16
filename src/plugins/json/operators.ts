@@ -234,6 +234,7 @@ function jsonOperator(op: JsonWhereOp): PluginWhereOperator {
 				case "sqlite":
 					return compileSqlite(op, sqlCol, value, startParamIndex);
 				case "mysql":
+				case "mariadb":
 					return compileMysql(op, sqlCol, value, startParamIndex);
 				case "postgresql":
 					return compilePostgres(

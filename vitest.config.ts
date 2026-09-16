@@ -5,6 +5,9 @@ export default defineConfig({
 		include: ["src/**/*.test.ts", "test/**/*.test.ts"],
 		// Live Postgres suites share one database; run files one at a time when
 		// DATABASE_URL is set so DROP SCHEMA / CREATE TABLE cannot race.
-		fileParallelism: !process.env.DATABASE_URL && !process.env.MYSQL_URL,
+		fileParallelism:
+			!process.env.DATABASE_URL &&
+			!process.env.MYSQL_URL &&
+			!process.env.MARIADB_URL,
 	},
 });

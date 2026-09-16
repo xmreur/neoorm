@@ -1,6 +1,6 @@
 import {
 	type DatabaseProvider,
-	isMysqlProvider,
+	isMysqlFamilyProvider,
 	isSqliteProvider,
 } from "../datasource-provider.js";
 import type { ManifestColumn } from "../dialect/types.js";
@@ -13,7 +13,7 @@ export function quoteSqlColumn(
 	sqlName: string,
 	provider?: DatabaseProvider,
 ): string {
-	if (isMysqlProvider(provider)) {
+	if (isMysqlFamilyProvider(provider)) {
 		return `\`${sqlName.replace(/`/g, "``")}\``;
 	}
 	return `"${sqlName.replace(/"/g, '""')}"`;
