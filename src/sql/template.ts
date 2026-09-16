@@ -19,7 +19,7 @@ export function isSqlFragment(value: unknown): value is SqlFragment {
 	);
 }
 
-function scanSingleQuoted(sql: string, start: number): number {
+export function scanSingleQuoted(sql: string, start: number): number {
 	let i = start + 1;
 	while (i < sql.length) {
 		if (sql[i] === "'") {
@@ -34,7 +34,7 @@ function scanSingleQuoted(sql: string, start: number): number {
 	return sql.length;
 }
 
-function scanBacktickQuoted(sql: string, start: number): number {
+export function scanBacktickQuoted(sql: string, start: number): number {
 	let i = start + 1;
 	while (i < sql.length) {
 		if (sql[i] === "`") {
@@ -49,7 +49,7 @@ function scanBacktickQuoted(sql: string, start: number): number {
 	return sql.length;
 }
 
-function scanDoubleQuoted(sql: string, start: number): number {
+export function scanDoubleQuoted(sql: string, start: number): number {
 	let i = start + 1;
 	while (i < sql.length) {
 		if (sql[i] === '"') {
@@ -65,7 +65,7 @@ function scanDoubleQuoted(sql: string, start: number): number {
 }
 
 /** Index just past the closing $tag$ for a dollar-quoted region, or -1. */
-function scanDollarQuoted(sql: string, start: number): number {
+export function scanDollarQuoted(sql: string, start: number): number {
 	const tagEnd = sql.indexOf("$", start + 1);
 	if (tagEnd === -1) return -1;
 	const tag = sql.slice(start + 1, tagEnd);

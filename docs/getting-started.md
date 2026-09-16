@@ -147,7 +147,7 @@ const tenantDb = createNeoOrmClient(manifest, {
 });
 ```
 
-Raw `db.sql` uses the same compiler as `neoorm/sql`. `db.sql` / `db.execute` are not rewritten for tenant `schema` — qualify identifiers yourself.
+Raw `db.sql` uses the same compiler as `neoorm/sql`. With PostgreSQL `schema: "tenant_acme"`, `db.sql` / `db.execute` qualify unqualified table names from your manifest (`FROM users` → `"tenant_acme"."users"`). `db.sqlId("users")` is schema-qualified; column `sqlId`s are not. Explicit `schema.table` refs are left alone.
 
 Reuse an existing `pg` pool with `createNeoOrmClientFromPool(manifest, pool)`, or an existing SQLite handle with `createNeoOrmClientFromSqlite(manifest, database)`. `$disconnect()` does not close a borrowed pool or database — close it yourself when every consumer is done.
 

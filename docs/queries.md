@@ -565,7 +565,7 @@ const grouped = sqlBuilder
 await db.sql`${grouped} HAVING count(*) > ${0}`;
 ```
 
-`db.execute({ text, params })` runs already-compiled SQL. Raw SQL is not rewritten for tenant `schema` — qualify identifiers yourself.
+`db.execute({ text, params })` runs already-compiled SQL. With PostgreSQL tenant `schema`, `db.sql` / `db.execute` qualify unqualified manifest table names (same as `db.sqlId("users")`). Already-qualified `schema.table` identifiers are unchanged.
 
 ## Logging SQL
 

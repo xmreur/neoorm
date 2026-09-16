@@ -12,6 +12,7 @@ import {
 	ensureMigrationsTable,
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
+import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import { pgClient } from "../src/runtime/driver.js";
 import {
 	buildFindManyQuery,
@@ -144,5 +145,31 @@ describe("postgres schema namespaces", () => {
 			'DROP SCHEMA "tenant_a" CASCADE',
 		);
 		expect(pool.queries[3]?.sql).toContain('CREATE SCHEMA "tenant_a"');
+	});
+
+	it("qualifies raw db.sql, db.execute, and db.sqlId for tenant schema", async () => {
+		const pool = mockPool();
+		const db = createNeoOrmClientFromPool(baseManifest, pool, {
+			schema: "tenant_a",
+		});
+
+		expect(db.sqlId("users").text).toBe('"tenant_a"."users"');
+		expect(db.sqlId("email").text).toBe('"email"');
+
+		await db.sql`SELECT * FROM users WHERE email = ${"a@b.com"}`;
+		await db.execute({
+			text: 'SELECT "id" FROM "users"',
+			params: [],
+		});
+		await db.sql`SELECT * FROM ${db.sqlId("users")}`;
+
+		expect(pool.queries[0]?.sql).toBe(
+			'SELECT * FROM "tenant_a"."users" WHERE email = $1',
+		);
+		expect(pool.queries[0]?.params).toEqual(["a@b.com"]);
+		expect(pool.queries[1]?.sql).toBe(
+			'SELECT "id" FROM "tenant_a"."users"',
+		);
+		expect(pool.queries[2]?.sql).toBe('SELECT * FROM "tenant_a"."users"');
 	});
 });
