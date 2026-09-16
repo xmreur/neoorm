@@ -219,11 +219,7 @@ export function buildUpsertQuery(
 		updateKeys.length > 0
 			? updateKeys.map((k, i) => {
 					const col = colByTs(table, k, manifestIndex);
-					const sqlCol = dialect.quoteIdentifier(col?.sqlName ?? k);
 					const op = updateOps?.[i] ?? "set";
-					if (op === "set") {
-						return `${sqlCol} = ${dialect.excludedRef(sqlCol)}`;
-					}
 					const expr = buildSetExpression(
 						col,
 						nextParam,

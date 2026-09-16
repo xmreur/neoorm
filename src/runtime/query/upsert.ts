@@ -4,7 +4,6 @@ import {
 	buildUpsertQuery,
 	dataToSqlValues,
 	dataToUpdateAssignments,
-	upsertAtomicValues,
 } from "./compile.js";
 import { type QueryRuntime, runExecute, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
@@ -77,10 +76,7 @@ export async function upsertRecord(
 		dialect,
 		updateOps,
 	);
-	const upsertParams = [
-		...insertValues,
-		...upsertAtomicValues(updateOps, updateValues),
-	];
+	const upsertParams = [...insertValues, ...updateValues];
 
 	let result: Record<string, unknown>;
 	if (dialect.supportsReturning) {

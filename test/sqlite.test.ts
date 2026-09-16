@@ -458,14 +458,14 @@ describe("sqlite runtime", () => {
 			update: { name: "updated" },
 		});
 		const afterUpsert = await orm.users.findById({ id: created.id });
-		expect(afterUpsert?.name).toBe("create");
+		expect(afterUpsert?.name).toBe("updated");
 
 		const found = await orm.users.findOrCreate({
 			where: { id: created.id },
 			create: { email: "a@x", name: "should-not-create" },
 		});
 		expect(found.created).toBe(false);
-		expect(found.record.name).toBe("create");
+		expect(found.record.name).toBe("updated");
 
 		const fresh = await orm.users.findOrCreate({
 			where: { email: "new@x" },

@@ -220,6 +220,7 @@ describe("mysql dialect", () => {
 			mysqlDialect,
 		);
 		expect(upsert).toContain("ON DUPLICATE KEY UPDATE");
+		expect(upsert).toContain("`name` = $4");
 		expect(upsert).not.toContain("RETURNING");
 	});
 });
