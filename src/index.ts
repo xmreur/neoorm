@@ -95,6 +95,17 @@ export {
 	createNeoOrmClientFromPool,
 	createNeoOrmClientFromSqlite,
 } from "./runtime/client.js";
+export type {
+	ConnectionKeepaliveOptions,
+	HealthCheckResult,
+	RetryOptions,
+} from "./runtime/connection-health.js";
+export {
+	checkDriverHealth,
+	isTransientConnectionError,
+	startConnectionKeepalive,
+	withRetry,
+} from "./runtime/connection-health.js";
 export {
 	QueryErrorCode,
 	type QueryErrorCodeValue,

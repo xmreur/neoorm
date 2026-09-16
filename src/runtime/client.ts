@@ -20,6 +20,13 @@ import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
 import { qualifyTableIdentifiers } from "../sql/qualify-tables.js";
 import { sqlFragment } from "../sql/template.js";
+import {
+	type ConnectionKeepaliveOptions,
+	checkDriverHealth,
+	type RetryOptions,
+	resolveRetryOptions,
+	startConnectionKeepalive,
+} from "./connection-health.js";
 import type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
 import { queryError, schemaError } from "./error-builders.js";
@@ -115,6 +122,15 @@ export type NeoOrmClientOptions = {
 	 * Use this for slow-query logs.
 	 */
 	afterQuery?: QueryHooks["afterQuery"];
+	/**
+	 * Retry transiently-failed queries with exponential backoff. Off unless set.
+	 */
+	retry?: RetryOptions;
+	/**
+	 * Ping idle owned pools on an interval. Off unless set. Requires an owned
+	 * PostgreSQL/MySQL/MariaDB pool; rejected for SQLite and caller-owned handles.
+	 */
+	keepalive?: ConnectionKeepaliveOptions;
 	/**
 	 * PostgreSQL pool settings passed to `pg.Pool`.
 	 * Connection identity stays on {@link NeoOrmClientOptions.connectionString}
@@ -487,6 +503,25 @@ function buildClient<
 					}
 				},
 
+		$healthCheck: transactional
+			? async () => {
+					throw queryError(
+						QueryErrorCode.invalid_args,
+						"Cannot check health inside a transaction",
+						{ operation: "raw", phase: "runtime" },
+					);
+				}
+			: async () => {
+					if (!runtime.driver) {
+						return {
+							ok: false,
+							latencyMs: 0,
+							error: "No database driver configured",
+						};
+					}
+					return checkDriverHealth(runtime.driver);
+				},
+
 		$disconnect: transactional
 			? async () => {
 					throw queryError(
@@ -580,9 +615,15 @@ export function createNeoOrmClient<
 		options.db !== undefined ||
 		options.databasePath !== undefined
 	) {
+		if (options.keepalive !== undefined) {
+			throw schemaError(
+				SchemaErrorCode.invalid_config,
+				"keepalive is only supported for PostgreSQL, MySQL, and MariaDB",
+			);
+		}
 		const sqliteOptions: Pick<
 			NeoOrmClientOptions,
-			"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery"
+			"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery" | "retry"
 		> = {
 			...(options.migrationsDir !== undefined
 				? { migrationsDir: options.migrationsDir }
@@ -594,6 +635,7 @@ export function createNeoOrmClient<
 			...(options.afterQuery !== undefined
 				? { afterQuery: options.afterQuery }
 				: {}),
+			...(options.retry !== undefined ? { retry: options.retry } : {}),
 		};
 		if (options.db !== undefined) {
 			return createNeoOrmClientFromSqlite(
@@ -676,26 +718,34 @@ export function createNeoOrmClient<
 			"DATABASE_URL is required",
 		);
 	}
-
 	const pool = new Pool(toPgPoolConfig(url, options.pool));
 	const schema = resolvePgSchemaName(options.schema);
 	const executor = createExecutor(pool, pickExecutorOptions(options));
 	const appliedManifest = applySchemaToManifest(manifest, schema);
+	const driver = pgClient(pool);
 	const runtime: QueryRuntime = {
 		manifest: appliedManifest,
 		tableIndex: buildManifestIndex(appliedManifest, postgresDialect),
 		schema,
-		driver: pgClient(pool),
+		driver,
 		dialect: postgresDialect,
 		...(options.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
 			: {}),
+		...(options.retry !== undefined
+			? { retry: resolveRetryOptions(options.retry) }
+			: {}),
 	};
+	const stopKeepalive =
+		options.keepalive !== undefined
+			? startConnectionKeepalive(driver, options.keepalive.intervalMs)
+			: undefined;
 
 	return buildClient<TTables, TIncludes, TRowPayloads>(
 		executor,
 		runtime,
 		async () => {
+			stopKeepalive?.();
 			await pool.end();
 		},
 	);
@@ -734,6 +784,7 @@ export function createNeoOrmClientFromPool<
 		| "preparedStatements"
 		| "beforeQuery"
 		| "afterQuery"
+		| "retry"
 	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	ensurePlugins(manifest);
@@ -749,6 +800,9 @@ export function createNeoOrmClientFromPool<
 		dialect: postgresDialect,
 		...(options?.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
+			: {}),
+		...(options?.retry !== undefined
+			? { retry: resolveRetryOptions(options.retry) }
 			: {}),
 	};
 
@@ -783,7 +837,7 @@ export function createNeoOrmClientFromSqlite<
 	db: SqliteDatabaseLike,
 	options?: Pick<
 		NeoOrmClientOptions,
-		"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery"
+		"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery" | "retry"
 	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	return createNeoOrmSqliteClient(manifest, db, options, false);
@@ -809,7 +863,7 @@ export function createNeoOrmClientFromMysql<
 	pool: MysqlPoolLike,
 	options?: Pick<
 		NeoOrmClientOptions,
-		"migrationsDir" | "beforeQuery" | "afterQuery"
+		"migrationsDir" | "beforeQuery" | "afterQuery" | "retry"
 	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	return createNeoOrmMysqlClient(manifest, pool, options, false);
@@ -835,7 +889,7 @@ export function createNeoOrmClientFromMariadb<
 	pool: MariadbPoolLike,
 	options?: Pick<
 		NeoOrmClientOptions,
-		"migrationsDir" | "beforeQuery" | "afterQuery"
+		"migrationsDir" | "beforeQuery" | "afterQuery" | "retry"
 	>,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
 	return createNeoOrmMariadbClient(manifest, pool, options, false);
@@ -857,7 +911,11 @@ function createNeoOrmMysqlClient<
 	options:
 		| Pick<
 				NeoOrmClientOptions,
-				"migrationsDir" | "beforeQuery" | "afterQuery"
+				| "migrationsDir"
+				| "beforeQuery"
+				| "afterQuery"
+				| "retry"
+				| "keepalive"
 		  >
 		| undefined,
 	ownsPool: boolean,
@@ -874,7 +932,14 @@ function createNeoOrmMysqlClient<
 		...(options?.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
 			: {}),
+		...(options?.retry !== undefined
+			? { retry: resolveRetryOptions(options.retry) }
+			: {}),
 	};
+	const stopKeepalive =
+		ownsPool && options?.keepalive !== undefined
+			? startConnectionKeepalive(driver, options.keepalive.intervalMs)
+			: undefined;
 
 	const executor = createSqliteExecutor(driver, pickExecutorOptions(options));
 	return buildClient<TTables, TIncludes, TRowPayloads>(
@@ -882,6 +947,7 @@ function createNeoOrmMysqlClient<
 		runtime,
 		ownsPool
 			? async () => {
+					stopKeepalive?.();
 					await driver.close();
 				}
 			: noopDisconnect,
@@ -904,7 +970,11 @@ function createNeoOrmMariadbClient<
 	options:
 		| Pick<
 				NeoOrmClientOptions,
-				"migrationsDir" | "beforeQuery" | "afterQuery"
+				| "migrationsDir"
+				| "beforeQuery"
+				| "afterQuery"
+				| "retry"
+				| "keepalive"
 		  >
 		| undefined,
 	ownsPool: boolean,
@@ -921,7 +991,14 @@ function createNeoOrmMariadbClient<
 		...(options?.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
 			: {}),
+		...(options?.retry !== undefined
+			? { retry: resolveRetryOptions(options.retry) }
+			: {}),
 	};
+	const stopKeepalive =
+		ownsPool && options?.keepalive !== undefined
+			? startConnectionKeepalive(driver, options.keepalive.intervalMs)
+			: undefined;
 
 	const executor = createSqliteExecutor(driver, pickExecutorOptions(options));
 	return buildClient<TTables, TIncludes, TRowPayloads>(
@@ -929,6 +1006,7 @@ function createNeoOrmMariadbClient<
 		runtime,
 		ownsPool
 			? async () => {
+					stopKeepalive?.();
 					await driver.close();
 				}
 			: noopDisconnect,
@@ -951,7 +1029,11 @@ function createNeoOrmSqliteClient<
 	options:
 		| Pick<
 				NeoOrmClientOptions,
-				"migrationsDir" | "sqlite" | "beforeQuery" | "afterQuery"
+				| "migrationsDir"
+				| "sqlite"
+				| "beforeQuery"
+				| "afterQuery"
+				| "retry"
 		  >
 		| undefined,
 	ownsDatabase: boolean,
@@ -967,6 +1049,9 @@ function createNeoOrmSqliteClient<
 		dialect: sqliteDialect,
 		...(options?.migrationsDir !== undefined
 			? { migrationsDir: options.migrationsDir }
+			: {}),
+		...(options?.retry !== undefined
+			? { retry: resolveRetryOptions(options.retry) }
 			: {}),
 	};
 

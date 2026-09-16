@@ -36,6 +36,7 @@ import type {
 	UpsertArgs,
 	WithInputMap,
 } from "../schema/types.js";
+import type { HealthCheckResult } from "./connection-health.js";
 
 type StripSelectKeys<O> = O extends readonly (infer K extends PropertyKey)[]
 	? K
@@ -552,6 +553,7 @@ export type TypedNeoOrmClient<
 		params: unknown[];
 	}): Promise<Record<string, unknown>[]>;
 	$connect(): Promise<void>;
+	$healthCheck(): Promise<HealthCheckResult>;
 	/**
 	 * Close the database connection this client created.
 	 * No-op for `createNeoOrmClientFromPool` and `createNeoOrmClientFromSqlite`

@@ -4,6 +4,11 @@ import {
 	getAppliedMigrations,
 	listPendingMigrations,
 } from "../../migrate/runner.js";
+import {
+	isReadOnlyQuery,
+	type ResolvedRetryOptions,
+	withRetry,
+} from "../connection-health.js";
 import type { DatabaseClient } from "../driver.js";
 import {
 	type QueryErrorCodeValue,
@@ -35,6 +40,7 @@ export type QueryRuntime = {
 	dialect?: Dialect;
 	migrationsDir?: string;
 	tableIndex?: ManifestIndex;
+	retry?: ResolvedRetryOptions | undefined;
 };
 
 export type RunQueryContext = {
@@ -150,6 +156,18 @@ function queryBaseContext(
 		: { operation: ctx.operation, sql };
 }
 
+async function runWithRetry<T>(
+	executor: Executor,
+	runtime: QueryRuntime,
+	sql: string,
+	call: () => Promise<T>,
+): Promise<T> {
+	if (runtime.retry === undefined || executor.inTransaction === true) {
+		return call();
+	}
+	return withRetry(call, runtime.retry, isReadOnlyQuery(sql));
+}
+
 export async function runQuery<T = Record<string, unknown>>(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -158,7 +176,9 @@ export async function runQuery<T = Record<string, unknown>>(
 	params: unknown[] = [],
 ): Promise<T[]> {
 	try {
-		return await executor.query<T>(sql, params);
+		return await runWithRetry(executor, runtime, sql, () =>
+			executor.query<T>(sql, params),
+		);
 	} catch (err) {
 		if (isKnownDriverError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
@@ -176,7 +196,9 @@ export async function runExecute<T = Record<string, unknown>>(
 	params: unknown[] = [],
 ): Promise<{ rows: T[]; rowCount: number; insertId?: number | bigint }> {
 	try {
-		return await executor.execute<T>(sql, params);
+		return await runWithRetry(executor, runtime, sql, () =>
+			executor.execute<T>(sql, params),
+		);
 	} catch (err) {
 		if (isKnownDriverError(err)) {
 			const enriched = await enrichQueryError(runtime, ctx, sql, err);
@@ -208,7 +230,9 @@ export async function runQueryOne<T = Record<string, unknown>>(
 	params: unknown[] = [],
 ): Promise<T | null> {
 	try {
-		const row = await executor.queryOne<T>(sql, params);
+		const row = await runWithRetry(executor, runtime, sql, () =>
+			executor.queryOne<T>(sql, params),
+		);
 		if (
 			row === null &&
 			(ctx.operation === "insert" ||
