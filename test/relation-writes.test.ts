@@ -14,6 +14,8 @@ import {
 	defineSchema,
 	fk,
 	id,
+	int,
+	primaryKey,
 	table,
 	text,
 	uuid,
@@ -451,7 +453,34 @@ describe("relation connect uses the target scalar PK tsName", () => {
 		).rejects.toThrow(/userId/);
 	});
 
-	it("rejects connect against a composite primary key", async () => {
+	it("connects a composite primary key using the referenced column", async () => {
+		const manifest = schemaToManifest(customPkSchema);
+		const accounts = manifestTable(manifest, "accounts");
+		accounts.primaryKey = ["user_id", "email"];
+		const runtime: QueryRuntime = { manifest };
+		const table = manifestTable(manifest, "notes");
+		const scalarData: Record<string, unknown> = { body: "hello" };
+
+		await applyToOnePreWrites(
+			createMockExecutor(),
+			runtime,
+			table,
+			scalarData,
+			[
+				{
+					relationName: "account",
+					value: {
+						connect: { userId: "acct_1", email: "a@b.c" },
+					},
+				},
+			],
+			runCreate,
+		);
+
+		expect(scalarData.accountId).toBe("acct_1");
+	});
+
+	it("rejects composite connect missing a PK column", async () => {
 		const manifest = schemaToManifest(customPkSchema);
 		const accounts = manifestTable(manifest, "accounts");
 		accounts.primaryKey = ["user_id", "email"];
@@ -472,6 +501,141 @@ describe("relation connect uses the target scalar PK tsName", () => {
 				],
 				runCreate,
 			),
-		).rejects.toThrow(/single-column primary key/);
+		).rejects.toThrow(/email/);
+	});
+
+	it("sets a to-one FK from connectOrCreate", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = { manifest };
+		const table = manifestTable(manifest, "posts");
+		const scalarData: Record<string, unknown> = {
+			title: "Hello",
+			body: "World",
+		};
+
+		await applyToOnePreWrites(
+			createMockExecutor(),
+			runtime,
+			table,
+			scalarData,
+			[
+				{
+					relationName: "author",
+					value: {
+						connectOrCreate: {
+							where: { email: "a@b.c" },
+							create: {
+								email: "a@b.c",
+								password: "secret",
+							},
+						},
+					},
+				},
+			],
+			runCreate,
+		);
+
+		expect(scalarData.authorId).toBe("new_id");
+	});
+
+	it("rejects mixing to-one connectOrCreate with connect", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = { manifest };
+		const table = manifestTable(manifest, "posts");
+
+		await expect(
+			applyToOnePreWrites(
+				createMockExecutor(),
+				runtime,
+				table,
+				{ title: "Hello", body: "World" },
+				[
+					{
+						relationName: "author",
+						value: {
+							connectOrCreate: {
+								where: { email: "a@b.c" },
+								create: {
+									email: "a@b.c",
+									password: "secret",
+								},
+							},
+							connect: { id: "user_1" },
+						},
+					},
+				],
+				runCreate,
+			),
+		).rejects.toThrow(/cannot mix connectOrCreate/);
+	});
+});
+
+describe("composite PK inverse connect", () => {
+	const lineSchema = defineSchema({
+		orders: table({
+			id: id(),
+		}),
+		lines: table(
+			{
+				tenantId: text().notNull(),
+				lineNo: int().notNull(),
+				orderId: fk("orders").as("order").inverse("lines"),
+			},
+			(t) => [primaryKey(t.tenantId, t.lineNo)],
+		),
+	});
+
+	it("matches inverse connect with all PK columns", async () => {
+		const manifest = schemaToManifest(lineSchema);
+		const runtime: QueryRuntime = { manifest };
+		const executor = createMockExecutor();
+
+		await executeRelationWrites(
+			executor,
+			runtime,
+			"orders",
+			"ord_1",
+			[
+				{
+					relationName: "lines",
+					value: {
+						connect: [{ tenantId: "t1", lineNo: 2 }],
+					},
+				},
+			],
+			runCreate,
+		);
+
+		const update = executor.queries.find((q) => q.sql.includes("UPDATE"));
+		expect(update?.sql).toContain('"tenant_id"');
+		expect(update?.sql).toContain('"line_no"');
+		expect(update?.params).toEqual(["ord_1", "t1", 2]);
+	});
+
+	it("matches inverse delete with all PK columns", async () => {
+		const manifest = schemaToManifest(lineSchema);
+		const runtime: QueryRuntime = { manifest };
+		const executor = createMockExecutor();
+
+		await executeRelationWrites(
+			executor,
+			runtime,
+			"orders",
+			"ord_1",
+			[
+				{
+					relationName: "lines",
+					value: {
+						delete: [{ tenantId: "t1", lineNo: 2 }],
+					},
+				},
+			],
+			runCreate,
+		);
+
+		const del = executor.queries.find((q) => q.sql.includes("DELETE"));
+		expect(del?.sql).toMatch(/"tenant_id" = \$2/);
+		expect(del?.sql).toMatch(/"line_no" = \$3/);
+		expect(del?.params).toEqual(["ord_1", "t1", 2]);
 	});
 });

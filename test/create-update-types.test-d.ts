@@ -1,5 +1,15 @@
 import type { schema } from "../examples/blog/schema.js";
+import {
+	defineSchema,
+	fk,
+	id,
+	int,
+	primaryKey,
+	table,
+	text,
+} from "../src/schema/index.js";
 import type {
+	ConnectInput,
 	CreateInput,
 	UpdateInput,
 	WhereInput,
@@ -96,6 +106,16 @@ expectPostsUpdate({
 });
 
 expectPostsUpdate({
+	title: "Updated",
+	author: {
+		connectOrCreate: {
+			where: { email: "a@b.com" },
+			create: { email: "a@b.com", password: "secret" },
+		},
+	},
+});
+
+expectPostsUpdate({
 	views: { increment: 1 },
 	price: { decrement: "1.00" },
 	title: { set: "Updated" },
@@ -152,3 +172,42 @@ expectUsersUpdate({ profile: { create: [{ bio: "bad" }] } });
 
 void validUserMinimal;
 void _missingPassword;
+
+const compositePkSchema = defineSchema({
+	orders: table({
+		id: id(),
+	}),
+	lines: table(
+		{
+			tenantId: text().notNull(),
+			lineNo: int().notNull(),
+			orderId: fk("orders").as("order").inverse("lines"),
+		},
+		(t) => [primaryKey(t.tenantId, t.lineNo)],
+	),
+});
+
+type CompositeSchema = typeof compositePkSchema._tables;
+type OrdersUpdate = UpdateInput<
+	CompositeSchema["orders"]["_columns"],
+	CompositeSchema,
+	"orders"
+>;
+
+function expectOrdersUpdate(value: OrdersUpdate): void {
+	void value;
+}
+
+expectOrdersUpdate({
+	lines: { connect: [{ tenantId: "t1", lineNo: 1 }] },
+});
+
+type LinesConnect = ConnectInput<
+	CompositeSchema["lines"]["_columns"],
+	CompositeSchema,
+	CompositeSchema["lines"]["_extras"]
+>;
+
+const _validLineConnect: LinesConnect = { tenantId: "t1", lineNo: 1 };
+// @ts-expect-error -- composite PK connect requires every PK column
+const _missingLineNo: LinesConnect = { tenantId: "t1" };

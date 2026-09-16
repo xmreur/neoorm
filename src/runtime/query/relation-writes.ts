@@ -1,5 +1,7 @@
+import { parseFkTarget } from "../../dialect/fk.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import type {
+	Dialect,
 	Manifest,
 	ManifestManyToMany,
 	ManifestRelation,
@@ -16,13 +18,13 @@ import {
 } from "./compile.js";
 import { type QueryRuntime, runQuery } from "./execute.js";
 import type { WithInput } from "./find.js";
-import { findOrCreatePk } from "./find-or-create.js";
+import { findOrCreatePk, findOrCreateRecord } from "./find-or-create.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
 import {
 	fillMissingPrimaryKeys,
 	primaryKeySqlName,
-	requireScalarPrimaryKey,
-	rowScalarPkValue,
+	primaryKeyTsNames,
+	resolvePkWhere,
 	targetRelationPkSql,
 } from "./primary-key.js";
 import {
@@ -120,64 +122,177 @@ function isRelationField(
 
 function connectPkError(
 	table: ManifestTable,
-	pkTsName: string,
+	pkTsName: string | undefined,
 	detail: string,
 ): never {
 	compileError(detail, {
 		code: QueryErrorCode.missing_primary_key,
 		tableAccessor: table.accessor,
 		tableSqlName: table.sqlName,
-		columnTsName: pkTsName,
+		...(pkTsName !== undefined ? { columnTsName: pkTsName } : {}),
 	});
 }
 
-function readConnectPk(
-	item: unknown,
-	pkTsName: string,
-	table: ManifestTable,
-): string {
-	if (!item || typeof item !== "object" || Array.isArray(item)) {
-		connectPkError(
-			table,
-			pkTsName,
-			`Relation connect requires { ${pkTsName}: ... } for table "${table.accessor}"`,
-		);
-	}
-	const id = (item as Record<string, unknown>)[pkTsName];
-	if (id == null) {
-		connectPkError(
-			table,
-			pkTsName,
-			`Relation connect requires primary key "${pkTsName}" for table "${table.accessor}"`,
-		);
-	}
-	return String(id);
-}
-
-function normalizeIdList(
-	value: unknown,
-	pkTsName: string,
-	table: ManifestTable,
-): string[] {
-	if (value == null || value === false) return [];
-	if (Array.isArray(value)) {
-		return value.map((item) => readConnectPk(item, pkTsName, table));
-	}
-	return [readConnectPk(value, pkTsName, table)];
-}
-
-function normalizeConnectIds(
+function normalizeConnectPks(
 	runtime: QueryRuntime,
 	targetAccessor: string,
 	value: unknown,
-): string[] {
+): Record<string, unknown>[] {
 	const table = requireTable(runtime.manifest, targetAccessor, "select");
-	const { tsName } = requireScalarPrimaryKey(
-		table,
-		"connect",
-		getTableIndex(runtime.tableIndex, targetAccessor),
+	const tableIndex = getTableIndex(runtime.tableIndex, targetAccessor);
+	if (value == null || value === false) return [];
+	const items = Array.isArray(value) ? value : [value];
+	return items.map((item) => {
+		if (!item || typeof item !== "object" || Array.isArray(item)) {
+			const pkNames = primaryKeyTsNames(table, tableIndex);
+			connectPkError(
+				table,
+				pkNames[0],
+				`Relation connect requires { ${pkNames.join(", ")} } for table "${table.accessor}"`,
+			);
+		}
+		return resolvePkWhere(
+			table,
+			item as Record<string, unknown>,
+			tableIndex,
+		);
+	});
+}
+
+function pkField(
+	table: ManifestTable,
+	pk: Record<string, unknown>,
+	tsName: string,
+): unknown {
+	const value = pk[tsName];
+	if (value == null) {
+		connectPkError(
+			table,
+			tsName,
+			`Relation connect requires primary key "${tsName}" for table "${table.accessor}"`,
+		);
+	}
+	return value;
+}
+
+function fkTargetTsName(
+	table: ManifestTable,
+	tableIndex: TableIndex | undefined,
+	relation?: ManifestRelation,
+	throughFk?: { fkTarget?: string },
+): string {
+	if (throughFk?.fkTarget) {
+		const { columnSql } = parseFkTarget(throughFk.fkTarget);
+		const col =
+			columnBySqlName(tableIndex, table, columnSql) ??
+			columnByTsName(tableIndex, table, columnSql);
+		if (col) return col.tsName;
+	}
+	const sql = targetRelationPkSql(table, relation);
+	const col =
+		columnBySqlName(tableIndex, table, sql) ??
+		columnByTsName(tableIndex, table, sql);
+	if (col) return col.tsName;
+	const names = primaryKeyTsNames(table, tableIndex);
+	const first = names[0];
+	if (!first) {
+		connectPkError(
+			table,
+			undefined,
+			`No primary key defined for table "${table.accessor}"`,
+		);
+	}
+	return first;
+}
+
+function m2mOtherThroughColumn(
+	runtime: QueryRuntime,
+	m2m: ManifestManyToMany,
+	parentAccessor: string,
+) {
+	const throughTable = runtime.manifest.tables[m2m.throughAccessor];
+	if (!throughTable) return undefined;
+	const throughIndex = getTableIndex(
+		runtime.tableIndex,
+		throughTable.accessor,
 	);
-	return normalizeIdList(value, tsName, table);
+	const isLeft = m2m.leftAccessor === parentAccessor;
+	const otherFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
+	return columnBySqlName(throughIndex, throughTable, otherFkCol);
+}
+
+function m2mConnectFkValues(
+	runtime: QueryRuntime,
+	m2m: ManifestManyToMany,
+	parentAccessor: string,
+	targetAccessor: string,
+	value: unknown,
+): { pks: Record<string, unknown>[]; ids: unknown[] } {
+	const pks = normalizeConnectPks(runtime, targetAccessor, value);
+	const targetTable = requireTable(
+		runtime.manifest,
+		targetAccessor,
+		"select",
+	);
+	const targetIndex = getTableIndex(runtime.tableIndex, targetAccessor);
+	const throughFk = m2mOtherThroughColumn(runtime, m2m, parentAccessor);
+	const fkTs = fkTargetTsName(targetTable, targetIndex, undefined, throughFk);
+	return { pks, ids: extractFkValues(targetTable, pks, fkTs) };
+}
+
+function extractFkValues(
+	table: ManifestTable,
+	pks: Record<string, unknown>[],
+	fkTsName: string,
+): unknown[] {
+	return pks.map((pk) => pkField(table, pk, fkTsName));
+}
+
+function sqlPkPredicate(
+	dialect: Dialect,
+	table: ManifestTable,
+	tableIndex: TableIndex | undefined,
+	pks: Record<string, unknown>[],
+	startParam: number,
+): { sql: string; params: unknown[] } {
+	const tsNames = primaryKeyTsNames(table, tableIndex);
+	if (tsNames.length === 0 || pks.length === 0) {
+		connectPkError(
+			table,
+			undefined,
+			`No primary key defined for table "${table.accessor}"`,
+		);
+	}
+	const quoted = tsNames.map((tsName) => {
+		const col = columnByTsName(tableIndex, table, tsName);
+		return dialect.quoteIdentifier(col?.sqlName ?? tsName);
+	});
+	if (tsNames.length === 1) {
+		const tsName = tsNames[0];
+		if (!tsName || !quoted[0]) {
+			connectPkError(
+				table,
+				tsName,
+				`No primary key defined for table "${table.accessor}"`,
+			);
+		}
+		const placeholders = pks.map((_, i) => `$${startParam + i}`).join(", ");
+		return {
+			sql: `${quoted[0]} IN (${placeholders})`,
+			params: pks.map((pk) => pkField(table, pk, tsName)),
+		};
+	}
+
+	const params: unknown[] = [];
+	let index = startParam;
+	const groups = pks.map((pk) => {
+		const parts = tsNames.map((tsName, i) => {
+			params.push(pkField(table, pk, tsName));
+			return `${quoted[i]} = $${index++}`;
+		});
+		return `(${parts.join(" AND ")})`;
+	});
+	return { sql: `(${groups.join(" OR ")})`, params };
 }
 
 function normalizeCreateList(value: unknown): Record<string, unknown>[] {
@@ -227,14 +342,16 @@ export async function resolveConnectOrCreate(
 		where: Record<string, unknown>;
 		create: Record<string, unknown>;
 	}>,
-): Promise<string[]> {
-	const ids: string[] = [];
+	fkTsName: string,
+): Promise<unknown[]> {
+	const ids: unknown[] = [];
 	for (const item of items) {
 		const id = await findOrCreatePk(
 			executor,
 			runtime,
 			targetAccessor,
 			item,
+			fkTsName,
 		);
 		ids.push(id);
 	}
@@ -247,7 +364,7 @@ async function insertM2MLinks(
 	m2m: ManifestManyToMany,
 	parentAccessor: string,
 	parentId: string,
-	otherIds: string[],
+	otherIds: unknown[],
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
@@ -350,7 +467,7 @@ async function _insertJunctionRows(
 	leftFkCol: string,
 	_rightFkCol: string,
 	leftId: string,
-	rightIds: string[],
+	rightIds: unknown[],
 ): Promise<void> {
 	const { manifest } = runtime;
 	const m2m = manifest.manyToMany.find(
@@ -377,7 +494,7 @@ async function deleteJunctionRows(
 	m2m: ManifestManyToMany,
 	parentAccessor: string,
 	parentId: string,
-	rightIds?: string[],
+	rightIds?: unknown[],
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
@@ -433,28 +550,28 @@ async function connectInverseMany(
 	runtime: QueryRuntime,
 	relation: ManifestRelation,
 	parentId: string,
-	childIds: string[],
+	childPks: Record<string, unknown>[],
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const targetTable = manifest.tables[relation.targetAccessor];
-	if (!targetTable || childIds.length === 0) return;
+	if (!targetTable || childPks.length === 0) return;
 
-	const fkCol = childFkColumnMeta(
+	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
+	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
+	const predicate = sqlPkPredicate(
+		dialect,
 		targetTable,
-		relation,
-		getTableIndex(runtime.tableIndex, targetTable.accessor),
-	);
-	const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
-	const targetPkCol = dialect.quoteIdentifier(
-		targetRelationPkSql(targetTable, relation),
+		targetIndex,
+		childPks,
+		2,
 	);
 	await runQuery(
 		executor,
 		runtime,
 		{ operation: "update", tableAccessor: relation.targetAccessor },
-		`UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${targetPkCol} IN (${placeholders})`,
-		[parentId, ...childIds],
+		`UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${predicate.sql}`,
+		[parentId, ...predicate.params],
 	);
 }
 
@@ -463,18 +580,15 @@ async function disconnectInverseMany(
 	runtime: QueryRuntime,
 	relation: ManifestRelation,
 	parentId: string,
-	childIds: string[] | undefined,
+	childPks: Record<string, unknown>[] | undefined,
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return;
 
-	const fkCol = childFkColumnMeta(
-		targetTable,
-		relation,
-		getTableIndex(runtime.tableIndex, targetTable.accessor),
-	);
+	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
+	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
 	if (!fkCol.nullable) {
 		compileError(
 			`Cannot disconnect relation ${relation.name}: FK column is not nullable`,
@@ -484,13 +598,16 @@ async function disconnectInverseMany(
 	const params: unknown[] = [parentId];
 	let sql = `UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = $1`;
 
-	if (childIds && childIds.length > 0) {
-		const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
-		const targetPkCol = dialect.quoteIdentifier(
-			targetRelationPkSql(targetTable, relation),
+	if (childPks && childPks.length > 0) {
+		const predicate = sqlPkPredicate(
+			dialect,
+			targetTable,
+			targetIndex,
+			childPks,
+			2,
 		);
-		sql += ` AND ${targetPkCol} IN (${placeholders})`;
-		params.push(...childIds);
+		sql += ` AND ${predicate.sql}`;
+		params.push(...predicate.params);
 	}
 
 	await runQuery(
@@ -507,7 +624,7 @@ async function setInverseMany(
 	runtime: QueryRuntime,
 	relation: ManifestRelation,
 	parentId: string,
-	childIds: string[],
+	childPks: Record<string, unknown>[],
 ): Promise<void> {
 	await disconnectInverseMany(
 		executor,
@@ -516,7 +633,7 @@ async function setInverseMany(
 		parentId,
 		undefined,
 	);
-	await connectInverseMany(executor, runtime, relation, parentId, childIds);
+	await connectInverseMany(executor, runtime, relation, parentId, childPks);
 }
 
 async function deleteInverseManyChildren(
@@ -524,28 +641,28 @@ async function deleteInverseManyChildren(
 	runtime: QueryRuntime,
 	relation: ManifestRelation,
 	parentId: string,
-	childIds: string[] | undefined,
+	childPks: Record<string, unknown>[] | undefined,
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const targetTable = manifest.tables[relation.targetAccessor];
 	if (!targetTable) return;
 
-	const fkCol = childFkColumnMeta(
-		targetTable,
-		relation,
-		getTableIndex(runtime.tableIndex, targetTable.accessor),
-	);
-	const targetPkCol = dialect.quoteIdentifier(
-		targetRelationPkSql(targetTable, relation),
-	);
+	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
+	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
 	const params: unknown[] = [parentId];
 	let sql = `DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = $1`;
 
-	if (childIds && childIds.length > 0) {
-		const placeholders = childIds.map((_, i) => `$${i + 2}`).join(", ");
-		sql += ` AND ${targetPkCol} IN (${placeholders})`;
-		params.push(...childIds);
+	if (childPks && childPks.length > 0) {
+		const predicate = sqlPkPredicate(
+			dialect,
+			targetTable,
+			targetIndex,
+			childPks,
+			2,
+		);
+		sql += ` AND ${predicate.sql}`;
+		params.push(...predicate.params);
 	}
 
 	await runQuery(
@@ -600,7 +717,8 @@ async function deleteM2MRelated(
 	m2m: ManifestManyToMany,
 	tableAccessor: string,
 	parentId: string,
-	relatedIds: string[] | undefined,
+	relatedIds: unknown[] | undefined,
+	targetPks?: Record<string, unknown>[],
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
@@ -629,6 +747,25 @@ async function deleteM2MRelated(
 		ids,
 	);
 
+	const targetIndex = getTableIndex(runtime.tableIndex, targetAccessor);
+	if (targetPks && targetPks.length > 0) {
+		const predicate = sqlPkPredicate(
+			dialect,
+			targetTable,
+			targetIndex,
+			targetPks,
+			1,
+		);
+		await runQuery(
+			executor,
+			runtime,
+			{ operation: "delete", tableAccessor: targetAccessor },
+			`DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${predicate.sql}`,
+			predicate.params,
+		);
+		return;
+	}
+
 	const targetPkCol = dialect.quoteIdentifier(primaryKeySqlName(targetTable));
 	const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
 	await runQuery(
@@ -638,6 +775,19 @@ async function deleteM2MRelated(
 		`DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${targetPkCol} IN (${placeholders})`,
 		ids,
 	);
+}
+
+function assertExclusiveConnectOrCreate(
+	value: Record<string, unknown>,
+	relationName: string,
+): void {
+	if (!("connectOrCreate" in value)) return;
+	if ("connect" in value || "create" in value) {
+		compileError(
+			`Relation "${relationName}" cannot mix connectOrCreate with connect or create`,
+			{ code: QueryErrorCode.invalid_nested_write },
+		);
+	}
 }
 
 async function executeToOneWrite(
@@ -654,14 +804,42 @@ async function executeToOneWrite(
 	const rel = findRelation(table, relationName, tableIndex);
 	if (rel?.cardinality !== "one") return;
 
+	const targetTable = manifest.tables[rel.targetAccessor];
+	if (!targetTable) compileError(`Unknown table: ${rel.targetAccessor}`);
+	const targetIndex = getTableIndex(runtime.tableIndex, rel.targetAccessor);
+	const fkTs = fkTargetTsName(targetTable, targetIndex, rel);
+
+	assertExclusiveConnectOrCreate(value, relationName);
+
+	if ("connectOrCreate" in value) {
+		const item = value.connectOrCreate;
+		if (!item || typeof item !== "object" || Array.isArray(item)) {
+			compileError(
+				`Relation "${relationName}" connectOrCreate requires { where, create }`,
+				{ code: QueryErrorCode.invalid_nested_write },
+			);
+		}
+		const { record } = await findOrCreateRecord(
+			executor,
+			runtime,
+			rel.targetAccessor,
+			{
+				where: (item as { where: Record<string, unknown> }).where,
+				create: (item as { create: Record<string, unknown> }).create,
+			},
+		);
+		scalarData[rel.fkColumn] = pkField(targetTable, record, fkTs);
+		return;
+	}
+
 	if ("connect" in value) {
-		const ids = normalizeConnectIds(
+		const pks = normalizeConnectPks(
 			runtime,
 			rel.targetAccessor,
 			value.connect,
 		);
-		const id = ids[0];
-		if (id === undefined) {
+		const pk = pks[0];
+		if (pk === undefined) {
 			compileError(
 				`Relation connect requires a primary key for table "${rel.targetAccessor}"`,
 				{
@@ -670,12 +848,12 @@ async function executeToOneWrite(
 				},
 			);
 		}
-		if (ids.length > 1) {
+		if (pks.length > 1) {
 			compileError(
 				`Cannot connect more than one record to to-one relation ${relationName}`,
 			);
 		}
-		scalarData[rel.fkColumn] = id;
+		scalarData[rel.fkColumn] = pkField(targetTable, pk, fkTs);
 		return;
 	}
 
@@ -696,9 +874,7 @@ async function executeToOneWrite(
 		const created = await runCreate(executor, runtime, rel.targetAccessor, {
 			data: value.create as Record<string, unknown>,
 		});
-		const targetTable = manifest.tables[rel.targetAccessor];
-		if (!targetTable) compileError(`Unknown table: ${rel.targetAccessor}`);
-		scalarData[rel.fkColumn] = rowScalarPkValue(created, targetTable);
+		scalarData[rel.fkColumn] = pkField(targetTable, created, fkTs);
 	}
 }
 
@@ -755,7 +931,13 @@ async function executeM2MWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeConnectIds(runtime, targetAccessor, del);
+			const { pks, ids } = m2mConnectFkValues(
+				runtime,
+				m2m,
+				tableAccessor,
+				targetAccessor,
+				del,
+			);
 			await deleteM2MRelated(
 				executor,
 				runtime,
@@ -763,6 +945,7 @@ async function executeM2MWrite(
 				tableAccessor,
 				parentId,
 				ids,
+				pks,
 			);
 		}
 	}
@@ -778,8 +961,10 @@ async function executeM2MWrite(
 				parentId,
 			);
 		} else {
-			const ids = normalizeConnectIds(
+			const { ids } = m2mConnectFkValues(
 				runtime,
+				m2m,
+				tableAccessor,
 				targetAccessor,
 				disconnect,
 			);
@@ -795,7 +980,13 @@ async function executeM2MWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeConnectIds(runtime, targetAccessor, value.set);
+		const { ids } = m2mConnectFkValues(
+			runtime,
+			m2m,
+			tableAccessor,
+			targetAccessor,
+			value.set,
+		);
 		await deleteJunctionRows(
 			executor,
 			runtime,
@@ -817,7 +1008,13 @@ async function executeM2MWrite(
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeConnectIds(runtime, targetAccessor, value.connect);
+		const { ids } = m2mConnectFkValues(
+			runtime,
+			m2m,
+			tableAccessor,
+			targetAccessor,
+			value.connect,
+		);
 		if (ids.length > 0) {
 			await insertM2MLinks(
 				executor,
@@ -835,11 +1032,25 @@ async function executeM2MWrite(
 			where: Record<string, unknown>;
 			create: Record<string, unknown>;
 		}>;
+		const targetTable = requireTable(
+			runtime.manifest,
+			targetAccessor,
+			"select",
+		);
+		const targetIndex = getTableIndex(runtime.tableIndex, targetAccessor);
+		const throughFk = m2mOtherThroughColumn(runtime, m2m, tableAccessor);
+		const fkTs = fkTargetTsName(
+			targetTable,
+			targetIndex,
+			undefined,
+			throughFk,
+		);
 		const ids = await resolveConnectOrCreate(
 			executor,
 			runtime,
 			targetAccessor,
 			items,
+			fkTs,
 		);
 		if (ids.length > 0) {
 			await insertM2MLinks(
@@ -883,13 +1094,13 @@ async function executeInverseManyWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeConnectIds(runtime, rel.targetAccessor, del);
+			const pks = normalizeConnectPks(runtime, rel.targetAccessor, del);
 			await deleteInverseManyChildren(
 				executor,
 				runtime,
 				rel,
 				parentId,
-				ids,
+				pks,
 			);
 		}
 	}
@@ -905,28 +1116,28 @@ async function executeInverseManyWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeConnectIds(
+			const pks = normalizeConnectPks(
 				runtime,
 				rel.targetAccessor,
 				disconnect,
 			);
-			await disconnectInverseMany(executor, runtime, rel, parentId, ids);
+			await disconnectInverseMany(executor, runtime, rel, parentId, pks);
 		}
 	}
 
 	if ("set" in value) {
-		const ids = normalizeConnectIds(runtime, rel.targetAccessor, value.set);
-		await setInverseMany(executor, runtime, rel, parentId, ids);
+		const pks = normalizeConnectPks(runtime, rel.targetAccessor, value.set);
+		await setInverseMany(executor, runtime, rel, parentId, pks);
 		return;
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeConnectIds(
+		const pks = normalizeConnectPks(
 			runtime,
 			rel.targetAccessor,
 			value.connect,
 		);
-		await connectInverseMany(executor, runtime, rel, parentId, ids);
+		await connectInverseMany(executor, runtime, rel, parentId, pks);
 	}
 
 	if ("create" in value) {
@@ -971,13 +1182,13 @@ async function executeInverseOneWrite(
 				undefined,
 			);
 		} else {
-			const ids = normalizeConnectIds(runtime, rel.targetAccessor, del);
+			const pks = normalizeConnectPks(runtime, rel.targetAccessor, del);
 			await deleteInverseManyChildren(
 				executor,
 				runtime,
 				rel,
 				parentId,
-				ids,
+				pks,
 			);
 		}
 	}
@@ -998,9 +1209,9 @@ async function executeInverseOneWrite(
 	}
 
 	if ("set" in value) {
-		const ids = normalizeConnectIds(runtime, rel.targetAccessor, value.set);
-		const id = ids[0];
-		if (id) {
+		const pks = normalizeConnectPks(runtime, rel.targetAccessor, value.set);
+		const pk = pks[0];
+		if (pk) {
 			await disconnectInverseMany(
 				executor,
 				runtime,
@@ -1008,25 +1219,25 @@ async function executeInverseOneWrite(
 				parentId,
 				undefined,
 			);
-			await connectInverseMany(executor, runtime, rel, parentId, [id]);
+			await connectInverseMany(executor, runtime, rel, parentId, [pk]);
 		}
 		return;
 	}
 
 	if ("connect" in value) {
-		const ids = normalizeConnectIds(
+		const pks = normalizeConnectPks(
 			runtime,
 			rel.targetAccessor,
 			value.connect,
 		);
-		const id = ids[0];
-		if (!id) return;
-		if (ids.length > 1) {
+		const pk = pks[0];
+		if (!pk) return;
+		if (pks.length > 1) {
 			compileError(
 				`Cannot connect more than one record to one-to-one relation ${relationName}`,
 			);
 		}
-		await connectInverseMany(executor, runtime, rel, parentId, [id]);
+		await connectInverseMany(executor, runtime, rel, parentId, [pk]);
 	}
 
 	if ("create" in value) {

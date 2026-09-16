@@ -5,7 +5,11 @@ type Schema = typeof schema._tables;
 type CreateMap = RelationCreateMap<Schema, "posts">;
 
 type _assertAuthorInCreateMap = CreateMap["author"] extends {
-	connect: { id: string };
+	connect?: { id: string };
+	connectOrCreate?: {
+		where: { email?: string };
+		create: { email: string; password: string };
+	};
 }
 	? true
 	: never;
