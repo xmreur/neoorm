@@ -2,6 +2,7 @@ import type { schema } from "../examples/blog/schema.js";
 import {
 	defineSchema,
 	fk,
+	foreignKey,
 	id,
 	int,
 	primaryKey,
@@ -211,3 +212,43 @@ type LinesConnect = ConnectInput<
 const _validLineConnect: LinesConnect = { tenantId: "t1", lineNo: 1 };
 // @ts-expect-error -- composite PK connect requires every PK column
 const _missingLineNo: LinesConnect = { tenantId: "t1" };
+
+const compositeFkSchema = defineSchema({
+	users: table(
+		{
+			tenantId: text().notNull(),
+			id: text().notNull(),
+		},
+		(t) => [primaryKey(t.tenantId, t.id)],
+	),
+	orders: table(
+		{
+			id: id(),
+			tenantId: text().notNull(),
+			userId: text().notNull(),
+		},
+		(t) => [
+			foreignKey(t.tenantId, t.userId)
+				.references("users", "tenantId", "id")
+				.as("user")
+				.inverse("orders"),
+		],
+	),
+});
+
+type CompositeFkSchema = typeof compositeFkSchema._tables;
+type CompositeFkOrdersCreate = CreateInput<
+	CompositeFkSchema["orders"]["_columns"],
+	CompositeFkSchema,
+	"orders"
+>;
+
+function expectCompositeFkOrdersCreate(value: CompositeFkOrdersCreate): void {
+	void value;
+}
+
+expectCompositeFkOrdersCreate({
+	tenantId: "acme",
+	userId: "u1",
+	user: { connect: { tenantId: "acme", id: "u1" } },
+});

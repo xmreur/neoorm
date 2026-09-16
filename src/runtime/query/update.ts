@@ -268,6 +268,7 @@ async function runUpdate(
 		recordId,
 		relationWrites,
 		runCreate,
+		Object.keys(result).length === 0 ? args.where : result,
 	);
 
 	if (args.with) {
@@ -530,7 +531,9 @@ async function runUpdateMany(
 	}
 
 	if (needsPostRelationWrites) {
-		for (const parentId of parentIds) {
+		for (let i = 0; i < parentIds.length; i++) {
+			const parentId = parentIds[i];
+			if (parentId === undefined) continue;
 			await executeRelationWrites(
 				executor,
 				runtime,
@@ -538,6 +541,7 @@ async function runUpdateMany(
 				parentId,
 				relationWrites,
 				runCreate,
+				mappedRows[i],
 			);
 		}
 	}

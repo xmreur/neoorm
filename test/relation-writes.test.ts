@@ -13,6 +13,7 @@ import {
 import {
 	defineSchema,
 	fk,
+	foreignKey,
 	id,
 	int,
 	primaryKey,
@@ -637,5 +638,55 @@ describe("composite PK inverse connect", () => {
 		expect(del?.sql).toMatch(/"tenant_id" = \$2/);
 		expect(del?.sql).toMatch(/"line_no" = \$3/);
 		expect(del?.params).toEqual(["ord_1", "t1", 2]);
+	});
+});
+
+describe("composite foreignKey relation writes", () => {
+	const orderSchema = defineSchema({
+		users: table(
+			{
+				tenantId: text().notNull(),
+				id: text().notNull(),
+			},
+			(t) => [primaryKey(t.tenantId, t.id)],
+		),
+		orders: table(
+			{
+				id: id(),
+				tenantId: text().notNull(),
+				userId: text().notNull(),
+			},
+			(t) => [
+				foreignKey(t.tenantId, t.userId)
+					.references("users", "tenantId", "id")
+					.as("user")
+					.inverse("orders"),
+			],
+		),
+	});
+
+	it("connect assigns every local FK column", async () => {
+		const manifest = schemaToManifest(orderSchema);
+		const runtime: QueryRuntime = { manifest };
+		const executor = createMockExecutor();
+		const table = manifestTable(manifest, "orders");
+		const scalarData: Record<string, unknown> = { tenantId: "acme" };
+
+		await applyToOnePreWrites(
+			executor,
+			runtime,
+			table,
+			scalarData,
+			[
+				{
+					relationName: "user",
+					value: { connect: { tenantId: "acme", id: "u1" } },
+				},
+			],
+			runCreate,
+		);
+
+		expect(scalarData.tenantId).toBe("acme");
+		expect(scalarData.userId).toBe("u1");
 	});
 });

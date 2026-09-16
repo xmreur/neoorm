@@ -19,6 +19,9 @@ export type FkRow = {
 	foreign_column_name: string;
 	constraint_name: string;
 	delete_rule: string;
+	update_rule: string;
+	ordinal_position: number;
+	deferrable: string | null;
 };
 
 export type IndexRow = {
@@ -93,20 +96,37 @@ export async function queryForeignKeys(
       ccu.table_name AS foreign_table_name,
       ccu.column_name AS foreign_column_name,
       tc.constraint_name,
-      rc.delete_rule
+      rc.delete_rule,
+      rc.update_rule,
+      kcu.ordinal_position,
+      CASE
+        WHEN pc.condeferrable AND pc.condeferred THEN 'deferred'
+        WHEN pc.condeferrable THEN 'immediate'
+        ELSE NULL
+      END AS deferrable
     FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-      ON tc.constraint_name = kcu.constraint_name
-      AND tc.table_schema = kcu.table_schema
-    JOIN information_schema.constraint_column_usage ccu
-      ON ccu.constraint_name = tc.constraint_name
-      AND ccu.table_schema = tc.table_schema
     JOIN information_schema.referential_constraints rc
       ON rc.constraint_name = tc.constraint_name
       AND rc.constraint_schema = tc.table_schema
+    JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name
+      AND tc.table_schema = kcu.table_schema
+      AND tc.table_name = kcu.table_name
+    JOIN information_schema.key_column_usage ccu
+      ON ccu.constraint_catalog = rc.unique_constraint_catalog
+      AND ccu.constraint_schema = rc.unique_constraint_schema
+      AND ccu.constraint_name = rc.unique_constraint_name
+      AND ccu.ordinal_position = kcu.position_in_unique_constraint
+    LEFT JOIN pg_catalog.pg_constraint pc
+      ON pc.conname = tc.constraint_name
+     AND pc.contype = 'f'
+     AND pc.connamespace = (
+       SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = tc.table_schema
+     )
     WHERE tc.constraint_type = 'FOREIGN KEY'
       AND tc.table_schema = $1
       AND tc.table_name = $2
+    ORDER BY tc.constraint_name, kcu.ordinal_position
   `,
 		[schema, tableName],
 	);

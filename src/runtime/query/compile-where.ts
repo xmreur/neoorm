@@ -21,6 +21,10 @@ import {
 	targetRelationPkSql,
 } from "./primary-key.js";
 import {
+	inverseFkJoinPredicate,
+	ownedFkJoinPredicate,
+} from "./relation-join.js";
+import {
 	columnByTsName,
 	columnsByTsNames,
 	getOrSetSqlCache,
@@ -409,16 +413,14 @@ function compileRelationCondition(
 			columnRef,
 			manifestIndex,
 		);
-		const parentFkCol = columnByTsName(
-			parentTableIndex,
+		const joinCond = ownedFkJoinPredicate(
+			dialect,
 			parentTable,
-			relation.fkColumn,
+			parentTableIndex,
+			dialect.tableRef(parentTable),
+			relAlias,
+			relation,
 		);
-		const parentFkRef = parentFkCol
-			? `${dialect.tableRef(parentTable)}.${dialect.quoteIdentifier(parentFkCol.sqlName)}`
-			: `${dialect.tableRef(parentTable)}.${dialect.quoteIdentifier(relation.fkSqlColumn)}`;
-		const targetPkSql = targetRelationPkSql(targetTable, relation);
-		const joinCond = `${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(targetPkSql)} = ${parentFkRef}`;
 		const whereParts = [joinCond];
 		if (nested.sql) whereParts.push(nested.sql);
 		const existsSql = `SELECT 1 FROM ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
@@ -519,7 +521,13 @@ function compileRelationCondition(
 	} else {
 		fromClause = `${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)}`;
 		joinParts.push(
-			`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(relation.fkSqlColumn)} = ${parentPkRef(parentTable, dialect)}`,
+			inverseFkJoinPredicate(
+				dialect,
+				relAlias,
+				dialect.tableRef(parentTable),
+				relation,
+				primaryKeySqlName(parentTable),
+			),
 		);
 	}
 

@@ -2,6 +2,7 @@ import { quoteIdentifier } from "../../dialect/shared.js";
 import type {
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestIndexKey,
 	ManifestTable,
@@ -11,6 +12,7 @@ import {
 	columnTsNameFromSqlName,
 	tableAccessorFromSqlName,
 } from "../../utils/case.js";
+import { groupForeignKeyRows, mapReferentialAction } from "../group-fks.js";
 
 interface TableInfoRow {
 	cid: number;
@@ -47,18 +49,31 @@ interface IndexInfoRow {
 }
 
 function mapDeleteRule(rule: string): string | undefined {
-	switch (rule.toUpperCase()) {
-		case "CASCADE":
-			return "cascade";
-		case "SET NULL":
-			return "set null";
-		case "RESTRICT":
-			return "restrict";
-		case "NO ACTION":
-			return "no action";
-		default:
-			return undefined;
+	return mapReferentialAction(rule);
+}
+
+function parseSqliteTableDeferrable(
+	createSql: string | null,
+): Map<number, string> {
+	const result = new Map<number, string>();
+	if (!createSql) return result;
+	const fkBlocks = [
+		...createSql.matchAll(
+			/FOREIGN\s+KEY\s*\([^)]+\)\s*REFERENCES\s+[^,)]+(?:\s+ON\s+(?:DELETE|UPDATE)\s+[A-Z ]+)*(?:\s+DEFERRABLE(?:\s+INITIALLY\s+(DEFERRED|IMMEDIATE))?)?/gi,
+		),
+	];
+	let id = 0;
+	for (const match of fkBlocks) {
+		const full = match[0] ?? "";
+		if (/DEFERRABLE/i.test(full)) {
+			result.set(
+				id,
+				/INITIALLY\s+DEFERRED/i.test(full) ? "deferred" : "immediate",
+			);
+		}
+		id += 1;
 	}
+	return result;
 }
 
 function sqliteTypeToKind(
@@ -154,6 +169,25 @@ async function introspectSqliteTable(
 			`PRAGMA foreign_key_list(${quoteIdentifier(tableName)})`,
 		)
 	).rows;
+	const createSql = (
+		await client.query<{ sql: string | null }>(
+			`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = $1`,
+			[tableName],
+		)
+	).rows[0]?.sql;
+	const deferrableById = parseSqliteTableDeferrable(createSql ?? null);
+	const groupedFks = groupForeignKeyRows(
+		fks.map((fk) => ({
+			constraintName: String(fk.id),
+			columnName: fk.from,
+			foreignTable: fk.table,
+			foreignColumn: fk.to ?? "id",
+			ordinal: fk.seq,
+			onDelete: mapDeleteRule(fk.on_delete),
+			onUpdate: mapDeleteRule(fk.on_update),
+			deferrable: deferrableById.get(fk.id),
+		})),
+	);
 	const indexRows = (
 		await client.query<IndexListRow>(
 			`PRAGMA index_list(${quoteIdentifier(tableName)})`,
@@ -166,7 +200,12 @@ async function introspectSqliteTable(
 		info.some((col) => col.pk > 0 && /int/i.test(col.type));
 
 	const fkMap = new Map(
-		fks.filter((fk) => fk.from).map((fk) => [fk.from, fk]),
+		groupedFks
+			.filter((fk) => fk.columns.length === 1)
+			.flatMap((fk) => {
+				const col = fk.columns[0];
+				return col ? [[col.columnName, fk] as const] : [];
+			}),
 	);
 
 	const manifestColumns: ManifestColumn[] = info.map((col) => {
@@ -176,7 +215,7 @@ async function introspectSqliteTable(
 		const defaults = parseDefaultValue(col.dflt_value);
 
 		if (fk) {
-			const onDelete = mapDeleteRule(fk.on_delete);
+			const local = fk.columns[0];
 			return {
 				tsName,
 				sqlName: col.name,
@@ -189,8 +228,10 @@ async function introspectSqliteTable(
 				...(defaults.defaultValue !== undefined
 					? { defaultValue: defaults.defaultValue }
 					: {}),
-				fkTarget: `${fk.table}.${fk.to ?? "id"}`,
-				...(onDelete ? { onDelete } : {}),
+				fkTarget: `${local?.foreignTable}.${local?.foreignColumn ?? "id"}`,
+				...(fk.onDelete ? { onDelete: fk.onDelete } : {}),
+				...(fk.onUpdate ? { onUpdate: fk.onUpdate } : {}),
+				...(fk.deferrable ? { deferrable: fk.deferrable } : {}),
 			};
 		}
 
@@ -276,6 +317,21 @@ async function introspectSqliteTable(
 		});
 	}
 
+	const foreignKeys: ManifestForeignKey[] = groupedFks
+		.filter((fk) => fk.columns.length > 1)
+		.map((fk) => {
+			const manifestFk: ManifestForeignKey = {
+				name: `${tableName}_${fk.columns.map((col) => col.columnName).join("_")}_fkey`,
+				columns: fk.columns.map((col) => col.columnName),
+				targetTable: fk.columns[0]?.foreignTable ?? "",
+				targetColumns: fk.columns.map((col) => col.foreignColumn),
+			};
+			if (fk.onDelete) manifestFk.onDelete = fk.onDelete;
+			if (fk.onUpdate) manifestFk.onUpdate = fk.onUpdate;
+			if (fk.deferrable) manifestFk.deferrable = fk.deferrable;
+			return manifestFk;
+		});
+
 	return {
 		accessor: tableAccessorFromSqlName(tableName),
 		sqlName: tableName,
@@ -283,5 +339,6 @@ async function introspectSqliteTable(
 		relations: [],
 		indexes,
 		primaryKey,
+		...(foreignKeys.length > 0 ? { foreignKeys } : {}),
 	};
 }

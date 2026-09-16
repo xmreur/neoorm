@@ -16,6 +16,7 @@ import type {
 	Manifest,
 	ManifestColumn,
 	ManifestDiff,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestTable,
 	TableDiff,
@@ -55,6 +56,17 @@ function effectiveNullable(col: ManifestColumn): boolean {
 
 function onDeleteEqual(a: string | undefined, b: string | undefined): boolean {
 	return (a ?? "no action") === (b ?? "no action");
+}
+
+function onUpdateEqual(a: string | undefined, b: string | undefined): boolean {
+	return (a ?? "no action") === (b ?? "no action");
+}
+
+function deferrableEqual(
+	a: string | undefined,
+	b: string | undefined,
+): boolean {
+	return (a ?? "") === (b ?? "");
 }
 
 function isColumnUniqueIndex(
@@ -102,7 +114,9 @@ export function columnsEqual(
 			columnSqlType(b, manifest, dialect) &&
 		(a.kind !== "fk" ||
 			(a.fkTarget === b.fkTarget &&
-				onDeleteEqual(a.onDelete, b.onDelete)))
+				onDeleteEqual(a.onDelete, b.onDelete) &&
+				onUpdateEqual(a.onUpdate, b.onUpdate) &&
+				deferrableEqual(a.deferrable, b.deferrable)))
 	);
 }
 
@@ -133,6 +147,10 @@ function orderTablesByForeignKeys(
 		visiting.add(table.sqlName);
 		for (const col of fkColumns(table)) {
 			const parent = bySql.get(parseFkTarget(col.fkTarget).tableSql);
+			if (parent) visit(parent);
+		}
+		for (const fk of table.foreignKeys ?? []) {
+			const parent = bySql.get(fk.targetTable);
 			if (parent) visit(parent);
 		}
 		visiting.delete(table.sqlName);
@@ -169,6 +187,9 @@ function emitCreatedTablesSql(
 		for (const table of tables) {
 			for (const col of fkColumns(table)) {
 				sql.push(dialect.emitAddForeignKey(table, col));
+			}
+			for (const fk of table.foreignKeys ?? []) {
+				sql.push(dialect.emitAddTableForeignKey(table, fk));
 			}
 		}
 	}
@@ -276,6 +297,12 @@ function diffForeignKeys(
 			if (nextCol.onDelete !== undefined) {
 				add.onDelete = nextCol.onDelete;
 			}
+			if (nextCol.onUpdate !== undefined) {
+				add.onUpdate = nextCol.onUpdate;
+			}
+			if (nextCol.deferrable !== undefined) {
+				add.deferrable = nextCol.deferrable;
+			}
 			if (nextCol.fkConstraintName !== undefined) {
 				add.constraintName = nextCol.fkConstraintName;
 			}
@@ -285,13 +312,21 @@ function diffForeignKeys(
 
 		if (
 			prevCol.fkTarget !== nextCol.fkTarget ||
-			!onDeleteEqual(prevCol.onDelete, nextCol.onDelete)
+			!onDeleteEqual(prevCol.onDelete, nextCol.onDelete) ||
+			!onUpdateEqual(prevCol.onUpdate, nextCol.onUpdate) ||
+			!deferrableEqual(prevCol.deferrable, nextCol.deferrable)
 		) {
 			const add: NonNullable<FkChange["add"]> = {
 				target: nextCol.fkTarget,
 			};
 			if (nextCol.onDelete !== undefined) {
 				add.onDelete = nextCol.onDelete;
+			}
+			if (nextCol.onUpdate !== undefined) {
+				add.onUpdate = nextCol.onUpdate;
+			}
+			if (nextCol.deferrable !== undefined) {
+				add.deferrable = nextCol.deferrable;
 			}
 			if (nextCol.fkConstraintName !== undefined) {
 				add.constraintName = nextCol.fkConstraintName;
@@ -313,6 +348,81 @@ function diffForeignKeys(
 				drop:
 					prevCol.fkConstraintName ??
 					resolveFkConstraintName(prevTable.sqlName, sqlName),
+			});
+		}
+	}
+
+	changes.push(...diffCompositeForeignKeys(prevTable, nextTable));
+	return changes;
+}
+
+function tableFkAdd(fk: ManifestForeignKey): NonNullable<FkChange["add"]> {
+	const add: NonNullable<FkChange["add"]> = {
+		target: fk.targetTable,
+		targetColumns: fk.targetColumns,
+		constraintName: fk.name,
+	};
+	if (fk.onDelete !== undefined) add.onDelete = fk.onDelete;
+	if (fk.onUpdate !== undefined) add.onUpdate = fk.onUpdate;
+	if (fk.deferrable !== undefined) add.deferrable = fk.deferrable;
+	return add;
+}
+
+function compositeFksEqual(
+	a: ManifestForeignKey,
+	b: ManifestForeignKey,
+): boolean {
+	return (
+		a.columns.length === b.columns.length &&
+		a.columns.every((col, i) => col === b.columns[i]) &&
+		a.targetTable === b.targetTable &&
+		a.targetColumns.length === b.targetColumns.length &&
+		a.targetColumns.every((col, i) => col === b.targetColumns[i]) &&
+		onDeleteEqual(a.onDelete, b.onDelete) &&
+		onUpdateEqual(a.onUpdate, b.onUpdate) &&
+		deferrableEqual(a.deferrable, b.deferrable)
+	);
+}
+
+function diffCompositeForeignKeys(
+	prevTable: ManifestTable,
+	nextTable: ManifestTable,
+): FkChange[] {
+	const prevByName = new Map(
+		(prevTable.foreignKeys ?? []).map((fk) => [fk.name, fk]),
+	);
+	const nextByName = new Map(
+		(nextTable.foreignKeys ?? []).map((fk) => [fk.name, fk]),
+	);
+	const changes: FkChange[] = [];
+
+	for (const [name, nextFk] of nextByName) {
+		const prevFk = prevByName.get(name);
+		const firstCol = nextFk.columns[0] ?? name;
+		if (!prevFk) {
+			changes.push({
+				column: firstCol,
+				columns: nextFk.columns,
+				add: tableFkAdd(nextFk),
+			});
+			continue;
+		}
+		if (!compositeFksEqual(prevFk, nextFk)) {
+			changes.push({
+				column: firstCol,
+				columns: nextFk.columns,
+				drop: prevFk.name,
+				add: tableFkAdd(nextFk),
+			});
+		}
+	}
+
+	for (const [name, prevFk] of prevByName) {
+		if (!nextByName.has(name)) {
+			changes.push({
+				column: prevFk.columns[0] ?? name,
+				columns: prevFk.columns,
+				drop: prevFk.name,
 			});
 		}
 	}

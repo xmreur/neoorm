@@ -2,6 +2,7 @@ import { pgStorageSqlType, resolvePgSchemaName } from "../dialect/postgres.js";
 import type {
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestIndex,
 	ManifestIndexKey,
 	ManifestTable,
@@ -16,6 +17,7 @@ import {
 	columnTsNameFromSqlName,
 	tableAccessorFromSqlName,
 } from "../utils/case.js";
+import { groupForeignKeyRows, mapReferentialAction } from "./group-fks.js";
 import type { CheckConstraintRow, UniqueConstraintRow } from "./queries.js";
 import {
 	queryCheckConstraints,
@@ -273,18 +275,7 @@ function buildIndexes(
 }
 
 function mapDeleteRule(rule: string): string | undefined {
-	switch (rule) {
-		case "CASCADE":
-			return "cascade";
-		case "SET NULL":
-			return "set null";
-		case "RESTRICT":
-			return "restrict";
-		case "NO ACTION":
-			return "no action";
-		default:
-			return undefined;
-	}
+	return mapReferentialAction(rule);
 }
 
 function filterConstraintBackedIndexes(
@@ -404,13 +395,32 @@ async function introspectTable(
 			queryCheckConstraints(client, tableName, schema),
 		]);
 
-	const fkMap = new Map(fks.map((fk) => [fk.column_name, fk]));
+	const groupedFks = groupForeignKeyRows(
+		fks.map((fk) => ({
+			constraintName: fk.constraint_name,
+			columnName: fk.column_name,
+			foreignTable: fk.foreign_table_name,
+			foreignColumn: fk.foreign_column_name,
+			ordinal: fk.ordinal_position,
+			onDelete: mapDeleteRule(fk.delete_rule),
+			onUpdate: mapDeleteRule(fk.update_rule),
+			deferrable: fk.deferrable ?? undefined,
+		})),
+	);
+	const singleFkByColumn = new Map(
+		groupedFks
+			.filter((fk) => fk.columns.length === 1)
+			.flatMap((fk) => {
+				const col = fk.columns[0];
+				return col ? [[col.columnName, fk] as const] : [];
+			}),
+	);
 	const uniqueMap = singleColumnUniqueMap(uniqueRows);
 	const pkSet = new Set(primaryKey);
 
 	const manifestColumns: ManifestColumn[] = columns.map((col) => {
 		const tsName = columnTsNameFromSqlName(col.column_name);
-		const fk = fkMap.get(col.column_name);
+		const fk = singleFkByColumn.get(col.column_name);
 		const nullable = col.is_nullable === "YES";
 		const uniqueConstraintName = uniqueMap.get(col.column_name);
 		const defaults = parseDefaultValue(
@@ -419,7 +429,7 @@ async function introspectTable(
 		);
 
 		if (fk) {
-			const onDelete = mapDeleteRule(fk.delete_rule);
+			const local = fk.columns[0];
 			return {
 				tsName,
 				sqlName: col.column_name,
@@ -436,10 +446,12 @@ async function introspectTable(
 				...(defaults.defaultValue !== undefined
 					? { defaultValue: defaults.defaultValue }
 					: {}),
-				fkTarget: `${fk.foreign_table_name}.${fk.foreign_column_name}`,
-				fkConstraintName: fk.constraint_name,
+				fkTarget: `${local?.foreignTable}.${local?.foreignColumn}`,
+				fkConstraintName: fk.constraintName,
 				...(uniqueConstraintName ? { uniqueConstraintName } : {}),
-				...(onDelete ? { onDelete } : {}),
+				...(fk.onDelete ? { onDelete: fk.onDelete } : {}),
+				...(fk.onUpdate ? { onUpdate: fk.onUpdate } : {}),
+				...(fk.deferrable ? { deferrable: fk.deferrable } : {}),
 			};
 		}
 
@@ -498,6 +510,21 @@ async function introspectTable(
 
 	applyCheckConstraints(manifestColumns, checkRows);
 
+	const foreignKeys: ManifestForeignKey[] = groupedFks
+		.filter((fk) => fk.columns.length > 1)
+		.map((fk) => {
+			const manifestFk: ManifestForeignKey = {
+				name: fk.constraintName,
+				columns: fk.columns.map((col) => col.columnName),
+				targetTable: fk.columns[0]?.foreignTable ?? "",
+				targetColumns: fk.columns.map((col) => col.foreignColumn),
+			};
+			if (fk.onDelete) manifestFk.onDelete = fk.onDelete;
+			if (fk.onUpdate) manifestFk.onUpdate = fk.onUpdate;
+			if (fk.deferrable) manifestFk.deferrable = fk.deferrable;
+			return manifestFk;
+		});
+
 	return {
 		accessor: tableAccessorFromSqlName(tableName),
 		sqlName: tableName,
@@ -508,6 +535,7 @@ async function introspectTable(
 			manifestColumns,
 		),
 		primaryKey,
+		...(foreignKeys.length > 0 ? { foreignKeys } : {}),
 	};
 }
 

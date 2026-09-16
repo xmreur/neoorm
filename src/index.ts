@@ -40,6 +40,7 @@ export { sqliteDialect } from "./dialect/sqlite.js";
 export type {
 	Manifest,
 	ManifestColumn,
+	ManifestForeignKey,
 	ManifestManyToMany,
 	ManifestRelation,
 	ManifestTable,

@@ -4,8 +4,14 @@ import type { ColumnBuilder, ColumnMeta } from "./column.js";
 import type { TableDef } from "./table.js";
 import { findOwningTable } from "./table-registry.js";
 
-/** Foreign-key `ON DELETE` action passed to {@link fk}.onDelete. */
+/** Foreign-key `ON DELETE` / `ON UPDATE` action passed to {@link fk}. */
 export type OnDeleteAction = "cascade" | "restrict" | "set null" | "no action";
+
+/** Same actions as {@link OnDeleteAction}, for `ON UPDATE`. */
+export type OnUpdateAction = OnDeleteAction;
+
+/** `DEFERRABLE INITIALLY …` timing (`NOT DEFERRABLE` when omitted). */
+export type FkDeferrable = "immediate" | "deferred";
 
 /** Internal metadata for a foreign-key column builder. */
 export type FkMeta<
@@ -23,6 +29,8 @@ export type FkMeta<
 	as: TAs;
 	inverse: TInverse;
 	onDelete?: OnDeleteAction;
+	onUpdate?: OnUpdateAction;
+	deferrable?: FkDeferrable;
 	unique: TUnique;
 	nullable: TNullable;
 };
@@ -65,6 +73,14 @@ export interface FkBuilder<
 	/** `ON DELETE` action for the foreign-key constraint. */
 	onDelete(
 		action: OnDeleteAction,
+	): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	/** `ON UPDATE` action for the foreign-key constraint. */
+	onUpdate(
+		action: OnUpdateAction,
+	): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
+	/** Mark the constraint `DEFERRABLE` (Postgres and SQLite). */
+	deferrable(
+		timing?: FkDeferrable,
 	): FkBuilder<TTarget, TAs, TInverse, TUnique, TNullable>;
 }
 
@@ -202,6 +218,12 @@ export function fk(
 			},
 			onDelete(action: OnDeleteAction) {
 				return withMeta({ ...next, onDelete: action });
+			},
+			onUpdate(action: OnUpdateAction) {
+				return withMeta({ ...next, onUpdate: action });
+			},
+			deferrable(timing: FkDeferrable = "immediate") {
+				return withMeta({ ...next, deferrable: timing });
 			},
 		};
 	}

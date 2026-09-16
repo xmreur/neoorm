@@ -195,6 +195,7 @@ export async function runCreate(
 		recordId,
 		relationWrites,
 		runCreate,
+		{ ...scalarData, ...result },
 	);
 
 	if (args.with) {

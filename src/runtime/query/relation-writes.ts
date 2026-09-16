@@ -1,4 +1,4 @@
-import { parseFkTarget } from "../../dialect/fk.js";
+import { parseFkTarget, relationFkPairs } from "../../dialect/fk.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
@@ -173,6 +173,82 @@ function pkField(
 		);
 	}
 	return value;
+}
+
+function assignOutgoingFkScalars(
+	scalarData: Record<string, unknown>,
+	rel: ManifestRelation,
+	targetTable: ManifestTable,
+	targetIndex: TableIndex | undefined,
+	record: Record<string, unknown>,
+	nulls = false,
+): void {
+	for (const pair of relationFkPairs(rel)) {
+		if (nulls) {
+			scalarData[pair.fkColumn] = null;
+			continue;
+		}
+		const targetTs =
+			columnBySqlName(targetIndex, targetTable, pair.targetColumn)
+				?.tsName ??
+			columnByTsName(targetIndex, targetTable, pair.targetColumn)
+				?.tsName ??
+			pair.targetColumn;
+		scalarData[pair.fkColumn] = pkField(targetTable, record, targetTs);
+	}
+}
+
+function childFkCreatePatch(
+	rel: ManifestRelation,
+	parentTable: ManifestTable,
+	parentRow: Record<string, unknown> | undefined,
+	parentId: string,
+): Record<string, unknown> {
+	const assignment = inverseFkAssignments(
+		rel,
+		parentTable,
+		parentRow,
+		parentId,
+	);
+	const pairs = relationFkPairs(rel);
+	const patch: Record<string, unknown> = {};
+	for (let i = 0; i < pairs.length; i++) {
+		const pair = pairs[i];
+		if (!pair) continue;
+		patch[pair.fkColumn] = assignment.values[i] ?? parentId;
+	}
+	return patch;
+}
+
+function inverseFkAssignments(
+	rel: ManifestRelation,
+	parentTable: ManifestTable,
+	parentRow: Record<string, unknown> | undefined,
+	parentId: string,
+): { sqlNames: string[]; values: unknown[] } {
+	const pairs = relationFkPairs(rel);
+	const refs =
+		rel.referencedSqlColumns && rel.referencedSqlColumns.length > 0
+			? rel.referencedSqlColumns
+			: pairs.map((pair) => pair.targetColumn);
+	if (pairs.length <= 1) {
+		return {
+			sqlNames: [rel.fkSqlColumn],
+			values: [parentId],
+		};
+	}
+	const values = pairs.map((pair, i) => {
+		const ref = refs[i] ?? pair.targetColumn;
+		const col = parentTable.columns.find(
+			(item) => item.sqlName === ref || item.tsName === ref,
+		);
+		const value = parentRow?.[col?.tsName ?? ref];
+		return value ?? parentId;
+	});
+	return {
+		sqlNames: pairs.map((pair) => pair.fkSqlColumn),
+		values,
+	};
 }
 
 function fkTargetTsName(
@@ -551,6 +627,8 @@ async function connectInverseMany(
 	relation: ManifestRelation,
 	parentId: string,
 	childPks: Record<string, unknown>[],
+	parentTable?: ManifestTable,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
@@ -558,20 +636,28 @@ async function connectInverseMany(
 	if (!targetTable || childPks.length === 0) return;
 
 	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
-	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
+	const assignment = inverseFkAssignments(
+		relation,
+		parentTable ?? targetTable,
+		parentRow,
+		parentId,
+	);
 	const predicate = sqlPkPredicate(
 		dialect,
 		targetTable,
 		targetIndex,
 		childPks,
-		2,
+		assignment.values.length + 1,
 	);
+	const setSql = assignment.sqlNames
+		.map((sqlName, i) => `${dialect.quoteIdentifier(sqlName)} = $${i + 1}`)
+		.join(", ");
 	await runQuery(
 		executor,
 		runtime,
 		{ operation: "update", tableAccessor: relation.targetAccessor },
-		`UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = $1 WHERE ${predicate.sql}`,
-		[parentId, ...predicate.params],
+		`UPDATE ${dialect.tableRef(targetTable)} SET ${setSql} WHERE ${predicate.sql}`,
+		[...assignment.values, ...predicate.params],
 	);
 }
 
@@ -625,6 +711,8 @@ async function setInverseMany(
 	relation: ManifestRelation,
 	parentId: string,
 	childPks: Record<string, unknown>[],
+	parentTable?: ManifestTable,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	await disconnectInverseMany(
 		executor,
@@ -633,7 +721,15 @@ async function setInverseMany(
 		parentId,
 		undefined,
 	);
-	await connectInverseMany(executor, runtime, relation, parentId, childPks);
+	await connectInverseMany(
+		executor,
+		runtime,
+		relation,
+		parentId,
+		childPks,
+		parentTable,
+		parentRow,
+	);
 }
 
 async function deleteInverseManyChildren(
@@ -807,7 +903,6 @@ async function executeToOneWrite(
 	const targetTable = manifest.tables[rel.targetAccessor];
 	if (!targetTable) compileError(`Unknown table: ${rel.targetAccessor}`);
 	const targetIndex = getTableIndex(runtime.tableIndex, rel.targetAccessor);
-	const fkTs = fkTargetTsName(targetTable, targetIndex, rel);
 
 	assertExclusiveConnectOrCreate(value, relationName);
 
@@ -828,7 +923,13 @@ async function executeToOneWrite(
 				create: (item as { create: Record<string, unknown> }).create,
 			},
 		);
-		scalarData[rel.fkColumn] = pkField(targetTable, record, fkTs);
+		assignOutgoingFkScalars(
+			scalarData,
+			rel,
+			targetTable,
+			targetIndex,
+			record,
+		);
 		return;
 	}
 
@@ -853,7 +954,7 @@ async function executeToOneWrite(
 				`Cannot connect more than one record to to-one relation ${relationName}`,
 			);
 		}
-		scalarData[rel.fkColumn] = pkField(targetTable, pk, fkTs);
+		assignOutgoingFkScalars(scalarData, rel, targetTable, targetIndex, pk);
 		return;
 	}
 
@@ -866,7 +967,14 @@ async function executeToOneWrite(
 				`Cannot disconnect relation ${relationName}: FK column is not nullable`,
 			);
 		}
-		scalarData[rel.fkColumn] = null;
+		assignOutgoingFkScalars(
+			scalarData,
+			rel,
+			targetTable,
+			targetIndex,
+			{},
+			true,
+		);
 		return;
 	}
 
@@ -874,7 +982,13 @@ async function executeToOneWrite(
 		const created = await runCreate(executor, runtime, rel.targetAccessor, {
 			data: value.create as Record<string, unknown>,
 		});
-		scalarData[rel.fkColumn] = pkField(targetTable, created, fkTs);
+		assignOutgoingFkScalars(
+			scalarData,
+			rel,
+			targetTable,
+			targetIndex,
+			created,
+		);
 	}
 }
 
@@ -1073,6 +1187,7 @@ async function executeInverseManyWrite(
 	relationName: string,
 	value: Record<string, unknown>,
 	runCreate: CreateRunner,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	const { manifest } = runtime;
 	const rel = findRelation(table, relationName);
@@ -1127,7 +1242,15 @@ async function executeInverseManyWrite(
 
 	if ("set" in value) {
 		const pks = normalizeConnectPks(runtime, rel.targetAccessor, value.set);
-		await setInverseMany(executor, runtime, rel, parentId, pks);
+		await setInverseMany(
+			executor,
+			runtime,
+			rel,
+			parentId,
+			pks,
+			table,
+			parentRow,
+		);
 		return;
 	}
 
@@ -1137,7 +1260,15 @@ async function executeInverseManyWrite(
 			rel.targetAccessor,
 			value.connect,
 		);
-		await connectInverseMany(executor, runtime, rel, parentId, pks);
+		await connectInverseMany(
+			executor,
+			runtime,
+			rel,
+			parentId,
+			pks,
+			table,
+			parentRow,
+		);
 	}
 
 	if ("create" in value) {
@@ -1146,7 +1277,7 @@ async function executeInverseManyWrite(
 			await runCreate(executor, runtime, rel.targetAccessor, {
 				data: {
 					...item,
-					[rel.fkColumn]: parentId,
+					...childFkCreatePatch(rel, table, parentRow, parentId),
 				},
 			});
 		}
@@ -1161,6 +1292,7 @@ async function executeInverseOneWrite(
 	relationName: string,
 	value: Record<string, unknown>,
 	runCreate: CreateRunner,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	const { manifest } = runtime;
 	const rel = findRelation(table, relationName);
@@ -1219,7 +1351,15 @@ async function executeInverseOneWrite(
 				parentId,
 				undefined,
 			);
-			await connectInverseMany(executor, runtime, rel, parentId, [pk]);
+			await connectInverseMany(
+				executor,
+				runtime,
+				rel,
+				parentId,
+				[pk],
+				table,
+				parentRow,
+			);
 		}
 		return;
 	}
@@ -1237,7 +1377,15 @@ async function executeInverseOneWrite(
 				`Cannot connect more than one record to one-to-one relation ${relationName}`,
 			);
 		}
-		await connectInverseMany(executor, runtime, rel, parentId, [pk]);
+		await connectInverseMany(
+			executor,
+			runtime,
+			rel,
+			parentId,
+			[pk],
+			table,
+			parentRow,
+		);
 	}
 
 	if ("create" in value) {
@@ -1252,7 +1400,7 @@ async function executeInverseOneWrite(
 			await runCreate(executor, runtime, rel.targetAccessor, {
 				data: {
 					...item,
-					[rel.fkColumn]: parentId,
+					...childFkCreatePatch(rel, table, parentRow, parentId),
 				},
 			});
 		}
@@ -1266,6 +1414,7 @@ export async function executeRelationWrites(
 	parentId: string,
 	relationWrites: ParsedRelationWrite[],
 	runCreate: CreateRunner,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
@@ -1296,6 +1445,7 @@ export async function executeRelationWrites(
 					write.relationName,
 					write.value,
 					runCreate,
+					parentRow,
 				);
 			}
 			continue;
@@ -1309,6 +1459,7 @@ export async function executeRelationWrites(
 			write.relationName,
 			write.value,
 			runCreate,
+			parentRow,
 		);
 	}
 }

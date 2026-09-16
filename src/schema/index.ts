@@ -51,8 +51,10 @@ export type {
 export { many, manyToMany } from "./many-to-many.js";
 export type {
 	FkBuilder,
+	FkDeferrable,
 	FkMeta,
 	OnDeleteAction,
+	OnUpdateAction,
 } from "./relation.js";
 export { fk } from "./relation.js";
 export type {
@@ -74,6 +76,8 @@ export type {
 	ColumnDef,
 	ColumnNaming,
 	ColumnRefs,
+	ForeignKeyBuilder,
+	ForeignKeyDef,
 	IndexDef,
 	IndexExpr,
 	IndexKeyInput,
@@ -85,7 +89,7 @@ export type {
 	TableExtra,
 	TableOptions,
 } from "./table.js";
-export { expr, index, primaryKey, table, unique } from "./table.js";
+export { expr, foreignKey, index, primaryKey, table, unique } from "./table.js";
 export { clearTableRegistry } from "./table-registry.js";
 export type {
 	AggregateArgs,

@@ -319,6 +319,57 @@ export type OutgoingFkRelations<
 	}[keyof TColumns]
 >;
 
+type ExtraFkRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	E,
+> = E extends {
+	kind: "foreignKey";
+	_as: infer As extends string;
+	targetTable: infer T extends string;
+}
+	? As extends ""
+		? never
+		: T extends keyof TSchema & string
+			? { [P in As]: T }
+			: never
+	: never;
+
+export type ExtraOutgoingFkRelations<
+	TSchema extends Record<string, TableDef>,
+	TExtras extends readonly TableExtra[],
+> = MergeRelationUnion<ExtraFkRelationEntry<TSchema, TExtras[number]>>;
+
+type ExtraInverseFkRelationEntry<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+	TSourceAccessor extends keyof TSchema & string,
+	E,
+> = E extends {
+	kind: "foreignKey";
+	_inverse: infer Inv extends string;
+	targetTable: infer T extends string;
+}
+	? Inv extends ""
+		? never
+		: T extends TAccessor
+			? { [P in Inv]: TSourceAccessor }
+			: never
+	: never;
+
+export type ExtraInverseFkRelations<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[S in keyof TSchema & string]: ExtraInverseFkRelationEntry<
+			TSchema,
+			TAccessor,
+			S,
+			TSchema[S]["_extras"][number]
+		>;
+	}[keyof TSchema & string]
+>;
+
 /** Inverse relations from other tables pointing at this table (inverse name -> source accessor) */
 export type InverseRelationEntryForSource<
 	TSchema extends Record<string, TableDef>,
@@ -554,7 +605,9 @@ export type RelationAccessors<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = OutgoingFkRelations<TSchema, TSchema[TAccessor]["_columns"]> &
+	ExtraOutgoingFkRelations<TSchema, TSchema[TAccessor]["_extras"]> &
 	InverseRelations<TSchema, TAccessor> &
+	ExtraInverseFkRelations<TSchema, TAccessor> &
 	JunctionM2MRelations<TSchema, TAccessor> &
 	InlineM2MRelations<TSchema, TAccessor> &
 	InlineM2MInverseRelations<TSchema, TAccessor>;
@@ -1135,6 +1188,116 @@ export type InlineM2MInverseWhereMap<
 	}[keyof TSchema & string]
 >;
 
+export type ExtraOutgoingFkWhereMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	TSchema[TAccessor]["_extras"][number] extends infer E
+		? E extends {
+				kind: "foreignKey";
+				_as: infer As extends string;
+				targetTable: infer T extends string;
+			}
+			? As extends ""
+				? never
+				: T extends keyof TSchema & string
+					? {
+							[P in As]?: [T] extends [TAccessor]
+								? ShallowWhereInput<
+										TSchema[T]["_columns"],
+										TSchema,
+										T
+									>
+								: WhereInput<
+										TSchema[T]["_columns"],
+										TSchema,
+										T
+									>;
+						}
+					: never
+			: never
+		: never
+>;
+
+export type ExtraInverseFkWhereMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[S in keyof TSchema &
+			string]: TSchema[S]["_extras"][number] extends infer E
+			? E extends {
+					kind: "foreignKey";
+					_inverse: infer Inv extends string;
+					targetTable: infer T extends string;
+				}
+				? Inv extends ""
+					? never
+					: T extends TAccessor
+						? {
+								[P in Inv]?: [S] extends [TAccessor]
+									? ShallowManyRelationFilter<TSchema, S>
+									: ManyRelationFilter<TSchema, S>;
+							}
+						: never
+				: never
+			: never;
+	}[keyof TSchema & string]
+>;
+
+type ExtraOutgoingFkWriteMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	TSchema[TAccessor]["_extras"][number] extends infer E
+		? E extends {
+				kind: "foreignKey";
+				_as: infer As extends string;
+				targetTable: infer T extends string;
+			}
+			? As extends ""
+				? never
+				: T extends keyof TSchema & string
+					? {
+							[P in As]?: ToOneRelationWriteForAccessor<
+								TSchema,
+								T,
+								ColumnDef
+							> & { disconnect?: true };
+						}
+					: never
+			: never
+		: never
+>;
+
+type ExtraInverseFkWriteMap<
+	TSchema extends Record<string, TableDef>,
+	TAccessor extends keyof TSchema & string,
+> = MergeRelationUnion<
+	{
+		[S in keyof TSchema &
+			string]: TSchema[S]["_extras"][number] extends infer E
+			? E extends {
+					kind: "foreignKey";
+					_inverse: infer Inv extends string;
+					targetTable: infer T extends string;
+				}
+				? Inv extends ""
+					? never
+					: T extends TAccessor
+						? {
+								[P in Inv]?: import("./nested-relation-types.js").ToManyRelationWrite<
+									TSchema,
+									TAccessor,
+									S
+								>;
+							}
+						: never
+				: never
+			: never;
+	}[keyof TSchema & string]
+>;
+
 export type RelationWhereMap<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
@@ -1167,7 +1330,9 @@ export type RelationWhereMap<
 		}[keyof TSchema & string]
 	> &
 	InlineM2MWhereMap<TSchema, TAccessor> &
-	InlineM2MInverseWhereMap<TSchema, TAccessor>;
+	InlineM2MInverseWhereMap<TSchema, TAccessor> &
+	ExtraOutgoingFkWhereMap<TSchema, TAccessor> &
+	ExtraInverseFkWhereMap<TSchema, TAccessor>;
 
 export type LogicalWhereInput<
 	TColumns extends Record<string, ColumnDef>,
@@ -1375,10 +1540,12 @@ export type RelationCreateMap<
 	TAccessor extends keyof TSchema & string,
 > = Expand<
 	OutgoingFkRelationWriteMap<TSchema, TSchema[TAccessor]["_columns"]> &
+		ExtraOutgoingFkWriteMap<TSchema, TAccessor> &
 		import("./nested-relation-types.js").InverseRelationWriteMap<
 			TSchema,
 			TAccessor
 		> &
+		ExtraInverseFkWriteMap<TSchema, TAccessor> &
 		JunctionM2MRelationWriteMap<TSchema, TAccessor> &
 		InlineM2MWriteMap<TSchema, TAccessor> &
 		InlineM2MInverseWriteMap<TSchema, TAccessor>
@@ -1390,10 +1557,12 @@ export type RelationUpdateMap<
 	TAccessor extends keyof TSchema & string,
 > = Expand<
 	OutgoingFkRelationWriteMap<TSchema, TSchema[TAccessor]["_columns"]> &
+		ExtraOutgoingFkWriteMap<TSchema, TAccessor> &
 		import("./nested-relation-types.js").InverseRelationWriteMap<
 			TSchema,
 			TAccessor
 		> &
+		ExtraInverseFkWriteMap<TSchema, TAccessor> &
 		JunctionM2MRelationWriteMap<TSchema, TAccessor> &
 		InlineM2MWriteMap<TSchema, TAccessor> &
 		InlineM2MInverseWriteMap<TSchema, TAccessor>

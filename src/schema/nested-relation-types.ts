@@ -182,7 +182,7 @@ type ToOneRelationWrite<
 	>;
 };
 
-type ToManyRelationWrite<
+export type ToManyRelationWrite<
 	TSchema extends Record<string, TableDef>,
 	TParentAccessor extends keyof TSchema & string,
 	TChildAccessor extends keyof TSchema & string,
