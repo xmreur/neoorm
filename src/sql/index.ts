@@ -4,6 +4,7 @@
  */
 import { sqlTag } from "./template.js";
 
+export type { SqlBuilderOperator } from "./builder.js";
 export { sqlBuilder } from "./builder.js";
 export type { CompiledSql, SqlFragment, SqlValue } from "./template.js";
 export {

@@ -532,8 +532,8 @@ export type TypedNeoOrmClient<
 > = {
 	/**
 	 * Run a parameterized SQL template. Uses the same compiler as `neoorm/sql`
-	 * (`sql`, `sqlId`, nested fragments). `sqlBuilder` has no WHERE/LIMIT/params —
-	 * interpolate `sqlBuilder.compile()` into this tag for those clauses.
+	 * (`sql`, `sqlId`, nested fragments, `sqlBuilder.compile()`). Use this tag
+	 * for HAVING and other raw tails around a compiled builder fragment.
 	 */
 	sql<T = Record<string, unknown>>(
 		strings: TemplateStringsArray,

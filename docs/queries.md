@@ -545,7 +545,7 @@ const taken = await db.users.exists({ where: { email: "a@b.com" } });
 
 ## Raw SQL
 
-`db.sql` and `import { sql } from "neoorm/sql"` share one compiler. Interpolate values, `sqlId("table")`, nested `sql\`...\`` fragments, or `sqlBuilder.compile()`. `sqlBuilder` itself has no WHERE, LIMIT, or params — add those in the `db.sql` tag.
+`db.sql` and `import { sql } from "neoorm/sql"` share one compiler. Interpolate values, `sqlId("table")`, nested `sql\`...\`` fragments, or `sqlBuilder.compile()`. `sqlBuilder` covers select/join/where/group/order/limit with bound params; use `db.sql` for HAVING and other raw tails.
 
 ```ts
 import { sql, sqlBuilder, sqlId } from "neoorm/sql";
@@ -557,9 +557,12 @@ const rows = await db.sql`SELECT * FROM ${ident} WHERE ${filter}`;
 const grouped = sqlBuilder
   .selectFrom("users")
   .select(["id", "email"])
+  .where("email", "=", "a@b.com")
+  .orWhere(sql`role = ${"admin"}`)
   .groupBy("id", "email")
+  .limit(10)
   .compile();
-await db.sql`${grouped} LIMIT ${10}`;
+await db.sql`${grouped} HAVING count(*) > ${0}`;
 ```
 
 `db.execute({ text, params })` runs already-compiled SQL. Raw SQL is not rewritten for tenant `schema` — qualify identifiers yourself.
