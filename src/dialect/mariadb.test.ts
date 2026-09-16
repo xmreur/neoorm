@@ -102,6 +102,21 @@ describe("mariadb dialect", () => {
 		).toThrow(/partial indexes/i);
 	});
 
+	it("rejects GIN indexes at schema compile", () => {
+		const schema = defineSchema({
+			posts: table(
+				{
+					id: id(),
+					title: text().notNull(),
+				},
+				(t) => [index(t.title).using("gin")],
+			),
+		});
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "mariadb" }),
+		).toThrow(/does not support gin indexes/i);
+	});
+
 	it("emits citext collation and DATETIME(6) in CREATE TABLE", () => {
 		const schema = defineSchema({
 			users: table({

@@ -3,6 +3,7 @@ import type {
 	Manifest,
 	ManifestColumn,
 	ManifestIndex,
+	ManifestIndexKey,
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { DatabaseClient } from "../../runtime/driver.js";
@@ -36,9 +37,11 @@ type FkRow = {
 
 type IndexRow = {
 	index_name: string;
-	column_name: string;
+	column_name: string | null;
 	non_unique: number;
 	seq_in_index: number;
+	index_type?: string;
+	expression?: string | null;
 };
 
 type CheckRow = {
@@ -328,33 +331,62 @@ async function introspectMysqlIndexes(
 	client: DatabaseClient,
 	tableName: string,
 ): Promise<ManifestIndex[]> {
-	const rows = (
-		await client.query<IndexRow>(
-			`SELECT INDEX_NAME AS index_name,
+	const sqlWithExpr = `SELECT INDEX_NAME AS index_name,
 			        COLUMN_NAME AS column_name,
 			        NON_UNIQUE AS non_unique,
-			        SEQ_IN_INDEX AS seq_in_index
+			        SEQ_IN_INDEX AS seq_in_index,
+			        INDEX_TYPE AS index_type,
+			        EXPRESSION AS expression
 			 FROM information_schema.STATISTICS
 			 WHERE TABLE_SCHEMA = DATABASE()
 			   AND TABLE_NAME = $1
 			   AND INDEX_NAME <> 'PRIMARY'
-			 ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
-			[tableName],
-		)
-	).rows;
+			 ORDER BY INDEX_NAME, SEQ_IN_INDEX`;
+	const sqlPlain = `SELECT INDEX_NAME AS index_name,
+			        COLUMN_NAME AS column_name,
+			        NON_UNIQUE AS non_unique,
+			        SEQ_IN_INDEX AS seq_in_index,
+			        INDEX_TYPE AS index_type
+			 FROM information_schema.STATISTICS
+			 WHERE TABLE_SCHEMA = DATABASE()
+			   AND TABLE_NAME = $1
+			   AND INDEX_NAME <> 'PRIMARY'
+			 ORDER BY INDEX_NAME, SEQ_IN_INDEX`;
+	let rows: IndexRow[];
+	try {
+		rows = (await client.query<IndexRow>(sqlWithExpr, [tableName])).rows;
+	} catch {
+		rows = (await client.query<IndexRow>(sqlPlain, [tableName])).rows;
+	}
 
 	const grouped = new Map<string, ManifestIndex>();
 	for (const row of rows) {
+		const key: ManifestIndexKey = row.expression
+			? { expr: row.expression }
+			: { sqlName: row.column_name ?? "" };
+		const using =
+			row.index_type && row.index_type.toLowerCase() === "hash"
+				? ("hash" as const)
+				: undefined;
 		const existing = grouped.get(row.index_name);
 		if (existing) {
-			(existing.columns as string[]).push(row.column_name);
+			const keys = [...(existing.keys ?? []), key];
+			grouped.set(row.index_name, {
+				...existing,
+				keys,
+				columns: keys
+					.map((item) => item.sqlName)
+					.filter((name): name is string => Boolean(name)),
+			});
 			continue;
 		}
 		grouped.set(row.index_name, {
 			name: row.index_name,
 			sqlName: row.index_name,
-			columns: [row.column_name],
+			columns: key.sqlName ? [key.sqlName] : [],
 			unique: row.non_unique === 0,
+			keys: [key],
+			...(using ? { using } : {}),
 		});
 	}
 	return [...grouped.values()];

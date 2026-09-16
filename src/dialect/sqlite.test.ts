@@ -6,8 +6,10 @@ import { applySql } from "../migrate/runner.js";
 import { sqliteClient } from "../runtime/driver.js";
 import {
 	defineSchema,
+	expr,
 	fk,
 	id,
+	index,
 	table,
 	text,
 	timestamps,
@@ -77,6 +79,47 @@ describe("sqlite timestamp column type", () => {
 		expect(createdAt?.kind).toBe("timestamp");
 		expect(createdAt?.defaultNow).toBe(true);
 		db.close();
+	});
+});
+
+describe("sqlite indexes", () => {
+	it("rejects GIN at schema compile", () => {
+		const schema = defineSchema({
+			posts: table(
+				{
+					id: id(),
+					title: text().notNull(),
+				},
+				(t) => [index(t.title).using("gin")],
+			),
+		});
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "sqlite" }),
+		).toThrow(/does not support gin indexes/i);
+	});
+
+	it("emits expression index keys", () => {
+		const schema = defineSchema({
+			users: table(
+				{
+					id: id(),
+					email: text().notNull(),
+				},
+				(_t) => [index(expr("lower(email)"))],
+			),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "sqlite",
+		});
+		const users = manifest.tables.users;
+		expect(users).toBeDefined();
+		if (!users) return;
+		const exprIdx = users.indexes[0];
+		expect(exprIdx).toBeDefined();
+		if (!exprIdx) return;
+		expect(sqliteDialect.emitCreateIndex(users, exprIdx)).toBe(
+			`CREATE INDEX "users_lower_email_idx" ON "users" (lower(email));`,
+		);
 	});
 });
 

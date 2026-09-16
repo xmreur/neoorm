@@ -45,7 +45,10 @@ import {
 	type ColumnDef,
 	type ColumnNaming,
 	findPrimaryKeyColumn,
+	type IndexKeyInput,
+	type IndexMethod,
 	type IndexWherePredicate,
+	isIndexExpr,
 	type TableDef,
 	type TableExtra,
 } from "../schema/table.js";
@@ -429,6 +432,44 @@ function copyStructuredConstraints(
 	}
 }
 
+function extraIndexUsing(extra: TableExtra): IndexMethod | undefined {
+	if (extra.kind !== "index") return undefined;
+	if ("using" in extra && typeof extra.using === "string") {
+		return extra.using;
+	}
+	if ("_using" in extra && typeof extra._using === "string") {
+		return extra._using;
+	}
+	return undefined;
+}
+
+function extraIndexOpclass(extra: TableExtra): string | undefined {
+	if (extra.kind !== "index") return undefined;
+	if ("opclass" in extra && typeof extra.opclass === "string") {
+		return extra.opclass;
+	}
+	if ("_opclass" in extra && typeof extra._opclass === "string") {
+		return extra._opclass;
+	}
+	return undefined;
+}
+
+function extraIndexKeys(extra: TableExtra): readonly IndexKeyInput[] {
+	if (extra.kind !== "index") return [];
+	if ("keys" in extra && extra.keys) return extra.keys;
+	return extra.columns;
+}
+
+function sanitizeIndexNamePart(sql: string): string {
+	const token = sql
+		.replace(/[^A-Za-z0-9]+/g, "_")
+		.replace(/^_|_$/g, "")
+		.slice(0, 40);
+	return token.length > 0 ? token : "expr";
+}
+
+const NON_UNIQUE_INDEX_METHODS = new Set<IndexMethod>(["gin", "gist", "brin"]);
+
 function extrasToManifest(
 	extras: readonly TableExtra[],
 	columns: Record<string, ColumnDef>,
@@ -441,23 +482,61 @@ function extrasToManifest(
 
 	for (const extra of extras) {
 		if (extra.kind === "index") {
+			const using = extraIndexUsing(extra);
+			const opclass = extraIndexOpclass(extra);
+			if (extra.unique && using && NON_UNIQUE_INDEX_METHODS.has(using)) {
+				throw schemaError(
+					"invalid_column",
+					`UNIQUE indexes cannot use ${using}`,
+				);
+			}
+			if (using && using !== "btree") {
+				if (isSqliteProvider(provider)) {
+					throw schemaError(
+						"invalid_column",
+						`SQLite does not support ${using} indexes`,
+					);
+				}
+				if (isMysqlFamilyProvider(provider) && using !== "hash") {
+					throw schemaError(
+						"invalid_column",
+						`${isMariadbProvider(provider) ? "MariaDB" : "MySQL"} does not support ${using} indexes`,
+					);
+				}
+			}
+
 			const wherePredicate =
 				"where" in extra &&
 				extra.where !== undefined &&
 				typeof extra.where !== "function"
 					? extra.where
 					: undefined;
-			const sqlColumns = extra.columns.map((tsName) =>
-				resolveSqlName(
-					tsName,
-					requireColumnDef(columns, tsName),
-					columnNaming,
-				),
+			const keys = extraIndexKeys(extra).map((key) => {
+				if (isIndexExpr(key)) {
+					return { expr: key.sql };
+				}
+				return {
+					sqlName: resolveSqlName(
+						key,
+						requireColumnDef(columns, key),
+						columnNaming,
+					),
+				};
+			});
+			const sqlColumns = keys
+				.map((key) => key.sqlName)
+				.filter((name): name is string => name !== undefined);
+			const nameParts = keys.map(
+				(key) =>
+					key.sqlName ?? sanitizeIndexNamePart(key.expr ?? "expr"),
 			);
 			const index: ManifestIndex = {
-				name: sqlColumns.join("_"),
+				name: nameParts.join("_") || "expr",
 				columns: sqlColumns,
 				unique: extra.unique,
+				keys,
+				...(using && using !== "btree" ? { using } : {}),
+				...(opclass ? { opclass } : {}),
 			};
 			if (wherePredicate) {
 				if (isMysqlFamilyProvider(provider)) {
@@ -538,8 +617,10 @@ function isUniqueColumn(table: ManifestTable, fkSqlColumn: string): boolean {
 		(idx) =>
 			idx.unique &&
 			!idx.whereSql &&
+			!idx.using &&
 			idx.columns.length === 1 &&
-			idx.columns[0] === fkSqlColumn,
+			idx.columns[0] === fkSqlColumn &&
+			!(idx.keys?.some((key) => key.expr) ?? false),
 	);
 }
 
@@ -634,6 +715,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				name: col.sqlName,
 				columns: [col.sqlName],
 				unique: false,
+				keys: [{ sqlName: col.sqlName }],
 			};
 			const already = indexes.some(
 				(idx) =>

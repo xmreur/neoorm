@@ -3,6 +3,8 @@ import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import {
+	formatIndexKeyList,
+	indexUsingClause,
 	isSolePrimaryKeyColumn,
 	quoteIdentifier as q,
 	tableRef,
@@ -396,10 +398,11 @@ function emitDropTable(table: ManifestTable): string {
 
 function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 	const indexName = resolveIndexSqlName(table.sqlName, index);
-	const cols = index.columns.map((c) => q(c)).join(", ");
+	const cols = formatIndexKeyList(index, q);
 	const unique = index.unique ? "UNIQUE " : "";
+	const using = indexUsingClause(index);
 	const where = index.whereSql ? ` WHERE ${index.whereSql}` : "";
-	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols})${where};`;
+	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)}${using} (${cols})${where};`;
 }
 
 function emitDropIndex(indexName: string, _tableSqlName?: string): string {

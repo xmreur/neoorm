@@ -4,7 +4,7 @@ import { schemaError } from "../runtime/error-builders.js";
 import { QueryErrorCode, SchemaErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
-import { isSolePrimaryKeyColumn } from "./shared.js";
+import { formatIndexKeyList, isSolePrimaryKeyColumn } from "./shared.js";
 import type {
 	ColumnAlter,
 	CreateTableOptions,
@@ -394,12 +394,26 @@ function emitCreateIndex(
 			},
 		);
 	}
+	if (index.using && index.using !== "btree" && index.using !== "hash") {
+		compileError(
+			`${options.unsupportedLabel} does not support ${index.using} indexes`,
+			{
+				code: QueryErrorCode.unsupported_operation,
+			},
+		);
+	}
 	const indexName = resolveIndexSqlName(table.sqlName, index);
-	const cols = index.columns
-		.map((c) => mysqlIndexColumnExpr(table, c, undefined, options))
-		.join(", ");
+	const cols = formatIndexKeyList(index, q, {
+		formatIdent: (sqlName) =>
+			mysqlIndexColumnExpr(table, sqlName, undefined, options),
+		wrapExpr: (expression) => `(${expression})`,
+	});
 	const unique = index.unique ? "UNIQUE " : "";
-	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols});`;
+	const using =
+		index.using && index.using !== "btree"
+			? ` USING ${index.using.toUpperCase()}`
+			: "";
+	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols})${using};`;
 }
 
 function emitAddForeignKey(table: ManifestTable, col: ManifestColumn): string {

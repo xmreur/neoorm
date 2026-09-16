@@ -232,4 +232,70 @@ describe("introspectPostgres extras", () => {
 		expect(schema).toContain("id: serial().primary()");
 		expect(schema).toContain("id: uuid().primary()");
 	});
+
+	it("emits GIN using and expression unique extras", async () => {
+		const db: MockDb = {
+			tables: ["docs"],
+			columns: {
+				docs: [
+					{
+						column_name: "id",
+						data_type: "uuid",
+						udt_name: "uuid",
+						is_nullable: "NO",
+						column_default: null,
+					},
+					{
+						column_name: "email",
+						data_type: "text",
+						udt_name: "text",
+						is_nullable: "NO",
+						column_default: null,
+					},
+					{
+						column_name: "metadata",
+						data_type: "jsonb",
+						udt_name: "jsonb",
+						is_nullable: "NO",
+						column_default: null,
+					},
+				],
+			},
+			indexes: {
+				docs: [
+					{
+						index_name: "docs_metadata_idx",
+						column_name: "metadata",
+						key_sql: "metadata",
+						is_expr: false,
+						is_unique: false,
+						is_primary: false,
+						ordinal: 1,
+						method: "gin",
+						where_sql: null,
+						opclass: "jsonb_path_ops",
+					},
+					{
+						index_name: "docs_email_lower_key",
+						column_name: null,
+						key_sql: "lower(email)",
+						is_expr: true,
+						is_unique: true,
+						is_primary: false,
+						ordinal: 1,
+						method: "btree",
+						where_sql: null,
+						opclass: null,
+					},
+				],
+			},
+			primaryKeys: { docs: ["id"] },
+		};
+		const schema = await introspectPostgres(pgClient(mockPool(db)));
+		expect(schema).toContain(
+			'index(t.metadata).using("gin").ops("jsonb_path_ops")',
+		);
+		expect(schema).toContain('unique(expr("lower(email)"))');
+		expect(schema).toContain("expr,");
+	});
 });

@@ -78,12 +78,23 @@ export type ManifestManyToMany = {
 	inverse: string;
 };
 
+export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin";
+
+export type ManifestIndexKey = {
+	sqlName?: string;
+	expr?: string;
+	opclass?: string;
+};
+
 export type ManifestIndex = {
 	name: string;
 	columns: readonly string[];
 	unique: boolean;
 	sqlName?: string;
 	whereSql?: string;
+	using?: IndexMethod;
+	opclass?: string;
+	keys?: readonly ManifestIndexKey[];
 };
 
 export type ManifestTable = {

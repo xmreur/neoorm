@@ -77,10 +77,22 @@ export type IndexWherePredicate = Record<
 	boolean | number | string | null
 >;
 
+export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin";
+
+export type IndexExpr = {
+	readonly kind: "indexExpr";
+	readonly sql: string;
+};
+
+export type IndexKeyInput = string | IndexExpr;
+
 export type IndexDef = {
 	kind: "index";
+	keys: readonly IndexKeyInput[];
 	columns: readonly string[];
 	unique: boolean;
+	using?: IndexMethod;
+	opclass?: string;
 	where?: IndexWherePredicate;
 };
 
@@ -122,19 +134,62 @@ export type ColumnRefs<TColumns extends Record<string, ColumnDef>> = {
 
 export type IndexBuilder = {
 	readonly kind: "index";
+	readonly keys: readonly IndexKeyInput[];
 	readonly columns: readonly string[];
 	readonly unique: boolean;
+	readonly _using?: IndexMethod;
+	readonly _opclass?: string;
+	using(method: IndexMethod): IndexBuilder;
+	ops(opclass: string): IndexBuilder;
 	/** Partial index: only index rows matching the predicate. */
 	where(predicate: IndexWherePredicate): IndexDef;
 };
 
-function createIndexDef(
-	columns: readonly string[],
-	unique: boolean,
-): IndexBuilder {
-	const def: IndexDef = { kind: "index", columns, unique };
+function identifierTsNames(keys: readonly IndexKeyInput[]): string[] {
+	return keys.filter((key): key is string => typeof key === "string");
+}
+
+export function isIndexExpr(value: unknown): value is IndexExpr {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		(value as { kind?: string }).kind === "indexExpr" &&
+		typeof (value as { sql?: unknown }).sql === "string"
+	);
+}
+
+/** SQL expression index key (`lower(email)`), not a column identifier. */
+export function expr(sql: string): IndexExpr {
+	return { kind: "indexExpr", sql };
+}
+
+function createIndexBuilder(state: {
+	keys: readonly IndexKeyInput[];
+	unique: boolean;
+	using?: IndexMethod;
+	opclass?: string;
+}): IndexBuilder {
+	const def: IndexDef = {
+		kind: "index",
+		keys: state.keys,
+		columns: identifierTsNames(state.keys),
+		unique: state.unique,
+		...(state.using ? { using: state.using } : {}),
+		...(state.opclass ? { opclass: state.opclass } : {}),
+	};
 	return {
-		...def,
+		kind: "index",
+		keys: state.keys,
+		columns: def.columns,
+		unique: state.unique,
+		...(state.using ? { _using: state.using } : {}),
+		...(state.opclass ? { _opclass: state.opclass } : {}),
+		using(method: IndexMethod) {
+			return createIndexBuilder({ ...state, using: method });
+		},
+		ops(opclass: string) {
+			return createIndexBuilder({ ...state, opclass });
+		},
 		where(predicate: IndexWherePredicate) {
 			return { ...def, where: predicate };
 		},
@@ -142,13 +197,13 @@ function createIndexDef(
 }
 
 /** Create a non-unique index on one or more columns (use in table extras). */
-export function index(...columns: readonly string[]): IndexBuilder {
-	return createIndexDef(columns, false);
+export function index(...keys: readonly IndexKeyInput[]): IndexBuilder {
+	return createIndexBuilder({ keys, unique: false });
 }
 
 /** Create a unique index on one or more columns (use in table extras). Supports `.where()` for partial uniques. */
-export function unique(...columns: readonly string[]): IndexBuilder {
-	return createIndexDef(columns, true);
+export function unique(...keys: readonly IndexKeyInput[]): IndexBuilder {
+	return createIndexBuilder({ keys, unique: true });
 }
 
 /** Declare a composite primary key (use in table extras). */

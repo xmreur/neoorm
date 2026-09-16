@@ -1,7 +1,10 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import { compileError } from "../runtime/compile-error.js";
+import { QueryErrorCode } from "../runtime/error-codes.js";
 import { findFkReferencedColumn, parseFkTarget } from "./fk.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import {
+	formatIndexKeyList,
 	isSolePrimaryKeyColumn,
 	quoteIdentifier as q,
 	tableRef,
@@ -162,8 +165,13 @@ function emitDropTable(table: ManifestTable): string {
 }
 
 function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
+	if (index.using && index.using !== "btree") {
+		compileError(`SQLite does not support ${index.using} indexes`, {
+			code: QueryErrorCode.unsupported_operation,
+		});
+	}
 	const indexName = resolveIndexSqlName(table.sqlName, index);
-	const cols = index.columns.map((c) => q(c)).join(", ");
+	const cols = formatIndexKeyList(index, q);
 	const unique = index.unique ? "UNIQUE " : "";
 	const where = index.whereSql ? ` WHERE ${index.whereSql}` : "";
 	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)} (${cols})${where};`;

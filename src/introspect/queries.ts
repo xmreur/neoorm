@@ -23,9 +23,15 @@ export type FkRow = {
 
 export type IndexRow = {
 	index_name: string;
-	column_name: string;
+	column_name: string | null;
+	key_sql: string | null;
+	is_expr: boolean;
 	is_unique: boolean;
 	is_primary: boolean;
+	ordinal: number;
+	method: string;
+	where_sql: string | null;
+	opclass: string | null;
 };
 
 export type UniqueConstraintRow = {
@@ -116,18 +122,31 @@ export async function queryIndexes(
 		`
     SELECT
       i.relname AS index_name,
-      a.attname AS column_name,
+      am.amname AS method,
       ix.indisunique AS is_unique,
-      ix.indisprimary AS is_primary
+      ix.indisprimary AS is_primary,
+      pg_get_expr(ix.indpred, ix.indrelid) AS where_sql,
+      ord AS ordinal,
+      a.attname AS column_name,
+      (ix.indkey[ord] = 0) AS is_expr,
+      CASE
+        WHEN ix.indkey[ord] = 0 THEN pg_get_indexdef(ix.indexrelid, ord, true)
+        ELSE a.attname
+      END AS key_sql,
+      opc.opcname AS opclass
     FROM pg_class t
     JOIN pg_index ix ON t.oid = ix.indrelid
     JOIN pg_class i ON i.oid = ix.indexrelid
-    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+    JOIN pg_am am ON am.oid = i.relam
     JOIN pg_namespace n ON n.oid = t.relnamespace
+    CROSS JOIN LATERAL generate_subscripts(ix.indkey, 1) AS ord
+    LEFT JOIN pg_attribute a
+      ON a.attrelid = t.oid AND a.attnum = ix.indkey[ord]
+    LEFT JOIN pg_opclass opc ON opc.oid = ix.indclass[ord]
     WHERE n.nspname = $1
       AND t.relname = $2
       AND NOT ix.indisprimary
-    ORDER BY i.relname, array_position(ix.indkey, a.attnum)
+    ORDER BY i.relname, ord
   `,
 		[schema, tableName],
 	);
