@@ -29,6 +29,7 @@ import {
 	introspectPostgres,
 	introspectSqlite,
 } from "../introspect/pull.js";
+import { acquireMigrateDevLock } from "../migrate/dev-lock.js";
 import {
 	dbPushWarnings,
 	formatMigrateStatus,
@@ -542,90 +543,102 @@ program
 				}
 
 				if (subcommand === "deploy" || subcommand === "dev") {
-					const schemaPath = resolve(cwd, config.schema);
-					const { readSnapshot } = await import(
-						"../codegen/generate.js"
-					);
-					const snapshotManifest = await readSnapshot(outDir);
-					const applied = await migrateDeploy(
-						client,
-						dialect,
-						migrationsDir,
-						{
-							...(dbSchema ? { schema: dbSchema } : {}),
-							schemaPath,
-							...(snapshotManifest
-								? { manifest: snapshotManifest }
-								: {}),
-						},
-					);
-					if (applied.length === 0) {
-						console.log("No pending migrations");
-					} else {
-						console.log(`Applied ${applied.length} migration(s):`);
-						for (const name of applied) {
-							console.log(`  - ${name}`);
-						}
-					}
-
-					if (subcommand === "dev") {
-						const {
-							warnings,
-							summary,
-							migrationName,
-							manifest,
-							destructiveBlocked,
-						} = await generateFromSchema(
-							schemaPath,
-							outDir,
-							generateOptionsFromConfig(
-								config,
-								options,
-								dbSchema,
-							),
+					const releaseDevLock =
+						subcommand === "dev"
+							? await acquireMigrateDevLock(outDir)
+							: undefined;
+					try {
+						const schemaPath = resolve(cwd, config.schema);
+						const { readSnapshot } = await import(
+							"../codegen/generate.js"
 						);
-						for (const line of formatGenerateSummary(
-							summary,
-							outDir,
+						const snapshotManifest = await readSnapshot(outDir);
+						const applied = await migrateDeploy(
+							client,
+							dialect,
+							migrationsDir,
 							{
-								...(config.generate?.zod === true
-									? { zod: true }
-									: {}),
-								...(config.generate?.typebox === true
-									? { typebox: true }
-									: {}),
-								...(config.generate?.elysia === true
-									? { elysia: true }
+								...(dbSchema ? { schema: dbSchema } : {}),
+								schemaPath,
+								...(snapshotManifest
+									? { manifest: snapshotManifest }
 									: {}),
 							},
-						)) {
-							console.log(line);
-						}
-						for (const warning of warnings) {
-							console.warn(`Warning: ${warning}`);
-						}
-						if (migrationName) {
-							const newlyApplied = await migrateDeploy(
-								client,
-								dialect,
-								join(outDir, "migrations"),
-								{
-									...(dbSchema ? { schema: dbSchema } : {}),
-									manifest,
-									schemaPath,
-								},
+						);
+						if (applied.length === 0) {
+							console.log("No pending migrations");
+						} else {
+							console.log(
+								`Applied ${applied.length} migration(s):`,
 							);
-							if (newlyApplied.length > 0) {
-								console.log(
-									`Applied new migration: ${newlyApplied.join(", ")}`,
-								);
+							for (const name of applied) {
+								console.log(`  - ${name}`);
 							}
 						}
-						if (destructiveBlocked) {
-							process.exit(1);
+
+						if (subcommand === "dev") {
+							const {
+								warnings,
+								summary,
+								migrationName,
+								manifest,
+								destructiveBlocked,
+							} = await generateFromSchema(
+								schemaPath,
+								outDir,
+								generateOptionsFromConfig(
+									config,
+									options,
+									dbSchema,
+								),
+							);
+							for (const line of formatGenerateSummary(
+								summary,
+								outDir,
+								{
+									...(config.generate?.zod === true
+										? { zod: true }
+										: {}),
+									...(config.generate?.typebox === true
+										? { typebox: true }
+										: {}),
+									...(config.generate?.elysia === true
+										? { elysia: true }
+										: {}),
+								},
+							)) {
+								console.log(line);
+							}
+							for (const warning of warnings) {
+								console.warn(`Warning: ${warning}`);
+							}
+							if (migrationName) {
+								const newlyApplied = await migrateDeploy(
+									client,
+									dialect,
+									join(outDir, "migrations"),
+									{
+										...(dbSchema
+											? { schema: dbSchema }
+											: {}),
+										manifest,
+										schemaPath,
+									},
+								);
+								if (newlyApplied.length > 0) {
+									console.log(
+										`Applied new migration: ${newlyApplied.join(", ")}`,
+									);
+								}
+							}
+							if (destructiveBlocked) {
+								process.exit(1);
+							}
 						}
+						return;
+					} finally {
+						await releaseDevLock?.();
 					}
-					return;
 				}
 
 				console.error(
