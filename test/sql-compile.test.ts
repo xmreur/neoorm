@@ -40,6 +40,20 @@ describe("compileQuery uses sqlTag", () => {
 		);
 		expect(compiled.params).toEqual([10]);
 	});
+
+	it("rebases sqlBuilder params when composed into an outer tag", () => {
+		const filtered = sqlBuilder
+			.selectFrom("users")
+			.select(["id"])
+			.where("email", "=", "a@b.com")
+			.limit(10)
+			.compile();
+		const compiled = compile`${filtered} HAVING count(*) > ${0}`;
+		expect(compiled.text).toBe(
+			'SELECT "id" FROM "users" WHERE ("email" = $1) LIMIT $2 HAVING count(*) > $3',
+		);
+		expect(compiled.params).toEqual(["a@b.com", 10, 0]);
+	});
 });
 
 describe("sqlBuilder.orderBy", () => {

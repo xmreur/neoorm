@@ -369,7 +369,7 @@ await db.$transaction(async (tx) => {
 
 ## Raw SQL
 
-Use `db.sql` when you need full SQL control. It uses the same compiler as `neoorm/sql` (`sql`, `sqlId`, nested fragments). `sqlBuilder` is select/join/group/order only — interpolate `.compile()` into `db.sql` for WHERE, LIMIT, or bound params.
+Use `db.sql` when you need full SQL control. It uses the same compiler as `neoorm/sql` (`sql`, `sqlId`, nested fragments). `sqlBuilder` covers select/join/where/group/order/limit with bound params — interpolate `.compile()` into `db.sql` for HAVING or other raw tails.
 
 ```ts
 import { sql, sqlBuilder, sqlId } from "neoorm/sql";
@@ -391,7 +391,9 @@ const grouped = sqlBuilder
   .selectFrom("users")
   .leftJoin("posts", "posts.author_id", "users.id")
   .select(["users.id", "users.email"])
+  .where("users.email", "=", email)
   .groupBy("users.id", "users.email")
+  .limit(10)
   .compile();
 const dashboard = await db.sql`${grouped} HAVING count(posts.id) > ${0}`;
 ```
