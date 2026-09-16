@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import {
@@ -258,5 +259,39 @@ describe("resetDatabaseSchema", () => {
 		expect(sql).toMatch(/DROP SCHEMA "public" CASCADE/);
 		expect(sql).toMatch(/CREATE SCHEMA "public"/);
 		expect(sql).not.toMatch(/TO PUBLIC/i);
+	});
+
+	it("disables foreign key checks on the same connection for mysql family", async () => {
+		const queries: string[] = [];
+		let rootQueryCalls = 0;
+		const txClient: DatabaseClient = {
+			query: async <T = Record<string, unknown>>(text: string) => {
+				queries.push(text);
+				if (text.includes("information_schema.TABLES")) {
+					return {
+						rows: [{ table_name: "posts" }],
+						rowCount: 1,
+					} as DriverResult<T>;
+				}
+				return { rows: [], rowCount: 0 } as DriverResult<T>;
+			},
+			transaction: async (fn) => fn(txClient),
+			close: async () => {},
+		};
+		const mock: DatabaseClient = {
+			query: async () => {
+				rootQueryCalls++;
+				return { rows: [], rowCount: 0 };
+			},
+			transaction: async (fn) => fn(txClient),
+			close: async () => {},
+		};
+
+		await resetDatabaseSchema(mock, mariadbDialect);
+
+		expect(rootQueryCalls).toBe(0);
+		expect(queries[0]).toBe("SET FOREIGN_KEY_CHECKS=0");
+		expect(queries.at(-1)).toBe("SET FOREIGN_KEY_CHECKS=1");
+		expect(queries).toContain("DROP TABLE IF EXISTS `posts`");
 	});
 });

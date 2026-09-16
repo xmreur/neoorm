@@ -407,22 +407,26 @@ export async function resetDatabaseSchema(
 		}
 		case "mysql":
 		case "mariadb": {
-			await client.query("SET FOREIGN_KEY_CHECKS=0");
-			try {
-				const result = await client.query<{ table_name: string }>(
-					`SELECT TABLE_NAME AS table_name
-					 FROM information_schema.TABLES
-					 WHERE TABLE_SCHEMA = DATABASE()
-					   AND TABLE_TYPE = 'BASE TABLE'`,
-				);
-				for (const row of result.rows) {
-					await client.query(
-						`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.table_name)}`,
+			// Session vars must run on one connection; pool.query may use a
+			// different connection per statement.
+			await client.transaction(async (tx) => {
+				await tx.query("SET FOREIGN_KEY_CHECKS=0");
+				try {
+					const result = await tx.query<{ table_name: string }>(
+						`SELECT TABLE_NAME AS table_name
+						 FROM information_schema.TABLES
+						 WHERE TABLE_SCHEMA = DATABASE()
+						   AND TABLE_TYPE = 'BASE TABLE'`,
 					);
+					for (const row of result.rows) {
+						await tx.query(
+							`DROP TABLE IF EXISTS ${dialect.quoteIdentifier(row.table_name)}`,
+						);
+					}
+				} finally {
+					await tx.query("SET FOREIGN_KEY_CHECKS=1");
 				}
-			} finally {
-				await client.query("SET FOREIGN_KEY_CHECKS=1");
-			}
+			});
 			return;
 		}
 		case "postgresql": {
