@@ -39,9 +39,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: neoorm
+          MARIADB_DATABASE: neoorm_test
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "mariadb-admin ping -h 127.0.0.1 -uroot -pneoorm"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/neoorm_test
       MYSQL_URL: mysql://root:neoorm@127.0.0.1:3306/neoorm_test
+      MARIADB_URL: mariadb://root:neoorm@127.0.0.1:3307/neoorm_test
     steps:
       - uses: actions/checkout@v4
 

@@ -106,6 +106,9 @@ function mysqlTypeToKind(
 	if (dataType === "json") {
 		return { kind: "jsonb" };
 	}
+	if (dataType === "longtext") {
+		return { kind: "text" };
+	}
 	if (
 		dataType === "datetime" ||
 		dataType === "timestamp" ||
@@ -267,13 +270,25 @@ async function introspectMysqlTable(
 		const mapped = mysqlTypeToKind(row);
 		const defaults = parseDefaultValue(row.column_default);
 		const fk = fkByColumn.get(row.column_name);
+		const quotedCol = quoteMysqlIdentifier(row.column_name);
 		const check = checks.find((item) =>
-			item.check_clause.includes(quoteMysqlIdentifier(row.column_name)),
+			item.check_clause.includes(quotedCol),
 		);
+		const jsonValidCheck = checks.find(
+			(item) =>
+				/json_valid\s*\(/i.test(item.check_clause) &&
+				item.check_clause.includes(quotedCol),
+		);
+		const kind =
+			fk !== undefined
+				? "fk"
+				: mapped.kind === "text" && jsonValidCheck
+					? "jsonb"
+					: mapped.kind;
 		const column: ManifestColumn = {
 			tsName: columnTsNameFromSqlName(row.column_name),
 			sqlName: row.column_name,
-			kind: fk ? "fk" : mapped.kind,
+			kind,
 			nullable: row.is_nullable === "YES",
 			unique: row.column_key === "UNI",
 			primary: row.column_key === "PRI",
@@ -290,7 +305,10 @@ async function introspectMysqlTable(
 			const onDelete = mapDeleteRule(fk.delete_rule);
 			if (onDelete) column.onDelete = onDelete;
 		}
-		if (check) {
+		if (
+			check &&
+			!(kind === "jsonb" && /json_valid\s*\(/i.test(check.check_clause))
+		) {
 			column.checkExpression = check.check_clause;
 		}
 		return column;

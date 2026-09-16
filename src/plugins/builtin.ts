@@ -1,5 +1,5 @@
 import type { ValidationType } from "../codegen/validation/types.js";
-import type { ManifestColumn } from "../dialect/types.js";
+import type { Dialect, ManifestColumn } from "../dialect/types.js";
 import { parseDbJsonValue } from "../runtime/parse-db-json.js";
 import type {
 	ColumnBuilder,
@@ -63,14 +63,22 @@ function jsonCastKind(kind: string): "json" | "jsonb" {
 	return kind === "json" ? "json" : "jsonb";
 }
 
+function isSqliteOrMysqlFamily(dialect?: Dialect): boolean {
+	return (
+		dialect?.name === "sqlite" ||
+		dialect?.name === "mysql" ||
+		dialect?.name === "mariadb"
+	);
+}
+
 function formatJsonDefault(
 	col: ManifestColumn,
 	value: unknown,
-	dialect?: import("../dialect/types.js").Dialect,
+	dialect?: Dialect,
 ): string {
 	const cast = jsonCastKind(col.kind);
 	const json = JSON.stringify(value).replace(/'/g, "''");
-	if (dialect?.name === "sqlite" || dialect?.name === "mysql") {
+	if (isSqliteOrMysqlFamily(dialect)) {
 		return `'${json}'`;
 	}
 	return `'${json}'::${cast}`;
@@ -202,8 +210,7 @@ const boolType: ColumnTypePlugin = {
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
-		if (dialect?.name === "sqlite" || dialect?.name === "mysql")
-			return value ? 1 : 0;
+		if (isSqliteOrMysqlFamily(dialect)) return value ? 1 : 0;
 		return value;
 	},
 	deserializeValue(_col, dbValue) {
@@ -624,8 +631,7 @@ const textArrayType: ColumnTypePlugin = {
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
-		if (dialect?.name === "sqlite" || dialect?.name === "mysql")
-			return JSON.stringify(value);
+		if (isSqliteOrMysqlFamily(dialect)) return JSON.stringify(value);
 		return value;
 	},
 	deserializeValue(col, dbValue) {
@@ -663,8 +669,7 @@ const intArrayType: ColumnTypePlugin = {
 	},
 	serializeValue(_col, value, dialect) {
 		if (value === null || value === undefined) return value;
-		if (dialect?.name === "sqlite" || dialect?.name === "mysql")
-			return JSON.stringify(value);
+		if (isSqliteOrMysqlFamily(dialect)) return JSON.stringify(value);
 		return value;
 	},
 	deserializeValue(col, dbValue) {

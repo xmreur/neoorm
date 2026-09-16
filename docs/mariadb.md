@@ -1,0 +1,123 @@
+# MariaDB
+
+MariaDB 10.11 LTS is a first-class dialect via the optional official `mariadb` connector. Schema DSL, codegen, migrations, and the query client work the same way as PostgreSQL, with the storage and SQL differences below.
+
+MariaDB versions below 10.11, GIS, Galera, and MaxScale specifics are out of scope. MySQL 8 uses a **separate** dialect and the `mysql2` driver — see [MySQL](mysql.md).
+
+## Requirements
+
+Install the driver next to NeoOrm:
+
+```bash
+bun add neoorm mariadb
+```
+
+If `mariadb` is missing, creating a client throws: `mariadb is not installed. Run: bun add mariadb`.
+
+## Configuration
+
+Set `provider: "mariadb"` and a MariaDB 10.11 connection URL:
+
+```ts
+// neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "mariadb",
+    url: process.env.DATABASE_URL ?? "mariadb://root@localhost:3306/myapp",
+  },
+});
+```
+
+`datasource.schema` is ignored (the database comes from the URL). `datasource.enum: "native"` is allowed and emits column `ENUM('a','b')` — there is no `CREATE TYPE`.
+
+## Runtime client
+
+```ts
+import { createNeoOrmClient } from "neoorm";
+import { manifest } from "./neoorm/manifest.js";
+
+const db = createNeoOrmClient(manifest, {
+  provider: "mariadb",
+  connectionString: process.env.MARIADB_URL,
+});
+```
+
+Wrap an existing `mariadb` pool with `createNeoOrmClientFromMariadb(manifest, pool)`. `$disconnect()` does not call `pool.end()` in that case — you own the pool.
+
+Standalone `neoorm/sql` (`sqlId`) stays ANSI-quoted (`"users"`). Use `db.sql` with `db.sqlId("users")` so identifiers are backticks on MariaDB.
+
+`mariadbDialect` is exported from `neoorm` for `dbPush`, migrate helpers, and custom executor wiring.
+
+## CLI
+
+```bash
+bunx neoorm init --provider mariadb
+bunx neoorm migrate deploy
+bunx neoorm db push
+bunx neoorm db pull
+bunx neoorm migrate status
+bunx neoorm migrate reset --force
+```
+
+- Deploy lock is `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy transaction.
+- `migrate reset` sets `FOREIGN_KEY_CHECKS=0`, drops all tables in the current database, then re-enables checks and re-applies migrations.
+- `db pull` introspects `information_schema`. MariaDB `JSON` columns are often `LONGTEXT` plus a `json_valid()` CHECK; NeoOrm maps those back to `jsonb()`.
+
+## Type mapping
+
+| Schema builder | MariaDB storage |
+|----------------|-----------------|
+| `id()`, unique/PK `text` | `VARCHAR(191)` (InnoDB index prefix; `TEXT` cannot be a unique key) |
+| `text()` otherwise | `TEXT`, or `VARCHAR(n)` with `.maxLength()` |
+| `uuid()` | `CHAR(36)` |
+| `bool()` | `TINYINT(1)` |
+| `int()` | `INT` |
+| `bigint()` | `BIGINT` |
+| `serial()` | `INT NOT NULL AUTO_INCREMENT` |
+| `timestamp()` | `DATETIME(6)` + `CURRENT_TIMESTAMP(6)` |
+| `json()` / `jsonb()` | `JSON` (LONGTEXT + `json_valid()` CHECK under the hood) |
+| `decimal()` | `DECIMAL(p,s)` |
+| `bytea()` | `BLOB` |
+| arrays / `citext()` | `JSON` / `VARCHAR` + `utf8mb4_uca1400_ai_ci` |
+| `enum: "check"` | `VARCHAR` + `CHECK` |
+| `enum: "native"` | column `ENUM('a','b')` |
+
+## Differences from MySQL 8
+
+| Feature | MySQL 8 | MariaDB 10.11 |
+|---------|---------|----------------|
+| Driver | `mysql2` | official `mariadb` package |
+| `upsert` | `INSERT … AS new ON DUPLICATE KEY UPDATE` | `ON DUPLICATE KEY UPDATE col = VALUES(col)` |
+| `search` | `REGEXP_LIKE` | `col REGEXP $n` (`(?i)` for insensitive) |
+| `citext` collation | `utf8mb4_0900_ai_ci` | `utf8mb4_uca1400_ai_ci` |
+| CHECK drop | `DROP CHECK` | `DROP CONSTRAINT` |
+| CHECK errno | 3819 | 4025 (`ER_CONSTRAINT_FAILED`) |
+| JSON storage | native JSON | JSON as LONGTEXT + `json_valid()` |
+| `RETURNING` | none | INSERT/DELETE RETURNING exist, but UPDATE does not; NeoOrm uses follow-up `SELECT` for all writes |
+
+## Differences from PostgreSQL
+
+| Feature | PostgreSQL | MariaDB |
+|---------|------------|---------|
+| Identifier quoting | `"users"` | `` `users` `` |
+| `RETURNING` | native | follow-up `SELECT` (or `insertId` for serial) |
+| `upsert` | `ON CONFLICT … DO UPDATE` | `ON DUPLICATE KEY UPDATE` + `VALUES(col)` |
+| `skipDuplicates` | `ON CONFLICT DO NOTHING` | `INSERT IGNORE` |
+| `findOrCreate` | `xmax = 0` | SELECT → INSERT → retry on unique violation |
+| `in` / `notIn` | array bind | `JSON_TABLE` |
+| `search` | POSIX `~` | `REGEXP` |
+| `ilike` | `ILIKE` | `LOWER(col) LIKE LOWER(?)` |
+| JSON operators | `@>`, `?`, `#>` | `JSON_CONTAINS` / `JSON_EXTRACT` / `JSON_CONTAINS_PATH` |
+| Nested includes | `json_agg … FILTER` | `JSON_ARRAYAGG(CASE WHEN …)` |
+| `distinct` (`DISTINCT ON`) | supported | throws |
+| Partial indexes `index({ where })` | supported | rejected at schema compile |
+| PostGIS | supported | rejected |
+| `datasource.schema` | multi-schema | ignored (URL database) |
+
+`createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
+
+Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, savepoint-based nested transactions — behaves the same as on PostgreSQL.

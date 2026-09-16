@@ -10,7 +10,7 @@
 | `neoorm migrate deploy` | Apply pending migrations |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
-| `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite / MySQL) and re-apply migrations (local dev) |
+| `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite / MySQL / MariaDB) and re-apply migrations (local dev) |
 | `neoorm db push` | Push the current `schema.ts` to the database (no migration file) |
 | `neoorm db pull` | Introspect the database into a schema file |
 
@@ -40,6 +40,7 @@ neoorm generate --accept-data-loss
 | PostgreSQL | `pg_advisory_xact_lock` on the deploy transaction |
 | SQLite | `BEGIN IMMEDIATE` around the whole deploy (after `PRAGMA foreign_keys = OFF`) |
 | MySQL | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
+| MariaDB | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
 
 The ledger table `_neoorm_migrations` stores `name` and `checksum`. Editing an already-applied `migration.sql` is rejected (`migration_guard`) — restore the original file or add a new migration. Pending migrations in one deploy run apply in that locked transaction; if a later statement fails, none of that run's new ledger rows remain.
 
@@ -57,7 +58,7 @@ Shows applied migrations (with timestamps), pending folders on disk, and warning
 neoorm migrate reset --force
 ```
 
-Drops the `public` schema (PostgreSQL) or all tables (SQLite and MySQL) and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop without re-applying.
+Drops the `public` schema (PostgreSQL) or all tables (SQLite, MySQL, and MariaDB) and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop without re-applying.
 
 PostgreSQL reset recreates the schema owned by the connecting role. It does not `GRANT ALL ON SCHEMA … TO PUBLIC`.
 

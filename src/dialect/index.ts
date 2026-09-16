@@ -1,3 +1,4 @@
+export { mariadbDialect } from "./mariadb.js";
 export { mysqlDialect, quoteMysqlIdentifier } from "./mysql.js";
 export { postgresDialect, quoteIdentifier } from "./postgres.js";
 export { dialectForProvider } from "./resolve.js";

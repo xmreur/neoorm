@@ -1,5 +1,10 @@
 import type { DatabaseProvider } from "../datasource-provider.js";
-import { isMysqlProvider, isSqliteProvider } from "../datasource-provider.js";
+import {
+	isMariadbProvider,
+	isMysqlProvider,
+	isSqliteProvider,
+} from "../datasource-provider.js";
+import { mariadbDialect } from "./mariadb.js";
 import { mysqlDialect } from "./mysql.js";
 import { postgresDialect } from "./postgres.js";
 import { sqliteDialect } from "./sqlite.js";
@@ -10,6 +15,7 @@ export function dialectForProvider(
 ): Dialect {
 	if (isSqliteProvider(provider)) return sqliteDialect;
 	if (isMysqlProvider(provider)) return mysqlDialect;
+	if (isMariadbProvider(provider)) return mariadbDialect;
 	return postgresDialect;
 }
 
@@ -19,6 +25,14 @@ export function isSqliteDialect(dialect: Dialect): boolean {
 
 export function isMysqlDialect(dialect: Dialect): boolean {
 	return dialect.name === "mysql";
+}
+
+export function isMariadbDialect(dialect: Dialect): boolean {
+	return dialect.name === "mariadb";
+}
+
+export function isMysqlFamilyDialect(dialect: Dialect): boolean {
+	return dialect.name === "mysql" || dialect.name === "mariadb";
 }
 
 export function isPostgresDialect(dialect: Dialect): boolean {
@@ -36,6 +50,8 @@ export function matchDialect<T>(
 			return handlers.sqlite();
 		case "mysql":
 			return handlers.mysql();
+		case "mariadb":
+			return handlers.mariadb();
 		default: {
 			const _never: never = dialect.name;
 			return _never;
@@ -51,6 +67,8 @@ export function dialectDisplayName(name: DialectName): string {
 			return "SQLite";
 		case "mysql":
 			return "MySQL";
+		case "mariadb":
+			return "MariaDB";
 		default: {
 			const _never: never = name;
 			return _never;

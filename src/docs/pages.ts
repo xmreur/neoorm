@@ -24,6 +24,7 @@ const PAGE_ORDER = [
 	"configuration",
 	"sqlite",
 	"mysql",
+	"mariadb",
 	"plugins",
 ] as const;
 

@@ -48,6 +48,7 @@ function migrationsTableRef(dialect: Dialect, schema?: string): string {
 	switch (dialect.name) {
 		case "sqlite":
 		case "mysql":
+		case "mariadb":
 			return dialect.quoteIdentifier(MIGRATIONS_TABLE);
 		case "postgresql": {
 			const schemaName = resolvePgSchemaName(schema);
@@ -74,7 +75,8 @@ async function migrationsLedgerHasChecksumColumn(
 			);
 			return result.rows.some((row) => row.name === "checksum");
 		}
-		case "mysql": {
+		case "mysql":
+		case "mariadb": {
 			const result = await client.query<{ exists: number | string }>(
 				`SELECT COUNT(*) AS exists
 				 FROM information_schema.COLUMNS
@@ -148,6 +150,7 @@ async function withMigrateDeployLock<T>(
 				client.transaction(fn, { isolationLevel: "Serializable" }),
 			);
 		case "mysql":
+		case "mariadb":
 			return withMysqlDeployLock(client, fn);
 		case "postgresql":
 			// Session-level pg_advisory_lock on pool.query would bind a random
@@ -402,7 +405,8 @@ export async function resetDatabaseSchema(
 			}
 			return;
 		}
-		case "mysql": {
+		case "mysql":
+		case "mariadb": {
 			await client.query("SET FOREIGN_KEY_CHECKS=0");
 			try {
 				const result = await client.query<{ table_name: string }>(
@@ -757,6 +761,7 @@ export async function dbPush(
 			qualifiedTarget = target;
 			break;
 		case "mysql":
+		case "mariadb":
 			live = await introspectMysqlToManifest(client);
 			qualifiedTarget = target;
 			break;

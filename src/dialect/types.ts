@@ -192,7 +192,7 @@ export type CreateTableOptions = {
 	manifest?: Manifest;
 };
 
-export type DialectName = "postgresql" | "sqlite" | "mysql";
+export type DialectName = "postgresql" | "sqlite" | "mysql" | "mariadb";
 
 export type Dialect = {
 	readonly name: DialectName;

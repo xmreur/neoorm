@@ -1,4 +1,5 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -435,7 +436,7 @@ function compileHavingCompare(
 					dialect.whereOperators[op](expr, nextParamIndex),
 				);
 				params.push(
-					dialect.name === "mysql" && Array.isArray(value)
+					isMysqlFamilyDialect(dialect) && Array.isArray(value)
 						? JSON.stringify(value)
 						: value,
 				);

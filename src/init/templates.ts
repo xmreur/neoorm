@@ -1,16 +1,29 @@
+import type { InitProvider } from "../datasource-provider.js";
+
+function defaultDatabaseUrl(provider: InitProvider): string {
+	switch (provider) {
+		case "sqlite":
+			return "./dev.db";
+		case "mysql":
+			return "mysql://root@localhost:3306/myapp";
+		case "mariadb":
+			return "mariadb://root@localhost:3306/myapp";
+		case "postgresql":
+			return "postgresql://postgres:postgres@localhost:5432/myapp";
+		default: {
+			const _never: never = provider;
+			return _never;
+		}
+	}
+}
+
 export function neoormConfigTemplate(
 	schemaPath: string,
 	outDir: string,
-	provider: "postgresql" | "sqlite" | "mysql" = "postgresql",
+	provider: InitProvider = "postgresql",
 	databaseUrl?: string,
 ): string {
-	const url =
-		databaseUrl ??
-		(provider === "sqlite"
-			? "./dev.db"
-			: provider === "mysql"
-				? "mysql://root@localhost:3306/myapp"
-				: "postgresql://postgres:postgres@localhost:5432/myapp");
+	const url = databaseUrl ?? defaultDatabaseUrl(provider);
 	const urlLiteral =
 		provider === "sqlite" && !databaseUrl
 			? `"${url}"`
@@ -65,17 +78,9 @@ export const schema = defineSchema({
 }
 
 export function envExampleTemplate(
-	provider: "postgresql" | "sqlite" | "mysql" = "postgresql",
+	provider: InitProvider = "postgresql",
 	databaseUrl?: string,
 ): string {
-	if (provider === "sqlite") {
-		return `DATABASE_URL=${databaseUrl ?? "./dev.db"}
-`;
-	}
-	if (provider === "mysql") {
-		return `DATABASE_URL=${databaseUrl ?? "mysql://root@localhost:3306/myapp"}
-`;
-	}
-	return `DATABASE_URL=${databaseUrl ?? "postgresql://postgres:postgres@localhost:5432/myapp"}
+	return `DATABASE_URL=${databaseUrl ?? defaultDatabaseUrl(provider)}
 `;
 }
