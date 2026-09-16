@@ -152,6 +152,24 @@ describe("resolveUniqueConstraint", () => {
 	it("rejects a non-unique filter", () => {
 		expect(resolveUniqueConstraint(table, { published: true })).toBeNull();
 	});
+
+	it("does not treat an expression unique index as a findUnique target", () => {
+		const table: ManifestTable = {
+			...postsTable(),
+			columns: postsTable().columns.map((col) =>
+				col.tsName === "slug" ? { ...col, unique: false } : col,
+			),
+			indexes: [
+				{
+					name: "slug_lower",
+					columns: [],
+					unique: true,
+					keys: [{ expr: "lower(slug)" }],
+				},
+			],
+		};
+		expect(resolveUniqueConstraint(table, { slug: "hello" })).toBeNull();
+	});
 });
 
 describe("assertUniqueWhere", () => {

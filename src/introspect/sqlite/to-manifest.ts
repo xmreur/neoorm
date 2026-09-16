@@ -3,6 +3,7 @@ import type {
 	Manifest,
 	ManifestColumn,
 	ManifestIndex,
+	ManifestIndexKey,
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { DatabaseClient } from "../../runtime/driver.js";
@@ -240,16 +241,30 @@ async function introspectSqliteTable(
 		if (row.origin === "pk" || row.name.startsWith("sqlite_autoindex_")) {
 			continue;
 		}
-		const cols = (
+		const xinfo = (
 			await client.query<IndexInfoRow>(
-				`PRAGMA index_info(${quoteIdentifier(row.name)})`,
+				`PRAGMA index_xinfo(${quoteIdentifier(row.name)})`,
 			)
 		).rows;
-		const columns = cols.map((col) => col.name);
+		const info =
+			xinfo.length > 0
+				? xinfo.filter((col) => col.cid !== -1)
+				: (
+						await client.query<IndexInfoRow>(
+							`PRAGMA index_info(${quoteIdentifier(row.name)})`,
+						)
+					).rows;
+		const keys: ManifestIndexKey[] = info.map((col) =>
+			col.cid === -2 ? { expr: col.name } : { sqlName: col.name },
+		);
+		const columns = keys
+			.map((key) => key.sqlName)
+			.filter((name): name is string => Boolean(name));
 		if (
 			row.unique === 1 &&
 			columns.length === 1 &&
-			uniqueColumns.has(columns[0] ?? "")
+			uniqueColumns.has(columns[0] ?? "") &&
+			keys.every((key) => !key.expr)
 		) {
 			continue;
 		}
@@ -257,6 +272,7 @@ async function introspectSqliteTable(
 			name: row.name,
 			columns,
 			unique: row.unique === 1,
+			keys,
 		});
 	}
 

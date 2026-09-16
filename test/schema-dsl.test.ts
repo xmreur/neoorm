@@ -6,6 +6,7 @@ import {
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	defineSchema,
+	expr,
 	fk,
 	id,
 	index,
@@ -253,5 +254,57 @@ describe("schema DSL 0.6", () => {
 		expect(sql).toMatch(/"id" \S+ PRIMARY KEY/);
 		expect(sql.match(/PRIMARY KEY/g)).toHaveLength(1);
 		expect(sql).not.toContain("PRIMARY KEY (");
+	});
+
+	it("emits GIN, operator class, and expression index keys", () => {
+		const schema = defineSchema({
+			items: table(
+				{
+					id: id(),
+					email: text().notNull(),
+					metadata: text().notNull(),
+				},
+				(t) => [
+					index(t.metadata).using("gin").ops("jsonb_path_ops"),
+					unique(expr("lower(email)")),
+				],
+			),
+		});
+		const manifest = schemaToManifest(schema);
+		const items = manifestTable(manifest, "items");
+		const gin = items.indexes.find((idx) => idx.using === "gin");
+		expect(gin).toEqual(
+			expect.objectContaining({
+				using: "gin",
+				opclass: "jsonb_path_ops",
+				columns: ["metadata"],
+			}),
+		);
+		if (!gin) return;
+		expect(postgresDialect.emitCreateIndex(items, gin)).toBe(
+			`CREATE INDEX "items_metadata_idx" ON "items" USING gin ("metadata" jsonb_path_ops);`,
+		);
+		const exprUnique = items.indexes.find((idx) => idx.unique);
+		expect(exprUnique?.keys).toEqual([{ expr: "lower(email)" }]);
+		expect(exprUnique?.columns).toEqual([]);
+		if (!exprUnique) return;
+		expect(postgresDialect.emitCreateIndex(items, exprUnique)).toBe(
+			`CREATE UNIQUE INDEX "items_lower_email_key" ON "items" (lower(email));`,
+		);
+	});
+
+	it("rejects UNIQUE GIN indexes", () => {
+		const schema = defineSchema({
+			items: table(
+				{
+					id: id(),
+					tags: text().notNull(),
+				},
+				(t) => [unique(t.tags).using("gin")],
+			),
+		});
+		expect(() => schemaToManifest(schema)).toThrow(
+			/UNIQUE indexes cannot use gin/,
+		);
 	});
 });

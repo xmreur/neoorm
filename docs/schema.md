@@ -200,7 +200,24 @@ posts: table(
 ),
 ```
 
-Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`. `unique()` and `index()` both support `.where()` for partial indexes.
+Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, and `.where()` for partial indexes.
+
+### Index methods and expressions
+
+```ts
+(t) => [
+  index(t.tags).using("gin"),
+  index(t.metadata).using("gin").ops("jsonb_path_ops"),
+  index(t.location).using("gist"),
+  index(t.createdAt).using("brin"),
+  unique(expr("lower(email)")),
+  index(t.authorId, expr("date_trunc('day', created_at)")),
+],
+```
+
+Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, and `hash`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH` and functional `(expr)` keys; they reject GIN/GiST/BRIN and partial `WHERE`.
+
+`unique()` cannot use `gin` / `gist` / `brin`. Expression unique indexes are not `findUnique` / `upsert` targets.
 
 ### Partial indexes
 

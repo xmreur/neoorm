@@ -5,6 +5,7 @@ import { buildUpsertQuery } from "../runtime/query/compile-write.js";
 import {
 	bool,
 	defineSchema,
+	expr,
 	fk,
 	id,
 	index,
@@ -116,6 +117,57 @@ describe("mysql dialect", () => {
 		expect(() =>
 			schemaToManifest(schema, undefined, { provider: "mysql" }),
 		).toThrow(/partial indexes/i);
+	});
+
+	it("rejects GIN indexes at schema compile", () => {
+		const schema = defineSchema({
+			posts: table(
+				{
+					id: id(),
+					title: text().notNull(),
+				},
+				(t) => [index(t.title).using("gin")],
+			),
+		});
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "mysql" }),
+		).toThrow(/does not support gin indexes/i);
+	});
+
+	it("emits HASH and functional index keys", () => {
+		const schema = defineSchema({
+			posts: table(
+				{
+					id: serial().primary(),
+					title: text().notNull(),
+					email: text().notNull(),
+				},
+				(t) => [
+					index(t.title).using("hash"),
+					index(expr("lower(email)")),
+				],
+			),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const posts = manifest.tables.posts;
+		expect(posts).toBeDefined();
+		if (!posts) return;
+		const hashIdx = posts.indexes.find((i) => i.using === "hash");
+		expect(hashIdx).toBeDefined();
+		if (!hashIdx) return;
+		expect(mysqlDialect.emitCreateIndex(posts, hashIdx)).toContain(
+			"USING HASH",
+		);
+		const exprIdx = posts.indexes.find((i) =>
+			i.keys?.some((key) => key.expr),
+		);
+		expect(exprIdx).toBeDefined();
+		if (!exprIdx) return;
+		expect(mysqlDialect.emitCreateIndex(posts, exprIdx)).toContain(
+			"(lower(email))",
+		);
 	});
 
 	it("maps serial primary keys to AUTO_INCREMENT", () => {

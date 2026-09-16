@@ -75,6 +75,9 @@ export type {
 	ColumnNaming,
 	ColumnRefs,
 	IndexDef,
+	IndexExpr,
+	IndexKeyInput,
+	IndexMethod,
 	IndexWherePredicate,
 	PrimaryKeyDef,
 	ScalarColumnKeys,
@@ -82,7 +85,7 @@ export type {
 	TableExtra,
 	TableOptions,
 } from "./table.js";
-export { index, primaryKey, table, unique } from "./table.js";
+export { expr, index, primaryKey, table, unique } from "./table.js";
 export { clearTableRegistry } from "./table-registry.js";
 export type {
 	AggregateArgs,

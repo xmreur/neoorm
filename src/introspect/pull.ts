@@ -1,3 +1,4 @@
+import { manifestIndexKeys } from "../dialect/shared.js";
 import type {
 	Manifest,
 	ManifestColumn,
@@ -48,6 +49,7 @@ const SCHEMA_IMPORT_ORDER = [
 	"textArray",
 	"intArray",
 	"fk",
+	"expr",
 	"index",
 	"unique",
 	"primaryKey",
@@ -286,6 +288,50 @@ function formatTsValue(kind: string, value: unknown): string {
 	return JSON.stringify(value);
 }
 
+function parseEqualityWhere(
+	whereSql: string,
+	tsNameBySql: Map<string, string>,
+): string | undefined {
+	const parts = whereSql.split(/\s+AND\s+/i);
+	const fields: string[] = [];
+	for (const raw of parts) {
+		const part = raw
+			.trim()
+			.replace(/^\(|\)$/g, "")
+			.trim();
+		const isNull = part.match(/^"?([A-Za-z_][\w]*)"?\s+IS NULL$/i);
+		if (isNull?.[1]) {
+			const ts = tsNameBySql.get(isNull[1]) ?? isNull[1];
+			fields.push(`${ts}: null`);
+			continue;
+		}
+		const eq = part.match(/^"?([A-Za-z_][\w]*)"?\s*=\s*(.+)$/);
+		if (!eq?.[1] || eq[2] === undefined) {
+			return undefined;
+		}
+		const ts = tsNameBySql.get(eq[1]) ?? eq[1];
+		const valueSql = eq[2].trim();
+		let value: string;
+		if (valueSql === "true" || valueSql === "false") {
+			value = valueSql;
+		} else if (valueSql === "1" || valueSql === "0") {
+			value = valueSql === "1" ? "true" : "false";
+		} else if (/^-?\d+(\.\d+)?$/.test(valueSql)) {
+			value = valueSql;
+		} else if (
+			(valueSql.startsWith("'") && valueSql.endsWith("'")) ||
+			(valueSql.startsWith('"') && valueSql.endsWith('"'))
+		) {
+			value = `"${escapeTsString(valueSql.slice(1, -1))}"`;
+		} else {
+			return undefined;
+		}
+		fields.push(`${ts}: ${value}`);
+	}
+	if (fields.length === 0) return undefined;
+	return `.where({ ${fields.join(", ")} })`;
+}
+
 function emitTableExtras(
 	table: ManifestTable,
 	tsNameBySql: Map<string, string>,
@@ -295,10 +341,29 @@ function emitTableExtras(
 	for (const index of table.indexes) {
 		const builder = index.unique ? "unique" : "index";
 		usedBuilders?.add(builder);
-		const cols = index.columns
-			.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+		const keys = manifestIndexKeys(index);
+		const cols = keys
+			.map((key) => {
+				if (key.expr) {
+					usedBuilders?.add("expr");
+					return `expr("${escapeTsString(key.expr)}")`;
+				}
+				const sqlName = key.sqlName ?? "";
+				return `t.${tsNameBySql.get(sqlName) ?? sqlName}`;
+			})
 			.join(", ");
-		extras.push(`    ${builder}(${cols}),`);
+		let extra = `${builder}(${cols})`;
+		if (index.using && index.using !== "btree") {
+			extra += `.using("${escapeTsString(index.using)}")`;
+		}
+		if (index.opclass) {
+			extra += `.ops("${escapeTsString(index.opclass)}")`;
+		}
+		if (index.whereSql) {
+			const where = parseEqualityWhere(index.whereSql, tsNameBySql);
+			if (where) extra += where;
+		}
+		extras.push(`    ${extra},`);
 	}
 	if (table.primaryKey.length > 1) {
 		usedBuilders?.add("primaryKey");

@@ -3,6 +3,7 @@ import type {
 	Manifest,
 	ManifestColumn,
 	ManifestIndex,
+	ManifestIndexKey,
 	ManifestTable,
 } from "../dialect/types.js";
 import {
@@ -161,29 +162,114 @@ function parseDefaultValue(
 	return { defaultNow: false };
 }
 
+function indexKeyFromRow(row: {
+	column_name: string | null;
+	key_sql: string | null;
+	is_expr: boolean;
+	opclass: string | null;
+	method: string;
+}): ManifestIndexKey {
+	const method = row.method || "btree";
+	const includeOpclass =
+		Boolean(row.opclass) &&
+		(method === "gin" ||
+			method === "gist" ||
+			method === "brin" ||
+			(row.opclass?.includes("path") ?? false));
+	const opclass = includeOpclass ? (row.opclass ?? undefined) : undefined;
+	if (row.is_expr) {
+		let expr = row.key_sql ?? "";
+		if (row.opclass && expr.endsWith(` ${row.opclass}`)) {
+			expr = expr.slice(0, expr.length - row.opclass.length - 1);
+		}
+		return {
+			expr,
+			...(opclass ? { opclass } : {}),
+		};
+	}
+	const sqlName = row.column_name ?? row.key_sql ?? "";
+	return {
+		sqlName,
+		...(opclass ? { opclass } : {}),
+	};
+}
+
 function buildIndexes(
 	indexRows: Awaited<ReturnType<typeof queryIndexes>>,
 ): ManifestIndex[] {
 	const grouped = new Map<string, ManifestIndex>();
 
-	for (const row of indexRows) {
+	const rows = [...indexRows].sort((a, b) => {
+		if (a.index_name !== b.index_name) {
+			return a.index_name.localeCompare(b.index_name);
+		}
+		return (a.ordinal ?? 0) - (b.ordinal ?? 0);
+	});
+
+	for (const row of rows) {
+		const key = indexKeyFromRow({
+			column_name: row.column_name,
+			key_sql: row.key_sql ?? row.column_name,
+			is_expr: Boolean(row.is_expr),
+			opclass: row.opclass,
+			method: row.method ?? "btree",
+		});
 		const existing = grouped.get(row.index_name);
 		if (existing) {
-			grouped.set(row.index_name, {
-				...existing,
-				columns: [...existing.columns, row.column_name],
-			});
+			const keys = [...(existing.keys ?? []), key];
+			const columns = keys
+				.map((item) => item.sqlName)
+				.filter((name): name is string => Boolean(name));
+			grouped.set(row.index_name, { ...existing, keys, columns });
 			continue;
 		}
+
+		const method =
+			row.method && row.method !== "btree" ? row.method : undefined;
+		const using =
+			method === "hash" ||
+			method === "gin" ||
+			method === "gist" ||
+			method === "brin"
+				? method
+				: undefined;
+		const keyOpclasses = [key.opclass].filter((name): name is string =>
+			Boolean(name),
+		);
 		grouped.set(row.index_name, {
 			name: row.index_name,
 			sqlName: row.index_name,
-			columns: [row.column_name],
+			columns: key.sqlName ? [key.sqlName] : [],
 			unique: row.is_unique,
+			keys: [key],
+			...(using ? { using } : {}),
+			...(row.where_sql ? { whereSql: row.where_sql } : {}),
+			...(keyOpclasses.length === 1 ? { opclass: keyOpclasses[0] } : {}),
 		});
 	}
 
-	return [...grouped.values()];
+	return [...grouped.values()].map((index): ManifestIndex => {
+		const opclasses = (index.keys ?? [])
+			.map((key) => key.opclass)
+			.filter((name): name is string => Boolean(name));
+		const shared =
+			opclasses.length > 0 &&
+			opclasses.every((name) => name === opclasses[0]);
+		if (!shared || !opclasses[0]) {
+			return index;
+		}
+		const opclass = opclasses[0];
+		return {
+			...index,
+			opclass,
+			keys: (index.keys ?? []).map((key) => {
+				const next: ManifestIndexKey = {};
+				if (key.sqlName) next.sqlName = key.sqlName;
+				if (key.expr) next.expr = key.expr;
+				return next;
+			}),
+		};
+	});
 }
 
 function mapDeleteRule(rule: string): string | undefined {

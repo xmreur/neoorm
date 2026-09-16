@@ -7,6 +7,7 @@ import {
 	resolveIndexSqlName,
 	resolveUniqueConstraintName,
 } from "../dialect/postgres.js";
+import { manifestIndexKeys } from "../dialect/shared.js";
 import type {
 	ColumnAlter,
 	DestructiveChange,
@@ -60,7 +61,10 @@ function isColumnUniqueIndex(
 	table: ManifestTable,
 	index: ManifestIndex,
 ): boolean {
-	if (!index.unique || index.columns.length !== 1) {
+	if (!index.unique || index.columns.length !== 1 || index.using) {
+		return false;
+	}
+	if (index.keys?.some((key) => key.expr)) {
 		return false;
 	}
 	const col = table.columns.find((c) => c.sqlName === index.columns[0]);
@@ -176,17 +180,29 @@ function indexSqlName(table: ManifestTable, index: ManifestIndex): string {
 	return index.sqlName ?? resolveIndexSqlName(table.sqlName, index);
 }
 
+function indexKeySignature(index: ManifestIndex): string {
+	return manifestIndexKeys(index)
+		.map(
+			(key) =>
+				`${key.expr ? `e:${key.expr}` : (key.sqlName ?? "")}:${key.opclass ?? ""}`,
+		)
+		.join("|");
+}
+
 function indexesEqual(a: ManifestIndex, b: ManifestIndex): boolean {
 	return (
 		a.unique === b.unique &&
+		(a.using ?? "btree") === (b.using ?? "btree") &&
+		(a.opclass ?? "") === (b.opclass ?? "") &&
 		a.columns.length === b.columns.length &&
 		a.columns.every((col, i) => col === b.columns[i]) &&
+		indexKeySignature(a) === indexKeySignature(b) &&
 		a.whereSql === b.whereSql
 	);
 }
 
 function indexSignature(index: ManifestIndex): string {
-	return `${index.unique ? "u" : "n"}:${index.columns.join(",")}:${index.whereSql ?? ""}`;
+	return `${index.unique ? "u" : "n"}:${index.using ?? "btree"}:${index.opclass ?? ""}:${indexKeySignature(index)}:${index.whereSql ?? ""}`;
 }
 
 function diffIndexes(

@@ -176,6 +176,8 @@ export function resolveUniqueConstraint(
 	let partial: UniqueConstraint | null = null;
 	for (const index of table.indexes) {
 		if (!index.unique) continue;
+		if (index.using && index.using !== "btree") continue;
+		if (index.keys?.some((key) => key.expr)) continue;
 
 		const indexTsNames = index.columns
 			.map(
