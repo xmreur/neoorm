@@ -301,6 +301,7 @@ describe("introspectToManifest", () => {
 				sqlName: "audit_log_event_score_idx",
 				columns: ["event_type", "score"],
 				unique: false,
+				keys: [{ sqlName: "event_type" }, { sqlName: "score" }],
 			},
 		]);
 	});
@@ -500,12 +501,14 @@ describe("introspectToManifest constraints", () => {
 				sqlName: "post_tags_post_id_tag_id_key",
 				columns: ["post_id", "tag_id"],
 				unique: true,
+				keys: [{ sqlName: "post_id" }, { sqlName: "tag_id" }],
 			},
 			{
 				name: "post_tags_priority_idx",
 				sqlName: "post_tags_priority_idx",
 				columns: ["priority"],
 				unique: false,
+				keys: [{ sqlName: "priority" }],
 			},
 		]);
 	});
