@@ -119,12 +119,14 @@ bunx neoorm migrate reset --force
 | `search` | POSIX `~` | `REGEXP` |
 | `ilike` | `ILIKE` | `LOWER(col) LIKE LOWER(?)` |
 | JSON operators | `@>`, `?`, `#>` | `JSON_CONTAINS` / `JSON_EXTRACT` / `JSON_CONTAINS_PATH` |
-| Nested includes | `json_agg … FILTER` | `JSON_ARRAYAGG(CASE WHEN …)` |
+| Nested includes | `json_agg … FILTER` | JOIN `JSON_ARRAYAGG` when possible; otherwise batched `IN` queries (no `LATERAL`) |
 | `distinct` (`DISTINCT ON`) | supported | throws |
 | Partial indexes `index({ where })` | supported | rejected at schema compile |
 | PostGIS | supported | rejected |
 | `interval` / `inet` / `cidr` / range types | supported | rejected at schema compile |
 | `datasource.schema` | multi-schema | ignored (URL database) |
+
+MariaDB has no `LATERAL`, so correlated `JSON_ARRAYAGG` derived tables (the MySQL 8 / Postgres inline has-many subquery) cannot see outer columns such as `` `users`.`id` ``. Those includes are loaded with a follow-up `WHERE fk IN (…)` query instead.
 
 `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
 

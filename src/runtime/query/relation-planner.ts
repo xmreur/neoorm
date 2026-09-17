@@ -1,4 +1,5 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { isMariadbDialect } from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	Manifest,
@@ -164,6 +165,25 @@ function splitWithSpec(withSpec: Record<string, WithInput>): {
 
 function toInlineSpec(withInput: WithInput): InlineRelationSpec | undefined {
 	return typeof withInput === "object" ? withInput : undefined;
+}
+
+/** MariaDB cannot resolve outer refs inside derived tables (no LATERAL). */
+function rehomeCorrelatedHasManyForMariadb(
+	dialect: Dialect,
+	inlineJsonAgg: InlineJsonAggPlan[],
+	batchWith: Record<string, WithInput>,
+	relationWith: Record<string, WithInput>,
+): InlineJsonAggPlan[] {
+	if (!isMariadbDialect(dialect) || inlineJsonAgg.length === 0) {
+		return inlineJsonAgg;
+	}
+	for (const item of inlineJsonAgg) {
+		const input = relationWith[item.relationName];
+		if (input !== undefined) {
+			batchWith[item.relationName] = input;
+		}
+	}
+	return [];
 }
 
 function parentPkRef(parentTable: ManifestTable, dialect: Dialect): string {
@@ -939,7 +959,12 @@ export function planRelationLoad(
 			joinedRelations,
 			inlineJsonAgg: [
 				...hasManyAggregate.inlineJsonAgg,
-				...inlineJsonAgg,
+				...rehomeCorrelatedHasManyForMariadb(
+					dialect,
+					inlineJsonAgg,
+					batchWith,
+					relationWith,
+				),
 			],
 			inlineCounts,
 			batchWith,
@@ -951,7 +976,12 @@ export function planRelationLoad(
 		joins,
 		joinSelectCols: selectCols,
 		joinedRelations,
-		inlineJsonAgg,
+		inlineJsonAgg: rehomeCorrelatedHasManyForMariadb(
+			dialect,
+			inlineJsonAgg,
+			batchWith,
+			relationWith,
+		),
 		inlineCounts,
 		batchWith,
 	};
