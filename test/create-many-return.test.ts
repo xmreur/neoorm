@@ -2,6 +2,8 @@ import { defineSchema, serial, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mariadbDialect } from "../src/dialect/mariadb.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import type { Executor } from "../src/runtime/executor.js";
 import {
 	createManyAndReturnRecords,
@@ -164,5 +166,93 @@ describe("createManyAndReturn", () => {
 		});
 
 		expect(executor.queries[0]?.sql).not.toContain("ON CONFLICT");
+	});
+});
+
+describe("mysql-family bulk insert", () => {
+	const serialManifest = schemaToManifest(serialSchema);
+
+	it("createMany on mariadb uses execute and omits RETURNING", async () => {
+		const runtime: QueryRuntime = {
+			manifest: schemaToManifest(schema),
+			dialect: mariadbDialect,
+		};
+		const executor = createMockExecutor([]);
+		executor.execute = vi.fn(async (sql: string, params?: unknown[]) => {
+			executor.queries.push({ sql, params: params ?? [] });
+			return { rows: [], rowCount: 2 };
+		}) as Executor["execute"];
+
+		const count = await createManyRecords(executor, runtime, "users", {
+			data: [
+				{ email: "a@example.com", name: "A" },
+				{ email: "b@example.com", name: "B" },
+			],
+		});
+
+		expect(count).toBe(2);
+		expect(executor.execute).toHaveBeenCalled();
+		expect(executor.query).not.toHaveBeenCalled();
+		expect(executor.queries[0]?.sql).toContain("INSERT");
+		expect(executor.queries[0]?.sql).toContain("VALUES");
+		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
+	});
+
+	it("synthesizes serial PKs from insertId and rowCount on mysql", async () => {
+		const runtime: QueryRuntime = {
+			manifest: serialManifest,
+			dialect: mysqlDialect,
+		};
+		const executor = createMockExecutor([]);
+		executor.execute = vi.fn(async (sql: string, params?: unknown[]) => {
+			executor.queries.push({ sql, params: params ?? [] });
+			return { rows: [], rowCount: 2, insertId: 10 };
+		}) as Executor["execute"];
+
+		const rows = await createManyAndReturnRecords(
+			executor,
+			runtime,
+			"logs",
+			{
+				data: [{ message: "a" }, { message: "b" }],
+			},
+		);
+
+		expect(rows).toEqual([
+			{ message: "a", id: 10 },
+			{ message: "b", id: 11 },
+		]);
+		expect(executor.query).not.toHaveBeenCalled();
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
+		expect(executor.queries[0]?.sql).not.toContain("SELECT");
+	});
+
+	it("does not synthesize consecutive ids when skipDuplicates is set", async () => {
+		const runtime: QueryRuntime = {
+			manifest: serialManifest,
+			dialect: mysqlDialect,
+		};
+		const executor = createMockExecutor([]);
+		executor.execute = vi.fn(async (sql: string, params?: unknown[]) => {
+			executor.queries.push({ sql, params: params ?? [] });
+			return { rows: [], rowCount: 1, insertId: 10 };
+		}) as Executor["execute"];
+
+		const rows = await createManyAndReturnRecords(
+			executor,
+			runtime,
+			"logs",
+			{
+				data: [{ message: "a" }, { message: "b" }],
+				skipDuplicates: true,
+			},
+		);
+
+		expect(rows).toEqual([{ message: "a" }, { message: "b" }]);
+		expect(rows.some((row) => row.id === 11)).toBe(false);
+		expect(executor.query).not.toHaveBeenCalled();
+		expect(executor.queries[0]?.sql).toContain("INSERT IGNORE");
+		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
 	});
 });

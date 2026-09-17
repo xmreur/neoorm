@@ -14,7 +14,11 @@ export function createMockExecutor(handlers?: {
 	execute?: (
 		sql: string,
 		params?: unknown[],
-	) => { rows: Record<string, unknown>[]; rowCount: number };
+	) => {
+		rows: Record<string, unknown>[];
+		rowCount: number;
+		insertId?: number | bigint;
+	};
 }): MockExecutor {
 	const queries: { sql: string; params: unknown[] }[] = [];
 

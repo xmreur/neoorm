@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mariadbDialect } from "../src/dialect/mariadb.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	buildDeleteQuery,
@@ -193,6 +195,36 @@ describe("update/delete SQL compilation", () => {
 			"b@example.com",
 			"Bob",
 		]);
+	});
+
+	it("omits RETURNING on mysql-family bulk insert", () => {
+		const { valueRows } = buildInsertManyValueRows(
+			users,
+			["email", "name"],
+			[["a@example.com", "Alice"]],
+		);
+		const mysqlSql = buildInsertManyQuery(
+			users,
+			["email", "name"],
+			valueRows,
+			undefined,
+			false,
+			mysqlDialect,
+		);
+		expect(mysqlSql).not.toContain("RETURNING");
+		expect(mysqlSql).toContain("INSERT INTO `users`");
+
+		const mariadbSql = buildInsertManyQuery(
+			users,
+			["email", "name"],
+			valueRows,
+			undefined,
+			false,
+			mariadbDialect,
+			false,
+		);
+		expect(mariadbSql).not.toContain("RETURNING");
+		expect(mariadbSql).toContain("INSERT INTO `users`");
 	});
 
 	it("appends ON CONFLICT DO NOTHING for skipDuplicates inserts", () => {

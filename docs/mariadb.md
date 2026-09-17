@@ -146,7 +146,7 @@ MariaDB has no `LATERAL`, so correlated `JSON_ARRAYAGG` derived tables (the MySQ
 
 Simple has-many includes (`with: { posts: true }`) on `findMany`, `findById`, and `findFirst` use `LEFT JOIN` + `JSON_ARRAYAGG` + `GROUP BY` in one statement. Nested `where`, `take`, `skip`, `orderBy`, or further `with` on that relation still make a single SQL invalid, so those includes are loaded with a follow-up `WHERE fk IN (…)` query.
 
-`createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
+`createMany` is a multi-value `INSERT` plus `affectedRows` and does not use `RETURNING`. `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
 
 Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based.
 

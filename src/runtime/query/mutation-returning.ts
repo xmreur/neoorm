@@ -1,6 +1,10 @@
 import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
-import type { Dialect, ManifestTable } from "../../dialect/types.js";
+import type {
+	Dialect,
+	ManifestColumn,
+	ManifestTable,
+} from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import { buildSelectColumns, type InsertReturning } from "./compile.js";
@@ -164,6 +168,39 @@ function resolveInsertPkLookup(
 	}
 
 	return undefined;
+}
+
+export function mysqlFamilySerialPrimaryKey(
+	table: ManifestTable,
+): ManifestColumn | undefined {
+	if (table.primaryKey.length !== 1) return undefined;
+	const pkSql = table.primaryKey[0];
+	const col = table.columns.find(
+		(candidate) =>
+			candidate.primary &&
+			(candidate.kind === "serial" || candidate.generated === true) &&
+			candidate.sqlName === pkSql,
+	);
+	return col;
+}
+
+export function synthesizeSerialPkRows(
+	scalarRows: Record<string, unknown>[],
+	pkTsName: string,
+	insertId: number | bigint,
+): Record<string, unknown>[] {
+	const rows: Record<string, unknown>[] = [];
+	for (let i = 0; i < scalarRows.length; i++) {
+		const base = scalarRows[i] ?? {};
+		rows.push({
+			...base,
+			[pkTsName]:
+				typeof insertId === "bigint"
+					? insertId + BigInt(i)
+					: insertId + i,
+		});
+	}
+	return rows;
 }
 
 export function quotedPkColumns(

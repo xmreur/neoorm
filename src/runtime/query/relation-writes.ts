@@ -1,6 +1,7 @@
 import { parseFkTarget, relationFkPairs } from "../../dialect/fk.js";
 import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	Manifest,
@@ -17,7 +18,7 @@ import {
 	buildInsertManyValueRows,
 	dataToSqlValues,
 } from "./compile.js";
-import { type QueryRuntime, runQuery } from "./execute.js";
+import { type QueryRuntime, runExecute, runQuery } from "./execute.js";
 import type { WithInput } from "./find.js";
 import { findOrCreatePk, findOrCreateRecord } from "./find-or-create.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
@@ -528,7 +529,18 @@ async function insertM2MLinks(
 		runtime.tableIndex,
 		true,
 		dialect,
+		false,
 	);
+	if (isMysqlFamilyDialect(dialect)) {
+		await runExecute(
+			executor,
+			runtime,
+			{ operation: "insert", tableAccessor: throughTable.accessor },
+			sql,
+			values,
+		);
+		return;
+	}
 	await runQuery(
 		executor,
 		runtime,
