@@ -22,14 +22,25 @@ import {
 import { loadRelations } from "../src/runtime/query/find.js";
 import { atIndex, manifestTable } from "./helpers/manifest.js";
 
+type PgQueryInput =
+	| string
+	| { text: string; values?: unknown[]; name?: string };
+
 function mockPool(
 	rows: Record<string, unknown>[] = [],
 ): Pool & { queries: Array<{ sql: string; params: unknown[] }> } {
 	const queries: Array<{ sql: string; params: unknown[] }> = [];
 	return {
 		queries,
-		query: vi.fn(async (sql: string, params?: unknown[]) => {
-			queries.push({ sql, params: params ?? [] });
+		query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+			if (typeof input === "string") {
+				queries.push({ sql: input, params: params ?? [] });
+			} else {
+				queries.push({
+					sql: input.text,
+					params: input.values ?? params ?? [],
+				});
+			}
 			return { rows };
 		}),
 	} as unknown as Pool & {

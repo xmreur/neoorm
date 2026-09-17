@@ -1,5 +1,9 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
-import type { Manifest, ManifestTable } from "../../dialect/types.js";
+import type {
+	Manifest,
+	ManifestRelation,
+	ManifestTable,
+} from "../../dialect/types.js";
 import { normalizeSelectColumns } from "./compile.js";
 import type { ColumnPickArg } from "./projection.js";
 import {
@@ -108,6 +112,20 @@ function attachStripToRow(
 	table: ManifestTable,
 	row: Record<string, unknown>,
 ): void {
+	const relations = effectiveRelations(tableIndex.manifest, table);
+	const hasHiddenColumns = table.columns.some((col) => col.hidden === true);
+
+	if (!hasHiddenColumns) {
+		if (
+			relations.length === 0 ||
+			relations.every((rel) => row[rel.name] == null)
+		) {
+			return;
+		}
+		attachStripToNestedRelations(tableIndex, relations, row);
+		return;
+	}
+
 	if (row[stripMethod as unknown as string] === true) {
 		return;
 	}
@@ -129,7 +147,14 @@ function attachStripToRow(
 		configurable: true,
 	});
 
-	const relations = effectiveRelations(tableIndex.manifest, table);
+	attachStripToNestedRelations(tableIndex, relations, row);
+}
+
+function attachStripToNestedRelations(
+	tableIndex: TableIndex,
+	relations: readonly ManifestRelation[],
+	row: Record<string, unknown>,
+): void {
 	for (const relation of relations) {
 		const value = row[relation.name];
 		if (value == null) {

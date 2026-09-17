@@ -153,6 +153,8 @@ Reuse an existing `pg` pool with `createNeoOrmClientFromPool(manifest, pool)`, o
 
 Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Queries](queries.md#logging-sql)).
 
+PostgreSQL data queries use named prepared statements by default. Set `preparedStatements: false` if you use transaction-mode PgBouncer (named prepares are not supported there).
+
 PostgreSQL pool settings (`ssl`, timeouts, `application_name`, size) go on `pool` and are passed through to `pg.Pool`:
 
 ```ts
