@@ -91,6 +91,9 @@ describe("table index lookups", () => {
 			'DELETE FROM "users" WHERE "id" = $1',
 		);
 		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
+		expect(usersIndex.countAllSql).toBe(
+			'SELECT COUNT(*) AS c FROM "users"',
+		);
 
 		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));
 		const postsIndex = defined(blogIndex.get("posts"), "posts table index");
