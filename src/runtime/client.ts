@@ -103,7 +103,12 @@ export type NeoOrmClientOptions = {
 	migrationsDir?: string;
 	/** PostgreSQL schema name. @default "public" */
 	schema?: string;
-	/** When true, use PostgreSQL prepared statements (best for repeated identical queries on a warm connection). @default false */
+	/**
+	 * When true, use PostgreSQL named prepared statements (best for repeated
+	 * identical queries on a warm connection). Set to `false` for
+	 * transaction-mode PgBouncer, which does not support named prepares.
+	 * @default true
+	 */
 	preparedStatements?: boolean;
 	/**
 	 * Called before each data query (`query` / `queryOne` / `execute`).

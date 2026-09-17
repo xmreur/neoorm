@@ -395,18 +395,9 @@ describe("client $connect", () => {
 });
 
 describe("createExecutor preparedStatements", () => {
-	it("defaults to simple query text without prepared name", async () => {
+	it("defaults to named prepared statements", async () => {
 		const { pool } = createMockPool();
 		const executor = createExecutor(pool);
-
-		await executor.query("SELECT 1");
-
-		expect(pool.query).toHaveBeenCalledWith("SELECT 1", []);
-	});
-
-	it("uses prepared statements when opt-in", async () => {
-		const { pool } = createMockPool();
-		const executor = createExecutor(pool, { preparedStatements: true });
 
 		await executor.query("SELECT 1");
 
@@ -416,5 +407,14 @@ describe("createExecutor preparedStatements", () => {
 				name: expect.stringMatching(/^neoorm_/),
 			}),
 		);
+	});
+
+	it("uses simple query text when opted out", async () => {
+		const { pool } = createMockPool();
+		const executor = createExecutor(pool, { preparedStatements: false });
+
+		await executor.query("SELECT 1");
+
+		expect(pool.query).toHaveBeenCalledWith("SELECT 1", []);
 	});
 });

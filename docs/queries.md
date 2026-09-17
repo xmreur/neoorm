@@ -432,7 +432,7 @@ return user.strip(); // plain object without password
 return user.strip({ refreshToken: true }); // hidden + extra column keys
 ```
 
-Every row returned from queries includes a non-enumerable `.strip()` method. `strip()` recurses into nested `with` relations. It returns a plain object (no `.strip` method) suitable for JSON responses.
+`.strip()` is attached when the table has `.hidden()` columns (and on nested `with` rows that do). It is non-enumerable, recurses into nested relations, and returns a plain object (no `.strip` method) suitable for JSON responses.
 
 ## Cursor pagination
 

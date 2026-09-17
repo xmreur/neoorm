@@ -65,6 +65,7 @@ export type Executor = {
 };
 
 export type ExecutorOptions = {
+	/** @default true */
 	preparedStatements?: boolean;
 } & QueryHooks;
 
@@ -254,7 +255,7 @@ export function createExecutor(
 	pool: Pool,
 	options?: ExecutorOptions,
 ): Executor {
-	const usePrepared = options?.preparedStatements ?? false;
+	const usePrepared = options?.preparedStatements ?? true;
 	const hooks: QueryHooks | undefined = options;
 	const queryMethods = createQueryMethods(pool, usePrepared, hooks, false);
 
