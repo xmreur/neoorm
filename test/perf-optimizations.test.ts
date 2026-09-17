@@ -301,7 +301,79 @@ describe("read path optimizations", () => {
 		expect(sql).not.toContain('"users"');
 	});
 
-	it("findById with relations batches has-many on mariadb instead of LATERAL json agg", async () => {
+	it("findById with simple has-many uses JOIN JSON_ARRAYAGG on mariadb", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = {
+			manifest,
+			dialect: mariadbDialect,
+			tableIndex: buildManifestIndex(manifest, mariadbDialect),
+		};
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "u1",
+					name: "Alice",
+					__neoorm_posts: [
+						{ id: "p1", title: "Post 1", author_id: "u1" },
+					],
+				},
+			],
+		});
+
+		const row = await findById(executor, runtime, "users", "u1", {
+			with: { posts: true },
+		});
+
+		expect(row?.posts).toEqual([
+			{ id: "p1", title: "Post 1", authorId: "u1" },
+		]);
+		expect(executor.queries).toHaveLength(1);
+		const sql = executor.queries[0]?.sql ?? "";
+		expect(sql).toContain("LEFT JOIN `posts` AS `_hm_posts`");
+		expect(sql).toContain("JSON_ARRAYAGG");
+		expect(sql).toContain("GROUP BY");
+		expect(sql).not.toMatch(
+			/JSON_ARRAYAGG[\s\S]*FROM\s*\([\s\S]*=\s*`users`\.`id`/,
+		);
+		expect(sql).not.toMatch(/`author_id`\s+IN\s*\(/);
+	});
+
+	it("findFirst with simple has-many uses JOIN JSON_ARRAYAGG on mariadb", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = {
+			manifest,
+			dialect: mariadbDialect,
+			tableIndex: buildManifestIndex(manifest, mariadbDialect),
+		};
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "u1",
+					name: "Alice",
+					__neoorm_posts: [
+						{ id: "p1", title: "Post 1", author_id: "u1" },
+					],
+				},
+			],
+		});
+
+		const row = await findFirst(executor, runtime, "users", {
+			with: { posts: true },
+		});
+
+		expect(row?.posts).toEqual([
+			{ id: "p1", title: "Post 1", authorId: "u1" },
+		]);
+		expect(executor.queries).toHaveLength(1);
+		const sql = executor.queries[0]?.sql ?? "";
+		expect(sql).toContain("LEFT JOIN `posts` AS `_hm_posts`");
+		expect(sql).toContain("JSON_ARRAYAGG");
+		expect(sql).toContain("GROUP BY");
+		expect(sql).toContain("LIMIT 1");
+		expect(sql).not.toMatch(/`author_id`\s+IN\s*\(/);
+	});
+
+	it("findById with nested take still batches has-many on mariadb", async () => {
 		const manifest = schemaToManifest(schema);
 		const runtime: QueryRuntime = {
 			manifest,

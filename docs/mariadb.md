@@ -142,7 +142,9 @@ bunx neoorm migrate reset --force
 | `interval` / `inet` / `cidr` / range types | supported | rejected at schema compile |
 | `datasource.schema` | multi-schema | ignored (URL database) |
 
-MariaDB has no `LATERAL`, so correlated `JSON_ARRAYAGG` derived tables (the MySQL 8 / Postgres inline has-many subquery) cannot see outer columns such as `` `users`.`id` ``. Those includes are loaded with a follow-up `WHERE fk IN (…)` query instead.
+MariaDB has no `LATERAL`, so correlated `JSON_ARRAYAGG` derived tables (the MySQL 8 / Postgres inline has-many subquery) cannot see outer columns such as `` `users`.`id` ``.
+
+Simple has-many includes (`with: { posts: true }`) on `findMany`, `findById`, and `findFirst` use `LEFT JOIN` + `JSON_ARRAYAGG` + `GROUP BY` in one statement. Nested `where`, `take`, `skip`, `orderBy`, or further `with` on that relation still make a single SQL invalid, so those includes are loaded with a follow-up `WHERE fk IN (…)` query.
 
 `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
 

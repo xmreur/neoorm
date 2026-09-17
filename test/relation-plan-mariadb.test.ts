@@ -3,7 +3,10 @@ import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
-import { planRelationLoad } from "../src/runtime/query/relation-planner.js";
+import {
+	findOneRelationPlanOptions,
+	planRelationLoad,
+} from "../src/runtime/query/relation-planner.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
@@ -56,6 +59,46 @@ describe("MariaDB relation load plan", () => {
 		expect(plan.inlineJsonAgg.map((item) => item.relationName)).toEqual([
 			"posts",
 		]);
+	});
+
+	it("prefers JOIN aggregate for MariaDB findById / findFirst", () => {
+		expect(findOneRelationPlanOptions(mariadbDialect)).toEqual({
+			useHasManyAggregate: true,
+		});
+		expect(findOneRelationPlanOptions(mysqlDialect)).toEqual({
+			useHasManyAggregate: false,
+		});
+
+		const plan = planRelationLoad(
+			manifest,
+			users,
+			{ posts: true },
+			mariadbDialect,
+			tableIndex,
+			findOneRelationPlanOptions(mariadbDialect),
+		);
+		expect(plan.hasManyAggregate).toBeDefined();
+		expect(plan.batchWith.posts).toBeUndefined();
+	});
+
+	it("batches nested take, where, orderBy, and with even when JOIN agg is preferred", () => {
+		for (const withSpec of [
+			{ posts: { take: 3 } },
+			{ posts: { where: { title: "x" } } },
+			{ posts: { orderBy: { title: "asc" as const } } },
+			{ posts: { with: { comments: true } } },
+		]) {
+			const plan = planRelationLoad(
+				manifest,
+				users,
+				withSpec,
+				mariadbDialect,
+				tableIndex,
+				{ useHasManyAggregate: true },
+			);
+			expect(plan.hasManyAggregate).toBeUndefined();
+			expect(plan.batchWith.posts).toEqual(withSpec.posts);
+		}
 	});
 
 	it("still uses correlated json agg on mysql", () => {
