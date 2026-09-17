@@ -292,7 +292,7 @@ function createClientExecutor(
 	const { client } = state;
 	const queryMethods = createQueryMethods(client, usePrepared, hooks, true);
 
-	return {
+	const executor: Executor = {
 		inTransaction: true,
 		...queryMethods,
 
@@ -307,9 +307,7 @@ function createClientExecutor(
 
 			await client.query(`SAVEPOINT ${savepointName}`);
 			try {
-				const result = await fn(
-					createClientExecutor(state, usePrepared, hooks),
-				);
+				const result = await fn(executor);
 				await client.query(`RELEASE SAVEPOINT ${savepointName}`);
 				return result;
 			} catch (err) {
@@ -323,6 +321,7 @@ function createClientExecutor(
 			}
 		},
 	};
+	return executor;
 }
 
 /** Same compiler as `neoorm/sql` (`sqlTag`): values, fragments, and `sqlId`. */
@@ -338,7 +337,7 @@ function createExecutorFromDriver(
 	inTransaction: boolean,
 	hooks: QueryHooks | undefined,
 ): Executor {
-	return {
+	const executor: Executor = {
 		inTransaction,
 		...wrapQueryMethods(
 			{
@@ -377,13 +376,15 @@ function createExecutorFromDriver(
 			fn: (tx: Executor) => Promise<T>,
 			options?: TransactionOptions,
 		): Promise<T> {
-			return driver.transaction(
-				(txDriver) =>
-					fn(createExecutorFromDriver(txDriver, true, hooks)),
-				options,
-			);
+			return driver.transaction((txDriver) => {
+				const tx = inTransaction
+					? executor
+					: createExecutorFromDriver(txDriver, true, hooks);
+				return fn(tx);
+			}, options);
 		},
 	};
+	return executor;
 }
 
 function isSqliteDatabaseLike(

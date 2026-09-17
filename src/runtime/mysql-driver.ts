@@ -98,10 +98,12 @@ async function runMysqlQuery<T>(
 type MysqlTxState = {
 	connection: MysqlConnectionLike;
 	savepointCounter: number;
+	txClient?: DatabaseClient;
 };
 
-function createMysqlTxClient(state: MysqlTxState): DatabaseClient {
-	return {
+function getMysqlTxClient(state: MysqlTxState): DatabaseClient {
+	if (state.txClient) return state.txClient;
+	const txClient: DatabaseClient = {
 		async query<T = Record<string, unknown>>(
 			text: string,
 			params: unknown[] = [],
@@ -121,7 +123,7 @@ function createMysqlTxClient(state: MysqlTxState): DatabaseClient {
 			const name = buildSavepointName(savepointId);
 			await state.connection.query(`SAVEPOINT ${name}`);
 			try {
-				const result = await fn(createMysqlTxClient(state));
+				const result = await fn(txClient);
 				await state.connection.query(`RELEASE SAVEPOINT ${name}`);
 				return result;
 			} catch (err) {
@@ -136,6 +138,8 @@ function createMysqlTxClient(state: MysqlTxState): DatabaseClient {
 		},
 		async close(): Promise<void> {},
 	};
+	state.txClient = txClient;
+	return txClient;
 }
 
 export function mysqlClient(
@@ -159,7 +163,7 @@ export function mysqlClient(
 				for (const stmt of buildMysqlBeginStatements(options)) {
 					await connection.query(stmt);
 				}
-				const result = await fn(createMysqlTxClient(state));
+				const result = await fn(getMysqlTxClient(state));
 				await connection.query("COMMIT");
 				return result;
 			} catch (err) {

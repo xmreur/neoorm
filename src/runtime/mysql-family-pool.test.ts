@@ -113,6 +113,84 @@ describe("mysqlClient execute vs query", () => {
 		expect(calls.filter((c) => c.op === "query").map((c) => c.sql)).toEqual(
 			["START TRANSACTION", "COMMIT"],
 		);
+		expect(
+			calls.some(
+				(c) =>
+					c.sql.includes("SET TRANSACTION") ||
+					c.sql.includes("SAVEPOINT"),
+			),
+		).toBe(false);
+	});
+
+	it("prepends SET TRANSACTION only when isolationLevel is set", async () => {
+		const sqls: string[] = [];
+		const connection = {
+			async query(sql: string): Promise<[MysqlQueryResult, unknown]> {
+				sqls.push(sql);
+				return [{ affectedRows: 0 }, undefined];
+			},
+			release() {},
+		};
+		const pool = {
+			async query(sql: string): Promise<[MysqlQueryResult, unknown]> {
+				sqls.push(sql);
+				return [[{ id: 1 }], undefined];
+			},
+			async getConnection() {
+				return connection;
+			},
+			async end() {},
+		};
+
+		const client = mysqlClient(pool);
+		await client.transaction(async () => "ok", {
+			isolationLevel: "Serializable",
+		});
+
+		expect(sqls).toEqual([
+			"SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+			"START TRANSACTION",
+			"COMMIT",
+		]);
+		expect(sqls.some((sql) => sql.includes("SAVEPOINT"))).toBe(false);
+	});
+
+	it("reuses one tx client and emits SAVEPOINT only for nested transaction()", async () => {
+		const sqls: string[] = [];
+		const connection = {
+			async query(sql: string): Promise<[MysqlQueryResult, unknown]> {
+				sqls.push(sql);
+				return [{ affectedRows: 0 }, undefined];
+			},
+			async execute(sql: string): Promise<[MysqlQueryResult, unknown]> {
+				sqls.push(sql);
+				return [[{ id: 1 }], undefined];
+			},
+			release() {},
+		};
+		const pool = {
+			async query(): Promise<[MysqlQueryResult, unknown]> {
+				return [[{ id: 1 }], undefined];
+			},
+			async getConnection() {
+				return connection;
+			},
+			async end() {},
+		};
+
+		const client = mysqlClient(pool);
+		await client.transaction(async (tx) => {
+			await tx.transaction(async (inner) => {
+				expect(inner).toBe(tx);
+			});
+		});
+
+		expect(sqls).toEqual([
+			"START TRANSACTION",
+			"SAVEPOINT neoorm_sp_1",
+			"RELEASE SAVEPOINT neoorm_sp_1",
+			"COMMIT",
+		]);
 	});
 
 	it("falls back to query when execute is missing", async () => {
@@ -171,6 +249,7 @@ describe("mariadbClient execute vs query", () => {
 		await client.transaction(async (tx) => {
 			await tx.query("INSERT INTO t (v) VALUES ($1)", ["x"]);
 			await tx.transaction(async (inner) => {
+				expect(inner).toBe(tx);
 				await inner.query("SELECT 2");
 			});
 		});
@@ -190,6 +269,39 @@ describe("mariadbClient execute vs query", () => {
 				"COMMIT",
 			],
 		);
+	});
+
+	it("default outer transaction is START TRANSACTION then COMMIT", async () => {
+		const sqls: string[] = [];
+		const connection = {
+			async query(sql: string) {
+				sqls.push(sql);
+				return { affectedRows: 0 };
+			},
+			release() {},
+		};
+		const pool = {
+			async query() {
+				return [{ id: 1 }];
+			},
+			async getConnection() {
+				return connection;
+			},
+			async end() {},
+		};
+
+		const client = mariadbClient(pool);
+		await client.transaction(async (tx) => {
+			await tx.transaction(async (inner) => {
+				expect(inner).toBe(tx);
+			});
+		});
+
+		expect(sqls.filter((sql) => !sql.includes("SAVEPOINT"))).toEqual([
+			"START TRANSACTION",
+			"COMMIT",
+		]);
+		expect(sqls.some((sql) => sql.includes("SET TRANSACTION"))).toBe(false);
 	});
 
 	it("uses query for RETURNING because prepare rejects UPDATE RETURNING", async () => {
