@@ -432,6 +432,7 @@ export function buildInsertManyQuery(
 	manifestIndex?: ManifestIndex,
 	skipDuplicates = false,
 	dialect: Dialect = postgresDialect,
+	returning = dialect.supportsReturning,
 ): string {
 	if (dataKeys.length === 0) {
 		compileError("Cannot build INSERT many query with no columns");
@@ -441,24 +442,24 @@ export function buildInsertManyQuery(
 		const col = colByTs(table, k, manifestIndex);
 		return dialect.quoteIdentifier(col?.sqlName ?? k);
 	});
-	const selectCols = buildSelectColumns(
-		table,
-		undefined,
-		manifestIndex,
-		undefined,
-		undefined,
-		dialect,
-	);
 	const ignore = skipDuplicates ? dialect.insertIgnoreModifier() : "";
 	const conflict =
 		skipDuplicates && dialect.onConflictDoNothing()
 			? ` ${dialect.onConflictDoNothing()}`
 			: "";
-	const returning = dialect.supportsReturning
-		? ` RETURNING ${selectCols}`
+	const includeReturning = returning && dialect.supportsReturning;
+	const returningSql = includeReturning
+		? ` RETURNING ${buildSelectColumns(
+				table,
+				undefined,
+				manifestIndex,
+				undefined,
+				undefined,
+				dialect,
+			)}`
 		: "";
 
-	return `INSERT ${ignore}INTO ${dialect.tableRef(table)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")}${conflict}${returning}`;
+	return `INSERT ${ignore}INTO ${dialect.tableRef(table)} (${cols.join(", ")}) VALUES ${valueRows.join(", ")}${conflict}${returningSql}`;
 }
 
 export type UpdateReturning = "full" | "pk" | "none";

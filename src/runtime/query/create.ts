@@ -1,5 +1,6 @@
 import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
 import {
@@ -17,7 +18,12 @@ import {
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
-import { fetchInsertedRow, fetchRowsByWhere } from "./mutation-returning.js";
+import {
+	fetchInsertedRow,
+	fetchRowsByWhere,
+	mysqlFamilySerialPrimaryKey,
+	synthesizeSerialPkRows,
+} from "./mutation-returning.js";
 import {
 	fillMissingPrimaryKeys,
 	rowScalarPkValue,
@@ -264,15 +270,19 @@ export async function createManyRecords(
 	if (!prepared) return 0;
 
 	const { table, dataKeys, valueRows, values } = prepared;
+	const dialect = runtime.dialect ?? postgresDialect;
+	const returning =
+		dialect.supportsReturning && !isMysqlFamilyDialect(dialect);
 	const sql = buildInsertManyQuery(
 		table,
 		dataKeys,
 		valueRows,
 		runtime.tableIndex,
 		args.skipDuplicates === true,
-		runtime.dialect ?? postgresDialect,
+		dialect,
+		returning,
 	);
-	if ((runtime.dialect ?? postgresDialect).supportsReturning) {
+	if (returning) {
 		const result = await runQuery(
 			executor,
 			runtime,
@@ -306,15 +316,22 @@ export async function createManyAndReturnRecords(
 
 	const { table, dataKeys, valueRows, values, scalarRows } = prepared;
 	const dialect = runtime.dialect ?? postgresDialect;
+	const skipDuplicates = args.skipDuplicates === true;
+	const serialPk =
+		isMysqlFamilyDialect(dialect) && !skipDuplicates
+			? mysqlFamilySerialPrimaryKey(table)
+			: undefined;
+	const returning = dialect.supportsReturning && serialPk === undefined;
 	const sql = buildInsertManyQuery(
 		table,
 		dataKeys,
 		valueRows,
 		runtime.tableIndex,
-		args.skipDuplicates === true,
+		skipDuplicates,
 		dialect,
+		returning,
 	);
-	if (dialect.supportsReturning) {
+	if (returning) {
 		const rows = await runQuery(
 			executor,
 			runtime,
@@ -329,13 +346,28 @@ export async function createManyAndReturnRecords(
 		);
 	}
 
-	await runExecute(
+	const executed = await runExecute(
 		executor,
 		runtime,
 		{ operation: "insert", tableAccessor },
 		sql,
 		values,
 	);
+	if (
+		serialPk &&
+		executed.insertId !== undefined &&
+		executed.rowCount === scalarRows.length
+	) {
+		return mapRowsToTs(
+			getTableIndex(runtime.tableIndex, tableAccessor),
+			table,
+			synthesizeSerialPkRows(
+				scalarRows,
+				serialPk.tsName,
+				executed.insertId,
+			),
+		);
+	}
 	const pkTs = table.columns.find((c) => c.primary)?.tsName;
 	if (pkTs && scalarRows.every((row) => row[pkTs] != null)) {
 		const pkValues = scalarRows.map((row) => row[pkTs]);
