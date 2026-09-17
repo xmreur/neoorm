@@ -434,6 +434,20 @@ return user.strip({ refreshToken: true }); // hidden + extra column keys
 
 `.strip()` is attached when the table has `.hidden()` columns (and on nested `with` rows that do). It is non-enumerable, recurses into nested relations, and returns a plain object (no `.strip` method) suitable for JSON responses.
 
+## Offset pagination
+
+Page numbers, admin tables, and **Paginated Read** benchmarks should use `findMany({ take, skip, orderBy })`. That path is `LIMIT`/`OFFSET` on the same cached SELECT as find-all (no extra row, no cursor encoding).
+
+```ts
+const page = await db.posts.findMany({
+  orderBy: { id: "asc" },
+  take: 20,
+  skip: 40,
+});
+```
+
+Do not use `paginate` for that comparison: `paginate` is keyset pagination (`take + 1`, cursors, `hasMore`).
+
 ## Cursor pagination
 
 For feeds, infinite scroll, and large tables, use `paginate` instead of `take`/`skip`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker.

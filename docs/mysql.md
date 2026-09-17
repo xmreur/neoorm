@@ -131,4 +131,6 @@ bunx neoorm migrate reset --force
 
 `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
 
+Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based.
+
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, savepoint-based nested transactions — behaves the same as on PostgreSQL.
