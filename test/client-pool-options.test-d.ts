@@ -19,6 +19,31 @@ const options: NeoOrmClientOptions = {
 
 void options;
 
+const mysqlPoolOptions: NeoOrmClientOptions = {
+	provider: "mysql",
+	connectionString: "mysql://root@localhost:3306/neoorm",
+	pool: {
+		max: 10,
+		idleTimeoutMillis: 10_000,
+		keepAlive: true,
+	},
+};
+
+void mysqlPoolOptions;
+
+const mariadbPoolOptions: NeoOrmClientOptions = {
+	provider: "mariadb",
+	connectionString: "mariadb://root@localhost:3306/neoorm",
+	pool: {
+		max: 10,
+		min: 1,
+		idleTimeoutMillis: 10_000,
+		keepAlive: true,
+	},
+};
+
+void mariadbPoolOptions;
+
 const _noConnectionStringInPool: NeoOrmPoolConfig = {
 	// @ts-expect-error connection identity stays on NeoOrmClientOptions.connectionString
 	connectionString: "postgresql://localhost/other",

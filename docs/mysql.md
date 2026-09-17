@@ -48,6 +48,22 @@ const db = createNeoOrmClient(manifest, {
 
 Wrap an existing `mysql2/promise` pool with `createNeoOrmClientFromMysql(manifest, pool)`. `$disconnect()` does not call `pool.end()` in that case — you own the pool.
 
+Data queries use mysql2 `execute()` (binary prepared statements, cached per connection). Transaction control (`START TRANSACTION`, `COMMIT`, `SAVEPOINT`) stays on `query()`. Pools you wrap without `execute` fall back to `query()`.
+
+Owned pools from `createNeoOrmClient` accept the same `pool` object as PostgreSQL for shared fields (`max`, idle timeout, keep-alive). Default `max` is 10 (`connectionLimit`). PostgreSQL-only keys such as `statement_timeout` are ignored.
+
+```ts
+const db = createNeoOrmClient(manifest, {
+  provider: "mysql",
+  connectionString: process.env.MYSQL_URL,
+  pool: {
+    max: 10,
+    idleTimeoutMillis: 10_000,
+    keepAlive: true,
+  },
+});
+```
+
 Standalone `neoorm/sql` (`sqlId`) stays ANSI-quoted (`"users"`). Use `db.sql` with `db.sqlId("users")` so identifiers are backticks on MySQL.
 
 `mysqlDialect` is exported from `neoorm` for `dbPush`, migrate helpers, and custom executor wiring.

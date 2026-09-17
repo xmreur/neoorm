@@ -1,6 +1,10 @@
 import { createRequire } from "node:module";
 import type { DatabaseClient, DriverResult } from "./driver.js";
 import { NeoOrmDriverError } from "./errors.js";
+import {
+	type MysqlFamilyPoolOptions,
+	toMariadbPoolConfig,
+} from "./mysql-family-pool.js";
 import { convertNumberedToPositional } from "./mysql-placeholders.js";
 import {
 	assertNoSavepointOptions,
@@ -17,13 +21,20 @@ export type MariadbQueryResult =
 			insertId?: number | bigint;
 	  };
 
+type MariadbQueryFn = (
+	sql: string,
+	values?: unknown[],
+) => Promise<MariadbQueryResult>;
+
 export type MariadbConnectionLike = {
-	query(sql: string, values?: unknown[]): Promise<MariadbQueryResult>;
+	query: MariadbQueryFn;
+	execute?: MariadbQueryFn;
 	release(): void;
 };
 
 export type MariadbPoolLike = {
-	query(sql: string, values?: unknown[]): Promise<MariadbQueryResult>;
+	query: MariadbQueryFn;
+	execute?: MariadbQueryFn;
 	getConnection(): Promise<MariadbConnectionLike>;
 	end(): Promise<void>;
 };
@@ -31,42 +42,24 @@ export type MariadbPoolLike = {
 export const MARIADB_PEER_MISSING =
 	"mariadb is not installed. Run: bun add mariadb";
 
-function parseMariadbUrl(url: string): {
-	host: string;
-	port: number;
-	user: string;
-	password: string;
-	database: string;
-} {
-	const parsed = new URL(url);
-	return {
-		host: parsed.hostname || "localhost",
-		port: parsed.port ? Number(parsed.port) : 3306,
-		user: decodeURIComponent(parsed.username),
-		password: decodeURIComponent(parsed.password),
-		database: decodeURIComponent(parsed.pathname.replace(/^\//, "")),
-	};
-}
-
-type MariadbPoolConfig = {
-	host: string;
-	port: number;
-	user: string;
-	password: string;
-	database: string;
-};
-
-export function createMariadbPoolFromUrl(url: string): MariadbPoolLike {
-	let createPool: (config: MariadbPoolConfig) => MariadbPoolLike;
+export function createMariadbPoolFromUrl(
+	url: string,
+	pool?: MysqlFamilyPoolOptions,
+): MariadbPoolLike {
+	let createPool: (
+		config: ReturnType<typeof toMariadbPoolConfig>,
+	) => MariadbPoolLike;
 	try {
 		const mariadb = createRequire(import.meta.url)("mariadb") as {
-			createPool: (config: MariadbPoolConfig) => MariadbPoolLike;
+			createPool: (
+				config: ReturnType<typeof toMariadbPoolConfig>,
+			) => MariadbPoolLike;
 		};
 		createPool = mariadb.createPool;
 	} catch {
 		throw new Error(MARIADB_PEER_MISSING);
 	}
-	return createPool(parseMariadbUrl(url));
+	return createPool(toMariadbPoolConfig(url, pool));
 }
 
 function toDriverResult<T>(payload: MariadbQueryResult): DriverResult<T> {
@@ -85,8 +78,15 @@ function toDriverResult<T>(payload: MariadbQueryResult): DriverResult<T> {
 	};
 }
 
+function mariadbDataQuery(client: {
+	query: MariadbQueryFn;
+	execute?: MariadbQueryFn;
+}): MariadbQueryFn {
+	return client.execute?.bind(client) ?? client.query.bind(client);
+}
+
 async function runMariadbQuery<T>(
-	query: (sql: string, values?: unknown[]) => Promise<MariadbQueryResult>,
+	query: MariadbQueryFn,
 	text: string,
 	params: unknown[],
 ): Promise<DriverResult<T>> {
@@ -111,7 +111,7 @@ function createMariadbTxClient(state: MariadbTxState): DatabaseClient {
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
 			return runMariadbQuery(
-				state.connection.query.bind(state.connection),
+				mariadbDataQuery(state.connection),
 				text,
 				params,
 			);
@@ -151,7 +151,7 @@ export function mariadbClient(
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
-			return runMariadbQuery(pool.query.bind(pool), text, params);
+			return runMariadbQuery(mariadbDataQuery(pool), text, params);
 		},
 		async transaction<T>(
 			fn: (client: DatabaseClient) => Promise<T>,
