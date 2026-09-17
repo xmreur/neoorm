@@ -2,6 +2,7 @@ import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	getCachedInsertQuery,
@@ -265,6 +266,38 @@ describe("read path optimizations", () => {
 		expect(executor.queries[0]?.sql).toContain("json_agg");
 		expect(executor.queries[0]?.sql).toContain(`FROM "posts"`);
 		expect(executor.queries[0]?.sql).toContain(`"users"`);
+	});
+
+	it("findById with relations quotes the outer select with the mysql dialect", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = {
+			manifest,
+			dialect: mysqlDialect,
+			tableIndex: buildManifestIndex(manifest, mysqlDialect),
+		};
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "u1",
+					name: "Alice",
+					__neoorm_posts: [
+						{ id: "p1", title: "Post 1", author_id: "u1" },
+					],
+				},
+			],
+		});
+
+		const row = await findById(executor, runtime, "users", "u1", {
+			with: { posts: { take: 3 } },
+		});
+
+		expect(row).not.toBeNull();
+		expect(executor.queries).toHaveLength(1);
+		const sql = executor.queries[0]?.sql ?? "";
+		expect(sql).toContain("`id`");
+		expect(sql).toContain("`users`");
+		expect(sql).not.toContain('"id"');
+		expect(sql).not.toContain('"users"');
 	});
 
 	it("findMany with single many-relation uses one inline json_agg query", async () => {
