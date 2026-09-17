@@ -1,4 +1,5 @@
 import { parseFkTarget, relationFkPairs } from "../../dialect/fk.js";
+import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
@@ -352,7 +353,7 @@ function sqlPkPredicate(
 				`No primary key defined for table "${table.accessor}"`,
 			);
 		}
-		const placeholders = pks.map((_, i) => `$${startParam + i}`).join(", ");
+		const placeholders = joinPlaceholders(dialect, pks.length, startParam);
 		return {
 			sql: `${quoted[0]} IN (${placeholders})`,
 			params: pks.map((pk) => pkField(table, pk, tsName)),
@@ -364,7 +365,7 @@ function sqlPkPredicate(
 	const groups = pks.map((pk) => {
 		const parts = tsNames.map((tsName, i) => {
 			params.push(pkField(table, pk, tsName));
-			return `${quoted[i]} = $${index++}`;
+			return `${quoted[i]} = ${dialect.placeholder(index++)}`;
 		});
 		return `(${parts.join(" AND ")})`;
 	});
@@ -518,6 +519,7 @@ async function insertM2MLinks(
 		dataKeys,
 		rowValues,
 		runtime.tableIndex,
+		dialect,
 	);
 	const sql = buildInsertManyQuery(
 		throughTable,
@@ -590,10 +592,10 @@ async function deleteJunctionRows(
 	if (!parentCol || !otherCol) return;
 
 	const params: unknown[] = [parentId];
-	let sql = `DELETE FROM ${dialect.tableRef(throughTable)} WHERE ${dialect.quoteIdentifier(parentCol.sqlName)} = $1`;
+	let sql = `DELETE FROM ${dialect.tableRef(throughTable)} WHERE ${dialect.quoteIdentifier(parentCol.sqlName)} = ${dialect.placeholder(1)}`;
 
 	if (rightIds && rightIds.length > 0) {
-		const placeholders = rightIds.map((_, i) => `$${i + 2}`).join(", ");
+		const placeholders = joinPlaceholders(dialect, rightIds.length, 2);
 		sql += ` AND ${dialect.quoteIdentifier(otherCol.sqlName)} IN (${placeholders})`;
 		params.push(...rightIds);
 	}
@@ -650,7 +652,10 @@ async function connectInverseMany(
 		assignment.values.length + 1,
 	);
 	const setSql = assignment.sqlNames
-		.map((sqlName, i) => `${dialect.quoteIdentifier(sqlName)} = $${i + 1}`)
+		.map(
+			(sqlName, i) =>
+				`${dialect.quoteIdentifier(sqlName)} = ${dialect.placeholder(i + 1)}`,
+		)
 		.join(", ");
 	await runQuery(
 		executor,
@@ -682,7 +687,7 @@ async function disconnectInverseMany(
 	}
 
 	const params: unknown[] = [parentId];
-	let sql = `UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = $1`;
+	let sql = `UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = ${dialect.placeholder(1)}`;
 
 	if (childPks && childPks.length > 0) {
 		const predicate = sqlPkPredicate(
@@ -747,7 +752,7 @@ async function deleteInverseManyChildren(
 	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
 	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
 	const params: unknown[] = [parentId];
-	let sql = `DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = $1`;
+	let sql = `DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = ${dialect.placeholder(1)}`;
 
 	if (childPks && childPks.length > 0) {
 		const predicate = sqlPkPredicate(
@@ -798,7 +803,7 @@ async function listM2MLinkedIds(
 		executor,
 		runtime,
 		{ operation: "select", tableAccessor: throughTable.accessor },
-		`SELECT ${dialect.quoteIdentifier(otherCol.sqlName)} FROM ${dialect.tableRef(throughTable)} WHERE ${dialect.quoteIdentifier(parentCol.sqlName)} = $1`,
+		`SELECT ${dialect.quoteIdentifier(otherCol.sqlName)} FROM ${dialect.tableRef(throughTable)} WHERE ${dialect.quoteIdentifier(parentCol.sqlName)} = ${dialect.placeholder(1)}`,
 		[parentId],
 	);
 
@@ -863,7 +868,7 @@ async function deleteM2MRelated(
 	}
 
 	const targetPkCol = dialect.quoteIdentifier(primaryKeySqlName(targetTable));
-	const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
+	const placeholders = joinPlaceholders(dialect, ids.length);
 	await runQuery(
 		executor,
 		runtime,

@@ -1,3 +1,4 @@
+import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { compileError } from "../compile-error.js";
 import type { Executor } from "../executor.js";
@@ -341,7 +342,7 @@ export async function createManyAndReturnRecords(
 		const col = dialect.quoteIdentifier(
 			table.columns.find((c) => c.tsName === pkTs)?.sqlName ?? pkTs,
 		);
-		const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+		const placeholders = joinPlaceholders(dialect, pkValues.length);
 		return fetchRowsByWhere(
 			executor,
 			runtime,
@@ -435,6 +436,7 @@ function prepareCreateManyRows(
 		dataKeys,
 		rowValues,
 		runtime.tableIndex,
+		dialect,
 	);
 	return { table, dataKeys, valueRows, values, scalarRows };
 }

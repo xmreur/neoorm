@@ -13,6 +13,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
+import { positionalPlaceholder } from "./placeholders.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import { formatIndexKeyList, isSolePrimaryKeyColumn } from "./shared.js";
 import type {
@@ -325,7 +326,8 @@ export function createMysqlFamilyDialect(
 		emitAddForeignKey,
 		emitAddTableForeignKey,
 		whereOperators: familyWhereOperators(options),
-		ilike: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
+		placeholder: positionalPlaceholder,
+		ilike: (col, _i) => `LOWER(${col}) LIKE LOWER(?)`,
 		regex: options.regex,
 		insertIgnoreModifier: () => "IGNORE ",
 		onConflictDoNothing: () => "",
@@ -361,19 +363,19 @@ export function createMysqlFamilyDialect(
 
 function familyWhereOperators(options: MysqlFamilyDialectOptions): OperatorMap {
 	return {
-		equals: (col, i) => `${col} = $${i}`,
-		contains: (col, i) => `${col} LIKE $${i}`,
-		startsWith: (col, i) => `${col} LIKE $${i}`,
-		endsWith: (col, i) => `${col} LIKE $${i}`,
+		equals: (col) => `${col} = ?`,
+		contains: (col) => `${col} LIKE ?`,
+		startsWith: (col) => `${col} LIKE ?`,
+		endsWith: (col) => `${col} LIKE ?`,
 		search: options.search,
-		gt: (col, i) => `${col} > $${i}`,
-		gte: (col, i) => `${col} >= $${i}`,
-		lt: (col, i) => `${col} < $${i}`,
-		lte: (col, i) => `${col} <= $${i}`,
-		in: (col, i) =>
-			`${col} IN (SELECT jt.val FROM JSON_TABLE($${i}, '$[*]' COLUMNS (val VARCHAR(512) PATH '$')) AS jt)`,
-		notIn: (col, i) =>
-			`NOT (${col} IN (SELECT jt.val FROM JSON_TABLE($${i}, '$[*]' COLUMNS (val VARCHAR(512) PATH '$')) AS jt))`,
+		gt: (col) => `${col} > ?`,
+		gte: (col) => `${col} >= ?`,
+		lt: (col) => `${col} < ?`,
+		lte: (col) => `${col} <= ?`,
+		in: (col) =>
+			`${col} IN (SELECT jt.val FROM JSON_TABLE(?, '$[*]' COLUMNS (val VARCHAR(512) PATH '$')) AS jt)`,
+		notIn: (col) =>
+			`NOT (${col} IN (SELECT jt.val FROM JSON_TABLE(?, '$[*]' COLUMNS (val VARCHAR(512) PATH '$')) AS jt))`,
 		isNull: (col) => `${col} IS NULL`,
 		isNotNull: (col) => `${col} IS NOT NULL`,
 	};

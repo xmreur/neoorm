@@ -1,3 +1,4 @@
+import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import type {
 	Dialect,
@@ -168,9 +169,11 @@ export function compileCursorWhere(
 	const colRefs = orderSpec
 		.map((key) => dialect.quoteIdentifier(key.sqlName))
 		.join(", ");
-	const placeholders = orderSpec
-		.map((_, index) => `$${startParamIndex + index}`)
-		.join(", ");
+	const placeholders = joinPlaceholders(
+		dialect,
+		orderSpec.length,
+		startParamIndex,
+	);
 	const params = orderSpec.map((key) =>
 		serializeColumnValue(key.column, cursor[key.tsName], dialect),
 	);

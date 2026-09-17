@@ -1,3 +1,4 @@
+import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import type { Dialect, ManifestTable } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
@@ -106,7 +107,7 @@ export async function fetchRowsByPrimaryKeyIn(
 		);
 	}
 	const col = dialect.quoteIdentifier(pkSql);
-	const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+	const placeholders = joinPlaceholders(dialect, pkValues.length);
 	return fetchRowsByWhere(
 		executor,
 		runtime,
@@ -140,7 +141,9 @@ function resolveInsertPkLookup(
 	}
 
 	if (known.length === tsNames.length) {
-		const parts = known.map((item, i) => `${q(item.sqlName)} = $${i + 1}`);
+		const parts = known.map(
+			(item, i) => `${q(item.sqlName)} = ${dialect.placeholder(i + 1)}`,
+		);
 		return {
 			whereSql: parts.join(" AND "),
 			params: known.map((item) => item.value),
@@ -154,7 +157,7 @@ function resolveInsertPkLookup(
 	);
 	if (serialPk && insertId !== undefined) {
 		return {
-			whereSql: `${q(serialPk.sqlName)} = $1`,
+			whereSql: `${q(serialPk.sqlName)} = ${dialect.placeholder(1)}`,
 			params: [insertId],
 			sqlCols: q(serialPk.sqlName),
 		};

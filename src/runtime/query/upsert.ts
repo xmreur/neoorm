@@ -100,7 +100,7 @@ export async function upsertRecord(
 		const lookups = Object.entries(uniqueWhere);
 		const whereParts = lookups.map(([tsName, _value], i) => {
 			const col = table.columns.find((c) => c.tsName === tsName);
-			return `${dialect.quoteIdentifier(col?.sqlName ?? tsName)} = $${i + 1}`;
+			return `${dialect.quoteIdentifier(col?.sqlName ?? tsName)} = ${dialect.placeholder(i + 1)}`;
 		});
 		if (constraint.whereSql) {
 			whereParts.push(`(${constraint.whereSql})`);

@@ -14,11 +14,9 @@ export const mysqlDialect = createMysqlFamilyDialect({
 	upsertConflictSql: (_conflictCols, setClauses) =>
 		`AS new ON DUPLICATE KEY UPDATE ${setClauses}`,
 	excludedRef: (quotedCol) => `new.${quotedCol}`,
-	search: (col, i) => `REGEXP_LIKE(${col}, $${i})`,
-	regex: (col, i, insensitive) =>
-		insensitive
-			? `REGEXP_LIKE(${col}, $${i}, 'i')`
-			: `REGEXP_LIKE(${col}, $${i})`,
+	search: (col) => `REGEXP_LIKE(${col}, ?)`,
+	regex: (col, _i, insensitive) =>
+		insensitive ? `REGEXP_LIKE(${col}, ?, 'i')` : `REGEXP_LIKE(${col}, ?)`,
 });
 
 export function mysqlColumnType(

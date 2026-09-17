@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../codegen/schema-to-manifest.js";
-import { compileWhere } from "../runtime/query/compile.js";
-import { buildUpsertQuery } from "../runtime/query/compile-write.js";
+import { buildFindByIdQuery, compileWhere } from "../runtime/query/compile.js";
+import {
+	buildUpdateQuery,
+	buildUpsertQuery,
+} from "../runtime/query/compile-write.js";
 import {
 	bool,
 	defineSchema,
@@ -259,8 +262,45 @@ describe("mysql dialect", () => {
 			mysqlDialect,
 		);
 		expect(where.sql).toContain("JSON_TABLE");
+		expect(where.sql).toContain("JSON_TABLE(?, '$[*]'");
 		expect(where.sql).not.toContain("RETURNING");
 		expect(where.params[0]).toBe(JSON.stringify(["a@b.c", "d@e.f"]));
+
+		expect(mysqlDialect.placeholder(1)).toBe("?");
+		expect(mysqlDialect.whereOperators.equals("`email`", 1)).toBe(
+			"`email` = ?",
+		);
+		const equals = compileWhere(
+			manifest,
+			users,
+			{ email: "a@b.c" },
+			mysqlDialect,
+		);
+		expect(equals.sql).toContain("`email` = ?");
+		expect(equals.sql).not.toMatch(/\$\d/);
+
+		const findById = buildFindByIdQuery(
+			users,
+			undefined,
+			undefined,
+			undefined,
+			mysqlDialect,
+		);
+		expect(findById).toContain("= ?");
+		expect(findById).not.toMatch(/\$\d/);
+
+		const update = buildUpdateQuery(
+			users,
+			["name"],
+			equals.sql,
+			[],
+			undefined,
+			"none",
+			mysqlDialect,
+		);
+		expect(update).toContain("`name` = ?");
+		expect(update).toContain("`email` = ?");
+		expect(update).not.toMatch(/\$\d/);
 
 		const upsert = buildUpsertQuery(
 			users,
@@ -272,7 +312,8 @@ describe("mysql dialect", () => {
 			mysqlDialect,
 		);
 		expect(upsert).toContain("ON DUPLICATE KEY UPDATE");
-		expect(upsert).toContain("`name` = $4");
+		expect(upsert).toContain("`name` = ?");
 		expect(upsert).not.toContain("RETURNING");
+		expect(upsert).not.toMatch(/\$\d/);
 	});
 });

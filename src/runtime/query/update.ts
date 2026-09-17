@@ -1,3 +1,4 @@
+import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
@@ -244,7 +245,7 @@ async function runUpdate(
 						runtime,
 						table,
 						tableAccessor,
-						`WHERE ${col} = $1`,
+						`WHERE ${col} = ${dialect.placeholder(1)}`,
 						[pkValue],
 						"update",
 					);
@@ -479,9 +480,10 @@ async function runUpdateMany(
 							table.columns.find((c) => c.tsName === pkTs)
 								?.sqlName ?? pkTs,
 						);
-						const placeholders = pkValues
-							.map((_, i) => `$${i + 1}`)
-							.join(", ");
+						const placeholders = joinPlaceholders(
+							dialect,
+							pkValues.length,
+						);
 						mappedRows = await fetchRowsByWhere(
 							executor,
 							runtime,
@@ -640,7 +642,7 @@ async function runUpdateManyScalar(
 			const col = dialect.quoteIdentifier(
 				table.columns.find((c) => c.tsName === pkTs)?.sqlName ?? pkTs,
 			);
-			const placeholders = pkValues.map((_, i) => `$${i + 1}`).join(", ");
+			const placeholders = joinPlaceholders(dialect, pkValues.length);
 			return fetchRowsByWhere(
 				executor,
 				runtime,

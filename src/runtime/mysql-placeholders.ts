@@ -1,13 +1,24 @@
+import { CappedMap } from "./query/table-index.js";
+
 /**
  * Convert `$N` placeholders to positional `?` and expand params so each `?`
  * is bound once (mysql2 does not support numbered placeholders).
  */
-export function convertNumberedToPositional(
-	sql: string,
-	params: unknown[],
-): { sql: string; params: unknown[] } {
+
+export type PositionalPlan = {
+	sql: string;
+	slots: number[];
+};
+
+const NUMBERED_PLACEHOLDER = /\$\d/;
+const PLAN_CACHE_MAX = 1000;
+const planCache = new CappedMap<string, PositionalPlan>(PLAN_CACHE_MAX);
+
+export function planNumberedToPositional(sql: string): PositionalPlan | null {
+	if (!NUMBERED_PLACEHOLDER.test(sql)) return null;
+
 	let out = "";
-	const outParams: unknown[] = [];
+	const slots: number[] = [];
 	let inSingle = false;
 	let inDouble = false;
 	let inBacktick = false;
@@ -98,12 +109,44 @@ export function convertNumberedToPositional(
 			while (j < sql.length && /\d/.test(sql[j] ?? "")) j++;
 			const index = Number(sql.slice(i + 1, j));
 			out += "?";
-			outParams.push(params[index - 1] ?? null);
+			slots.push(index);
 			i = j - 1;
 			continue;
 		}
 		out += ch;
 	}
 
-	return { sql: out, params: outParams };
+	return { sql: out, slots };
+}
+
+export function applyPositionalPlan(
+	plan: PositionalPlan | null,
+	sql: string,
+	params: unknown[],
+): { sql: string; params: unknown[] } {
+	if (!plan) return { sql, params };
+	return {
+		sql: plan.sql,
+		params: plan.slots.map((index) => params[index - 1] ?? null),
+	};
+}
+
+function planNumberedToPositionalCached(sql: string): PositionalPlan | null {
+	if (!NUMBERED_PLACEHOLDER.test(sql)) return null;
+	const cached = planCache.get(sql);
+	if (cached) return cached;
+	const plan = planNumberedToPositional(sql);
+	if (plan) planCache.set(sql, plan);
+	return plan;
+}
+
+export function convertNumberedToPositional(
+	sql: string,
+	params: unknown[],
+): { sql: string; params: unknown[] } {
+	return applyPositionalPlan(
+		planNumberedToPositionalCached(sql),
+		sql,
+		params,
+	);
 }
