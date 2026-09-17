@@ -3,6 +3,7 @@ export {
 	aggregateSelectorCacheKey,
 	aggregateSelectParts,
 	buildAggregateQuery,
+	buildCountAllQuery,
 	buildCountQuery,
 	buildGroupByQuery,
 	type CountSelector,

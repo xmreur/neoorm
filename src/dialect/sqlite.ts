@@ -400,7 +400,7 @@ export const sqliteDialect: Dialect = {
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>
 		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-	castToInt: (expr) => `CAST(${expr} AS INTEGER)`,
+	castToInt: (expr) => expr,
 	castToNumeric: (expr) => `CAST(${expr} AS NUMERIC)`,
 	rowToJsonObject(columns, refs, _aliasExpr) {
 		const entries: string[] = [];

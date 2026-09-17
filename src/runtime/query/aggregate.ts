@@ -2,12 +2,13 @@ import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
+	buildCountAllQuery,
 	compileWhere,
 	getCachedAggregateQuery,
 	toCountSelector,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
-import { requireTable } from "./table-index.js";
+import { getTableIndex, requireTable } from "./table-index.js";
 
 function coerceAggregateNumber(value: unknown): unknown {
 	if (value === null || value === undefined) return null;
@@ -17,6 +18,39 @@ function coerceAggregateNumber(value: unknown): unknown {
 		if (Number.isFinite(n)) return n;
 	}
 	return value;
+}
+
+function coerceStarCount(value: unknown): number {
+	if (value == null) return 0;
+	if (typeof value === "number" && Number.isFinite(value)) return value;
+	if (typeof value === "bigint") return Number(value);
+	if (typeof value === "string" && value.trim() !== "") {
+		const n = Number(value);
+		if (Number.isFinite(n)) return n;
+	}
+	return 0;
+}
+
+function hasWhereArg(where: Record<string, unknown> | undefined): boolean {
+	return Boolean(where && Object.keys(where).length > 0);
+}
+
+function isSimpleStarCount(args: {
+	where?: Record<string, unknown>;
+	_count?: true | Record<string, true>;
+	_avg?: Record<string, true>;
+	_sum?: Record<string, true>;
+	_min?: Record<string, true>;
+	_max?: Record<string, true>;
+}): boolean {
+	return (
+		args._count === true &&
+		!args._avg &&
+		!args._sum &&
+		!args._min &&
+		!args._max &&
+		!hasWhereArg(args.where)
+	);
 }
 
 export function parseAggregateRow(
@@ -73,6 +107,20 @@ export async function aggregateRecords(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
+
+	if (isSimpleStarCount(args)) {
+		const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+		const query =
+			tableIndex?.countAllSql ?? buildCountAllQuery(table, dialect);
+		const row = await runQueryOne<{ c?: unknown }>(
+			executor,
+			runtime,
+			{ operation: "select", tableAccessor },
+			query,
+			[],
+		);
+		return { _count: coerceStarCount(row?.c) };
+	}
 
 	const selectors: AggregateSelectors = {};
 	if (args._count !== undefined) {

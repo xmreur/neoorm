@@ -19,7 +19,11 @@ import {
 	suggestTsColumn,
 } from "../error-hints.js";
 import type { QueryOperation } from "../errors.js";
-import { buildFindAllQuery, buildFindByIdQuery } from "./compile.js";
+import {
+	buildCountAllQuery,
+	buildFindAllQuery,
+	buildFindByIdQuery,
+} from "./compile.js";
 import type { RelationLoadPlan } from "./relation-planner.js";
 
 export type TableIndex = {
@@ -32,6 +36,7 @@ export type TableIndex = {
 	ownedFkTsNames: Set<string>;
 	findAllSql: string;
 	findByIdSql: string;
+	countAllSql: string;
 	deserializeColumns: ManifestColumn[];
 	renameColumns: ManifestColumn[];
 	updatedAtColumns: ManifestColumn[];
@@ -205,6 +210,7 @@ export function buildTableIndex(
 		ownedFkTsNames: buildOwnedFkTsNames(table),
 		findAllSql: buildFindAllQuery(table, dialect),
 		findByIdSql,
+		countAllSql: buildCountAllQuery(table, dialect),
 		deleteByPkSql,
 		deserializeColumns,
 		renameColumns,

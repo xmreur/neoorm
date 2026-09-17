@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { NeoOrmQueryError } from "../src/runtime/errors.js";
@@ -31,10 +32,16 @@ describe("count SQL", () => {
 		);
 	});
 
-	it("builds COUNT(DISTINCT col) for sqlite", () => {
+	it("builds COUNT(*) for mysql without CAST", () => {
+		const sql = buildCountQuery(users, "", mysqlDialect);
+		expect(sql).toBe("SELECT COUNT(*) AS count FROM `users`");
+		expect(sql).not.toContain("SIGNED");
+	});
+
+	it("builds COUNT(DISTINCT col) for sqlite without CAST", () => {
 		const sql = buildCountQuery(users, "", sqliteDialect, "email");
 		expect(sql).toBe(
-			'SELECT CAST(COUNT(DISTINCT "email") AS INTEGER) AS count FROM "users"',
+			'SELECT COUNT(DISTINCT "email") AS count FROM "users"',
 		);
 	});
 

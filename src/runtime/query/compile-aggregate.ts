@@ -136,6 +136,13 @@ export function buildCountQuery(
 	return sql;
 }
 
+export function buildCountAllQuery(
+	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
+): string {
+	return `SELECT COUNT(*) AS c FROM ${dialect.tableRef(table)}`;
+}
+
 export function countSelectParts(
 	table: ManifestTable,
 	select: Record<string, true>,

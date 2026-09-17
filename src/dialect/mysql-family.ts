@@ -370,7 +370,7 @@ export function createMysqlFamilyDialect(
 		defaultNowExpression: () => "CURRENT_TIMESTAMP(6)",
 		emitCreateMigrationsTable: (ref) =>
 			`CREATE TABLE IF NOT EXISTS ${ref} (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(191) NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))`,
-		castToInt: (expr) => `CAST(${expr} AS SIGNED)`,
+		castToInt: (expr) => expr,
 		castToNumeric: (expr) => `CAST(${expr} AS DECIMAL(65,30))`,
 		rowToJsonObject(columns, refs, _aliasExpr) {
 			const entries: string[] = [];
