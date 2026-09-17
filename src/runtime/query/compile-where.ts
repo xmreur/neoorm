@@ -75,9 +75,6 @@ function compiledResult(
 
 const PARAMLESS_OPERATORS = new Set<WhereOperator>(["isNull", "isNotNull"]);
 
-/** Backslash as a SQL string literal for `LIKE … ESCAPE`. */
-const LIKE_ESCAPE_SQL = "ESCAPE '\\'";
-
 function escapeLikePattern(value: string): string {
 	return value
 		.replace(/\\/g, "\\\\")
@@ -85,8 +82,14 @@ function escapeLikePattern(value: string): string {
 		.replace(/_/g, "\\_");
 }
 
-function withLikeEscape(sql: string): string {
-	return `${sql} ${LIKE_ESCAPE_SQL}`;
+/** Backslash as a SQL string literal for `LIKE … ESCAPE`. */
+function likeEscapeSql(dialect: Dialect): string {
+	// MySQL/MariaDB treat `\` as a string escape, so `ESCAPE '\'` is unterminated.
+	return isMysqlFamilyDialect(dialect) ? "ESCAPE '\\\\'" : "ESCAPE '\\'";
+}
+
+function withLikeEscape(sql: string, dialect: Dialect): string {
+	return `${sql} ${likeEscapeSql(dialect)}`;
 }
 
 export function isOperatorObject(
@@ -143,7 +146,7 @@ function stringFilterSql(
 	switch (op) {
 		case "equals":
 			return mode === "insensitive"
-				? withLikeEscape(dialect.ilike(sqlCol, paramIndex))
+				? withLikeEscape(dialect.ilike(sqlCol, paramIndex), dialect)
 				: dialect.whereOperators.equals(sqlCol, paramIndex);
 		case "contains":
 		case "startsWith":
@@ -152,6 +155,7 @@ function stringFilterSql(
 				mode === "insensitive"
 					? dialect.ilike(sqlCol, paramIndex)
 					: dialect.whereOperators[op](sqlCol, paramIndex),
+				dialect,
 			);
 		case "search":
 			return dialect.regex(sqlCol, paramIndex, mode === "insensitive");
