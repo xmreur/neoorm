@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mariadbDialect } from "../src/dialect/mariadb.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import {
@@ -251,6 +253,34 @@ describe("where compilation", () => {
 		expect(insensitive.sql).toContain("LIKE LOWER(");
 		expect(insensitive.sql).toContain("ESCAPE '\\'");
 		expect(insensitive.params).toEqual(["%orm%"]);
+	});
+
+	it("emits doubled-backslash LIKE ESCAPE on mysql and mariadb", () => {
+		for (const dialect of [mysqlDialect, mariadbDialect]) {
+			const contains = compileWhere(
+				manifest,
+				posts,
+				{ title: { contains: "ORM" } },
+				dialect,
+			);
+			expect(contains.sql).toContain("ESCAPE '\\\\'");
+
+			const starts = compileWhere(
+				manifest,
+				posts,
+				{ title: { startsWith: "Neo" } },
+				dialect,
+			);
+			expect(starts.sql).toContain("ESCAPE '\\\\'");
+
+			const ends = compileWhere(
+				manifest,
+				posts,
+				{ title: { endsWith: "ORM" } },
+				dialect,
+			);
+			expect(ends.sql).toContain("ESCAPE '\\\\'");
+		}
 	});
 
 	it("escapes LIKE wildcards in contains, startsWith, and endsWith", () => {
