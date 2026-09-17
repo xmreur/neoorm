@@ -113,7 +113,7 @@ async function executePkEqualityUpdate(
 		return {};
 	}
 
-	if (dialect.supportsReturning) {
+	if (dialect.supportsUpdateReturning) {
 		const returningCols =
 			returning === "full"
 				? buildSelectColumns(
@@ -338,7 +338,7 @@ async function runUpdate(
 		} else {
 			const returning: UpdateReturning =
 				args.returnUpdated || args.with ? "full" : "pk";
-			if (dialect.supportsReturning) {
+			if (dialect.supportsUpdateReturning) {
 				const query = buildUpdateQuery(
 					table,
 					keys,
@@ -616,7 +616,7 @@ async function runUpdateMany(
 			ops,
 		);
 		if (returnRows || needsPostRelationWrites) {
-			if (dialect.supportsReturning) {
+			if (dialect.supportsUpdateReturning) {
 				const returning = returnRows
 					? selectCols
 					: dialect.quoteIdentifier(primaryKeySqlName(table));
@@ -783,7 +783,7 @@ async function runUpdateManyScalar(
 		ops,
 	);
 	if (returnRows) {
-		if (dialect.supportsReturning) {
+		if (dialect.supportsUpdateReturning) {
 			const rows = await runQuery(
 				executor,
 				runtime,

@@ -291,6 +291,7 @@ export function createMysqlFamilyDialect(
 	const dialect: Dialect = {
 		name: options.name,
 		supportsReturning: options.name === "mariadb",
+		supportsUpdateReturning: false,
 		supportsXmax: false,
 		quoteIdentifier: q,
 		tableRef,

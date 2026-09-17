@@ -497,7 +497,7 @@ function appendWriteReturning(
 	manifestIndex: ManifestIndex | undefined,
 	dialect: Dialect,
 ): string {
-	if (returning === "none" || !dialect.supportsReturning) return sql;
+	if (returning === "none" || !dialect.supportsUpdateReturning) return sql;
 
 	const effectiveReturning = resolveReturning(table, returning);
 	const returningCols =

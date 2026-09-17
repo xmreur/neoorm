@@ -64,6 +64,7 @@ describe("mariadb dialect", () => {
 
 	it("emits VALUES() upsert without AS new", () => {
 		expect(mariadbDialect.supportsReturning).toBe(true);
+		expect(mariadbDialect.supportsUpdateReturning).toBe(false);
 		expect(mariadbDialect.supportsXmax).toBe(false);
 		expect(
 			mariadbDialect.upsertConflictSql(

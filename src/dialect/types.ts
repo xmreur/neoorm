@@ -252,6 +252,8 @@ export type DialectName = "postgresql" | "sqlite" | "mysql" | "mariadb";
 export type Dialect = {
 	readonly name: DialectName;
 	readonly supportsReturning: boolean;
+	/** UPDATE … RETURNING. False on MariaDB 10.11 (INSERT/DELETE RETURNING still work). */
+	readonly supportsUpdateReturning: boolean;
 	/** Postgres-only: xmax is used by findOrCreate to distinguish insert vs conflict. */
 	readonly supportsXmax: boolean;
 	quoteIdentifier(name: string): string;

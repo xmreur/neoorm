@@ -367,6 +367,7 @@ const whereOperators: OperatorMap = {
 export const sqliteDialect: Dialect = {
 	name: "sqlite",
 	supportsReturning: true,
+	supportsUpdateReturning: true,
 	supportsXmax: false,
 	quoteIdentifier: q,
 	tableRef: (table) => q(table.sqlName),

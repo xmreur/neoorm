@@ -99,6 +99,7 @@ describe("mysql dialect", () => {
 	it("emits INSERT IGNORE and ON DUPLICATE KEY UPDATE", () => {
 		expect(mysqlDialect.insertIgnoreModifier()).toBe("IGNORE ");
 		expect(mysqlDialect.supportsReturning).toBe(false);
+		expect(mysqlDialect.supportsUpdateReturning).toBe(false);
 		expect(mysqlDialect.supportsXmax).toBe(false);
 		expect(
 			mysqlDialect.upsertConflictSql("`email`", "`name` = new.`name`"),

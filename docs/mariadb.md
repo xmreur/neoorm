@@ -120,14 +120,14 @@ bunx neoorm migrate reset --force
 | CHECK drop | `DROP CHECK` | `DROP CONSTRAINT` |
 | CHECK errno | 3819 | 4025 (`ER_CONSTRAINT_FAILED`) |
 | JSON storage | native JSON | JSON as LONGTEXT + `json_valid()` |
-| `RETURNING` | none | native `INSERT`/`UPDATE`/`DELETE` `RETURNING` |
+| `RETURNING` | none | `INSERT`/`DELETE` `RETURNING`; `UPDATE` uses follow-up `SELECT` (UPDATE `RETURNING` is MariaDB 13+) |
 
 ## Differences from PostgreSQL
 
 | Feature | PostgreSQL | MariaDB |
 |---------|------------|---------|
 | Identifier quoting | `"users"` | `` `users` `` |
-| `RETURNING` | native | native `INSERT`/`UPDATE`/`DELETE` `RETURNING` |
+| `RETURNING` | native | `INSERT`/`DELETE` `RETURNING`; `UPDATE` uses follow-up `SELECT` |
 | `upsert` | `ON CONFLICT … DO UPDATE` | `ON DUPLICATE KEY UPDATE` + `VALUES(col)` |
 | `skipDuplicates` | `ON CONFLICT DO NOTHING` | `INSERT IGNORE` |
 | `findOrCreate` | `xmax = 0` | SELECT → INSERT → retry on unique violation |

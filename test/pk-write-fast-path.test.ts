@@ -131,7 +131,7 @@ describe("PK write SQL compilation", () => {
 		expect(sql).not.toContain("RETURNING");
 	});
 
-	it("appends RETURNING on MariaDB when requested", () => {
+	it("omits UPDATE RETURNING on MariaDB 10.11", () => {
 		const sql = buildUpdateByPkQuery(
 			users,
 			["name"],
@@ -140,8 +140,8 @@ describe("PK write SQL compilation", () => {
 			"full",
 			mariadbDialect,
 		);
-		expect(sql).toContain("UPDATE `users` SET `name` = ? WHERE `id` = ?");
-		expect(sql).toContain("RETURNING");
+		expect(sql).toBe("UPDATE `users` SET `name` = ? WHERE `id` = ?");
+		expect(sql).not.toContain("RETURNING");
 	});
 
 	it("bakes composite PK placeholders without unique-where rewrite", () => {
@@ -280,10 +280,11 @@ describe("PK write runtime fast path", () => {
 		expect(executor.execute).not.toHaveBeenCalled();
 	});
 
-	it("MariaDB returnUpdated is one UPDATE RETURNING", async () => {
+	it("MariaDB returnUpdated stays SELECT + UPDATE + SELECT", async () => {
 		const runtime = createRuntime(mariadbDialect);
 		const executor = createMockExecutor({
-			queryOne: () => ({ id: "u1", email: "a@b.c", name: "Bob" }),
+			query: () => [{ id: "u1", email: "a@b.c", name: "Bob" }],
+			execute: () => ({ rows: [], rowCount: 1 }),
 		});
 
 		const result = await updateById(executor, runtime, "users", "u1", {
@@ -292,10 +293,13 @@ describe("PK write runtime fast path", () => {
 		});
 
 		expect(result?.name).toBe("Bob");
-		expect(executor.queries).toHaveLength(1);
-		expect(executor.queries[0]?.sql).toContain("UPDATE `users`");
-		expect(executor.queries[0]?.sql).toContain("RETURNING");
-		expect(executor.execute).not.toHaveBeenCalled();
+		expect(executor.queries).toHaveLength(3);
+		expect(executor.queries[0]?.sql.startsWith("SELECT")).toBe(true);
+		expect(executor.queries[1]?.sql).toBe(
+			"UPDATE `users` SET `name` = ? WHERE `id` = ?",
+		);
+		expect(executor.queries[1]?.sql).not.toContain("RETURNING");
+		expect(executor.queries[2]?.sql.startsWith("SELECT")).toBe(true);
 	});
 
 	it("MySQL returnUpdated stays SELECT + UPDATE + SELECT", async () => {
@@ -394,10 +398,11 @@ describe("PK write runtime fast path", () => {
 		expect(executor.queries[0]?.params).toEqual(["n", "t1", "c1"]);
 	});
 
-	it("MariaDB updateManyAndReturn and deleteManyAndReturn use one RETURNING statement", async () => {
+	it("MariaDB deleteManyAndReturn uses RETURNING; updateManyAndReturn does not", async () => {
 		const runtime = createRuntime(mariadbDialect);
 		const executor = createMockExecutor({
 			query: () => [{ id: "u1", email: "a@b.c", name: "Bob" }],
+			execute: () => ({ rows: [], rowCount: 1 }),
 		});
 
 		const updated = await updateManyAndReturnRecords(
@@ -415,11 +420,18 @@ describe("PK write runtime fast path", () => {
 
 		expect(updated).toHaveLength(1);
 		expect(deleted).toHaveLength(1);
-		expect(executor.queries).toHaveLength(2);
-		expect(executor.queries[0]?.sql).toContain("UPDATE `users`");
-		expect(executor.queries[0]?.sql).toContain("RETURNING");
-		expect(executor.queries[1]?.sql).toContain("DELETE FROM `users`");
-		expect(executor.queries[1]?.sql).toContain("RETURNING");
-		expect(executor.execute).not.toHaveBeenCalled();
+		expect(executor.queries[0]?.sql.startsWith("SELECT")).toBe(true);
+		expect(executor.queries[1]?.sql).toContain("UPDATE `users`");
+		expect(executor.queries[1]?.sql).not.toContain("RETURNING");
+		expect(
+			executor.queries.some((q) => q.sql.includes("DELETE FROM `users`")),
+		).toBe(true);
+		expect(
+			executor.queries.some(
+				(q) =>
+					q.sql.includes("DELETE FROM `users`") &&
+					q.sql.includes("RETURNING"),
+			),
+		).toBe(true);
 	});
 });
