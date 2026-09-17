@@ -2,6 +2,7 @@ import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema as blogSchema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
@@ -298,6 +299,43 @@ describe("read path optimizations", () => {
 		expect(sql).toContain("`users`");
 		expect(sql).not.toContain('"id"');
 		expect(sql).not.toContain('"users"');
+	});
+
+	it("findById with relations batches has-many on mariadb instead of LATERAL json agg", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = {
+			manifest,
+			dialect: mariadbDialect,
+			tableIndex: buildManifestIndex(manifest, mariadbDialect),
+		};
+		const executor = createMockExecutor({
+			query: (sql) => {
+				if (sql.includes("`posts`")) {
+					return [
+						{
+							id: "p1",
+							title: "Post 1",
+							author_id: "u1",
+							_parent_id: "u1",
+						},
+					];
+				}
+				return [{ id: "u1", name: "Alice" }];
+			},
+		});
+
+		const row = await findById(executor, runtime, "users", "u1", {
+			with: { posts: { take: 3 } },
+		});
+
+		expect(row).not.toBeNull();
+		expect(row?.posts).toEqual([
+			{ id: "p1", title: "Post 1", authorId: "u1" },
+		]);
+		expect(executor.queries.length).toBeGreaterThan(1);
+		const allSql = executor.queries.map((q) => q.sql).join("\n");
+		expect(allSql).not.toMatch(/JSON_ARRAYAGG[\s\S]*=\s*`users`\.`id`/);
+		expect(allSql).toMatch(/`author_id`\s+IN\s*\(/);
 	});
 
 	it("findMany with single many-relation uses one inline json_agg query", async () => {
