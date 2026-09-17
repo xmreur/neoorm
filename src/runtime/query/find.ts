@@ -48,6 +48,7 @@ import {
 	buildCountAggregateGroupBy,
 	buildPlanExtraSelectCols,
 	compileCountOrderBy,
+	findOneRelationPlanOptions,
 	getCachedFindByIdWithQuery,
 	getCachedRelationPlan,
 	hydrateRowsWithPlan,
@@ -1222,7 +1223,7 @@ export async function findFirst(
 		{ ...args, with: args?.with ?? {}, take: 1 },
 		appendUniquePredicate(compiledWhere.sql, args?.andSql),
 		compiledWhere.params,
-		{ useHasManyAggregate: false },
+		findOneRelationPlanOptions(dialect),
 		projection,
 	);
 	return rows[0] ?? null;
@@ -1288,7 +1289,7 @@ export async function findById(
 				},
 				compiledWhere.sql,
 				compiledWhere.params,
-				{ useHasManyAggregate: false },
+				findOneRelationPlanOptions(dialect),
 				projection,
 			);
 			return rows[0] ?? null;
@@ -1384,7 +1385,7 @@ export async function findById(
 		},
 		compiledWhere.sql,
 		compiledWhere.params,
-		{ useHasManyAggregate: false },
+		findOneRelationPlanOptions(dialect),
 		projection,
 	);
 	return rows[0] ?? null;

@@ -123,6 +123,13 @@ export type RelationPlanOptions = {
 	useHasManyAggregate?: boolean;
 };
 
+/** Single-row finds: JOIN+agg on MariaDB (no LATERAL); correlated json_agg elsewhere. */
+export function findOneRelationPlanOptions(
+	dialect: Dialect,
+): RelationPlanOptions {
+	return { useHasManyAggregate: isMariadbDialect(dialect) };
+}
+
 function relationPlanCacheKey(
 	withSpec: Record<string, WithInput>,
 	dialect: Dialect,
@@ -1364,20 +1371,22 @@ export function getCachedFindByIdWithQuery(
 	manifestIndex?: ManifestIndex,
 	parentSelect?: readonly string[],
 ): { sql: string; plan: RelationLoadPlan } | null {
+	const planOptions = findOneRelationPlanOptions(dialect);
 	const plan = getCachedRelationPlan(
 		manifest,
 		table,
 		withSpec,
 		dialect,
 		manifestIndex,
-		{ useHasManyAggregate: false },
+		planOptions,
 	);
 	if (!planIsFullyInline(plan)) return null;
 	if (plan.countAggregate) return null;
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const selectKey = parentSelect ? [...parentSelect].sort().join(",") : "";
-	const signature = `${dialect.name}|${withShapeSignature(withSpec)}|corr|${selectKey}`;
+	const planMode = planOptions.useHasManyAggregate ? "agg" : "corr";
+	const signature = `${dialect.name}|${withShapeSignature(withSpec)}|${planMode}|${selectKey}`;
 	const { sqlName } = requireScalarPrimaryKey(table);
 	const pkCol = dialect.quoteIdentifier(sqlName);
 
