@@ -487,6 +487,16 @@ export function buildUpdateQuery(
 		const adjustedWhere = rebaseParamRefs(whereSql, whereOffset);
 		sql += ` ${adjustedWhere}`;
 	}
+	return appendWriteReturning(sql, table, returning, manifestIndex, dialect);
+}
+
+function appendWriteReturning(
+	sql: string,
+	table: ManifestTable,
+	returning: UpdateReturning,
+	manifestIndex: ManifestIndex | undefined,
+	dialect: Dialect,
+): string {
 	if (returning === "none" || !dialect.supportsReturning) return sql;
 
 	const effectiveReturning = resolveReturning(table, returning);
@@ -502,6 +512,120 @@ export function buildUpdateQuery(
 				)
 			: buildReturningPkColumns(table, manifestIndex, dialect);
 	return `${sql} RETURNING ${returningCols}`;
+}
+
+export function buildPkEqualityWhereSql(
+	table: ManifestTable,
+	startParamIndex: number,
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+): string {
+	if (table.primaryKey.length === 0) {
+		compileError(
+			"Cannot build a primary-key predicate without a primary key",
+		);
+	}
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const parts = table.primaryKey.map((sqlName, i) => {
+		const col = columnBySqlName(tableIndex, table, sqlName);
+		const quoted = dialect.quoteIdentifier(col?.sqlName ?? sqlName);
+		return `${quoted} = ${dialect.placeholder(startParamIndex + i)}`;
+	});
+	return `WHERE ${parts.join(" AND ")}`;
+}
+
+export function buildDeleteByPkQuery(
+	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
+	manifestIndex?: ManifestIndex,
+): string {
+	return `DELETE FROM ${dialect.tableRef(table)} ${buildPkEqualityWhereSql(table, 1, manifestIndex, dialect)}`;
+}
+
+export function buildUpdateByPkQuery(
+	table: ManifestTable,
+	dataKeys: string[],
+	exprSets: string[] = [],
+	manifestIndex?: ManifestIndex,
+	returning: UpdateReturning = "none",
+	dialect: Dialect = postgresDialect,
+	ops?: readonly AtomicUpdateOp[],
+): string {
+	const ordered = orderUpdateAssignments(dataKeys, ops);
+	const paramSets = ordered.keys.map((k, i) => {
+		const col = colByTs(table, k, manifestIndex);
+		const op = ordered.ops[i] ?? "set";
+		return buildSetExpression(col, i + 1, op, dialect);
+	});
+	const sets = [...paramSets, ...exprSets];
+	if (sets.length === 0) {
+		compileError("Cannot build a primary-key UPDATE with no SET clause");
+	}
+	const sql = `UPDATE ${dialect.tableRef(table)} SET ${sets.join(", ")} ${buildPkEqualityWhereSql(table, ordered.keys.length + 1, manifestIndex, dialect)}`;
+	return appendWriteReturning(sql, table, returning, manifestIndex, dialect);
+}
+
+export function getCachedUpdateByPkQuery(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dataKeys: string[],
+	exprSets: string[],
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+	ops?: readonly AtomicUpdateOp[],
+): string {
+	const ordered = orderUpdateAssignments(dataKeys, ops);
+	const opKey = ordered.keys
+		.map((key, i) => `${key}:${ordered.ops[i] ?? "set"}`)
+		.join(",");
+	const cacheKey = `${dialect.name}|${opKey}|${exprSets.length}`;
+	if (!tableIndex) {
+		return buildUpdateByPkQuery(
+			table,
+			ordered.keys,
+			exprSets,
+			manifestIndex,
+			"none",
+			dialect,
+			ordered.ops,
+		);
+	}
+	return getOrSetSqlCache(tableIndex.updateByPkSqlByKeys, cacheKey, () =>
+		buildUpdateByPkQuery(
+			table,
+			ordered.keys,
+			exprSets,
+			manifestIndex,
+			"none",
+			dialect,
+			ordered.ops,
+		),
+	);
+}
+
+export function getCachedDeleteByPkQuery(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dialect: Dialect = postgresDialect,
+	manifestIndex?: ManifestIndex,
+): string {
+	if (tableIndex?.deleteByPkSql) return tableIndex.deleteByPkSql;
+	return buildDeleteByPkQuery(table, dialect, manifestIndex);
+}
+
+export function serializePkEqualityParams(
+	table: ManifestTable,
+	values: unknown[],
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+): unknown[] {
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	return table.primaryKey.map((sqlName, i) => {
+		const col = columnBySqlName(tableIndex, table, sqlName);
+		const value = values[i];
+		if (!col) return value;
+		return serializeColumnValue(col, value, dialect);
+	});
 }
 
 export function buildReturningPkColumns(

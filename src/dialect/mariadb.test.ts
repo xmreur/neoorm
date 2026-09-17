@@ -62,8 +62,8 @@ describe("mariadb dialect", () => {
 		).toBe("VARCHAR(191) COLLATE utf8mb4_uca1400_ai_ci");
 	});
 
-	it("emits VALUES() upsert without AS new or RETURNING", () => {
-		expect(mariadbDialect.supportsReturning).toBe(false);
+	it("emits VALUES() upsert without AS new", () => {
+		expect(mariadbDialect.supportsReturning).toBe(true);
 		expect(mariadbDialect.supportsXmax).toBe(false);
 		expect(
 			mariadbDialect.upsertConflictSql(
@@ -162,7 +162,7 @@ describe("mariadb dialect", () => {
 		);
 	});
 
-	it("compiles IN lists with JSON_TABLE and upsert without RETURNING", () => {
+	it("compiles IN lists with JSON_TABLE and upsert with RETURNING", () => {
 		const schema = defineSchema({
 			users: table({
 				id: id(),
@@ -198,7 +198,7 @@ describe("mariadb dialect", () => {
 		expect(upsert).toContain("ON DUPLICATE KEY UPDATE");
 		expect(upsert).toContain("`name` = ?");
 		expect(upsert).not.toContain("AS new");
-		expect(upsert).not.toContain("RETURNING");
+		expect(upsert).toContain("RETURNING");
 	});
 
 	it("does not put AUTO_INCREMENT on foreign keys to serial columns", () => {

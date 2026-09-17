@@ -5,13 +5,18 @@ import { queryCompileError } from "../error-builders.js";
 import { QueryErrorCode } from "../error-codes.js";
 import type { Executor } from "../executor.js";
 import {
+	type AtomicUpdateOp,
+	buildPkEqualityWhereSql,
+	buildReturningPkColumns,
 	buildSelectColumns,
 	buildUpdateQuery,
 	compileWhere,
 	dataToUpdateAssignments,
+	getCachedUpdateByPkQuery,
 	getCachedUpdateManyQuery,
 	getCachedWhereClause,
 	isImpossibleWhere,
+	serializePkEqualityParams,
 	type UpdateReturning,
 } from "./compile.js";
 import { runCreate } from "./create.js";
@@ -37,8 +42,17 @@ import {
 	relationWritesNeedTransaction,
 	splitScalarsAndRelationWrites,
 } from "./relation-writes.js";
-import { getTableIndex, relationByName, requireTable } from "./table-index.js";
-import { appendUniquePredicate, assertUniqueWhere } from "./unique.js";
+import {
+	columnBySqlName,
+	getTableIndex,
+	relationByName,
+	requireTable,
+} from "./table-index.js";
+import {
+	appendUniquePredicate,
+	assertUniqueWhere,
+	tryPkEqualityValues,
+} from "./unique.js";
 import {
 	stripUpdatedAtFromData,
 	updatedAtSetExpressions,
@@ -55,6 +69,112 @@ function dataHasRelationKeys(
 	return false;
 }
 
+async function executePkEqualityUpdate(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	table: ReturnType<typeof requireTable>,
+	tableIndex: ReturnType<typeof getTableIndex>,
+	keys: string[],
+	ops: AtomicUpdateOp[],
+	values: unknown[],
+	exprSets: string[],
+	pkValues: unknown[],
+	needsReturning: boolean,
+	returning: UpdateReturning,
+): Promise<Record<string, unknown> | null> {
+	const dialect = runtime.dialect ?? postgresDialect;
+	const pkParams = serializePkEqualityParams(
+		table,
+		pkValues,
+		runtime.tableIndex,
+		dialect,
+	);
+	const params = [...values, ...pkParams];
+	let query = getCachedUpdateByPkQuery(
+		tableIndex,
+		table,
+		keys,
+		exprSets,
+		runtime.tableIndex,
+		dialect,
+		ops,
+	);
+
+	if (!needsReturning) {
+		const { rowCount } = await runExecute(
+			executor,
+			runtime,
+			{ operation: "update", tableAccessor },
+			query,
+			params,
+		);
+		if (rowCount === 0) return null;
+		return {};
+	}
+
+	if (dialect.supportsReturning) {
+		const returningCols =
+			returning === "full"
+				? buildSelectColumns(
+						table,
+						undefined,
+						runtime.tableIndex,
+						undefined,
+						undefined,
+						dialect,
+					)
+				: buildReturningPkColumns(table, runtime.tableIndex, dialect);
+		query = `${query} RETURNING ${returningCols}`;
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			{ operation: "update", tableAccessor },
+			query,
+			params,
+		);
+		if (!row) return null;
+		return mapRowToTs(tableIndex, table, row);
+	}
+
+	const pkWhereSql = buildPkEqualityWhereSql(
+		table,
+		1,
+		runtime.tableIndex,
+		dialect,
+	);
+	const preRows = await fetchRowsByWhere(
+		executor,
+		runtime,
+		table,
+		tableAccessor,
+		pkWhereSql,
+		pkParams,
+		"select",
+	);
+	if (preRows.length === 0) return null;
+	await runExecute(
+		executor,
+		runtime,
+		{ operation: "update", tableAccessor },
+		query,
+		params,
+	);
+	if (returning !== "full") {
+		return preRows[0] ?? {};
+	}
+	const reloaded = await fetchRowsByWhere(
+		executor,
+		runtime,
+		table,
+		tableAccessor,
+		pkWhereSql,
+		pkParams,
+		"update",
+	);
+	return reloaded[0] ?? preRows[0] ?? {};
+}
+
 async function runUpdate(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -67,6 +187,7 @@ async function runUpdate(
 		scalarData?: Record<string, unknown>;
 		relationWrites?: ParsedRelationWrite[];
 		uniquePredicateSql?: string;
+		pkValues?: unknown[];
 	},
 ): Promise<Record<string, unknown> | null> {
 	const dialect = runtime.dialect ?? postgresDialect;
@@ -98,28 +219,6 @@ async function runUpdate(
 		runCreate,
 	);
 
-	const compiledWhere = compileWhere(
-		manifest,
-		table,
-		args.where,
-		dialect,
-		1,
-		runtime.tableIndex,
-	);
-	const whereSql = appendUniquePredicate(
-		compiledWhere.sql,
-		args.uniquePredicateSql,
-	);
-	const whereParams = compiledWhere.params;
-
-	if (!whereSql) {
-		throw queryCompileError("update", "Update requires a where clause", {
-			code: QueryErrorCode.where_required,
-			tableAccessor,
-			tableSqlName: table.sqlName,
-		});
-	}
-
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
 	stripUpdatedAtFromData(table, scalarData, tableIndex);
 	const { keys, ops, values } = dataToUpdateAssignments(
@@ -145,6 +244,41 @@ async function runUpdate(
 		);
 	}
 
+	const usePkFastPath =
+		args.pkValues !== undefined &&
+		!args.uniquePredicateSql &&
+		(keys.length > 0 || exprSets.length > 0);
+
+	let whereSql = "";
+	let whereParams: unknown[] = [];
+	if (!usePkFastPath) {
+		const compiledWhere = compileWhere(
+			manifest,
+			table,
+			args.where,
+			dialect,
+			1,
+			runtime.tableIndex,
+		);
+		whereSql = appendUniquePredicate(
+			compiledWhere.sql,
+			args.uniquePredicateSql,
+		);
+		whereParams = compiledWhere.params;
+
+		if (!whereSql) {
+			throw queryCompileError(
+				"update",
+				"Update requires a where clause",
+				{
+					code: QueryErrorCode.where_required,
+					tableAccessor,
+					tableSqlName: table.sqlName,
+				},
+			);
+		}
+	}
+
 	let result: Record<string, unknown> | null;
 
 	if (keys.length === 0 && exprSets.length === 0) {
@@ -158,6 +292,25 @@ async function runUpdate(
 		);
 		if (!row) return null;
 		result = mapRowToTs(tableIndex, table, row);
+	} else if (usePkFastPath && args.pkValues) {
+		const needsReturning = Boolean(args.returnUpdated || args.with);
+		const returning: UpdateReturning =
+			args.returnUpdated || args.with ? "full" : "none";
+		result = await executePkEqualityUpdate(
+			executor,
+			runtime,
+			tableAccessor,
+			table,
+			tableIndex,
+			keys,
+			ops,
+			values,
+			exprSets,
+			args.pkValues,
+			needsReturning,
+			returning,
+		);
+		if (result === null) return null;
 	} else {
 		const needsReturning =
 			args.returnUpdated || args.with || needsRelationWrites;
@@ -257,20 +410,22 @@ async function runUpdate(
 		}
 	}
 
-	const recordId =
-		Object.keys(result).length === 0
-			? rowScalarPkValue(args.where, table)
-			: rowScalarPkValue(result, table);
+	if (needsRelationWrites) {
+		const recordId =
+			Object.keys(result).length === 0
+				? rowScalarPkValue(args.where, table)
+				: rowScalarPkValue(result, table);
 
-	await executeRelationWrites(
-		executor,
-		runtime,
-		tableAccessor,
-		recordId,
-		relationWrites,
-		runCreate,
-		Object.keys(result).length === 0 ? args.where : result,
-	);
+		await executeRelationWrites(
+			executor,
+			runtime,
+			tableAccessor,
+			recordId,
+			relationWrites,
+			runCreate,
+			Object.keys(result).length === 0 ? args.where : result,
+		);
+	}
 
 	if (args.with) {
 		const [withLoaded] = await loadRelations(
@@ -299,12 +454,8 @@ export async function updateRecord(
 ): Promise<Record<string, unknown> | null> {
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
-	const { constraint, where } = assertUniqueWhere(
-		table,
-		args.where,
-		"update",
-		getTableIndex(runtime.tableIndex, tableAccessor),
-	);
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const pkValues = tryPkEqualityValues(table, args.where, tableIndex);
 
 	const split = splitScalarsAndRelationWrites(
 		manifest,
@@ -321,14 +472,38 @@ export async function updateRecord(
 		split.relationWrites,
 	);
 
-	const runArgs = {
-		...args,
-		...split,
-		where,
-		...(constraint.whereSql !== undefined
-			? { uniquePredicateSql: constraint.whereSql }
-			: {}),
-	};
+	let runArgs: Parameters<typeof runUpdate>[3];
+	if (pkValues) {
+		const where: Record<string, unknown> = {};
+		for (let i = 0; i < table.primaryKey.length; i++) {
+			const sqlName = table.primaryKey[i];
+			if (!sqlName) continue;
+			const col = columnBySqlName(tableIndex, table, sqlName);
+			if (!col) continue;
+			where[col.tsName] = pkValues[i];
+		}
+		runArgs = {
+			...args,
+			...split,
+			where,
+			pkValues,
+		};
+	} else {
+		const { constraint, where } = assertUniqueWhere(
+			table,
+			args.where,
+			"update",
+			tableIndex,
+		);
+		runArgs = {
+			...args,
+			...split,
+			where,
+			...(constraint.whereSql !== undefined
+				? { uniquePredicateSql: constraint.whereSql }
+				: {}),
+		};
+	}
 
 	if (executor.inTransaction || !needsTransaction) {
 		return runUpdate(executor, runtime, tableAccessor, runArgs);

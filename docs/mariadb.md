@@ -120,14 +120,14 @@ bunx neoorm migrate reset --force
 | CHECK drop | `DROP CHECK` | `DROP CONSTRAINT` |
 | CHECK errno | 3819 | 4025 (`ER_CONSTRAINT_FAILED`) |
 | JSON storage | native JSON | JSON as LONGTEXT + `json_valid()` |
-| `RETURNING` | none | INSERT/DELETE RETURNING exist, but UPDATE does not; NeoOrm uses follow-up `SELECT` for all writes |
+| `RETURNING` | none | native `INSERT`/`UPDATE`/`DELETE` `RETURNING` |
 
 ## Differences from PostgreSQL
 
 | Feature | PostgreSQL | MariaDB |
 |---------|------------|---------|
 | Identifier quoting | `"users"` | `` `users` `` |
-| `RETURNING` | native | follow-up `SELECT` (or `insertId` for serial) |
+| `RETURNING` | native | native `INSERT`/`UPDATE`/`DELETE` `RETURNING` |
 | `upsert` | `ON CONFLICT … DO UPDATE` | `ON DUPLICATE KEY UPDATE` + `VALUES(col)` |
 | `skipDuplicates` | `ON CONFLICT DO NOTHING` | `INSERT IGNORE` |
 | `findOrCreate` | `xmax = 0` | SELECT → INSERT → retry on unique violation |
