@@ -11,6 +11,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
+import { numberedPlaceholder } from "./placeholders.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import {
 	formatIndexKeyList,
@@ -384,6 +385,7 @@ export const sqliteDialect: Dialect = {
 	emitAddForeignKey,
 	emitAddTableForeignKey,
 	whereOperators,
+	placeholder: numberedPlaceholder,
 	ilike: (col, i) => `LOWER(${col}) LIKE LOWER($${i})`,
 	regex: (col, i, insensitive) =>
 		insensitive ? `regexp_i($${i}, ${col})` : `${col} REGEXP $${i}`,

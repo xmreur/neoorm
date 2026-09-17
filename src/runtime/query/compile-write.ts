@@ -27,13 +27,14 @@ import {
 function buildValuePlaceholder(
 	col: ManifestColumn | undefined,
 	paramIndex: number,
+	dialect: Dialect = postgresDialect,
 ): string {
-	if (!col || col.kind === "fk") return `$${paramIndex}`;
+	if (!col || col.kind === "fk") return dialect.placeholder(paramIndex);
 	const plugin = getColumnType(col.kind);
 	if (plugin?.writeExpression) {
 		return plugin.writeExpression(col, paramIndex);
 	}
-	return `$${paramIndex}`;
+	return dialect.placeholder(paramIndex);
 }
 
 function isBinaryValue(value: unknown): boolean {
@@ -162,7 +163,7 @@ function buildSetExpression(
 	dialect: Dialect = postgresDialect,
 ): string {
 	const sqlCol = dialect.quoteIdentifier(col?.sqlName ?? "");
-	const placeholder = buildValuePlaceholder(col, paramIndex);
+	const placeholder = buildValuePlaceholder(col, paramIndex, dialect);
 
 	switch (op) {
 		case "set":
@@ -206,7 +207,7 @@ export function buildUpsertQuery(
 	const insertPlaceholders = insertKeys
 		.map((k, i) => {
 			const col = colByTs(table, k, manifestIndex);
-			return buildValuePlaceholder(col, i + 1);
+			return buildValuePlaceholder(col, i + 1, dialect);
 		})
 		.join(", ");
 	const selectCols = buildSelectColumns(
@@ -275,7 +276,7 @@ export function buildFindOrCreateQuery(
 	const insertPlaceholders = insertKeys
 		.map((k, i) => {
 			const col = colByTs(table, k, manifestIndex);
-			return buildValuePlaceholder(col, i + 1);
+			return buildValuePlaceholder(col, i + 1, dialect);
 		})
 		.join(", ");
 	const selectCols = buildSelectColumns(
@@ -338,7 +339,7 @@ export function buildInsertQuery(
 	const placeholders = orderedKeys
 		.map((k, i) => {
 			const col = colByTs(table, k, manifestIndex);
-			return buildValuePlaceholder(col, i + 1);
+			return buildValuePlaceholder(col, i + 1, dialect);
 		})
 		.join(", ");
 
@@ -389,6 +390,7 @@ export function buildInsertManyValueRows(
 	dataKeys: string[],
 	rows: Array<Array<unknown | undefined>>,
 	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
 ): { valueRows: string[]; values: unknown[] } {
 	if (dataKeys.length === 0) {
 		compileError("Cannot build INSERT many value rows with no columns");
@@ -410,7 +412,9 @@ export function buildInsertManyValueRows(
 			if (val === undefined) {
 				placeholders.push("DEFAULT");
 			} else {
-				placeholders.push(buildValuePlaceholder(col, paramIndex));
+				placeholders.push(
+					buildValuePlaceholder(col, paramIndex, dialect),
+				);
 				values.push(val);
 				paramIndex++;
 			}

@@ -1184,7 +1184,7 @@ export function buildFindByIdQuery(
 		undefined,
 		dialect,
 	);
-	return `SELECT ${selectCols} FROM ${dialect.tableRef(table)} WHERE ${sqlCol} = $1`;
+	return `SELECT ${selectCols} FROM ${dialect.tableRef(table)} WHERE ${sqlCol} = ${dialect.placeholder(1)}`;
 }
 
 export function buildFindAllQuery(

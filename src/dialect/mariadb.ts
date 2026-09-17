@@ -9,11 +9,9 @@ export const mariadbDialect = createMysqlFamilyDialect({
 	upsertConflictSql: (_conflictCols, setClauses) =>
 		`ON DUPLICATE KEY UPDATE ${setClauses}`,
 	excludedRef: (quotedCol) => `VALUES(${quotedCol})`,
-	search: (col, i) => `${col} REGEXP $${i}`,
-	regex: (col, i, insensitive) =>
-		insensitive
-			? `${col} REGEXP CONCAT('(?i)', $${i})`
-			: `${col} REGEXP $${i}`,
+	search: (col) => `${col} REGEXP ?`,
+	regex: (col, _i, insensitive) =>
+		insensitive ? `${col} REGEXP CONCAT('(?i)', ?)` : `${col} REGEXP ?`,
 });
 
 export function mariadbColumnType(

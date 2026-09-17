@@ -280,6 +280,8 @@ export type Dialect = {
 		fk: ManifestForeignKey,
 	): string;
 	whereOperators: OperatorMap;
+	/** Bind placeholder for 1-based param `index` (`$1` or `?`). */
+	placeholder(index: number): string;
 	ilike(sqlColumn: string, paramIndex: number): string;
 	regex(sqlColumn: string, paramIndex: number, insensitive: boolean): string;
 	/** Prefix between `INSERT` and `INTO`, e.g. `"IGNORE "` on MySQL. */

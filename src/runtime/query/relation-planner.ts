@@ -1417,7 +1417,7 @@ export function getCachedFindByIdWithQuery(
 		if (extraCols.cols.length > 0) sql += `, ${extraCols.cols.join(", ")}`;
 		sql += ` FROM ${dialect.tableRef(table)}`;
 		if (joinClauses) sql += ` ${joinClauses.join(" ")}`;
-		sql += ` WHERE ${dialect.tableRef(table)}.${pkCol} = $1`;
+		sql += ` WHERE ${dialect.tableRef(table)}.${pkCol} = ${dialect.placeholder(1)}`;
 		const groupBySql = buildAggregateGroupBy(plan);
 		if (groupBySql) sql += ` ${groupBySql}`;
 		return sql;

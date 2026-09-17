@@ -183,27 +183,27 @@ function compileMysql(
 	op: JsonWhereOp,
 	sqlCol: string,
 	value: unknown,
-	startParamIndex: number,
+	_startParamIndex: number,
 ): { sql: string; params: unknown[] } {
 	switch (op) {
 		case "jsonContains":
 			return {
-				sql: `JSON_CONTAINS(${sqlCol}, CAST($${startParamIndex} AS JSON))`,
+				sql: `JSON_CONTAINS(${sqlCol}, CAST(? AS JSON))`,
 				params: [jsonParam(value)],
 			};
 		case "hasKey":
 			return {
-				sql: `JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', $${startParamIndex}))`,
+				sql: `JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', ?))`,
 				params: [value],
 			};
 		case "hasAnyKeys":
 			return {
-				sql: `EXISTS (SELECT 1 FROM JSON_TABLE($${startParamIndex}, '$[*]' COLUMNS (k VARCHAR(512) PATH '$')) AS jk WHERE JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', jk.k)))`,
+				sql: `EXISTS (SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS (k VARCHAR(512) PATH '$')) AS jk WHERE JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', jk.k)))`,
 				params: [jsonParam(value)],
 			};
 		case "hasAllKeys":
 			return {
-				sql: `NOT EXISTS (SELECT 1 FROM JSON_TABLE($${startParamIndex}, '$[*]' COLUMNS (k VARCHAR(512) PATH '$')) AS jk WHERE NOT JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', jk.k)))`,
+				sql: `NOT EXISTS (SELECT 1 FROM JSON_TABLE(?, '$[*]' COLUMNS (k VARCHAR(512) PATH '$')) AS jk WHERE NOT JSON_CONTAINS_PATH(${sqlCol}, 'one', CONCAT('$.', jk.k)))`,
 				params: [jsonParam(value)],
 			};
 		case "path": {
@@ -211,12 +211,12 @@ function compileMysql(
 			const pathLit = mysqlJsonPath(spec.segments);
 			if (spec.jsonContains !== undefined) {
 				return {
-					sql: `JSON_CONTAINS(JSON_EXTRACT(${sqlCol}, $${startParamIndex}), CAST($${startParamIndex + 1} AS JSON))`,
+					sql: `JSON_CONTAINS(JSON_EXTRACT(${sqlCol}, ?), CAST(? AS JSON))`,
 					params: [pathLit, jsonParam(spec.jsonContains)],
 				};
 			}
 			return {
-				sql: `JSON_UNQUOTE(JSON_EXTRACT(${sqlCol}, $${startParamIndex})) = $${startParamIndex + 1}`,
+				sql: `JSON_UNQUOTE(JSON_EXTRACT(${sqlCol}, ?)) = ?`,
 				params: [pathLit, spec.equals],
 			};
 		}

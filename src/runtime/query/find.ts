@@ -1,4 +1,5 @@
 import { relationFkPairs } from "../../dialect/fk.js";
+import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import {
 	dialectDisplayName,
@@ -247,7 +248,7 @@ async function countRelationLinks(
 	if (!targetTable) return new Map();
 
 	const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
-	const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+	const placeholders = joinPlaceholders(dialect, parentIds.length);
 	let extraWhere = "";
 	let extraParams: unknown[] = [];
 
@@ -297,7 +298,7 @@ async function countM2MLinks(
 
 	const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 	const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
-	const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+	const placeholders = joinPlaceholders(dialect, parentIds.length);
 
 	let joinSql = "";
 	let extraWhere = "";
@@ -499,7 +500,7 @@ async function loadOneRelation(
 
 		if (pairs.length === 1) {
 			const fkValues = parentWithFk.map((r) => r[relation.fkColumn]);
-			const placeholders = fkValues.map((_, i) => `$${i + 1}`).join(", ");
+			const placeholders = joinPlaceholders(dialect, fkValues.length);
 			const targetPkCol = dialect.quoteIdentifier(
 				targetRelationPkSql(targetTable, relation),
 			);
@@ -539,7 +540,7 @@ async function loadOneRelation(
 			.map((parent) => {
 				const andSql = pairs.map((pair) => {
 					params.push(parent[pair.fkColumn]);
-					return `${dialect.quoteIdentifier(pair.targetColumn)} = $${params.length}`;
+					return `${dialect.quoteIdentifier(pair.targetColumn)} = ${dialect.placeholder(params.length)}`;
 				});
 				return `(${andSql.join(" AND ")})`;
 			})
@@ -586,7 +587,7 @@ async function loadOneRelation(
 		}
 	} else {
 		const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
-		const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+		const placeholders = joinPlaceholders(dialect, parentIds.length);
 		const selectCols = columnsForSelect(
 			targetTable,
 			withSpec,
@@ -718,7 +719,7 @@ async function loadM2MRelation(
 		.filter(Boolean);
 	if (parentIds.length === 0) return;
 
-	const placeholders = parentIds.map((_, i) => `$${i + 1}`).join(", ");
+	const placeholders = joinPlaceholders(dialect, parentIds.length);
 	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 	const selectCols = columnsForSelect(
 		targetTable,

@@ -1,5 +1,10 @@
 export { mariadbDialect } from "./mariadb.js";
 export { mysqlDialect, quoteMysqlIdentifier } from "./mysql.js";
+export {
+	joinPlaceholders,
+	numberedPlaceholder,
+	positionalPlaceholder,
+} from "./placeholders.js";
 export { postgresDialect, quoteIdentifier } from "./postgres.js";
 export { dialectForProvider } from "./resolve.js";
 export { sqliteDialect } from "./sqlite.js";

@@ -73,16 +73,16 @@ describe("mariadb dialect", () => {
 		).toBe("ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)");
 		expect(mariadbDialect.excludedRef("`name`")).toBe("VALUES(`name`)");
 		expect(
-			mariadbDialect.upsertConflictSql("`email`", "`name` = $4"),
+			mariadbDialect.upsertConflictSql("`email`", "`name` = ?"),
 		).not.toContain("AS new");
 	});
 
 	it("compiles search with REGEXP", () => {
 		expect(mariadbDialect.whereOperators.search("`title`", 1)).toBe(
-			"`title` REGEXP $1",
+			"`title` REGEXP ?",
 		);
 		expect(mariadbDialect.regex("`title`", 1, true)).toBe(
-			"`title` REGEXP CONCAT('(?i)', $1)",
+			"`title` REGEXP CONCAT('(?i)', ?)",
 		);
 	});
 
@@ -196,7 +196,7 @@ describe("mariadb dialect", () => {
 			mariadbDialect,
 		);
 		expect(upsert).toContain("ON DUPLICATE KEY UPDATE");
-		expect(upsert).toContain("`name` = $4");
+		expect(upsert).toContain("`name` = ?");
 		expect(upsert).not.toContain("AS new");
 		expect(upsert).not.toContain("RETURNING");
 	});

@@ -8,6 +8,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
+import { numberedPlaceholder } from "./placeholders.js";
 import {
 	formatIndexKeyList,
 	indexUsingClause,
@@ -643,6 +644,7 @@ export const postgresDialect: Dialect = {
 	emitAddForeignKey,
 	emitAddTableForeignKey,
 	whereOperators,
+	placeholder: numberedPlaceholder,
 	ilike: (col, i) => `${col} ILIKE $${i}`,
 	regex: (col, i, insensitive) =>
 		insensitive ? `${col} ~* $${i}` : `${col} ~ $${i}`,
