@@ -3,6 +3,7 @@ import { QueryErrorCode } from "./error-codes.js";
 import {
 	assertNoSavepointOptions,
 	buildBeginSql,
+	buildMysqlBeginStatements,
 	buildSqliteBeginSql,
 } from "./transaction.js";
 
@@ -12,6 +13,33 @@ describe("buildBeginSql", () => {
 		expect(buildBeginSql({ isolationLevel: "Serializable" })).toBe(
 			"BEGIN ISOLATION LEVEL SERIALIZABLE",
 		);
+	});
+});
+
+describe("buildMysqlBeginStatements", () => {
+	it("emits only START TRANSACTION by default", () => {
+		expect(buildMysqlBeginStatements()).toEqual(["START TRANSACTION"]);
+		expect(buildMysqlBeginStatements({ readOnly: true })).toEqual([
+			"START TRANSACTION READ ONLY",
+		]);
+	});
+
+	it("prepends SET TRANSACTION only when isolationLevel is set", () => {
+		expect(
+			buildMysqlBeginStatements({ isolationLevel: "Serializable" }),
+		).toEqual([
+			"SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+			"START TRANSACTION",
+		]);
+		expect(
+			buildMysqlBeginStatements({
+				readOnly: true,
+				isolationLevel: "RepeatableRead",
+			}),
+		).toEqual([
+			"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+			"START TRANSACTION READ ONLY",
+		]);
 	});
 });
 

@@ -104,6 +104,25 @@ describe("executor.transaction", () => {
 			"SELECT 1",
 			"COMMIT",
 		]);
+		expect(
+			queries.some(
+				(q) =>
+					q.text.includes("SAVEPOINT") ||
+					q.text.includes("SET TRANSACTION"),
+			),
+		).toBe(false);
+	});
+
+	it("reuses the same executor for nested transaction callbacks", async () => {
+		const { pool } = createMockPool();
+		const executor = createExecutor(pool);
+
+		await executor.transaction(async (tx) => {
+			expect(tx.inTransaction).toBe(true);
+			await tx.transaction(async (nested) => {
+				expect(nested).toBe(tx);
+			});
+		});
 	});
 
 	it("rolls back on failure", async () => {
@@ -306,6 +325,13 @@ describe("client $transaction", () => {
 		expect(order).toEqual(["first", "second"]);
 		expect(queries[0]?.text).toBe("BEGIN");
 		expect(queries.at(-1)?.text).toBe("COMMIT");
+		expect(
+			queries.some(
+				(q) =>
+					q.text.includes("SAVEPOINT") ||
+					q.text.includes("SET TRANSACTION"),
+			),
+		).toBe(false);
 	});
 
 	it("uses savepoints for nested $transaction", async () => {
@@ -344,6 +370,36 @@ describe("client $transaction", () => {
 		);
 		expect(queries[0]?.text).toBe("BEGIN");
 		expect(queries.at(-1)?.text).toBe("COMMIT");
+	});
+
+	it("reuses the same ORM client for nested $transaction", async () => {
+		const { pool, queries } = createMockPool();
+		const { createNeoOrmClientFromPool } = await import(
+			"../src/runtime/client.js"
+		);
+		const { schemaToManifest } = await import(
+			"../src/codegen/schema-to-manifest.js"
+		);
+		const { schema } = await import("../examples/blog/schema.js");
+
+		const manifest = schemaToManifest(schema);
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			manifest,
+			pool,
+		);
+
+		await db.$transaction(async (tx) => {
+			await tx.$transaction(async (nested) => {
+				expect(nested).toBe(tx);
+			});
+		});
+
+		expect(queries.map((q) => q.text)).toEqual([
+			"BEGIN",
+			`SAVEPOINT ${buildSavepointName(1)}`,
+			`RELEASE SAVEPOINT ${buildSavepointName(1)}`,
+			"COMMIT",
+		]);
 	});
 });
 

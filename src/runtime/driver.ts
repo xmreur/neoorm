@@ -396,8 +396,10 @@ function createSqliteClient(
 		}
 	}
 
-	function createTxClient(): DatabaseClient {
-		return {
+	let txClient: DatabaseClient | undefined;
+	function getTxClient(): DatabaseClient {
+		if (txClient) return txClient;
+		txClient = {
 			query: runQuery,
 			async transaction<T>(
 				fn: (client: DatabaseClient) => Promise<T>,
@@ -407,7 +409,7 @@ function createSqliteClient(
 				const name = `neoorm_sp_${++state.savepointCounter}`;
 				db.exec(`SAVEPOINT ${name}`);
 				try {
-					const result = await fn(createTxClient());
+					const result = await fn(getTxClient());
 					db.exec(`RELEASE SAVEPOINT ${name}`);
 					return result;
 				} catch (err) {
@@ -418,6 +420,7 @@ function createSqliteClient(
 			},
 			async close(): Promise<void> {},
 		};
+		return txClient;
 	}
 
 	return {
@@ -431,7 +434,7 @@ function createSqliteClient(
 						db.exec("PRAGMA query_only = ON");
 						queryOnly = true;
 					}
-					const result = await fn(createTxClient());
+					const result = await fn(getTxClient());
 					db.exec("COMMIT");
 					return result;
 				} catch (err) {
@@ -460,10 +463,12 @@ function createSqliteClient(
 type PgTxState = {
 	client: PoolClient;
 	savepointCounter: number;
+	txClient?: DatabaseClient;
 };
 
-function createPgTxClient(state: PgTxState): DatabaseClient {
-	return {
+function getPgTxClient(state: PgTxState): DatabaseClient {
+	if (state.txClient) return state.txClient;
+	const txClient: DatabaseClient = {
 		async query<T = Record<string, unknown>>(
 			text: string,
 			params: unknown[] = [],
@@ -490,7 +495,7 @@ function createPgTxClient(state: PgTxState): DatabaseClient {
 			const name = `neoorm_sp_${savepointId}`;
 			await state.client.query(`SAVEPOINT ${name}`);
 			try {
-				const result = await fn(createPgTxClient(state));
+				const result = await fn(txClient);
 				await state.client.query(`RELEASE SAVEPOINT ${name}`);
 				return result;
 			} catch (err) {
@@ -503,6 +508,8 @@ function createPgTxClient(state: PgTxState): DatabaseClient {
 		},
 		async close(): Promise<void> {},
 	};
+	state.txClient = txClient;
+	return txClient;
 }
 
 export function pgClient(pool: Pool): DatabaseClient {
@@ -529,7 +536,7 @@ export function pgClient(pool: Pool): DatabaseClient {
 			const state: PgTxState = { client, savepointCounter: 0 };
 			try {
 				await client.query(buildBeginSql(options));
-				const result = await fn(createPgTxClient(state));
+				const result = await fn(getPgTxClient(state));
 				await client.query("COMMIT");
 				return result;
 			} catch (err) {

@@ -532,12 +532,18 @@ function buildClient<
 			txOptions?: TransactionOptions,
 		): Promise<T> {
 			const runWithExecutor = async (txExecutor: Executor) => {
-				const tx = buildClient<TTables, TIncludes, TRowPayloads>(
-					txExecutor,
-					runtime,
-					disconnect,
-					{ transactional: true },
-				);
+				const tx = transactional
+					? (client as TypedNeoOrmClient<
+							TTables,
+							TIncludes,
+							TRowPayloads
+						>)
+					: buildClient<TTables, TIncludes, TRowPayloads>(
+							txExecutor,
+							runtime,
+							disconnect,
+							{ transactional: true },
+						);
 
 				if (typeof fnOrSteps === "function") {
 					return fnOrSteps(tx);

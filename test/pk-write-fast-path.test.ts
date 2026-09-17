@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import type { Pool, PoolClient, QueryResult } from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import { createNeoOrmClientFromPool } from "../src/runtime/client.js";
 import {
 	buildDeleteByPkQuery,
 	buildUpdateByPkQuery,
@@ -433,5 +435,115 @@ describe("PK write runtime fast path", () => {
 					q.sql.includes("RETURNING"),
 			),
 		).toBe(true);
+	});
+});
+
+describe("PK write inside $transaction", () => {
+	function createMockPool() {
+		const queries: Array<{ text: string; params?: unknown[] }> = [];
+		const client: PoolClient = {
+			query: vi.fn(
+				async (
+					input: string | { text: string; values?: unknown[] },
+					params?: unknown[],
+				) => {
+					if (typeof input === "string") {
+						queries.push({ text: input, params: params ?? [] });
+					} else {
+						queries.push({
+							text: input.text,
+							params: input.values ?? [],
+						});
+					}
+					return {
+						rows: [],
+						command: "UPDATE",
+						rowCount: 1,
+						oid: 0,
+						fields: [],
+					} as QueryResult;
+				},
+			),
+			release: vi.fn(),
+		} as unknown as PoolClient;
+		const pool = {
+			query: vi.fn(async () => ({
+				rows: [],
+				command: "SELECT",
+				rowCount: 0,
+				oid: 0,
+				fields: [],
+			})),
+			connect: vi.fn(async () => client),
+		} as unknown as Pool;
+		return { pool, queries };
+	}
+
+	it("updateById uses cached PK SQL with no unique-where and no extra BEGIN", async () => {
+		const { pool, queries } = createMockPool();
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			schemaToManifest(schema),
+			pool,
+		);
+
+		await db.$transaction(async (tx) => {
+			await tx.users.updateById("u1", { data: { name: "Bob" } });
+		});
+
+		expect(queries.map((q) => q.text)).toEqual([
+			"BEGIN",
+			'UPDATE "users" SET "name" = $1 WHERE "id" = $2',
+			"COMMIT",
+		]);
+		expect(queries[1]?.params).toEqual(["Bob", "u1"]);
+		expect(
+			queries.some(
+				(q) => q.text.includes("AND") || q.text.includes("SAVEPOINT"),
+			),
+		).toBe(false);
+	});
+
+	it("update({ where: { id } }) uses the same PK path", async () => {
+		const { pool, queries } = createMockPool();
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			schemaToManifest(schema),
+			pool,
+		);
+
+		await db.$transaction(async (tx) => {
+			await tx.users.update({
+				where: { id: "u1" },
+				data: { name: "Bob" },
+			});
+		});
+
+		expect(queries.map((q) => q.text)).toEqual([
+			"BEGIN",
+			'UPDATE "users" SET "name" = $1 WHERE "id" = $2',
+			"COMMIT",
+		]);
+	});
+
+	it("unique-not-PK update still uses unique-where once", async () => {
+		const { pool, queries } = createMockPool();
+		const db = createNeoOrmClientFromPool<typeof schema._tables>(
+			schemaToManifest(schema),
+			pool,
+		);
+
+		await db.$transaction(async (tx) => {
+			await tx.users.update({
+				where: { email: "a@b.c" },
+				data: { name: "Bob" },
+			});
+		});
+
+		expect(queries.map((q) => q.text)).toEqual([
+			"BEGIN",
+			'UPDATE "users" SET "name" = $1 WHERE "email" = $2',
+			"COMMIT",
+		]);
+		expect(queries[1]?.text).not.toContain('WHERE "id"');
+		expect(queries.some((q) => q.text.includes("SAVEPOINT"))).toBe(false);
 	});
 });

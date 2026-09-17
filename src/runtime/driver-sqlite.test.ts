@@ -105,6 +105,7 @@ describe("sqliteClient connection sharing", () => {
 			await tx.query("INSERT INTO t (v) VALUES ($1)", ["keep"]);
 			await expect(
 				tx.transaction(async (inner) => {
+					expect(inner).toBe(tx);
 					await inner.query("INSERT INTO t (v) VALUES ($1)", [
 						"drop",
 					]);
@@ -119,6 +120,18 @@ describe("sqliteClient connection sharing", () => {
 		);
 		expect(rows.rows.map((row) => row.v)).toEqual(["keep", "also"]);
 		await client.close();
+	});
+
+	it("reuses one executor for nested transaction() callbacks", async () => {
+		const db = new DatabaseSync(":memory:");
+		const executor = createSqliteExecutor(db);
+		await executor.transaction(async (tx) => {
+			expect(tx.inTransaction).toBe(true);
+			await tx.transaction(async (nested) => {
+				expect(nested).toBe(tx);
+			});
+		});
+		db.close();
 	});
 });
 

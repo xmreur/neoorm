@@ -119,10 +119,12 @@ async function runMariadbQuery<T>(
 type MariadbTxState = {
 	connection: MariadbConnectionLike;
 	savepointCounter: number;
+	txClient?: DatabaseClient;
 };
 
-function createMariadbTxClient(state: MariadbTxState): DatabaseClient {
-	return {
+function getMariadbTxClient(state: MariadbTxState): DatabaseClient {
+	if (state.txClient) return state.txClient;
+	const txClient: DatabaseClient = {
 		async query<T = Record<string, unknown>>(
 			text: string,
 			params: unknown[] = [],
@@ -138,7 +140,7 @@ function createMariadbTxClient(state: MariadbTxState): DatabaseClient {
 			const name = buildSavepointName(savepointId);
 			await state.connection.query(`SAVEPOINT ${name}`);
 			try {
-				const result = await fn(createMariadbTxClient(state));
+				const result = await fn(txClient);
 				await state.connection.query(`RELEASE SAVEPOINT ${name}`);
 				return result;
 			} catch (err) {
@@ -153,6 +155,8 @@ function createMariadbTxClient(state: MariadbTxState): DatabaseClient {
 		},
 		async close(): Promise<void> {},
 	};
+	state.txClient = txClient;
+	return txClient;
 }
 
 export function mariadbClient(
@@ -176,7 +180,7 @@ export function mariadbClient(
 				for (const stmt of buildMysqlBeginStatements(options)) {
 					await connection.query(stmt);
 				}
-				const result = await fn(createMariadbTxClient(state));
+				const result = await fn(getMariadbTxClient(state));
 				await connection.query("COMMIT");
 				return result;
 			} catch (err) {

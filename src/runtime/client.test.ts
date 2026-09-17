@@ -86,6 +86,7 @@ describe("nested $transaction options", () => {
 			await tx.items.create({ data: { name: "keep" } });
 			await expect(
 				tx.$transaction(async (nested) => {
+					expect(nested).toBe(tx);
 					await nested.items.create({ data: { name: "drop" } });
 					throw new Error("inner");
 				}),
