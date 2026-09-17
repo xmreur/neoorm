@@ -17,6 +17,7 @@ import {
 } from "../src/runtime/query/delete.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findById, findFirst, findMany } from "../src/runtime/query/find.js";
+import { paginateRecords } from "../src/runtime/query/paginate.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import {
 	updateManyAndReturnRecords,
@@ -227,6 +228,120 @@ describe("read path optimizations", () => {
 		const usersIndex = defined(blogIndex.get("users"), "users table index");
 		expect(usersIndex.findAllSql).toContain('AS "createdAt"');
 		expect(usersIndex.selectUsesColumnAliases).toBe(true);
+	});
+
+	it("findMany take/skip uses findAll SQL plus LIMIT OFFSET", async () => {
+		const runtime = createRuntime();
+		const tableIndex = defined(
+			runtime.tableIndex?.get("users"),
+			"users table index",
+		);
+		const driver = { id: "u1", name: "Alice" };
+		const executor = createMockExecutor({
+			query: () => [driver],
+		});
+
+		const rows = await findMany(executor, runtime, "users", {
+			take: 20,
+			skip: 40,
+		});
+
+		expect(executor.queries[0]?.sql).toBe(
+			`${tableIndex.findAllSql} LIMIT 20 OFFSET 40`,
+		);
+		expect(executor.queries[0]?.sql).not.toContain("LIMIT 21");
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toBe(driver);
+
+		await findMany(executor, runtime, "users", { take: 20, skip: 40 });
+		expect(executor.queries[1]?.sql).toBe(executor.queries[0]?.sql);
+	});
+
+	it("findMany omits OFFSET when skip is 0 or missing", async () => {
+		const runtime = createRuntime();
+		const tableIndex = defined(
+			runtime.tableIndex?.get("users"),
+			"users table index",
+		);
+		const executor = createMockExecutor({
+			query: () => [{ id: "u1", name: "Alice" }],
+		});
+
+		await findMany(executor, runtime, "users", { take: 20 });
+		expect(executor.queries[0]?.sql).toBe(
+			`${tableIndex.findAllSql} LIMIT 20`,
+		);
+		expect(executor.queries[0]?.sql).not.toContain("OFFSET");
+
+		await findMany(executor, runtime, "users", { take: 20, skip: 0 });
+		expect(executor.queries[1]?.sql).toBe(
+			`${tableIndex.findAllSql} LIMIT 20`,
+		);
+		expect(executor.queries[1]?.sql).not.toContain("OFFSET");
+	});
+
+	it("findMany take/skip appends cached ORDER BY before LIMIT", async () => {
+		const runtime = createRuntime();
+		const tableIndex = defined(
+			runtime.tableIndex?.get("users"),
+			"users table index",
+		);
+		const executor = createMockExecutor({
+			query: () => [{ id: "u1", name: "Alice" }],
+		});
+
+		await findMany(executor, runtime, "users", {
+			orderBy: { id: "asc" },
+			take: 20,
+			skip: 40,
+		});
+
+		expect(executor.queries[0]?.sql).toBe(
+			`${tableIndex.findAllSql} ORDER BY "id" ASC LIMIT 20 OFFSET 40`,
+		);
+	});
+
+	it("findMany take/skip uses mysql findAll quoting", async () => {
+		const manifest = schemaToManifest(schema);
+		const runtime: QueryRuntime = {
+			manifest,
+			dialect: mysqlDialect,
+			tableIndex: buildManifestIndex(manifest, mysqlDialect),
+		};
+		const tableIndex = defined(
+			runtime.tableIndex?.get("users"),
+			"users table index",
+		);
+		const executor = createMockExecutor({
+			query: () => [{ id: "u1", name: "Alice" }],
+		});
+
+		await findMany(executor, runtime, "users", { take: 20, skip: 40 });
+
+		expect(tableIndex.findAllSql).toContain("`users`");
+		expect(executor.queries[0]?.sql).toBe(
+			`${tableIndex.findAllSql} LIMIT 20 OFFSET 40`,
+		);
+	});
+
+	it("paginate still fetches take+1", async () => {
+		const runtime = createRuntime();
+		const executor = createMockExecutor({
+			query: () => [
+				{ id: "u1", name: "Alice" },
+				{ id: "u2", name: "Bob" },
+			],
+		});
+
+		const page = await paginateRecords(executor, runtime, "users", {
+			orderBy: { id: "asc" },
+			take: 1,
+		});
+
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.sql).toContain("LIMIT 2");
+		expect(page.items).toHaveLength(1);
+		expect(page.hasMore).toBe(true);
 	});
 
 	it("findMany returns empty array for impossible where", async () => {

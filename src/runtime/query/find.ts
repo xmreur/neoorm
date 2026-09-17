@@ -1005,6 +1005,35 @@ export async function loadRelations(
 	return rows;
 }
 
+function isBareFindMany(
+	args: FindManyArgs | undefined,
+	projection: ParentProjection,
+): boolean {
+	const where = args?.where;
+	const hasWhere = Boolean(where && Object.keys(where).length > 0);
+	const hasWith = Boolean(args?.with && Object.keys(args.with).length > 0);
+	return (
+		!hasWhere &&
+		!hasWith &&
+		!args?.distinct &&
+		!projection.hasProjection &&
+		!projection.includeHidden &&
+		!args?.andSql
+	);
+}
+
+function appendLimitOffset(sql: string, take?: number, skip?: number): string {
+	let result = sql;
+	if (take !== undefined) {
+		result += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
+	}
+	if (skip !== undefined) {
+		const skipN = normalizeLimitOffset(skip, "skip");
+		if (skipN > 0) result += ` OFFSET ${skipN}`;
+	}
+	return result;
+}
+
 export async function findMany(
 	executor: Executor,
 	runtime: QueryRuntime,
@@ -1019,25 +1048,41 @@ export async function findMany(
 	const queryCtx = { operation: "select" as const, tableAccessor };
 	const projection = resolveParentProjection(table, args, tableIndex);
 
-	const isSimpleFind =
-		!args?.where &&
-		!args?.orderBy &&
-		!args?.with &&
-		!args?.distinct &&
-		!projection.hasProjection &&
-		!projection.includeHidden &&
-		args?.take === undefined &&
-		args?.skip === undefined;
+	if (isBareFindMany(args, projection) && tableIndex) {
+		const take = args?.take;
+		const skip = args?.skip;
+		if (!args?.orderBy && take === undefined && skip === undefined) {
+			const rows = await runQuery(
+				executor,
+				runtime,
+				queryCtx,
+				tableIndex.findAllSql,
+				[],
+			);
+			return mapRowsToTs(tableIndex, table, rows);
+		}
 
-	if (isSimpleFind && tableIndex) {
-		const rows = await runQuery(
-			executor,
-			runtime,
-			queryCtx,
-			tableIndex.findAllSql,
-			[],
-		);
-		return mapRowsToTs(tableIndex, table, rows);
+		if (take !== undefined || skip !== undefined) {
+			const orderSql = getCachedOrderByClause(
+				table,
+				args?.orderBy,
+				undefined,
+				runtime.tableIndex,
+				dialect,
+			);
+			const signature = `all|${orderSql}|${take ?? ""}|${skip ?? ""}`;
+			const query = getCachedFindManyQuery(tableIndex, signature, () =>
+				appendLimitOffset(
+					orderSql
+						? `${tableIndex.findAllSql} ${orderSql}`
+						: tableIndex.findAllSql,
+					take,
+					skip,
+				),
+			);
+			const rows = await runQuery(executor, runtime, queryCtx, query, []);
+			return mapRowsToTs(tableIndex, table, rows);
+		}
 	}
 
 	const distinctOn = normalizeSelectColumns(args?.distinct);
