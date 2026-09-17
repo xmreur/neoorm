@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../codegen/schema-to-manifest.js";
-import { buildFindByIdQuery, compileWhere } from "../runtime/query/compile.js";
+import {
+	buildFindByIdQuery,
+	compileHaving,
+	compileWhere,
+} from "../runtime/query/compile.js";
 import {
 	buildUpdateQuery,
 	buildUpsertQuery,
@@ -19,6 +23,7 @@ import {
 	timestamps,
 } from "../schema/index.js";
 import { mysqlColumnType, mysqlDialect } from "./mysql.js";
+import { MYSQL_IN_PLACEHOLDER_LIMIT } from "./mysql-family.js";
 import type { ManifestColumn } from "./types.js";
 
 function col(
@@ -241,7 +246,7 @@ describe("mysql dialect", () => {
 		expect(sql).not.toMatch(/`author_id`[^\n]*AUTO_INCREMENT/);
 	});
 
-	it("compiles IN lists with JSON_TABLE and upsert without RETURNING", () => {
+	it("compiles small IN lists with placeholders and upsert without RETURNING", () => {
 		const schema = defineSchema({
 			users: table({
 				id: id(),
@@ -262,10 +267,10 @@ describe("mysql dialect", () => {
 			{ email: { in: ["a@b.c", "d@e.f"] } },
 			mysqlDialect,
 		);
-		expect(where.sql).toContain("JSON_TABLE");
-		expect(where.sql).toContain("JSON_TABLE(?, '$[*]'");
+		expect(where.sql).toContain("`email` IN (?, ?)");
+		expect(where.sql).not.toContain("JSON_TABLE");
 		expect(where.sql).not.toContain("RETURNING");
-		expect(where.params[0]).toBe(JSON.stringify(["a@b.c", "d@e.f"]));
+		expect(where.params).toEqual(["a@b.c", "d@e.f"]);
 
 		expect(mysqlDialect.placeholder(1)).toBe("?");
 		expect(mysqlDialect.whereOperators.equals("`email`", 1)).toBe(
@@ -316,5 +321,65 @@ describe("mysql dialect", () => {
 		expect(upsert).toContain("`name` = ?");
 		expect(upsert).not.toContain("RETURNING");
 		expect(upsert).not.toMatch(/\$\d/);
+	});
+
+	it("expands IN / notIn placeholders up to 256 and uses JSON_TABLE above that", () => {
+		const schema = defineSchema({
+			users: table({
+				id: id(),
+				email: text().unique(),
+			}),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const users = manifest.tables.users;
+		expect(users).toBeDefined();
+		if (!users) return;
+
+		const atLimit = Array.from(
+			{ length: MYSQL_IN_PLACEHOLDER_LIMIT },
+			(_, i) => `e${i}@x`,
+		);
+		const overLimit = [...atLimit, "overflow@x"];
+
+		const expanded = compileWhere(
+			manifest,
+			users,
+			{ email: { in: atLimit } },
+			mysqlDialect,
+		);
+		expect(expanded.sql).toContain(
+			`\`email\` IN (${Array(MYSQL_IN_PLACEHOLDER_LIMIT).fill("?").join(", ")})`,
+		);
+		expect(expanded.sql).not.toContain("JSON_TABLE");
+		expect(expanded.params).toEqual(atLimit);
+
+		const jsonTable = compileWhere(
+			manifest,
+			users,
+			{ email: { in: overLimit } },
+			mysqlDialect,
+		);
+		expect(jsonTable.sql).toContain("JSON_TABLE(?, '$[*]'");
+		expect(jsonTable.params).toEqual([JSON.stringify(overLimit)]);
+
+		const notIn = compileWhere(
+			manifest,
+			users,
+			{ email: { notIn: ["a@b.c", "d@e.f"] } },
+			mysqlDialect,
+		);
+		expect(notIn.sql).toContain("NOT (`email` IN (?, ?))");
+		expect(notIn.params).toEqual(["a@b.c", "d@e.f"]);
+
+		const having = compileHaving(
+			users,
+			{ _count: true },
+			{ _count: { in: [1, 2] } },
+			mysqlDialect,
+		);
+		expect(having.sql).toContain("COUNT(*) IN (?, ?)");
+		expect(having.params).toEqual([1, 2]);
 	});
 });

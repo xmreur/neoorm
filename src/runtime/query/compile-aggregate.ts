@@ -1,3 +1,4 @@
+import { compileMysqlFamilyInList } from "../../dialect/mysql-family.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import type {
@@ -432,14 +433,23 @@ function compileHavingCompare(
 					}
 					break;
 				}
+				if (isMysqlFamilyDialect(dialect) && Array.isArray(value)) {
+					const compiled = compileMysqlFamilyInList(
+						dialect,
+						expr,
+						value,
+						nextParamIndex,
+						op === "notIn",
+					);
+					conditions.push(compiled.sql);
+					params.push(...compiled.params);
+					nextParamIndex = compiled.nextParamIndex;
+					break;
+				}
 				conditions.push(
 					dialect.whereOperators[op](expr, nextParamIndex),
 				);
-				params.push(
-					isMysqlFamilyDialect(dialect) && Array.isArray(value)
-						? JSON.stringify(value)
-						: value,
-				);
+				params.push(value);
 				nextParamIndex++;
 				break;
 			}

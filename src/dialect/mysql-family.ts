@@ -13,7 +13,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
-import { positionalPlaceholder } from "./placeholders.js";
+import { joinPlaceholders, positionalPlaceholder } from "./placeholders.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import { formatIndexKeyList, isSolePrimaryKeyColumn } from "./shared.js";
 import type {
@@ -31,6 +31,39 @@ import type {
 } from "./types.js";
 
 const MYSQL_INDEXED_VARCHAR_LENGTH = 191;
+
+/** Expand `IN (?, …)` up to this many values; larger lists use `JSON_TABLE`. */
+export const MYSQL_IN_PLACEHOLDER_LIMIT = 256;
+
+export function compileMysqlFamilyInList(
+	dialect: Dialect,
+	sqlCol: string,
+	values: readonly unknown[],
+	nextParamIndex: number,
+	negate: boolean,
+): { sql: string; params: unknown[]; nextParamIndex: number } {
+	if (values.length <= MYSQL_IN_PLACEHOLDER_LIMIT) {
+		const placeholders = joinPlaceholders(
+			dialect,
+			values.length,
+			nextParamIndex,
+		);
+		const inner = `${sqlCol} IN (${placeholders})`;
+		return {
+			sql: negate ? `NOT (${inner})` : inner,
+			params: [...values],
+			nextParamIndex: nextParamIndex + values.length,
+		};
+	}
+	const op = negate
+		? dialect.whereOperators.notIn
+		: dialect.whereOperators.in;
+	return {
+		sql: op(sqlCol, nextParamIndex),
+		params: [JSON.stringify(values)],
+		nextParamIndex: nextParamIndex + 1,
+	};
+}
 
 export function quoteMysqlIdentifier(name: string): string {
 	return `\`${name.replace(/`/g, "``")}\``;
