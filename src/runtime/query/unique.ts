@@ -75,18 +75,15 @@ function uniqueWhereFieldError(
 	);
 }
 
-function unwrapUniqueWhereValue(
+function tryUnwrapUniqueEquals(
 	value: unknown,
-	field: string,
-	operation: UniqueWhereOperation,
-	table: ManifestTable,
-): unknown {
-	if (!isPlainObject(value)) return value;
+): { ok: true; value: unknown } | { ok: false } {
+	if (!isPlainObject(value)) return { ok: true, value };
 
 	const operatorKeys = Object.keys(value).filter((key) =>
 		UNIQUE_WHERE_OPERATOR_KEYS.has(key),
 	);
-	if (operatorKeys.length === 0) return value;
+	if (operatorKeys.length === 0) return { ok: true, value };
 
 	const disallowed = operatorKeys.filter(
 		(key) => key !== "equals" && key !== "mode",
@@ -97,9 +94,22 @@ function unwrapUniqueWhereValue(
 		!Object.hasOwn(value, "equals") ||
 		(mode !== undefined && mode !== "default")
 	) {
+		return { ok: false };
+	}
+	return { ok: true, value: value.equals };
+}
+
+function unwrapUniqueWhereValue(
+	value: unknown,
+	field: string,
+	operation: UniqueWhereOperation,
+	table: ManifestTable,
+): unknown {
+	const unwrapped = tryUnwrapUniqueEquals(value);
+	if (!unwrapped.ok) {
 		uniqueWhereFieldError(operation, table, field);
 	}
-	return value.equals;
+	return unwrapped.value;
 }
 
 /** Unwrap `{ equals }` operator objects; reject other unique-where operators. */
@@ -149,6 +159,38 @@ function matchesKeys(
 		keys.length === whereKeyList.length &&
 		keys.every((key) => whereKeyList.includes(key))
 	);
+}
+
+/**
+ * If `where` is exact primary-key equality (scalars or `{ equals }`), return
+ * bind values in `table.primaryKey` order. Otherwise `null` — callers fall
+ * back to unique-where compilation.
+ */
+export function tryPkEqualityValues(
+	table: ManifestTable,
+	where: Record<string, unknown>,
+	tableIndex?: TableIndex,
+): unknown[] | null {
+	const pkTsNames = primaryKeyTsNames(table, tableIndex);
+	if (pkTsNames.length === 0) return null;
+
+	const scalar: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(where)) {
+		if (value === undefined) continue;
+		const unwrapped = tryUnwrapUniqueEquals(value);
+		if (!unwrapped.ok) return null;
+		scalar[key] = unwrapped.value;
+	}
+
+	if (!matchesKeys(pkTsNames, Object.keys(scalar))) return null;
+
+	const values: unknown[] = [];
+	for (const sqlName of table.primaryKey) {
+		const col = columnBySqlName(tableIndex, table, sqlName);
+		if (!col || !(col.tsName in scalar)) return null;
+		values.push(scalar[col.tsName]);
+	}
+	return values;
 }
 
 export function resolveUniqueConstraint(

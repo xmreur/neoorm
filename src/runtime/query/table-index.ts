@@ -40,6 +40,8 @@ export type TableIndex = {
 	selectUsesColumnAliases: boolean;
 	insertSqlByKeys: CappedMap<string, string>;
 	updateManySqlByKeys: CappedMap<string, string>;
+	updateByPkSqlByKeys: CappedMap<string, string>;
+	deleteByPkSql: string;
 	aggregateSqlBySelector: CappedMap<string, string>;
 	groupBySqlBySignature: CappedMap<string, string>;
 	findManySqlBySignature: CappedMap<string, string>;
@@ -174,6 +176,17 @@ export function buildTableIndex(
 		findByIdSql = "";
 	}
 
+	let deleteByPkSql = "";
+	if (table.primaryKey.length > 0) {
+		const pkPred = table.primaryKey
+			.map(
+				(sqlName, i) =>
+					`${dialect.quoteIdentifier(sqlName)} = ${dialect.placeholder(i + 1)}`,
+			)
+			.join(" AND ");
+		deleteByPkSql = `DELETE FROM ${dialect.tableRef(table)} WHERE ${pkPred}`;
+	}
+
 	const needsRowRename = table.columns.some(
 		(col) => col.sqlName !== col.tsName,
 	);
@@ -190,6 +203,7 @@ export function buildTableIndex(
 		ownedFkTsNames: buildOwnedFkTsNames(table),
 		findAllSql: buildFindAllQuery(table, dialect),
 		findByIdSql,
+		deleteByPkSql,
 		deserializeColumns,
 		renameColumns,
 		updatedAtColumns,
@@ -198,6 +212,7 @@ export function buildTableIndex(
 		selectUsesColumnAliases: true,
 		insertSqlByKeys: new CappedMap(),
 		updateManySqlByKeys: new CappedMap(),
+		updateByPkSqlByKeys: new CappedMap(),
 		aggregateSqlBySelector: new CappedMap(),
 		groupBySqlBySignature: new CappedMap(),
 		findManySqlBySignature: new CappedMap(),

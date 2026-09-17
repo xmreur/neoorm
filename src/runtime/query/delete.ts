@@ -5,10 +5,14 @@ import type { Executor } from "../executor.js";
 import {
 	buildDeleteManyQuery,
 	buildDeleteQuery,
+	buildPkEqualityWhereSql,
+	buildSelectColumns,
 	compileWhere,
+	getCachedDeleteByPkQuery,
 	getCachedDeleteManyQuery,
 	getCachedWhereClause,
 	isImpossibleWhere,
+	serializePkEqualityParams,
 } from "./compile.js";
 import {
 	type QueryRuntime,
@@ -21,7 +25,117 @@ import { mapRowsToTs } from "./map-row.js";
 import { fetchRowsByWhere } from "./mutation-returning.js";
 import { resolvePkWhere } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
-import { appendUniquePredicate, assertUniqueWhere } from "./unique.js";
+import {
+	appendUniquePredicate,
+	assertUniqueWhere,
+	tryPkEqualityValues,
+} from "./unique.js";
+
+async function maybeLoadDeletedWith(
+	executor: Executor,
+	runtime: QueryRuntime,
+	table: ReturnType<typeof requireTable>,
+	result: Record<string, unknown>,
+	withInput: Record<string, WithInput> | undefined,
+): Promise<Record<string, unknown>> {
+	if (!withInput) return result;
+	const [withLoaded] = await loadRelations(
+		executor,
+		runtime,
+		table,
+		[result],
+		withInput,
+	);
+	return withLoaded ?? result;
+}
+
+async function executePkEqualityDelete(
+	executor: Executor,
+	runtime: QueryRuntime,
+	tableAccessor: string,
+	table: ReturnType<typeof requireTable>,
+	pkValues: unknown[],
+	args: {
+		with?: Record<string, WithInput>;
+		returnDeleted?: boolean;
+	},
+): Promise<Record<string, unknown> | null> {
+	const dialect = runtime.dialect ?? postgresDialect;
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const params = serializePkEqualityParams(
+		table,
+		pkValues,
+		runtime.tableIndex,
+		dialect,
+	);
+	const query = getCachedDeleteByPkQuery(
+		tableIndex,
+		table,
+		dialect,
+		runtime.tableIndex,
+	);
+	const needsReturning = Boolean(args.returnDeleted || args.with);
+
+	if (!needsReturning) {
+		const { rowCount } = await runExecute(
+			executor,
+			runtime,
+			{ operation: "delete", tableAccessor },
+			query,
+			params,
+		);
+		return rowCount > 0 ? {} : null;
+	}
+
+	if (dialect.supportsReturning) {
+		const sql = `${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex, undefined, undefined, dialect)}`;
+		const row = await runQueryOne(
+			executor,
+			runtime,
+			{ operation: "delete", tableAccessor },
+			sql,
+			params,
+		);
+		if (!row) return null;
+		const mapped = mapRowsToTs(tableIndex, table, [row]);
+		const result = mapped[0] ?? null;
+		if (!result) return null;
+		return maybeLoadDeletedWith(
+			executor,
+			runtime,
+			table,
+			result,
+			args.with,
+		);
+	}
+
+	const pkWhereSql = buildPkEqualityWhereSql(
+		table,
+		1,
+		runtime.tableIndex,
+		dialect,
+	);
+	const preRows = await fetchRowsByWhere(
+		executor,
+		runtime,
+		table,
+		tableAccessor,
+		pkWhereSql,
+		params,
+		"select",
+	);
+	if (preRows.length === 0) return null;
+	await runExecute(
+		executor,
+		runtime,
+		{ operation: "delete", tableAccessor },
+		query,
+		params,
+	);
+	const result = preRows[0] ?? null;
+	if (!result) return null;
+	return maybeLoadDeletedWith(executor, runtime, table, result, args.with);
+}
 
 export async function deleteRecord(
 	executor: Executor,
@@ -36,11 +150,23 @@ export async function deleteRecord(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "delete");
+	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
+	const pkValues = tryPkEqualityValues(table, args.where, tableIndex);
+	if (pkValues) {
+		return executePkEqualityDelete(
+			executor,
+			runtime,
+			tableAccessor,
+			table,
+			pkValues,
+			args,
+		);
+	}
 	const { constraint, where } = assertUniqueWhere(
 		table,
 		args.where,
 		"delete",
-		getTableIndex(runtime.tableIndex, tableAccessor),
+		tableIndex,
 	);
 
 	const compiledWhere = compileWhere(

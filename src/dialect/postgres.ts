@@ -626,6 +626,7 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 export const postgresDialect: Dialect = {
 	name: "postgresql",
 	supportsReturning: true,
+	supportsUpdateReturning: true,
 	supportsXmax: true,
 	quoteIdentifier: q,
 	tableRef,

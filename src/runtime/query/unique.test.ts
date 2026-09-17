@@ -10,7 +10,11 @@ import { deleteRecord } from "./delete.js";
 import type { QueryRuntime } from "./execute.js";
 import { findOrCreateRecord } from "./find-or-create.js";
 import { buildManifestIndex } from "./table-index.js";
-import { assertUniqueWhere, resolveUniqueConstraint } from "./unique.js";
+import {
+	assertUniqueWhere,
+	resolveUniqueConstraint,
+	tryPkEqualityValues,
+} from "./unique.js";
 import { updateRecord } from "./update.js";
 import { upsertRecord } from "./upsert.js";
 
@@ -71,6 +75,29 @@ function failingExecutor(): Executor {
 		transaction: async (fn) => fn(failingExecutor()),
 	};
 }
+
+describe("tryPkEqualityValues", () => {
+	const table = postsTable();
+
+	it("returns PK bind values for scalar and equals where", () => {
+		expect(tryPkEqualityValues(table, { id: "post_1" })).toEqual([
+			"post_1",
+		]);
+		expect(
+			tryPkEqualityValues(table, { id: { equals: "post_1" } }),
+		).toEqual(["post_1"]);
+	});
+
+	it("rejects unique-not-PK and non-equality operators", () => {
+		expect(tryPkEqualityValues(table, { slug: "hello" })).toBeNull();
+		expect(
+			tryPkEqualityValues(table, { id: { contains: "post" } }),
+		).toBeNull();
+		expect(
+			tryPkEqualityValues(table, { id: "post_1", slug: "hello" }),
+		).toBeNull();
+	});
+});
 
 describe("resolveUniqueConstraint", () => {
 	const table = postsTable();

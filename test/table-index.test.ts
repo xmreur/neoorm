@@ -85,6 +85,10 @@ describe("table index lookups", () => {
 		expect(usersIndex.needsRowRename).toBe(false);
 		expect(usersIndex.renameColumns).toEqual([]);
 		expect(usersIndex.insertSqlByKeys).toBeInstanceOf(Map);
+		expect(usersIndex.updateByPkSqlByKeys).toBeInstanceOf(Map);
+		expect(usersIndex.deleteByPkSql).toBe(
+			'DELETE FROM "users" WHERE "id" = $1',
+		);
 		expect(usersIndex.findManySqlBySignature).toBeInstanceOf(Map);
 
 		const blogIndex = buildManifestIndex(schemaToManifest(blogSchema));

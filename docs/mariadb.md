@@ -48,7 +48,7 @@ const db = createNeoOrmClient(manifest, {
 
 Wrap an existing `mariadb` pool with `createNeoOrmClientFromMariadb(manifest, pool)`. `$disconnect()` does not call `pool.end()` in that case — you own the pool.
 
-Data queries use connector `execute()` (prepared statements, `prepareCacheLength` 256). Transaction control stays on `query()`. Pools you wrap without `execute` fall back to `query()`.
+Data queries use connector `execute()` (prepared statements, `prepareCacheLength` 256). Statements with `RETURNING` use `query()` instead: MariaDB’s binary prepare protocol rejects `UPDATE`/`DELETE … RETURNING`. Transaction control stays on `query()`. Pools you wrap without `execute` fall back to `query()`.
 
 Owned pools from `createNeoOrmClient` accept the same `pool` object as PostgreSQL for shared fields (`max`, idle timeout, keep-alive). Default `max` is 10. Pipelining is enabled (commands are still awaited in order). PostgreSQL-only keys such as `statement_timeout` are ignored.
 
@@ -120,14 +120,14 @@ bunx neoorm migrate reset --force
 | CHECK drop | `DROP CHECK` | `DROP CONSTRAINT` |
 | CHECK errno | 3819 | 4025 (`ER_CONSTRAINT_FAILED`) |
 | JSON storage | native JSON | JSON as LONGTEXT + `json_valid()` |
-| `RETURNING` | none | INSERT/DELETE RETURNING exist, but UPDATE does not; NeoOrm uses follow-up `SELECT` for all writes |
+| `RETURNING` | none | `INSERT`/`DELETE` `RETURNING`; `UPDATE` uses follow-up `SELECT` (UPDATE `RETURNING` is MariaDB 13+) |
 
 ## Differences from PostgreSQL
 
 | Feature | PostgreSQL | MariaDB |
 |---------|------------|---------|
 | Identifier quoting | `"users"` | `` `users` `` |
-| `RETURNING` | native | follow-up `SELECT` (or `insertId` for serial) |
+| `RETURNING` | native | `INSERT`/`DELETE` `RETURNING`; `UPDATE` uses follow-up `SELECT` |
 | `upsert` | `ON CONFLICT … DO UPDATE` | `ON DUPLICATE KEY UPDATE` + `VALUES(col)` |
 | `skipDuplicates` | `ON CONFLICT DO NOTHING` | `INSERT IGNORE` |
 | `findOrCreate` | `xmax = 0` | SELECT → INSERT → retry on unique violation |
