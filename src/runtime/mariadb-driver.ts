@@ -78,21 +78,38 @@ function toDriverResult<T>(payload: MariadbQueryResult): DriverResult<T> {
 	};
 }
 
-function mariadbDataQuery(client: {
-	query: MariadbQueryFn;
-	execute?: MariadbQueryFn;
-}): MariadbQueryFn {
-	return client.execute?.bind(client) ?? client.query.bind(client);
+function hasReturningClause(sql: string): boolean {
+	return /\bRETURNING\b/i.test(sql);
+}
+
+function mariadbDataQuery(
+	client: {
+		query: MariadbQueryFn;
+		execute?: MariadbQueryFn;
+	},
+	sql: string,
+): MariadbQueryFn {
+	// COM_STMT_PREPARE rejects UPDATE/DELETE … RETURNING (ER_PARSE_ERROR).
+	if (!client.execute || hasReturningClause(sql)) {
+		return client.query.bind(client);
+	}
+	return client.execute.bind(client);
 }
 
 async function runMariadbQuery<T>(
-	query: MariadbQueryFn,
+	client: {
+		query: MariadbQueryFn;
+		execute?: MariadbQueryFn;
+	},
 	text: string,
 	params: unknown[],
 ): Promise<DriverResult<T>> {
 	const converted = convertNumberedToPositional(text, params);
 	try {
-		const payload = await query(converted.sql, converted.params);
+		const payload = await mariadbDataQuery(client, converted.sql)(
+			converted.sql,
+			converted.params,
+		);
 		return toDriverResult<T>(payload);
 	} catch (err) {
 		throw new NeoOrmDriverError(text, err);
@@ -110,11 +127,7 @@ function createMariadbTxClient(state: MariadbTxState): DatabaseClient {
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
-			return runMariadbQuery(
-				mariadbDataQuery(state.connection),
-				text,
-				params,
-			);
+			return runMariadbQuery(state.connection, text, params);
 		},
 		async transaction<T>(
 			fn: (client: DatabaseClient) => Promise<T>,
@@ -151,7 +164,7 @@ export function mariadbClient(
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
-			return runMariadbQuery(mariadbDataQuery(pool), text, params);
+			return runMariadbQuery(pool, text, params);
 		},
 		async transaction<T>(
 			fn: (client: DatabaseClient) => Promise<T>,

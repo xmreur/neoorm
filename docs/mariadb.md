@@ -48,7 +48,7 @@ const db = createNeoOrmClient(manifest, {
 
 Wrap an existing `mariadb` pool with `createNeoOrmClientFromMariadb(manifest, pool)`. `$disconnect()` does not call `pool.end()` in that case — you own the pool.
 
-Data queries use connector `execute()` (prepared statements, `prepareCacheLength` 256). Transaction control stays on `query()`. Pools you wrap without `execute` fall back to `query()`.
+Data queries use connector `execute()` (prepared statements, `prepareCacheLength` 256). Statements with `RETURNING` use `query()` instead: MariaDB’s binary prepare protocol rejects `UPDATE`/`DELETE … RETURNING`. Transaction control stays on `query()`. Pools you wrap without `execute` fall back to `query()`.
 
 Owned pools from `createNeoOrmClient` accept the same `pool` object as PostgreSQL for shared fields (`max`, idle timeout, keep-alive). Default `max` is 10. Pipelining is enabled (commands are still awaited in order). PostgreSQL-only keys such as `statement_timeout` are ignored.
 

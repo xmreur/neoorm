@@ -191,4 +191,36 @@ describe("mariadbClient execute vs query", () => {
 			],
 		);
 	});
+
+	it("uses query for RETURNING because prepare rejects UPDATE RETURNING", async () => {
+		const calls: Array<{ op: string; sql: string }> = [];
+		const pool = {
+			async query(sql: string) {
+				calls.push({ op: "query", sql });
+				return [{ id: 1, age: 31 }];
+			},
+			async execute(sql: string) {
+				calls.push({ op: "execute", sql });
+				return [{ id: 1, age: 31 }];
+			},
+			async getConnection() {
+				return {
+					query: pool.query,
+					execute: pool.execute,
+					release() {},
+				};
+			},
+			async end() {},
+		};
+
+		const client = mariadbClient(pool);
+		await client.query(
+			"UPDATE `users` SET `age` = $1 WHERE `id` = $2 RETURNING `id`, `age`",
+			[31, 1],
+		);
+
+		expect(calls.map((c) => c.op)).toEqual(["query"]);
+		expect(calls[0]?.sql).toContain("RETURNING");
+		expect(calls[0]?.sql).not.toMatch(/\$\d/);
+	});
 });
