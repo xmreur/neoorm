@@ -1360,8 +1360,21 @@ export function getCachedFindByIdWithQuery(
 					: undefined;
 		const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 		const selectCols = hasJoins
-			? buildQualifiedSelectColumns(table, parentSelect, manifestIndex)
-			: buildSelectColumns(table, parentSelect, manifestIndex);
+			? buildQualifiedSelectColumns(
+					table,
+					parentSelect,
+					manifestIndex,
+					undefined,
+					dialect,
+				)
+			: buildSelectColumns(
+					table,
+					parentSelect,
+					manifestIndex,
+					undefined,
+					undefined,
+					dialect,
+				);
 		const extraCols = buildPlanExtraSelectCols(
 			manifest,
 			table,
