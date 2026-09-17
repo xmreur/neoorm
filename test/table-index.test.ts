@@ -84,6 +84,7 @@ describe("table index lookups", () => {
 	it("tracks needsRowRename and initializes SQL caches", () => {
 		expect(usersIndex.needsRowRename).toBe(false);
 		expect(usersIndex.renameColumns).toEqual([]);
+		expect(usersIndex.hasHiddenColumns).toBe(false);
 		expect(usersIndex.insertSqlByKeys).toBeInstanceOf(Map);
 		expect(usersIndex.updateByPkSqlByKeys).toBeInstanceOf(Map);
 		expect(usersIndex.deleteByPkSql).toBe(
@@ -95,6 +96,11 @@ describe("table index lookups", () => {
 		const postsIndex = defined(blogIndex.get("posts"), "posts table index");
 		expect(postsIndex.needsRowRename).toBe(true);
 		expect(postsIndex.renameColumns.length).toBeGreaterThan(0);
+		expect(postsIndex.hasHiddenColumns).toBe(false);
+		expect(
+			defined(blogIndex.get("users"), "users table index")
+				.hasHiddenColumns,
+		).toBe(true);
 	});
 
 	it("CappedMap evicts the oldest entry past its limit", () => {

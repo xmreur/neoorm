@@ -12,7 +12,9 @@ export function mapRowToTs(
 	row: Record<string, unknown>,
 ): Record<string, unknown> {
 	const mapped = mapRowCore(tableIndex, table, row);
-	attachStripToRows(tableIndex, table, mapped);
+	if (mapped !== row) {
+		attachStripToRows(tableIndex, table, mapped);
+	}
 	return mapped;
 }
 
@@ -22,6 +24,12 @@ export function mapRowsToTs(
 	rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
 	const mapped = mapRowsCore(tableIndex, table, rows);
-	attachStripToRows(tableIndex, table, mapped);
+	if (!tableIndex || mapped === rows) return mapped;
+	for (let i = 0; i < mapped.length; i++) {
+		const out = mapped[i];
+		if (out && out !== rows[i]) {
+			attachStripToRows(tableIndex, table, out);
+		}
+	}
 	return mapped;
 }

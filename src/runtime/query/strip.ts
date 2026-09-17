@@ -113,9 +113,8 @@ function attachStripToRow(
 	row: Record<string, unknown>,
 ): void {
 	const relations = effectiveRelations(tableIndex.manifest, table);
-	const hasHiddenColumns = table.columns.some((col) => col.hidden === true);
 
-	if (!hasHiddenColumns) {
+	if (!tableIndex.hasHiddenColumns) {
 		if (
 			relations.length === 0 ||
 			relations.every((rel) => row[rel.name] == null)
@@ -135,16 +134,25 @@ function attachStripToRow(
 		configurable: true,
 	});
 	Object.defineProperty(row, "strip", {
-		value: (omit?: ColumnPickArg) =>
-			stripRecords(
-				tableIndex.manifest,
-				table,
-				row,
-				omit,
-				tableIndex.manifestIndex,
-			),
-		enumerable: false,
 		configurable: true,
+		enumerable: false,
+		get() {
+			const target = this as Record<string, unknown>;
+			const fn = (omit?: ColumnPickArg) =>
+				stripRecords(
+					tableIndex.manifest,
+					table,
+					target,
+					omit,
+					tableIndex.manifestIndex,
+				);
+			Object.defineProperty(target, "strip", {
+				value: fn,
+				enumerable: false,
+				configurable: true,
+			});
+			return fn;
+		},
 	});
 
 	attachStripToNestedRelations(tableIndex, relations, row);
