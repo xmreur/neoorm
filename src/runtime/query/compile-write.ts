@@ -882,11 +882,33 @@ function mapKnownTableColumns(
 	return result;
 }
 
+function canReuseDriverRow(
+	index: TableIndex,
+	row: Record<string, unknown>,
+): boolean {
+	if (index.needsRowRename && !index.selectUsesColumnAliases) {
+		return false;
+	}
+
+	for (const key in row) {
+		if (!Object.hasOwn(row, key)) continue;
+		if (!index.columnsByTsName.has(key)) return false;
+	}
+
+	for (const col of index.deserializeColumns) {
+		if (col.tsName in row) return false;
+		if (col.sqlName !== col.tsName && col.sqlName in row) return false;
+	}
+
+	return true;
+}
+
 export function rowToTsIndexed(
-	_index: TableIndex,
+	index: TableIndex,
 	table: ManifestTable,
 	row: Record<string, unknown>,
 ): Record<string, unknown> {
+	if (canReuseDriverRow(index, row)) return row;
 	return mapKnownTableColumns(table, row);
 }
 
@@ -895,7 +917,19 @@ export function rowsToTsIndexed(
 	table: ManifestTable,
 	rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
-	return rows.map((row) => rowToTsIndexed(index, table, row));
+	const length = rows.length;
+	if (length === 0) return rows;
+
+	let result: Record<string, unknown>[] | undefined;
+	for (let i = 0; i < length; i++) {
+		const row = rows[i];
+		if (!row) continue;
+		const mapped = rowToTsIndexed(index, table, row);
+		if (mapped === row) continue;
+		result ??= rows.slice();
+		result[i] = mapped;
+	}
+	return result ?? rows;
 }
 
 export function rowsToTs(

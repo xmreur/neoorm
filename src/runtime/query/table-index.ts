@@ -38,6 +38,7 @@ export type TableIndex = {
 	updatedAtSetExprs: string[];
 	needsRowRename: boolean;
 	selectUsesColumnAliases: boolean;
+	hasHiddenColumns: boolean;
 	insertSqlByKeys: CappedMap<string, string>;
 	updateManySqlByKeys: CappedMap<string, string>;
 	updateByPkSqlByKeys: CappedMap<string, string>;
@@ -193,6 +194,7 @@ export function buildTableIndex(
 	const renameColumns = table.columns.filter(
 		(col) => col.sqlName !== col.tsName,
 	);
+	const hasHiddenColumns = table.columns.some((col) => col.hidden === true);
 
 	return {
 		manifest,
@@ -210,6 +212,7 @@ export function buildTableIndex(
 		updatedAtSetExprs,
 		needsRowRename,
 		selectUsesColumnAliases: true,
+		hasHiddenColumns,
 		insertSqlByKeys: new CappedMap(),
 		updateManySqlByKeys: new CappedMap(),
 		updateByPkSqlByKeys: new CappedMap(),
