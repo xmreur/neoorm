@@ -1,6 +1,7 @@
 import { defineSchema, fk, id, manyToMany, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { findMany } from "../src/runtime/query/find.js";
@@ -445,5 +446,32 @@ describe("M2M hidden columns and nested select", () => {
 		expect(m2mSql).toContain('"t"."slug"');
 		expect(m2mSql).toMatch(/SELECT "t"\."slug", j\./);
 		expect(m2mSql).not.toContain('"secret"');
+	});
+
+	it("quotes M2M SELECT lists with the mysql dialect", async () => {
+		const mysqlRuntime: QueryRuntime = {
+			manifest,
+			dialect: mysqlDialect,
+			tableIndex: buildManifestIndex(manifest, mysqlDialect),
+		};
+		const executor = createMockExecutor({
+			query: (sql) => {
+				if (sql.includes("posts_tags")) return [];
+				return [{ id: "post_1", title: "Hello" }];
+			},
+		});
+
+		await findMany(executor, mysqlRuntime, "posts", {
+			with: { tags: true },
+		});
+
+		const m2mSql = executor.queries.find((q) =>
+			q.sql.includes("posts_tags"),
+		)?.sql;
+		expect(m2mSql).toBeDefined();
+		expect(m2mSql).toContain("`t`.`slug`");
+		expect(m2mSql).toContain("FROM `posts_tags`");
+		expect(m2mSql).not.toContain('"t"');
+		expect(m2mSql).not.toContain('"posts_tags"');
 	});
 });
