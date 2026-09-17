@@ -1,4 +1,5 @@
 import { effectiveRelations } from "../../codegen/manifest-relations.js";
+import { compileMysqlFamilyInList } from "../../dialect/mysql-family.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import type {
@@ -345,7 +346,17 @@ function compileColumnCondition(
 			Array.isArray(paramValue) &&
 			isMysqlFamilyDialect(dialect)
 		) {
-			paramValue = JSON.stringify(paramValue);
+			const compiled = compileMysqlFamilyInList(
+				dialect,
+				sqlCol,
+				paramValue,
+				nextParamIndex,
+				operator === "notIn",
+			);
+			conditions.push(compiled.sql);
+			params.push(...compiled.params);
+			nextParamIndex = compiled.nextParamIndex;
+			continue;
 		}
 		if (operator === "equals" && queryMode === "insensitive") {
 			paramValue = escapeLikePattern(String(paramValue));

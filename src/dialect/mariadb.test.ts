@@ -15,6 +15,7 @@ import {
 	timestamps,
 } from "../schema/index.js";
 import { mariadbColumnType, mariadbDialect } from "./mariadb.js";
+import { MYSQL_IN_PLACEHOLDER_LIMIT } from "./mysql-family.js";
 import type { ManifestColumn } from "./types.js";
 
 function col(
@@ -163,7 +164,7 @@ describe("mariadb dialect", () => {
 		);
 	});
 
-	it("compiles IN lists with JSON_TABLE and upsert with RETURNING", () => {
+	it("compiles small IN lists with placeholders and upsert with RETURNING", () => {
 		const schema = defineSchema({
 			users: table({
 				id: id(),
@@ -184,8 +185,9 @@ describe("mariadb dialect", () => {
 			{ email: { in: ["a@b.c", "d@e.f"] } },
 			mariadbDialect,
 		);
-		expect(where.sql).toContain("JSON_TABLE");
-		expect(where.params[0]).toBe(JSON.stringify(["a@b.c", "d@e.f"]));
+		expect(where.sql).toContain("`email` IN (?, ?)");
+		expect(where.sql).not.toContain("JSON_TABLE");
+		expect(where.params).toEqual(["a@b.c", "d@e.f"]);
 
 		const upsert = buildUpsertQuery(
 			users,
@@ -200,6 +202,43 @@ describe("mariadb dialect", () => {
 		expect(upsert).toContain("`name` = ?");
 		expect(upsert).not.toContain("AS new");
 		expect(upsert).toContain("RETURNING");
+	});
+
+	it("uses JSON_TABLE when an IN list exceeds 256 values", () => {
+		const schema = defineSchema({
+			users: table({
+				id: id(),
+				email: text().unique(),
+			}),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mariadb",
+		});
+		const users = manifest.tables.users;
+		expect(users).toBeDefined();
+		if (!users) return;
+
+		const overLimit = Array.from(
+			{ length: MYSQL_IN_PLACEHOLDER_LIMIT + 1 },
+			(_, i) => `e${i}@x`,
+		);
+		const where = compileWhere(
+			manifest,
+			users,
+			{ email: { in: overLimit } },
+			mariadbDialect,
+		);
+		expect(where.sql).toContain("JSON_TABLE(?, '$[*]'");
+		expect(where.params).toEqual([JSON.stringify(overLimit)]);
+
+		const notIn = compileWhere(
+			manifest,
+			users,
+			{ email: { notIn: ["a@b.c"] } },
+			mariadbDialect,
+		);
+		expect(notIn.sql).toContain("NOT (`email` IN (?))");
+		expect(notIn.params).toEqual(["a@b.c"]);
 	});
 
 	it("does not put AUTO_INCREMENT on foreign keys to serial columns", () => {

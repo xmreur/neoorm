@@ -118,7 +118,7 @@ bunx neoorm migrate reset --force
 | `upsert` | `ON CONFLICT … DO UPDATE` | `INSERT … AS new ON DUPLICATE KEY UPDATE` |
 | `skipDuplicates` | `ON CONFLICT DO NOTHING` | `INSERT IGNORE` |
 | `findOrCreate` | `xmax = 0` | SELECT → INSERT → retry on unique violation |
-| `in` / `notIn` | array bind | `JSON_TABLE` |
+| `in` / `notIn` | array bind | `IN (?, …)` up to 256 values; `JSON_TABLE` above that |
 | `search` | POSIX `~` | `REGEXP_LIKE` |
 | `ilike` | `ILIKE` | `LOWER(col) LIKE LOWER(?)` |
 | JSON operators | `@>`, `?`, `#>` | `JSON_CONTAINS` / `JSON_EXTRACT` / `JSON_CONTAINS_PATH` |
