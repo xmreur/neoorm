@@ -1,6 +1,7 @@
 import { defineSchema, fk, id, table, text } from "neoorm/schema";
 import { describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import type { Executor } from "../src/runtime/executor.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { paginateRecords } from "../src/runtime/query/paginate.js";
@@ -158,5 +159,39 @@ describe("paginate hasMore / hasPrevious", () => {
 		expect(executor.queries).toHaveLength(1);
 		expect(page.hasMore).toBe(true);
 		expect(page.hasPrevious).toBe(false);
+	});
+
+	it("builds outer paginate SQL with the mysql dialect", async () => {
+		const mysqlRuntime: QueryRuntime = { manifest, dialect: mysqlDialect };
+		const executor = createMockExecutor({
+			query: (sql) => {
+				if (sql.startsWith("SELECT 1")) {
+					return [];
+				}
+				return [
+					{
+						id: "post_1",
+						title: "A",
+						author_id: "user_1",
+					},
+				];
+			},
+		});
+
+		await paginateRecords(executor, mysqlRuntime, "posts", {
+			where: { title: { contains: "A" } },
+			orderBy: { title: "asc" },
+			take: 20,
+			before: { title: "M", id: "post_9" },
+		});
+
+		const pageSql = executor.queries[0]?.sql ?? "";
+		const probeSql = executor.queries[1]?.sql ?? "";
+		expect(pageSql).toContain("FROM `posts`");
+		expect(pageSql).toContain("`title`");
+		expect(pageSql).not.toContain('"posts"');
+		expect(probeSql).toMatch(/^SELECT 1/);
+		expect(probeSql).toContain("FROM `posts`");
+		expect(probeSql).not.toContain('"posts"');
 	});
 });

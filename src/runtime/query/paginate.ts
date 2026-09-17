@@ -166,6 +166,7 @@ export async function paginateRecords(
 		runtime.tableIndex,
 		sqlColumns,
 		projection.includeHidden,
+		dialect,
 	);
 
 	const rows = await runQuery(
@@ -229,7 +230,7 @@ export async function paginateRecords(
 			executor,
 			runtime,
 			{ operation: "select", tableAccessor },
-			buildExistsQuery(table, merged.sql),
+			buildExistsQuery(table, merged.sql, dialect),
 			merged.params,
 		);
 		hasMore = probeRows.length > 0;
