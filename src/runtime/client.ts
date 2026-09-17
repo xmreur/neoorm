@@ -116,17 +116,30 @@ export type NeoOrmClientOptions = {
 	 */
 	afterQuery?: QueryHooks["afterQuery"];
 	/**
-	 * PostgreSQL pool settings passed to `pg.Pool`.
-	 * Connection identity stays on {@link NeoOrmClientOptions.connectionString}
-	 * (or `DATABASE_URL` / the manifest URL).
+	 * Pool sizing and timeouts. Connection identity stays on
+	 * {@link NeoOrmClientOptions.connectionString} (or `DATABASE_URL` /
+	 * the manifest URL).
+	 *
+	 * Shared fields (`max`, `min`, `idleTimeoutMillis`,
+	 * `connectionTimeoutMillis`, `keepAlive`, `keepAliveInitialDelayMillis`)
+	 * apply to PostgreSQL, MySQL, and MariaDB. PostgreSQL-only keys (`ssl`,
+	 * `statement_timeout`, …) are ignored for MySQL/MariaDB.
+	 *
+	 * Defaults: PostgreSQL `max` 20; MySQL/MariaDB `connectionLimit` 10 with
+	 * TCP keep-alive. MySQL/MariaDB data queries use prepared `execute`.
 	 */
 	pool?: NeoOrmPoolConfig;
 };
 
 /**
- * Typed subset of `pg.PoolConfig` for {@link NeoOrmClientOptions.pool}.
+ * Pool settings for {@link NeoOrmClientOptions.pool}.
  * Host/user/password/`connectionString` are omitted so the client URL remains
  * the single connection source.
+ *
+ * Shared keys map to `pg.Pool`, mysql2 (`connectionLimit`, `idleTimeout`,
+ * `enableKeepAlive`), and the MariaDB connector (`connectionLimit`,
+ * `idleTimeout` in seconds, `pipelining`). Extra PostgreSQL keys are ignored
+ * on MySQL/MariaDB.
  */
 export type NeoOrmPoolConfig = Pick<
 	PoolConfig,
@@ -625,7 +638,7 @@ export function createNeoOrmClient<
 		}
 		let pool: MysqlPoolLike;
 		try {
-			pool = createMysqlPoolFromUrl(url);
+			pool = createMysqlPoolFromUrl(url, options.pool);
 		} catch (err) {
 			if (err instanceof Error && err.message === MYSQL2_PEER_MISSING) {
 				throw schemaError(
@@ -655,7 +668,7 @@ export function createNeoOrmClient<
 		}
 		let pool: MariadbPoolLike;
 		try {
-			pool = createMariadbPoolFromUrl(url);
+			pool = createMariadbPoolFromUrl(url, options.pool);
 		} catch (err) {
 			if (err instanceof Error && err.message === MARIADB_PEER_MISSING) {
 				throw schemaError(

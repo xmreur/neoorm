@@ -1,6 +1,10 @@
 import { createRequire } from "node:module";
 import type { DatabaseClient, DriverResult } from "./driver.js";
 import { NeoOrmDriverError } from "./errors.js";
+import {
+	type MysqlFamilyPoolOptions,
+	toMysql2PoolConfig,
+} from "./mysql-family-pool.js";
 import { convertNumberedToPositional } from "./mysql-placeholders.js";
 import {
 	assertNoSavepointOptions,
@@ -17,19 +21,20 @@ export type MysqlQueryResult =
 			insertId?: number | bigint;
 	  };
 
+type MysqlQueryFn = (
+	sql: string,
+	values?: unknown[],
+) => Promise<[MysqlQueryResult, unknown]>;
+
 export type MysqlConnectionLike = {
-	query(
-		sql: string,
-		values?: unknown[],
-	): Promise<[MysqlQueryResult, unknown]>;
+	query: MysqlQueryFn;
+	execute?: MysqlQueryFn;
 	release(): void;
 };
 
 export type MysqlPoolLike = {
-	query(
-		sql: string,
-		values?: unknown[],
-	): Promise<[MysqlQueryResult, unknown]>;
+	query: MysqlQueryFn;
+	execute?: MysqlQueryFn;
 	getConnection(): Promise<MysqlConnectionLike>;
 	end(): Promise<void>;
 };
@@ -37,12 +42,17 @@ export type MysqlPoolLike = {
 export const MYSQL2_PEER_MISSING =
 	"mysql2 is not installed. Run: bun add mysql2";
 
-export function createMysqlPoolFromUrl(url: string): MysqlPoolLike {
+export function createMysqlPoolFromUrl(
+	url: string,
+	pool?: MysqlFamilyPoolOptions,
+): MysqlPoolLike {
 	try {
 		const mysql = createRequire(import.meta.url)("mysql2/promise") as {
-			createPool: (config: string) => MysqlPoolLike;
+			createPool: (
+				config: ReturnType<typeof toMysql2PoolConfig>,
+			) => MysqlPoolLike;
 		};
-		return mysql.createPool(url);
+		return mysql.createPool(toMysql2PoolConfig(url, pool));
 	} catch {
 		throw new Error(MYSQL2_PEER_MISSING);
 	}
@@ -64,8 +74,15 @@ function toDriverResult<T>(payload: MysqlQueryResult): DriverResult<T> {
 	};
 }
 
+function mysqlDataQuery(client: {
+	query: MysqlQueryFn;
+	execute?: MysqlQueryFn;
+}): MysqlQueryFn {
+	return client.execute?.bind(client) ?? client.query.bind(client);
+}
+
 async function runMysqlQuery<T>(
-	query: MysqlPoolLike["query"],
+	query: MysqlQueryFn,
 	text: string,
 	params: unknown[],
 ): Promise<DriverResult<T>> {
@@ -90,7 +107,7 @@ function createMysqlTxClient(state: MysqlTxState): DatabaseClient {
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
 			return runMysqlQuery(
-				state.connection.query.bind(state.connection),
+				mysqlDataQuery(state.connection),
 				text,
 				params,
 			);
@@ -130,7 +147,7 @@ export function mysqlClient(
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
-			return runMysqlQuery(pool.query.bind(pool), text, params);
+			return runMysqlQuery(mysqlDataQuery(pool), text, params);
 		},
 		async transaction<T>(
 			fn: (client: DatabaseClient) => Promise<T>,
