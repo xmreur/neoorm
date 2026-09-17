@@ -337,6 +337,7 @@ function columnsForSelect(
 	withSpec: WithInput | undefined,
 	manifestIndex?: ManifestIndex,
 	tableAlias?: string,
+	dialect: Dialect = postgresDialect,
 ): string {
 	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
 	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
@@ -346,6 +347,7 @@ function columnsForSelect(
 		manifestIndex,
 		nestedSpec?.includeHidden,
 		tableAlias,
+		dialect,
 	);
 }
 
@@ -487,6 +489,8 @@ async function loadOneRelation(
 			targetTable,
 			withSpec,
 			runtime.tableIndex,
+			undefined,
+			dialect,
 		);
 		const targetTableIndex = getTableIndex(
 			runtime.tableIndex,
@@ -587,6 +591,8 @@ async function loadOneRelation(
 			targetTable,
 			withSpec,
 			runtime.tableIndex,
+			undefined,
+			dialect,
 		);
 		const parentIdSelect = `${fkCol} AS ${dialect.quoteIdentifier(BATCH_PARENT_ID)}`;
 		const { extraWhere, extraParams } = compileBatchedRelationWhere(
@@ -719,6 +725,7 @@ async function loadM2MRelation(
 		withSpec,
 		runtime.tableIndex,
 		"t",
+		dialect,
 	);
 	const targetPkCol = dialect.quoteIdentifier(
 		targetRelationPkSql(targetTable),
