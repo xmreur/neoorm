@@ -216,7 +216,7 @@ describe("mysqlClient execute vs query", () => {
 });
 
 describe("mariadbClient execute vs query", () => {
-	it("uses execute for data queries and query for transaction control", async () => {
+	it("uses query for reads, execute for singleton writes, and query for transaction control", async () => {
 		const calls: Array<{ op: string; sql: string }> = [];
 		const connection = {
 			async query(sql: string) {
@@ -256,15 +256,13 @@ describe("mariadbClient execute vs query", () => {
 
 		expect(
 			calls.filter((c) => c.op === "execute").map((c) => c.sql),
-		).toEqual([
-			"SELECT * FROM t WHERE id = ?",
-			"INSERT INTO t (v) VALUES (?)",
-			"SELECT 2",
-		]);
+		).toEqual(["INSERT INTO t (v) VALUES (?)"]);
 		expect(calls.filter((c) => c.op === "query").map((c) => c.sql)).toEqual(
 			[
+				"SELECT * FROM t WHERE id = ?",
 				"START TRANSACTION",
 				"SAVEPOINT neoorm_sp_1",
+				"SELECT 2",
 				"RELEASE SAVEPOINT neoorm_sp_1",
 				"COMMIT",
 			],
@@ -334,5 +332,64 @@ describe("mariadbClient execute vs query", () => {
 		expect(calls.map((c) => c.op)).toEqual(["query"]);
 		expect(calls[0]?.sql).toContain("RETURNING");
 		expect(calls[0]?.sql).not.toMatch(/\$\d/);
+	});
+
+	it("uses query for bulk VALUES so unique arities do not occupy the prepare cache", async () => {
+		const calls: Array<{ op: string; sql: string }> = [];
+		const pool = {
+			async query(sql: string) {
+				calls.push({ op: "query", sql });
+				return { affectedRows: 2 };
+			},
+			async execute(sql: string) {
+				calls.push({ op: "execute", sql });
+				return { affectedRows: 2 };
+			},
+			async getConnection() {
+				return {
+					query: pool.query,
+					execute: pool.execute,
+					release() {},
+				};
+			},
+			async end() {},
+		};
+
+		const client = mariadbClient(pool);
+		await client.query("INSERT INTO t (v) VALUES ($1), ($2)", ["a", "b"]);
+		await client.query("INSERT INTO t SELECT v FROM src");
+
+		expect(calls.map((c) => c.op)).toEqual(["query", "query"]);
+	});
+
+	it("uses execute for singleton UPDATE and DELETE without RETURNING", async () => {
+		const calls: Array<{ op: string; sql: string }> = [];
+		const pool = {
+			async query(sql: string) {
+				calls.push({ op: "query", sql });
+				return { affectedRows: 1 };
+			},
+			async execute(sql: string) {
+				calls.push({ op: "execute", sql });
+				return { affectedRows: 1 };
+			},
+			async getConnection() {
+				return {
+					query: pool.query,
+					execute: pool.execute,
+					release() {},
+				};
+			},
+			async end() {},
+		};
+
+		const client = mariadbClient(pool);
+		await client.query(
+			"UPDATE `users` SET `age` = $1 WHERE `id` = $2",
+			[31, 1],
+		);
+		await client.query("DELETE FROM `users` WHERE `id` = $1", [1]);
+
+		expect(calls.map((c) => c.op)).toEqual(["execute", "execute"]);
 	});
 });

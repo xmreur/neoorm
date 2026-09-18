@@ -82,6 +82,42 @@ function hasReturningClause(sql: string): boolean {
 	return /\bRETURNING\b/i.test(sql);
 }
 
+const BULK_VALUES = /\bVALUES\s*\([^)]*\)\s*,\s*\(/i;
+const SINGLETON_VALUES = /\bVALUES\s*\(/i;
+const LEADING_DML = /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/i;
+
+type MariadbPreparedDmlKind = "insert" | "update" | "delete" | "replace";
+
+function usesMariadbPreparedExecute(sql: string): boolean {
+	// COM_STMT_PREPARE rejects UPDATE/DELETE … RETURNING (ER_PARSE_ERROR).
+	if (hasReturningClause(sql)) {
+		return false;
+	}
+	const match = LEADING_DML.exec(sql);
+	const captured = match?.[1]?.toLowerCase();
+	if (
+		captured !== "insert" &&
+		captured !== "replace" &&
+		captured !== "update" &&
+		captured !== "delete"
+	) {
+		return false;
+	}
+	const kind: MariadbPreparedDmlKind = captured;
+	switch (kind) {
+		case "insert":
+		case "replace":
+			return SINGLETON_VALUES.test(sql) && !BULK_VALUES.test(sql);
+		case "update":
+		case "delete":
+			return true;
+		default: {
+			const _exhaustive: never = kind;
+			return _exhaustive;
+		}
+	}
+}
+
 function mariadbDataQuery(
 	client: {
 		query: MariadbQueryFn;
@@ -89,8 +125,7 @@ function mariadbDataQuery(
 	},
 	sql: string,
 ): MariadbQueryFn {
-	// COM_STMT_PREPARE rejects UPDATE/DELETE … RETURNING (ER_PARSE_ERROR).
-	if (!client.execute || hasReturningClause(sql)) {
+	if (!client.execute || !usesMariadbPreparedExecute(sql)) {
 		return client.query.bind(client);
 	}
 	return client.execute.bind(client);

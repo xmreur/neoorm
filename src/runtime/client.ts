@@ -131,7 +131,8 @@ export type NeoOrmClientOptions = {
 	 * `statement_timeout`, …) are ignored for MySQL/MariaDB.
 	 *
 	 * Defaults: PostgreSQL `max` 20; MySQL/MariaDB `connectionLimit` 10 with
-	 * TCP keep-alive. MySQL/MariaDB data queries use prepared `execute`.
+	 * TCP keep-alive. MySQL data queries use prepared `execute`. MariaDB
+	 * uses prepared `execute` only for singleton DML; reads use text `query`.
 	 */
 	pool?: NeoOrmPoolConfig;
 };
