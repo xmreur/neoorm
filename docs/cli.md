@@ -12,12 +12,14 @@ neoorm init [options]
 
 Creates `neoorm.config.ts`, `schema.ts`, and `.env.example` only — no codegen or migrations. Run `neoorm migrate dev` afterwards to generate the client and first migration.
 
+On a TTY, `neoorm init` opens a Clack wizard (provider, database URL, schema path, output directory). If any scaffold files already exist, it asks before overwriting. Ctrl+C cancels. Flags skip the matching step. In CI / non-TTY, it uses defaults and fails if files already exist unless `--force` is passed.
+
 Options:
-- `--provider <provider>` — `postgresql` (default), `sqlite`, `mysql`, or `mariadb`. `postgres` and `pg` are aliases of `postgresql`. If omitted and running interactively, prompts to choose.
+- `--provider <provider>` — `postgresql` (default), `sqlite`, `mysql`, or `mariadb`. `postgres` and `pg` are aliases of `postgresql`. If omitted on a TTY, prompts to choose.
 - `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite, `mysql://root@localhost:3306/myapp` for mysql, `mariadb://root@localhost:3306/myapp` for mariadb)
-- `--schema <path>` — schema file path (default: `./schema.ts`)
-- `--out <dir>` — generated output directory (default: `./neoorm`)
-- `--force` — overwrite existing scaffold files
+- `--schema <path>` — schema file path (default: `./schema.ts`). Must end in `.ts`, `.mts`, or `.cts`.
+- `--out <dir>` — generated output directory (default: `./neoorm`). Cannot be the same path as the schema file.
+- `--force` — overwrite existing scaffold files without confirming
 
 ## `neoorm generate`
 

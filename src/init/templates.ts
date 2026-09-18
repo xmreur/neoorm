@@ -1,6 +1,6 @@
 import type { InitProvider } from "../datasource-provider.js";
 
-function defaultDatabaseUrl(provider: InitProvider): string {
+export function defaultDatabaseUrl(provider: InitProvider): string {
 	switch (provider) {
 		case "sqlite":
 			return "./dev.db";

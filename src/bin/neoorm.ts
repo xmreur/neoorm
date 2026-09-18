@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import { Pool } from "pg";
 import packageJson from "../../package.json" with { type: "json" };
@@ -23,6 +22,7 @@ import { postgresDialect } from "../dialect/postgres.js";
 import { dialectForProvider } from "../dialect/resolve.js";
 import { sqliteDialect } from "../dialect/sqlite.js";
 import type { Dialect } from "../dialect/types.js";
+import { printInitComplete, resolveInitOptions } from "../init/prompt.js";
 import { formatInitNextSteps, runInit } from "../init/scaffold.js";
 import {
 	introspectMysql,
@@ -295,34 +295,6 @@ function normalizeProvider(input: string): InitProvider | null {
 	return null;
 }
 
-async function promptForProvider(): Promise<InitProvider> {
-	const rl = createInterface({
-		input: process.stdin,
-		output: process.stdout,
-	});
-	try {
-		const answer = await rl.question(
-			"Database provider? (1) PostgreSQL  (2) SQLite  (3) MySQL  (4) MariaDB [1]: ",
-		);
-		const trimmed = answer.trim().toLowerCase();
-		if (trimmed === "2" || trimmed === "sqlite") return "sqlite";
-		if (trimmed === "3" || trimmed === "mysql") return "mysql";
-		if (trimmed === "4" || trimmed === "mariadb") return "mariadb";
-		if (
-			trimmed === "" ||
-			trimmed === "1" ||
-			trimmed === "postgresql" ||
-			trimmed === "postgres" ||
-			trimmed === "pg"
-		)
-			return "postgresql";
-		console.log(`Unknown choice "${answer}", defaulting to PostgreSQL`);
-		return "postgresql";
-	} finally {
-		rl.close();
-	}
-}
-
 program
 	.command("init")
 	.description(
@@ -337,14 +309,20 @@ program
 	)
 	.option("--database-url <url>", "Database URL / file path")
 	.action(
-		async (options: {
-			force?: boolean;
-			schema: string;
-			out: string;
-			provider?: string;
-			databaseUrl?: string;
-		}) => {
+		async (
+			options: {
+				force?: boolean;
+				schema: string;
+				out: string;
+				provider?: string;
+				databaseUrl?: string;
+			},
+			command: Command,
+		) => {
 			const cwd = process.cwd();
+			const interactive = Boolean(
+				process.stdin.isTTY && process.stdout.isTTY,
+			);
 
 			try {
 				let provider: InitProvider | undefined;
@@ -357,41 +335,44 @@ program
 						process.exit(1);
 					}
 					provider = normalized;
-				} else if (process.stdin.isTTY && process.stdout.isTTY) {
-					provider = await promptForProvider();
 				}
 
-				const result = await runInit({
+				const resolved = await resolveInitOptions({
 					cwd,
-					schemaPath: options.schema,
-					outDir: options.out,
+					interactive,
 					...(options.force ? { force: true } : {}),
 					...(provider ? { provider } : {}),
 					...(options.databaseUrl
 						? { databaseUrl: options.databaseUrl }
 						: {}),
+					...(command.getOptionValueSource("schema") === "cli"
+						? { schemaPath: options.schema }
+						: {}),
+					...(command.getOptionValueSource("out") === "cli"
+						? { outDir: options.out }
+						: {}),
 				});
 
-				if (result.written.length > 0) {
-					console.log("Scaffolded:");
-					for (const file of result.written) {
-						console.log(`  + ${file}`);
-					}
-				}
-				if (result.skipped.length > 0) {
-					console.log("Skipped (already exists):");
-					for (const file of result.skipped) {
-						console.log(`  - ${file}`);
-					}
-				}
-
-				for (const line of formatInitNextSteps(
+				const result = await runInit({
 					cwd,
-					options.schema,
-					options.out,
-				)) {
-					console.log(line);
-				}
+					schemaPath: resolved.schemaPath,
+					outDir: resolved.outDir,
+					provider: resolved.provider,
+					...(resolved.force ? { force: true } : {}),
+					...(resolved.databaseUrl
+						? { databaseUrl: resolved.databaseUrl }
+						: {}),
+				});
+
+				printInitComplete(
+					result,
+					formatInitNextSteps(
+						cwd,
+						resolved.schemaPath,
+						resolved.outDir,
+					),
+					interactive,
+				);
 			} catch (err) {
 				console.error(err instanceof Error ? err.message : String(err));
 				process.exit(1);
