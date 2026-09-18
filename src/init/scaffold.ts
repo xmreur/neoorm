@@ -25,8 +25,10 @@ export type InitResult = {
 	schemaPath: string;
 };
 
-const CONFIG_FILE = "neoorm.config.ts";
-const ENV_EXAMPLE_FILE = ".env.example";
+export const CONFIG_FILE = "neoorm.config.ts";
+export const ENV_EXAMPLE_FILE = ".env.example";
+export const DEFAULT_SCHEMA_PATH = "./schema.ts";
+export const DEFAULT_OUT_DIR = "./neoorm";
 
 async function fileExists(path: string): Promise<boolean> {
 	try {
@@ -42,27 +44,41 @@ function toDisplayPath(cwd: string, absolutePath: string): string {
 	return rel.startsWith("..") ? absolutePath : rel || ".";
 }
 
+export function resolveScaffoldTargets(
+	cwd: string,
+	schemaRel: string,
+): Array<{ path: string; label: string }> {
+	const schemaPath = resolve(cwd, schemaRel);
+	return [
+		{ path: join(cwd, CONFIG_FILE), label: CONFIG_FILE },
+		{ path: schemaPath, label: toDisplayPath(cwd, schemaPath) },
+		{ path: join(cwd, ENV_EXAMPLE_FILE), label: ENV_EXAMPLE_FILE },
+	];
+}
+
+export async function listExistingScaffoldFiles(
+	cwd: string,
+	schemaRel: string,
+): Promise<string[]> {
+	const existing: string[] = [];
+	for (const target of resolveScaffoldTargets(cwd, schemaRel)) {
+		if (await fileExists(target.path)) {
+			existing.push(target.label);
+		}
+	}
+	return existing;
+}
+
 export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 	const cwd = resolve(options.cwd ?? process.cwd());
-	const schemaRel = options.schemaPath ?? "./schema.ts";
-	const outRel = options.outDir ?? "./neoorm";
+	const schemaRel = options.schemaPath ?? DEFAULT_SCHEMA_PATH;
+	const outRel = options.outDir ?? DEFAULT_OUT_DIR;
 	const schemaPath = resolve(cwd, schemaRel);
 	const outDir = resolve(cwd, outRel);
 	const configPath = join(cwd, CONFIG_FILE);
 	const envExamplePath = join(cwd, ENV_EXAMPLE_FILE);
 
-	const scaffoldTargets = [
-		{ path: configPath, label: CONFIG_FILE },
-		{ path: schemaPath, label: toDisplayPath(cwd, schemaPath) },
-		{ path: envExamplePath, label: ENV_EXAMPLE_FILE },
-	];
-
-	const existing: string[] = [];
-	for (const target of scaffoldTargets) {
-		if (await fileExists(target.path)) {
-			existing.push(target.label);
-		}
-	}
+	const existing = await listExistingScaffoldFiles(cwd, schemaRel);
 
 	if (existing.length > 0 && !options.force) {
 		throw schemaError(
