@@ -384,9 +384,10 @@ describe("mariadbClient execute vs query", () => {
 		};
 
 		const client = mariadbClient(pool);
-		await client.query("UPDATE `users` SET `age` = $1 WHERE `id` = $2", [
-			31, 1,
-		]);
+		await client.query(
+			"UPDATE `users` SET `age` = $1 WHERE `id` = $2",
+			[31, 1],
+		);
 		await client.query("DELETE FROM `users` WHERE `id` = $1", [1]);
 
 		expect(calls.map((c) => c.op)).toEqual(["execute", "execute"]);

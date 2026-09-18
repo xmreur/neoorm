@@ -94,10 +94,16 @@ function usesMariadbPreparedExecute(sql: string): boolean {
 		return false;
 	}
 	const match = LEADING_DML.exec(sql);
-	if (!match) {
+	const captured = match?.[1]?.toLowerCase();
+	if (
+		captured !== "insert" &&
+		captured !== "replace" &&
+		captured !== "update" &&
+		captured !== "delete"
+	) {
 		return false;
 	}
-	const kind = match[1]!.toLowerCase() as MariadbPreparedDmlKind;
+	const kind: MariadbPreparedDmlKind = captured;
 	switch (kind) {
 		case "insert":
 		case "replace":
