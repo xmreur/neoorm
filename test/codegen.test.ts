@@ -93,8 +93,12 @@ describe("codegen", () => {
 		);
 		expect(clientContent).toContain('from "neoorm"');
 		expect(clientContent).toContain("createNeoOrmClient");
-		expect(clientContent).toContain("TypedNeoOrmClient");
-		expect(clientContent).toContain("NeoOrmIncludes");
+		expect(clientContent).toContain("NeoOrmClient");
+		expect(clientContent).toContain("./query-types.js");
+		expect(clientContent).not.toContain("TypedNeoOrmClient");
+		expect(clientContent).not.toContain("schema._tables");
+		expect(clientContent).not.toContain("TableDef");
+		expect(clientContent).not.toContain("ColumnBuilder");
 
 		const includesContent = await readFile(
 			join(outDir, "includes.ts"),
@@ -108,7 +112,8 @@ describe("codegen", () => {
 			join(outDir, "models.ts"),
 			"utf-8",
 		);
-		expect(modelsContent).toContain("export type User = {");
+		expect(modelsContent).toContain("export interface User {");
+		expect(modelsContent).toContain("export type PostStatus =");
 		expect(modelsContent).toContain("export type UserPayload =");
 		expect(modelsContent).toContain("export type NeoOrmRowPayloads =");
 		expect(modelsContent).toContain("createdAt: Date;");

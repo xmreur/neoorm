@@ -45,7 +45,7 @@ type StripSelectKeys<O> = O extends readonly (infer K extends PropertyKey)[]
 
 /** Row payload with `.strip()` for generated `*Payload` types. */
 export type StripCapablePayload<
-	TRow extends Record<string, unknown>,
+	TRow extends object,
 	THidden extends keyof TRow & string = never,
 > = TRow & {
 	strip<

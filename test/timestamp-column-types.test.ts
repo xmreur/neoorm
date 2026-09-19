@@ -25,7 +25,7 @@ type PostRow = InferSelectRow<Tables["posts"]["_columns"], Tables>;
 describe("timestamp TypeScript types", () => {
 	it("emits Date in generated models", () => {
 		const models = emitModelsTs(schemaToManifest(schema));
-		const post = models.match(/export type Post = \{[\s\S]*?\n\};/)?.[0];
+		const post = models.match(/export interface Post \{[\s\S]*?\n\}/)?.[0];
 		expect(post).toContain("createdAt: Date;");
 		expect(post).toContain("deletedAt: Date | null;");
 		expect(post).not.toContain("createdAt: string");
