@@ -401,6 +401,17 @@ function emitArgsTypes(table: ManifestTable): string {
 		`  with?: ${withName};`,
 		`  includeHidden?: boolean;`,
 		`}`,
+		`export interface FindById${model}Args {`,
+		`  select?: ${model}Select;`,
+		`  omit?: ${model}Omit;`,
+		`  with?: ${withName};`,
+		`  includeHidden?: boolean;`,
+		`}`,
+		`export interface UpdateById${model}Args {`,
+		`  data: Update${model}Input;`,
+		`  with?: ${withName};`,
+		`  returnUpdated?: boolean;`,
+		`}`,
 		`export type Count${model}Result<TArgs> = TArgs extends { select: infer S }`,
 		`  ? S extends Record<string, unknown>`,
 		`    ? { [K in keyof S as S[K] extends true ? K : never]: number }`,
@@ -423,96 +434,39 @@ function emitArgsTypes(table: ManifestTable): string {
 	].join("\n");
 }
 
-function visibleRowFor(table: ManifestTable, model: string): string {
-	const hasHidden = table.columns.some((col) => col.hidden === true);
-	return hasHidden ? `Omit<${model}, ${model}HiddenKeys>` : model;
-}
-
 function emitRepositoryType(table: ManifestTable): string {
 	const model = modelTypeName(table.accessor);
-	const withName = `${model}With`;
-	const visibleRow = visibleRowFor(table, model);
-	const pk = pkTsNames(table);
-	const createMinimal =
-		pk.length === 0
-			? "Record<never, never>"
-			: `Pick<${model}, ${pk.map((name) => JSON.stringify(name)).join(" | ")}>`;
-	const narrowOmit = `"with" | "select" | "omit" | "includeHidden"`;
-	const findCommon = (base: string) =>
-		`Omit<${base}, ${narrowOmit}> & { includeHidden?: false }`;
-	const findWith = (base: string) =>
-		`Omit<${base}, ${narrowOmit}> & { with: W; select?: S; omit?: O; includeHidden?: IH }`;
-	const findSelect = (base: string) =>
-		`Omit<${base}, ${narrowOmit}> & { select: S; omit?: O; includeHidden?: IH }`;
-	const findOmit = (base: string) =>
-		`Omit<${base}, ${narrowOmit}> & { omit: O; includeHidden?: IH }`;
-	const findHidden = (base: string) =>
-		`Omit<${base}, ${narrowOmit}> & { includeHidden: true }`;
-	const withGenerics = `const W extends ${withName}, const S extends ${model}Select | undefined = undefined, const O extends ${model}Omit | undefined = undefined, const IH extends boolean | undefined = undefined`;
-	const selectGenerics = `const S extends ${model}Select, const O extends ${model}Omit | undefined = undefined, const IH extends boolean | undefined = undefined`;
-	const omitGenerics = `const O extends ${model}Omit, const IH extends boolean | undefined = undefined`;
 	return [
 		`export interface ${model}Repository {`,
-		`  findMany(args?: ${findCommon(`FindMany${model}Args`)}): Promise<${visibleRow}[]>;`,
-		`  findMany<${withGenerics}>(args: ${findWith(`FindMany${model}Args`)}): Promise<${model}FindResult<W, S, O, IH>[]>;`,
-		`  findMany<${selectGenerics}>(args: ${findSelect(`FindMany${model}Args`)}): Promise<${model}FindResult<undefined, S, O, IH>[]>;`,
-		`  findMany<${omitGenerics}>(args: ${findOmit(`FindMany${model}Args`)}): Promise<${model}FindResult<undefined, undefined, O, IH>[]>;`,
-		`  findMany(args: ${findHidden(`FindMany${model}Args`)}): Promise<${model}[]>;`,
-		`  findFirst(args?: ${findCommon(`FindMany${model}Args`)}): Promise<${visibleRow} | null>;`,
-		`  findFirst<${withGenerics}>(args: ${findWith(`FindMany${model}Args`)}): Promise<${model}FindResult<W, S, O, IH> | null>;`,
-		`  findFirst<${selectGenerics}>(args: ${findSelect(`FindMany${model}Args`)}): Promise<${model}FindResult<undefined, S, O, IH> | null>;`,
-		`  findFirst<${omitGenerics}>(args: ${findOmit(`FindMany${model}Args`)}): Promise<${model}FindResult<undefined, undefined, O, IH> | null>;`,
-		`  findFirst(args: ${findHidden(`FindMany${model}Args`)}): Promise<${model} | null>;`,
-		`  findUnique(args: ${findCommon(`FindUnique${model}Args`)}): Promise<${visibleRow} | null>;`,
-		`  findUnique<${withGenerics}>(args: ${findWith(`FindUnique${model}Args`)}): Promise<${model}FindResult<W, S, O, IH> | null>;`,
-		`  findUnique<${selectGenerics}>(args: ${findSelect(`FindUnique${model}Args`)}): Promise<${model}FindResult<undefined, S, O, IH> | null>;`,
-		`  findUnique<${omitGenerics}>(args: ${findOmit(`FindUnique${model}Args`)}): Promise<${model}FindResult<undefined, undefined, O, IH> | null>;`,
-		`  findUnique(args: ${findHidden(`FindUnique${model}Args`)}): Promise<${model} | null>;`,
-		`  findById(id: string | Record<string, unknown>, args?: { includeHidden?: false }): Promise<${visibleRow} | null>;`,
-		`  findById<${withGenerics}>(id: string | Record<string, unknown>, args: { with: W; select?: S; omit?: O; includeHidden?: IH }): Promise<${model}FindResult<W, S, O, IH> | null>;`,
-		`  findById<${selectGenerics}>(id: string | Record<string, unknown>, args: { select: S; omit?: O; includeHidden?: IH }): Promise<${model}FindResult<undefined, S, O, IH> | null>;`,
-		`  findById<${omitGenerics}>(id: string | Record<string, unknown>, args: { omit: O; includeHidden?: IH }): Promise<${model}FindResult<undefined, undefined, O, IH> | null>;`,
-		`  findById(id: string | Record<string, unknown>, args: { includeHidden: true }): Promise<${model} | null>;`,
-		`  create(args: Omit<Create${model}Args, "with" | "returnCreated">): Promise<${createMinimal}>;`,
-		`  create<const W extends ${withName}>(args: Omit<Create${model}Args, "with" | "returnCreated"> & { with: W }): Promise<${model}CreateResult<W>>;`,
-		`  create(args: Omit<Create${model}Args, "with" | "returnCreated"> & { returnCreated: true }): Promise<${model}>;`,
+		`  findMany(): Promise<${model}Visible[]>;`,
+		`  findMany<const T extends FindMany${model}Args>(args: T): Promise<${model}QueryResult<T>[]>;`,
+		`  findFirst(): Promise<${model}Visible | null>;`,
+		`  findFirst<const T extends FindMany${model}Args>(args: T): Promise<${model}QueryResult<T> | null>;`,
+		`  findUnique<const T extends FindUnique${model}Args>(args: T): Promise<${model}QueryResult<T> | null>;`,
+		`  findById(id: string | Record<string, unknown>): Promise<${model}Visible | null>;`,
+		`  findById<const T extends FindById${model}Args>(id: string | Record<string, unknown>, args: T): Promise<${model}QueryResult<T> | null>;`,
+		`  create<const T extends Create${model}Args>(args: T): Promise<${model}CreateQueryResult<T>>;`,
 		`  createMany(args: CreateMany${model}Args): Promise<number>;`,
 		`  createManyAndReturn(args: CreateMany${model}Args): Promise<${model}[]>;`,
-		`  upsert(args: Omit<Upsert${model}Args, "with">): Promise<${model}>;`,
-		`  upsert<const W extends ${withName}>(args: Omit<Upsert${model}Args, "with"> & { with: W }): Promise<${model}WithIncludes<W>>;`,
-		`  findOrCreate(args: ${findCommon(`FindOrCreate${model}Args`)}): Promise<{ record: ${visibleRow}; created: boolean }>;`,
-		`  findOrCreate<${withGenerics}>(args: ${findWith(`FindOrCreate${model}Args`)}): Promise<{ record: ${model}FindResult<W, S, O, IH>; created: boolean }>;`,
-		`  findOrCreate<${selectGenerics}>(args: ${findSelect(`FindOrCreate${model}Args`)}): Promise<{ record: ${model}FindResult<undefined, S, O, IH>; created: boolean }>;`,
-		`  findOrCreate<${omitGenerics}>(args: ${findOmit(`FindOrCreate${model}Args`)}): Promise<{ record: ${model}FindResult<undefined, undefined, O, IH>; created: boolean }>;`,
-		`  findOrCreate(args: ${findHidden(`FindOrCreate${model}Args`)}): Promise<{ record: ${model}; created: boolean }>;`,
-		`  update(args: Omit<Update${model}Args, "with" | "returnUpdated">): Promise<Record<never, never> | null>;`,
-		`  update<const W extends ${withName}>(args: Omit<Update${model}Args, "with" | "returnUpdated"> & { with: W }): Promise<${model}MutationResult<W> | null>;`,
-		`  update(args: Omit<Update${model}Args, "with" | "returnUpdated"> & { returnUpdated: true }): Promise<${model} | null>;`,
+		`  upsert<const T extends Upsert${model}Args>(args: T): Promise<${model}UpsertQueryResult<T>>;`,
+		`  findOrCreate<const T extends FindOrCreate${model}Args>(args: T): Promise<{ record: ${model}QueryResult<T>; created: boolean }>;`,
+		`  update<const T extends Update${model}Args>(args: T): Promise<${model}UpdateQueryResult<T>>;`,
 		`  updateMany(args: UpdateMany${model}Args): Promise<number>;`,
 		`  updateManyAndReturn(args: UpdateMany${model}Args): Promise<${model}[]>;`,
-		`  updateById(id: string | Record<string, unknown>, args: { data: Update${model}Input }): Promise<Record<never, never> | null>;`,
-		`  updateById<const W extends ${withName}>(id: string | Record<string, unknown>, args: { data: Update${model}Input; with: W }): Promise<${model}MutationResult<W> | null>;`,
-		`  updateById(id: string | Record<string, unknown>, args: { data: Update${model}Input; returnUpdated: true }): Promise<${model} | null>;`,
-		`  delete(args: Omit<Delete${model}Args, "with" | "returnDeleted">): Promise<Record<never, never> | null>;`,
-		`  delete<const W extends ${withName}>(args: Omit<Delete${model}Args, "with" | "returnDeleted"> & { with: W }): Promise<${model}MutationResult<W> | null>;`,
-		`  delete(args: Omit<Delete${model}Args, "with" | "returnDeleted"> & { returnDeleted: true }): Promise<${model} | null>;`,
+		`  updateById<const T extends UpdateById${model}Args>(id: string | Record<string, unknown>, args: T): Promise<${model}UpdateQueryResult<T>>;`,
+		`  delete<const T extends Delete${model}Args>(args: T): Promise<${model}DeleteQueryResult<T>>;`,
 		`  deleteMany(args?: DeleteMany${model}Args): Promise<number>;`,
 		`  deleteManyAndReturn(args?: DeleteMany${model}Args): Promise<${model}[]>;`,
 		`  deleteById(id: string | Record<string, unknown>): Promise<Record<never, never> | null>;`,
-		`  count(args?: Omit<Count${model}Args, "select">): Promise<number>;`,
-		`  count<const TArgs extends Count${model}Args = Count${model}Args>(args?: TArgs): Promise<Count${model}Result<TArgs>>;`,
+		`  count(): Promise<number>;`,
+		`  count<const T extends Count${model}Args>(args: T): Promise<Count${model}Result<T>>;`,
 		`  exists(args?: Exists${model}Args): Promise<boolean>;`,
 		`  aggregate<TArgs extends Aggregate${model}Args>(args: TArgs): Promise<Aggregate${model}Result<TArgs>>;`,
 		`  groupBy<const TArgs extends GroupBy${model}Args>(args: TArgs): Promise<GroupBy${model}Result<TArgs>[]>;`,
-		`  paginate(args: ${findCommon(`Paginate${model}Args`)}): Promise<PaginateResult<${visibleRow}, Partial<${model}> | null>>;`,
-		`  paginate<const TOrderBy extends ${model}OrderBy, ${withGenerics}>(args: Omit<Paginate${model}Args, "orderBy" | ${narrowOmit}> & { orderBy: TOrderBy; with: W; select?: S; omit?: O; includeHidden?: IH }): Promise<PaginateResult<${model}FindResult<W, S, O, IH>, Partial<${model}> | null>>;`,
-		`  paginate<const TOrderBy extends ${model}OrderBy, ${selectGenerics}>(args: Omit<Paginate${model}Args, "orderBy" | ${narrowOmit}> & { orderBy: TOrderBy; select: S; omit?: O; includeHidden?: IH }): Promise<PaginateResult<${model}FindResult<undefined, S, O, IH>, Partial<${model}> | null>>;`,
-		`  paginate<const TOrderBy extends ${model}OrderBy, ${omitGenerics}>(args: Omit<Paginate${model}Args, "orderBy" | ${narrowOmit}> & { orderBy: TOrderBy; omit: O; includeHidden?: IH }): Promise<PaginateResult<${model}FindResult<undefined, undefined, O, IH>, Partial<${model}> | null>>;`,
-		`  paginate(args: ${findHidden(`Paginate${model}Args`)}): Promise<PaginateResult<${model}, Partial<${model}> | null>>;`,
+		`  paginate<const T extends Paginate${model}Args>(args: T): Promise<PaginateResult<${model}QueryResult<T>, Partial<${model}> | null>>;`,
 		`}`,
 	].join("\n");
 }
-
 export function emitQueryTypesTs(manifest: Manifest): string {
 	const tables = Object.values(manifest.tables).sort((a, b) =>
 		a.accessor.localeCompare(b.accessor),
@@ -528,10 +482,17 @@ export function emitQueryTypesTs(manifest: Manifest): string {
 		return [
 			m,
 			`${m}HiddenKeys`,
+			`${m}Visible`,
+			`${m}CreateDefault`,
 			`${m}FindResult`,
 			`${m}CreateResult`,
 			`${m}MutationResult`,
 			`${m}WithIncludes`,
+			`${m}QueryResult`,
+			`${m}CreateQueryResult`,
+			`${m}UpdateQueryResult`,
+			`${m}DeleteQueryResult`,
+			`${m}UpsertQueryResult`,
 		];
 	});
 

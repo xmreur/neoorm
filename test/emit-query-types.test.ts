@@ -114,111 +114,129 @@ describe("emitQueryTypesTs", () => {
 	});
 });
 
-describe("repository overloads", () => {
-	it("emits Omit-based common overloads before the narrowing generics", () => {
+describe("repository signatures", () => {
+	it("emits zero-arg overloads plus one constrained generic per method", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
-		const plainFindMany =
-			'findMany(args?: Omit<FindManyUserArgs, "with" | "select" | "omit" | "includeHidden"> & { includeHidden?: false }): Promise<Omit<User, UserHiddenKeys>[]>';
-		const genericFindMany = "findMany<const W extends UserWith";
-		expect(source).toContain(plainFindMany);
-		expect(source).toContain(genericFindMany);
-		expect(source.indexOf(plainFindMany)).toBeLessThan(
-			source.indexOf(genericFindMany),
+		expect(source).toContain("findMany(): Promise<UserVisible[]>;");
+		expect(source).toContain(
+			"findMany<const T extends FindManyUserArgs>(args: T): Promise<UserQueryResult<T>[]>;",
+		);
+		expect(source).toContain(
+			"create<const T extends CreateUserArgs>(args: T): Promise<UserCreateQueryResult<T>>;",
 		);
 
-		const plainCreate =
-			'create(args: Omit<CreateUserArgs, "with" | "returnCreated">): Promise<Pick<User, "id">>';
-		const genericCreate = "create<const W extends UserWith";
-		expect(source).toContain(plainCreate);
-		expect(source).toContain(genericCreate);
-		expect(source.indexOf(plainCreate)).toBeLessThan(
-			source.indexOf(genericCreate),
-		);
+		// Autocomplete keys live on the full args interfaces used as constraints.
+		expect(source).toContain("with?: UserWith;");
+		expect(source).toContain("select?: UserSelect;");
+		expect(source).toContain("omit?: UserOmit;");
+		expect(source).toContain("export interface FindByIdUserArgs {");
+		expect(source).toContain("export interface UpdateByIdUserArgs {");
 
+		expect(source).not.toContain("Exact<T,");
+		expect(source).not.toContain("= Record<never, never>");
+		expect(source).not.toContain('Omit<FindManyUserArgs, "with"');
+		expect(source).not.toContain('Omit<CreateUserArgs, "with"');
 		expect(source).not.toContain("with?: never");
 		expect(source).not.toContain("select?: never");
 		expect(source).not.toContain("omit?: never");
 	});
 
-	it("emits with/select/omit/includeHidden overloads per find method", () => {
+	it("emits zero-arg plus generic signatures per method", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 		const userRepo = source.match(
 			/export interface UserRepository \{[\s\S]*?\n\}/,
 		)?.[0];
 		expect(userRepo).toBeDefined();
 
+		for (const method of ["findMany", "findFirst", "findById", "count"]) {
+			const matches = userRepo?.match(
+				new RegExp(`^  ${method}[<(]`, "gm"),
+			);
+			expect(matches?.length, `${method} signatures`).toBe(2);
+		}
+
 		for (const method of [
-			"findMany",
-			"findFirst",
 			"findUnique",
-			"findById",
 			"findOrCreate",
 			"paginate",
+			"create",
+			"update",
+			"updateById",
+			"delete",
+			"upsert",
 		]) {
 			const matches = userRepo?.match(
 				new RegExp(`^  ${method}[<(]`, "gm"),
 			);
-			expect(matches?.length, `${method} overloads`).toBe(5);
-		}
-
-		for (const method of ["create", "update", "updateById", "delete"]) {
-			const matches = userRepo?.match(
-				new RegExp(`^  ${method}[<(]`, "gm"),
-			);
-			expect(matches?.length, `${method} overloads`).toBe(3);
-		}
-
-		for (const method of ["upsert", "count"]) {
-			const matches = userRepo?.match(
-				new RegExp(`^  ${method}[<(]`, "gm"),
-			);
-			expect(matches?.length, `${method} overloads`).toBe(2);
+			expect(matches?.length, `${method} signatures`).toBe(1);
 		}
 	});
 
-	it("keeps narrowing returns on the generic overloads", () => {
+	it("keeps narrowing returns on the args-object generics", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
-		expect(source).toContain("): Promise<UserFindResult<W, S, O, IH>[]>;");
-		expect(source).toContain("): Promise<UserCreateResult<W>>;");
-		expect(source).toContain("): Promise<UserMutationResult<W> | null>;");
+		expect(source).toContain("): Promise<UserQueryResult<T>[]>;");
+		expect(source).toContain("): Promise<UserCreateQueryResult<T>>;");
+		expect(source).toContain("): Promise<UserUpdateQueryResult<T>>;");
+		expect(source).toContain("): Promise<UserDeleteQueryResult<T>>;");
+		expect(source).toContain("): Promise<UserUpsertQueryResult<T>>;");
 		expect(source).toContain(
-			"count<const TArgs extends CountUserArgs = CountUserArgs>(args?: TArgs): Promise<CountUserResult<TArgs>>;",
+			"count<const T extends CountUserArgs>(args: T): Promise<CountUserResult<T>>;",
 		);
 	});
 
-	it("routes through runtime-accurate common overloads", () => {
+	it("keeps runtime-accurate result wrappers on single signatures", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
 		expect(source).toContain(
-			'upsert(args: Omit<UpsertUserArgs, "with">): Promise<User>;',
+			"update<const T extends UpdateUserArgs>(args: T): Promise<UserUpdateQueryResult<T>>;",
 		);
 		expect(source).toContain(
-			'update(args: Omit<UpdateUserArgs, "with" | "returnUpdated">): Promise<Record<never, never> | null>;',
+			"delete<const T extends DeleteUserArgs>(args: T): Promise<UserDeleteQueryResult<T>>;",
 		);
 		expect(source).toContain(
-			'delete(args: Omit<DeleteUserArgs, "with" | "returnDeleted">): Promise<Record<never, never> | null>;',
+			"upsert<const T extends UpsertUserArgs>(args: T): Promise<UserUpsertQueryResult<T>>;",
 		);
 		expect(source).toContain(
-			'count(args?: Omit<CountUserArgs, "select">): Promise<number>;',
+			"paginate<const T extends PaginateUserArgs>(args: T): Promise<PaginateResult<UserQueryResult<T>, Partial<User> | null>>;",
 		);
 		expect(source).toContain(
-			'paginate(args: Omit<PaginateUserArgs, "with" | "select" | "omit" | "includeHidden"> & { includeHidden?: false }): Promise<PaginateResult<Omit<User, UserHiddenKeys>, Partial<User> | null>>;',
+			"findById<const T extends FindByIdUserArgs>(id: string | Record<string, unknown>, args: T): Promise<UserQueryResult<T> | null>;",
+		);
+		expect(source).toContain(
+			"updateById<const T extends UpdateByIdUserArgs>(id: string | Record<string, unknown>, args: T): Promise<UserUpdateQueryResult<T>>;",
 		);
 	});
 
-	it("emits short-circuit result helpers in models", () => {
+	it("emits cheap result helpers in models", () => {
 		const models = emitModelsTs(blogLikeManifest(), "neoorm");
-		expect(models).toContain("export type UserRelations<");
-		expect(models).toContain("export type UserFindResult<");
-		expect(models).toContain("[W] extends [undefined]");
 		expect(models).toContain(
-			"export type UserCreateResult<W extends UserWith>",
+			"export type UserVisible = Omit<User, UserHiddenKeys>;",
 		);
 		expect(models).toContain(
-			"export type UserMutationResult<W extends UserWith>",
+			'export type UserCreateDefault = Pick<User, "id">;',
 		);
+		expect(models).toContain("interface UserRelationRow {");
+		expect(models).toContain("interface UserRelationMany {");
+		expect(models).toContain("export type UserRelations<W>");
+		expect(models).not.toContain("Relations<W extends");
+		expect(models).not.toContain("IncludeRelation<");
+		expect(models).not.toContain("IncludeCount<");
+		expect(models).not.toContain("infer W extends UserWith");
+		expect(models).toContain("export type UserQueryResult<T>");
+		expect(models).toContain("Extract<keyof T,");
+		expect(models).toContain("type UserRowPart<T>");
+		expect(models).toContain("type UserNarrowQueryResult<T>");
+		expect(models).toContain("export type UserCreateQueryResult<T>");
+		expect(models).toContain("export type UserUpdateQueryResult<T>");
+		expect(models).toContain("export type UserDeleteQueryResult<T>");
+		expect(models).toContain("export type UserUpsertQueryResult<T>");
+		expect(models).toContain("export type UserCreateResult<W>");
+		expect(models).toContain("export type UserMutationResult<W>");
+		expect(models).not.toContain("type SelectOf<T>");
+		expect(models).not.toContain("type OmitOf<T>");
+		expect(models).not.toContain("type HiddenOf<T>");
 	});
 });
 
@@ -261,6 +279,8 @@ export async function check(): Promise<void> {
 
   const withPosts = await db.users.findMany({ with: { posts: true } });
   assertType<Post[] | undefined>(withPosts[0]?.posts);
+  // @ts-expect-error - profile was not requested
+  assertType<undefined>(withPosts[0]?.profile);
 
   const selected = await db.users.findMany({ select: { email: true } });
   assertType<{ email: string }[]>(selected);
@@ -288,17 +308,37 @@ export async function check(): Promise<void> {
   });
   assertType<User>(createdFull);
 
+  const createdExplicitDefault = await db.users.create({
+    data: { email: "a@b.c", password: "secret" },
+    returnCreated: false,
+  });
+  assertType<Pick<User, "id">>(createdExplicitDefault);
+
   const createdWith = await db.users.create({
     data: { email: "a@b.c", password: "secret" },
     with: { posts: true },
   });
   assertType<Post[] | undefined>(createdWith.posts);
 
+  const createdWithAndFlag = await db.users.create({
+    data: { email: "a@b.c", password: "secret" },
+    with: { posts: true },
+    returnCreated: true,
+  });
+  assertType<Post[] | undefined>(createdWithAndFlag.posts);
+
   const updated = await db.users.update({
     where: { id: "user_1" },
     data: { name: "Ada" },
   });
   assertType<Record<never, never> | null>(updated);
+
+  const updatedExplicitDefault = await db.users.update({
+    where: { id: "user_1" },
+    data: { name: "Ada" },
+    returnUpdated: false,
+  });
+  assertType<Record<never, never> | null>(updatedExplicitDefault);
 
   const updatedFull = await db.users.update({
     where: { id: "user_1" },
@@ -316,6 +356,12 @@ export async function check(): Promise<void> {
 
   const deleted = await db.users.delete({ where: { id: "user_1" } });
   assertType<Record<never, never> | null>(deleted);
+
+  const deletedExplicitDefault = await db.users.delete({
+    where: { id: "user_1" },
+    returnDeleted: false,
+  });
+  assertType<Record<never, never> | null>(deletedExplicitDefault);
 
   const total = await db.users.count();
   assertType<number>(total);
