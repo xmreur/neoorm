@@ -1,6 +1,6 @@
 {
 	"name": "neoorm",
-	"version": "0.8.3",
+	"version": "0.8.4",
 	"description": "TypeScript-first PostgreSQL, SQLite, MySQL, and MariaDB ORM with schema DSL, codegen, and typed relations",
 	"license": "MIT",
 	"repository": {
