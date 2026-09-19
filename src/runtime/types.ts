@@ -45,7 +45,7 @@ type StripSelectKeys<O> = O extends readonly (infer K extends PropertyKey)[]
 
 /** Row payload with `.strip()` for generated `*Payload` types. */
 export type StripCapablePayload<
-	TRow extends Record<string, unknown>,
+	TRow extends object,
 	THidden extends keyof TRow & string = never,
 > = TRow & {
 	strip<
@@ -58,7 +58,7 @@ export type StripCapablePayload<
 
 /** Cursor fields derived from row payload types (matches generated models at runtime). */
 export type PaginateCursor<
-	TRowPayload extends Record<string, unknown>,
+	TRowPayload extends object,
 	TOrderBy extends Record<string, unknown>,
 	TPk extends string,
 > = Pick<
@@ -173,7 +173,7 @@ export type PaginateArgsWith<
 	TAccessor extends keyof TSchema & string,
 	TOrderBy extends OrderByInput<TSchema[TAccessor]["_columns"]>,
 	TWith,
-	TRowPayload extends Record<string, unknown> = Record<string, unknown>,
+	TRowPayload extends object = Record<string, unknown>,
 	TSelect = undefined,
 	TOmit = undefined,
 > = Omit<
@@ -233,7 +233,7 @@ export type TransactionClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 > = Omit<
 	TypedNeoOrmClient<TTables, TIncludes, TRowPayloads>,
@@ -262,10 +262,7 @@ export type TypedTableRepository<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	TWith = WithInputMap<TSchema, TAccessor>,
-	TRowPayload extends Record<
-		string,
-		unknown
-	> = DefaultRowPayloadMap<TSchema>[TAccessor],
+	TRowPayload extends object = DefaultRowPayloadMap<TSchema>[TAccessor],
 > = {
 	findMany<
 		W extends TWith | undefined = undefined,
@@ -527,7 +524,7 @@ export type TypedNeoOrmClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 > = {
 	/**

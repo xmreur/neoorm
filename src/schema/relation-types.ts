@@ -726,12 +726,12 @@ export type StripOmitKeys<
 	O = undefined,
 > = HiddenKeys<TColumns> | (O extends undefined ? never : SelectKeys<O>);
 
-export type ApplySelect<Row extends Record<string, unknown>, S> = Pick<
+export type ApplySelect<Row extends object, S> = Pick<
 	Row,
 	SelectKeys<S> & keyof Row
 >;
 
-export type ApplyOmit<Row extends Record<string, unknown>, O> = Omit<
+export type ApplyOmit<Row extends object, O> = Omit<
 	Row,
 	SelectKeys<O> & keyof Row
 >;
@@ -761,7 +761,7 @@ export type StripResult<T, Keys extends PropertyKey = never> = T extends
 /** Row payload with `.strip()` — removes `.hidden()` columns and optional extra fields. */
 export type StripCapable<
 	TColumns extends Record<string, ColumnDef>,
-	TRow extends Record<string, unknown>,
+	TRow extends object,
 > = TRow & {
 	strip<const O extends OmitInput<TColumns> | undefined = undefined>(
 		omit?: O,
@@ -882,7 +882,7 @@ export type InferWithResult<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 	W,
-	TBase extends Record<string, unknown> = InferVisibleRow<
+	TBase extends object = InferVisibleRow<
 		TSchema[TAccessor]["_columns"],
 		TSchema
 	>,
@@ -901,7 +901,7 @@ export type InferFindResult<
 	W,
 	S = undefined,
 	O = undefined,
-	TRowPayload extends Record<string, unknown> = InferVisibleRow<
+	TRowPayload extends object = InferVisibleRow<
 		TSchema[TAccessor]["_columns"],
 		TSchema
 	>,

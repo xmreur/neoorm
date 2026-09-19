@@ -26,7 +26,9 @@ type OrderRow = InferSelectRow<Tables["orders"]["_columns"], Tables>;
 describe("foreign key TypeScript types", () => {
 	it("emits the referenced PK type in generated models", () => {
 		const models = emitModelsTs(schemaToManifest(schema));
-		const order = models.match(/export type Order = \{[\s\S]*?\n\};/)?.[0];
+		const order = models.match(
+			/export interface Order \{[\s\S]*?\n\}/,
+		)?.[0];
 		expect(order).toContain("itemId: number;");
 		expect(order).toContain("optionalItemId: number | null;");
 		expect(order).toContain("userId: string;");
