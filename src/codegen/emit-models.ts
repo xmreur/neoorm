@@ -7,7 +7,6 @@ import {
 	buildEnumRegistry,
 	columnTsType,
 	type EnumRegistry,
-	pkTsNames,
 } from "./column-ts.js";
 import { effectiveRelations, modelTypeName } from "./manifest-relations.js";
 
@@ -100,24 +99,26 @@ function includePartsFor(manifest: Manifest, table: ManifestTable): string[] {
 	});
 }
 
-function emitWithIncludesType(
-	manifest: Manifest,
-	table: ManifestTable,
-): string {
+function emitRelationsType(manifest: Manifest, table: ManifestTable): string {
 	const baseName = modelTypeName(table.accessor);
 	const withName = `${modelTypeName(table.accessor)}With`;
-	const includesName = `${baseName}WithIncludes`;
 	const includeParts = includePartsFor(manifest, table);
 
 	if (includeParts.length === 0) {
-		return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName};`;
+		return `export type ${baseName}Relations<W extends ${withName}> = IncludeCount<W>;`;
 	}
 
-	const joined = includeParts.map((part) => `  ${part}`).join(" &\n");
+	const joined = includeParts.join(" &\n  ");
+	return `export type ${baseName}Relations<W extends ${withName}> =\n  ${joined} &\n  IncludeCount<W>;`;
+}
 
-	return `export type ${includesName}<W extends ${withName} | undefined = undefined> = ${baseName} &
-${joined} &
-  IncludeCount<W>;`;
+function emitWithIncludesType(table: ManifestTable): string {
+	const baseName = modelTypeName(table.accessor);
+	const withName = `${modelTypeName(table.accessor)}With`;
+	const includesName = `${baseName}WithIncludes`;
+	const relationsName = `${baseName}Relations`;
+
+	return `export type ${includesName}<W extends ${withName} | undefined = undefined> = [W] extends [undefined] ? ${baseName} : ${baseName} & ${relationsName}<Extract<W, ${withName}>>;`;
 }
 
 function emitHiddenKeysType(table: ManifestTable): string {
@@ -125,49 +126,41 @@ function emitHiddenKeysType(table: ManifestTable): string {
 	return `export type ${baseName}HiddenKeys = ${hiddenKeysType(table)};`;
 }
 
-function emitFindResultType(manifest: Manifest, table: ManifestTable): string {
+function emitFindResultType(table: ManifestTable): string {
 	const baseName = modelTypeName(table.accessor);
 	const withName = `${baseName}With`;
-	const includesName = `${baseName}WithIncludes`;
 	const hiddenName = `${baseName}HiddenKeys`;
-	const includeParts = includePartsFor(manifest, table);
-	const withTail =
-		includeParts.length === 0
-			? ""
-			: ` & ${includeParts.join(" & ")} & IncludeCount<W>`;
+	const relationsName = `${baseName}Relations`;
 
-	return `export type ${baseName}FindResult<W extends ${withName} | undefined, S, O, IH = undefined> = [S] extends [undefined]
-  ? [O] extends [undefined]
-    ? IH extends true
-      ? ${includesName}<W>
-      : Omit<${includesName}<W>, ${hiddenName}>
-    : Omit<${includesName}<W>, (SelectKeys<O> & keyof ${baseName}) | (IH extends true ? never : ${hiddenName})>
-  : ApplySelect<${baseName}, S>${withTail};`;
+	return `export type ${baseName}FindResult<W extends ${withName} | undefined = undefined, S = undefined, O = undefined, IH = undefined> = [W] extends [undefined]
+  ? [S] extends [undefined]
+    ? [O] extends [undefined]
+      ? IH extends true
+        ? ${baseName}
+        : Omit<${baseName}, ${hiddenName}>
+      : Omit<${baseName}, (SelectKeys<O> & keyof ${baseName}) | (IH extends true ? never : ${hiddenName})>
+    : Pick<${baseName}, SelectKeys<S> & keyof ${baseName}>
+  : ([S] extends [undefined]
+    ? [O] extends [undefined]
+      ? IH extends true
+        ? ${baseName}
+        : Omit<${baseName}, ${hiddenName}>
+      : Omit<${baseName}, (SelectKeys<O> & keyof ${baseName}) | (IH extends true ? never : ${hiddenName})>
+    : Pick<${baseName}, SelectKeys<S> & keyof ${baseName}>) & ${relationsName}<Extract<W, ${withName}>>;`;
 }
 
 function emitCreateResultType(table: ManifestTable): string {
 	const baseName = modelTypeName(table.accessor);
 	const withName = `${baseName}With`;
-	const pk = pkTsNames(table);
-	const minimal =
-		pk.length === 0
-			? "Record<never, never>"
-			: `Pick<${baseName}, ${pk.map((name) => JSON.stringify(name)).join(" | ")}>`;
-	return `export type ${baseName}CreateResult<W extends ${withName} | undefined, RC = undefined> = [W] extends [undefined]
-  ? RC extends true
-    ? ${baseName}
-    : ${minimal}
-  : ${baseName}WithIncludes<W>;`;
+	const relationsName = `${baseName}Relations`;
+	return `export type ${baseName}CreateResult<W extends ${withName}> = ${baseName} & ${relationsName}<W>;`;
 }
 
 function emitMutationResultType(table: ManifestTable): string {
 	const baseName = modelTypeName(table.accessor);
 	const withName = `${baseName}With`;
-	return `export type ${baseName}MutationResult<W extends ${withName} | undefined, R = undefined> = [W] extends [undefined]
-  ? R extends true
-    ? ${baseName}
-    : Record<never, never>
-  : ${baseName}WithIncludes<W>;`;
+	const relationsName = `${baseName}Relations`;
+	return `export type ${baseName}MutationResult<W extends ${withName}> = ${baseName} & ${relationsName}<W>;`;
 }
 
 function emitRelationListType(
@@ -263,14 +256,16 @@ export function emitModelsTs(
 	}
 
 	for (const table of tables) {
-		lines.push(emitWithIncludesType(manifest, table));
+		lines.push(emitWithIncludesType(table));
 		lines.push("");
 	}
 
 	for (const table of tables) {
 		lines.push(emitHiddenKeysType(table));
 		lines.push("");
-		lines.push(emitFindResultType(manifest, table));
+		lines.push(emitRelationsType(manifest, table));
+		lines.push("");
+		lines.push(emitFindResultType(table));
 		lines.push("");
 		lines.push(emitCreateResultType(table));
 		lines.push("");
