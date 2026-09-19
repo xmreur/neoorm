@@ -115,15 +115,15 @@ describe("emitQueryTypesTs", () => {
 });
 
 describe("repository signatures", () => {
-	it("emits one args-object generic per method with full keys", () => {
+	it("emits zero-arg overloads plus one constrained generic per method", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
-		expect(source).toContain("type Exact<T, Shape> = {");
+		expect(source).toContain("findMany(): Promise<UserVisible[]>;");
 		expect(source).toContain(
-			"findMany<const T extends FindManyUserArgs = Record<never, never>>(args?: Exact<T, FindManyUserArgs>): Promise<UserQueryResult<T>[]>;",
+			"findMany<const T extends FindManyUserArgs>(args: T): Promise<UserQueryResult<T>[]>;",
 		);
 		expect(source).toContain(
-			"create<const T extends CreateUserArgs>(args: Exact<T, CreateUserArgs>): Promise<UserCreateQueryResult<T>>;",
+			"create<const T extends CreateUserArgs>(args: T): Promise<UserCreateQueryResult<T>>;",
 		);
 
 		// Autocomplete keys live on the full args interfaces used as constraints.
@@ -133,6 +133,8 @@ describe("repository signatures", () => {
 		expect(source).toContain("export interface FindByIdUserArgs {");
 		expect(source).toContain("export interface UpdateByIdUserArgs {");
 
+		expect(source).not.toContain("Exact<T,");
+		expect(source).not.toContain("= Record<never, never>");
 		expect(source).not.toContain('Omit<FindManyUserArgs, "with"');
 		expect(source).not.toContain('Omit<CreateUserArgs, "with"');
 		expect(source).not.toContain("with?: never");
@@ -140,18 +142,22 @@ describe("repository signatures", () => {
 		expect(source).not.toContain("omit?: never");
 	});
 
-	it("emits one signature per method", () => {
+	it("emits zero-arg plus generic signatures per method", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 		const userRepo = source.match(
 			/export interface UserRepository \{[\s\S]*?\n\}/,
 		)?.[0];
 		expect(userRepo).toBeDefined();
 
+		for (const method of ["findMany", "findFirst", "findById", "count"]) {
+			const matches = userRepo?.match(
+				new RegExp(`^  ${method}[<(]`, "gm"),
+			);
+			expect(matches?.length, `${method} signatures`).toBe(2);
+		}
+
 		for (const method of [
-			"findMany",
-			"findFirst",
 			"findUnique",
-			"findById",
 			"findOrCreate",
 			"paginate",
 			"create",
@@ -159,7 +165,6 @@ describe("repository signatures", () => {
 			"updateById",
 			"delete",
 			"upsert",
-			"count",
 		]) {
 			const matches = userRepo?.match(
 				new RegExp(`^  ${method}[<(]`, "gm"),
@@ -177,7 +182,7 @@ describe("repository signatures", () => {
 		expect(source).toContain("): Promise<UserDeleteQueryResult<T>>;");
 		expect(source).toContain("): Promise<UserUpsertQueryResult<T>>;");
 		expect(source).toContain(
-			"count<const T extends CountUserArgs = Record<never, never>>(args?: Exact<T, CountUserArgs>): Promise<CountUserResult<T>>;",
+			"count<const T extends CountUserArgs>(args: T): Promise<CountUserResult<T>>;",
 		);
 	});
 
@@ -185,46 +190,53 @@ describe("repository signatures", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
 		expect(source).toContain(
-			"update<const T extends UpdateUserArgs>(args: Exact<T, UpdateUserArgs>): Promise<UserUpdateQueryResult<T>>;",
+			"update<const T extends UpdateUserArgs>(args: T): Promise<UserUpdateQueryResult<T>>;",
 		);
 		expect(source).toContain(
-			"delete<const T extends DeleteUserArgs>(args: Exact<T, DeleteUserArgs>): Promise<UserDeleteQueryResult<T>>;",
+			"delete<const T extends DeleteUserArgs>(args: T): Promise<UserDeleteQueryResult<T>>;",
 		);
 		expect(source).toContain(
-			"upsert<const T extends UpsertUserArgs>(args: Exact<T, UpsertUserArgs>): Promise<UserUpsertQueryResult<T>>;",
+			"upsert<const T extends UpsertUserArgs>(args: T): Promise<UserUpsertQueryResult<T>>;",
 		);
 		expect(source).toContain(
-			"paginate<const T extends PaginateUserArgs>(args: Exact<T, PaginateUserArgs>): Promise<PaginateResult<UserQueryResult<T>, Partial<User> | null>>;",
+			"paginate<const T extends PaginateUserArgs>(args: T): Promise<PaginateResult<UserQueryResult<T>, Partial<User> | null>>;",
 		);
 		expect(source).toContain(
-			"findById<const T extends FindByIdUserArgs = Record<never, never>>(id: string | Record<string, unknown>, args?: Exact<T, FindByIdUserArgs>): Promise<UserQueryResult<T> | null>;",
+			"findById<const T extends FindByIdUserArgs>(id: string | Record<string, unknown>, args: T): Promise<UserQueryResult<T> | null>;",
 		);
 		expect(source).toContain(
-			"updateById<const T extends UpdateByIdUserArgs>(id: string | Record<string, unknown>, args: Exact<T, UpdateByIdUserArgs>): Promise<UserUpdateQueryResult<T>>;",
+			"updateById<const T extends UpdateByIdUserArgs>(id: string | Record<string, unknown>, args: T): Promise<UserUpdateQueryResult<T>>;",
 		);
 	});
 
-	it("emits short-circuit result helpers in models", () => {
+	it("emits cheap result helpers in models", () => {
 		const models = emitModelsTs(blogLikeManifest(), "neoorm");
-		expect(models).toContain("export type UserRelations<");
-		expect(models).toContain("[K in keyof W");
-		expect(models).not.toContain("IncludeRelation<W,");
-		expect(models).toContain("export type UserFindResult<");
-		expect(models).toContain("[W] extends [undefined]");
 		expect(models).toContain(
-			"export type UserCreateResult<W extends UserWith>",
+			"export type UserVisible = Omit<User, UserHiddenKeys>;",
 		);
 		expect(models).toContain(
-			"export type UserMutationResult<W extends UserWith>",
+			'export type UserCreateDefault = Pick<User, "id">;',
 		);
+		expect(models).toContain("interface UserRelationRow {");
+		expect(models).toContain("interface UserRelationMany {");
+		expect(models).toContain("export type UserRelations<W>");
+		expect(models).not.toContain("Relations<W extends");
+		expect(models).not.toContain("IncludeRelation<");
+		expect(models).not.toContain("IncludeCount<");
+		expect(models).not.toContain("infer W extends UserWith");
 		expect(models).toContain("export type UserQueryResult<T>");
+		expect(models).toContain("Extract<keyof T,");
+		expect(models).toContain("type UserRowPart<T>");
+		expect(models).toContain("type UserNarrowQueryResult<T>");
 		expect(models).toContain("export type UserCreateQueryResult<T>");
 		expect(models).toContain("export type UserUpdateQueryResult<T>");
 		expect(models).toContain("export type UserDeleteQueryResult<T>");
 		expect(models).toContain("export type UserUpsertQueryResult<T>");
-		expect(models).toContain("type SelectOf<T>");
-		expect(models).toContain("type OmitOf<T>");
-		expect(models).toContain("type HiddenOf<T>");
+		expect(models).toContain("export type UserCreateResult<W>");
+		expect(models).toContain("export type UserMutationResult<W>");
+		expect(models).not.toContain("type SelectOf<T>");
+		expect(models).not.toContain("type OmitOf<T>");
+		expect(models).not.toContain("type HiddenOf<T>");
 	});
 });
 
@@ -267,6 +279,8 @@ export async function check(): Promise<void> {
 
   const withPosts = await db.users.findMany({ with: { posts: true } });
   assertType<Post[] | undefined>(withPosts[0]?.posts);
+  // @ts-expect-error - profile was not requested
+  assertType<undefined>(withPosts[0]?.profile);
 
   const selected = await db.users.findMany({ select: { email: true } });
   assertType<{ email: string }[]>(selected);
