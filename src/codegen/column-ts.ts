@@ -317,6 +317,11 @@ export function isCreateRequired(
 	if (isOmittedOnCreate(col, table, isJunction)) {
 		return false;
 	}
+	// FK scalars are satisfied by relation writes (`author: { connect }`),
+	// mirroring schema-driven `IsRequired` which is never true for FKs.
+	if (col.kind === "fk") {
+		return false;
+	}
 	if (col.nullable) {
 		return false;
 	}

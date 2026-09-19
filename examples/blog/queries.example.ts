@@ -3,6 +3,7 @@
  * Run `neoorm generate` then use the generated client.
  */
 import { db } from "./neoorm/client.js";
+import type { Post } from "./neoorm/models.js";
 
 export async function exampleQueries() {
 	const users = await db.users.findMany();
@@ -90,7 +91,7 @@ export async function exampleQueries() {
 	});
 
 	// Keyset pagination for feeds (stable on concurrent inserts)
-	let feedCursor: { createdAt: Date; id: string } | null = null;
+	let feedCursor: Partial<Post> | null = null;
 	const feedPage = await db.posts.paginate({
 		where: { published: true },
 		orderBy: { createdAt: "desc" },

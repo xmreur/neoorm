@@ -415,7 +415,7 @@ function buildClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	executor: Executor,
@@ -586,7 +586,7 @@ export function createNeoOrmClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -747,7 +747,7 @@ export function createNeoOrmClientFromPool<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -801,7 +801,7 @@ export function createNeoOrmClientFromSqlite<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -827,7 +827,7 @@ export function createNeoOrmClientFromMysql<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -853,7 +853,7 @@ export function createNeoOrmClientFromMariadb<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -874,7 +874,7 @@ function createNeoOrmMysqlClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -921,7 +921,7 @@ function createNeoOrmMariadbClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,
@@ -968,7 +968,7 @@ function createNeoOrmSqliteClient<
 	> = DefaultWithMap<TTables>,
 	TRowPayloads extends Record<
 		keyof TTables & string,
-		Record<string, unknown>
+		object
 	> = DefaultRowPayloadMap<TTables>,
 >(
 	manifest: Manifest,

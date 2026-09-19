@@ -156,7 +156,7 @@ export type CreateArgs<
 /** Primary-key fields from a row payload (empty object when the table has no PK). */
 export type InferPkFields<
 	TColumns extends Record<string, ColumnDef>,
-	TRow extends Record<string, unknown>,
+	TRow extends object,
 > = [ScalarPkName<TColumns>] extends [never]
 	? Record<never, never>
 	: Expand<Pick<TRow, ScalarPkName<TColumns> & keyof TRow>>;
@@ -171,7 +171,7 @@ export type InferMutationResult<
 	TAccessor extends keyof TSchema & string,
 	W,
 	TReturn extends boolean | undefined,
-	TRowPayload extends Record<string, unknown>,
+	TRowPayload extends object,
 	TMinimal extends Record<string, unknown>,
 > = [W] extends [undefined]
 	? TReturn extends true
@@ -448,10 +448,7 @@ export type GroupByArgs<
 	_max?: AggregateFieldSelect<TSchema[TAccessor]["_columns"]>;
 };
 
-export type InferGroupByResult<
-	TArgs,
-	TRow extends Record<string, unknown>,
-> = Expand<
+export type InferGroupByResult<TArgs, TRow extends object> = Expand<
 	ApplySelect<TRow, TArgs extends { by: infer B } ? B : never> &
 		InferAggregateResult<TArgs>
 >;

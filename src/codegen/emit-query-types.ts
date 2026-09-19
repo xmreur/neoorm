@@ -38,7 +38,6 @@ const STRING_FILTER_KINDS = new Set([
 	"tsRange",
 	"tstzRange",
 	"dateRange",
-	"decimal",
 ]);
 
 const COMPARABLE_FILTER_KINDS = new Set([
@@ -46,6 +45,7 @@ const COMPARABLE_FILTER_KINDS = new Set([
 	"serial",
 	"real",
 	"double",
+	"decimal",
 	"timestamp",
 	"bool",
 	"bigint",
