@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+	--background: #f7f8fc;
+	--foreground: #172033;
+	--card: #ffffff;
+	--card-foreground: #172033;
+	--popover: #ffffff;
+	--popover-foreground: #172033;
+	--primary: #245bdb;
+	--primary-foreground: #ffffff;
+	--secondary: #e9edf6;
+	--secondary-foreground: #2a3752;
+	--muted: #eef1f7;
+	--muted-foreground: #5b6a89;
+	--accent: #e4eafb;
+	--accent-foreground: #1c46b5;
+	--destructive: #c92a2a;
+	--destructive-foreground: #ffffff;
+	--border: #d9e0ef;
+	--input: #d9e0ef;
+	--ring: #245bdb;
+	--radius: 0.625rem;
+}
+
+.dark {
+	--background: #0b1020;
+	--foreground: #e8edf8;
+	--card: #121933;
+	--card-foreground: #e8edf8;
+	--popover: #141c38;
+	--popover-foreground: #e8edf8;
+	--primary: #5b8cff;
+	--primary-foreground: #0b1020;
+	--secondary: #1b2547;
+	--secondary-foreground: #d5ddf2;
+	--muted: #161e3a;
+	--muted-foreground: #93a1c4;
+	--accent: #1e2a55;
+	--accent-foreground: #bcd0ff;
+	--destructive: #ff6b6b;
+	--destructive-foreground: #22090b;
+	--border: #24304d;
+	--input: #24304d;
+	--ring: #5b8cff;
+}
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+}
+
+body {
+	background: var(--background);
+	color: var(--foreground);
+	font-family:
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.grid-cell-null {
+	color: var(--muted-foreground);
+	font-style: italic;
+}
+
+.cm-editor {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+.xy-node-card {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	color: var(--foreground);
+	font-size: 12px;
+	min-width: 180px;
+	max-width: 260px;
+}

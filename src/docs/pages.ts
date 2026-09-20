@@ -21,6 +21,7 @@ const PAGE_ORDER = [
 	"migrations",
 	"errors",
 	"cli",
+	"studio",
 	"configuration",
 	"sqlite",
 	"mysql",

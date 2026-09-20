@@ -46,6 +46,7 @@ Most ORMs force you to learn their query language, fight their type system, or s
 ```bash
 bunx neoorm init               # scaffold schema, config, env file
 bunx neoorm migrate dev        # generate typed client + first migration, apply it
+bunx neoorm studio --open      # browse and edit data locally
 ```
 
 ```ts
@@ -113,6 +114,7 @@ const posts = await db.posts.findMany({
 | [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |
 | [Migrations](docs/migrations.md) | Deploy, dev, status, rollback, reset |
 | [CLI reference](docs/cli.md) | All commands and flags |
+| [Studio](docs/studio.md) | Local data browser (`neoorm studio`) |
 | [Documentation site](docs/getting-started.md) | Run `neoorm docs` for a local docs browser |
 | [Configuration](docs/configuration.md) | Config file options reference |
 | [SQLite](docs/sqlite.md) | SQLite dialect, drivers, type mapping, limitations |
