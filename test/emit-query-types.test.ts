@@ -96,6 +96,17 @@ describe("emitQueryTypesTs", () => {
 		expect(source).toContain("export type UserWhereUnique =");
 		expect(source).toContain("id: UniqueEq<string>");
 		expect(source).toContain("email: UniqueEq<string>");
+		expect(source).toContain("where: UserWhereUnique & UserWhere;");
+		const findUniqueBlock = source.match(
+			/export interface FindUniqueUserArgs \{[\s\S]*?\n\}/,
+		)?.[0];
+		expect(findUniqueBlock).toContain("where: UserWhereUnique;");
+		expect(findUniqueBlock).not.toContain("& UserWhere;");
+		const upsertBlock = source.match(
+			/export interface UpsertUserArgs \{[\s\S]*?\n\}/,
+		)?.[0];
+		expect(upsertBlock).toContain("where: UserWhereUnique;");
+		expect(upsertBlock).not.toContain("& UserWhere;");
 		expect(source).toContain(
 			"posts?: { some?: PostWhere; every?: PostWhere; none?: PostWhere };",
 		);

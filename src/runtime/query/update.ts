@@ -50,7 +50,7 @@ import {
 } from "./table-index.js";
 import {
 	appendUniquePredicate,
-	assertUniqueWhere,
+	assertUniqueWhereWithExtra,
 	tryPkEqualityValues,
 } from "./unique.js";
 import {
@@ -455,7 +455,18 @@ export async function updateRecord(
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "select");
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	const pkValues = tryPkEqualityValues(table, args.where, tableIndex);
+	const asserted = assertUniqueWhereWithExtra(
+		table,
+		args.where,
+		"update",
+		tableIndex,
+	);
+	const pkValues = tryPkEqualityValues(
+		table,
+		asserted.uniqueWhere,
+		tableIndex,
+	);
+	const hasExtra = Object.keys(asserted.extraWhere).length > 0;
 
 	const split = splitScalarsAndRelationWrites(
 		manifest,
@@ -473,7 +484,7 @@ export async function updateRecord(
 	);
 
 	let runArgs: Parameters<typeof runUpdate>[3];
-	if (pkValues) {
+	if (pkValues && !hasExtra && asserted.constraint.whereSql === undefined) {
 		const where: Record<string, unknown> = {};
 		for (let i = 0; i < table.primaryKey.length; i++) {
 			const sqlName = table.primaryKey[i];
@@ -489,18 +500,12 @@ export async function updateRecord(
 			pkValues,
 		};
 	} else {
-		const { constraint, where } = assertUniqueWhere(
-			table,
-			args.where,
-			"update",
-			tableIndex,
-		);
 		runArgs = {
 			...args,
 			...split,
-			where,
-			...(constraint.whereSql !== undefined
-				? { uniquePredicateSql: constraint.whereSql }
+			where: asserted.where,
+			...(asserted.constraint.whereSql !== undefined
+				? { uniquePredicateSql: asserted.constraint.whereSql }
 				: {}),
 		};
 	}

@@ -27,6 +27,13 @@ export type AssertedUniqueWhere = {
 	where: Record<string, unknown>;
 };
 
+export type AssertedUniqueWhereWithExtra = {
+	constraint: UniqueConstraint;
+	uniqueWhere: Record<string, unknown>;
+	extraWhere: Record<string, unknown>;
+	where: Record<string, unknown>;
+};
+
 const UNIQUE_WHERE_OPERATOR_KEYS = new Set([
 	"equals",
 	"contains",
@@ -242,6 +249,163 @@ export function resolveUniqueConstraint(
 	return partial;
 }
 
+function uniqueWhereInvalidError(
+	table: ManifestTable,
+	operation: UniqueWhereOperation,
+): never {
+	throw queryCompileError(
+		uniqueWhereQueryOperation(operation),
+		`${operation} requires a unique \`where\` clause (primary key, @unique column, composite unique index, or partial unique index) for table "${table.accessor}"`,
+		{
+			code: QueryErrorCode.unique_where_invalid,
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+		},
+	);
+}
+
+type RankedConstraint = {
+	constraint: UniqueConstraint;
+	rank: number;
+};
+
+function listCandidateConstraints(
+	table: ManifestTable,
+	tableIndex?: TableIndex,
+): RankedConstraint[] {
+	const ranked: RankedConstraint[] = [];
+	const pkTsNames = primaryKeyTsNames(table, tableIndex);
+	if (pkTsNames.length > 0) {
+		ranked.push({
+			constraint: { sqlColumns: table.primaryKey, tsKeys: pkTsNames },
+			rank: 0,
+		});
+	}
+
+	for (const col of table.columns) {
+		if (col.primary || col.unique) {
+			ranked.push({
+				constraint: { sqlColumns: [col.sqlName], tsKeys: [col.tsName] },
+				rank: 1,
+			});
+		}
+	}
+
+	let rank = 2;
+	for (const index of table.indexes) {
+		if (!index.unique) continue;
+		if (index.using && index.using !== "btree") continue;
+		if (index.keys?.some((key) => key.expr)) continue;
+
+		const indexTsNames = index.columns
+			.map(
+				(sqlName) =>
+					columnBySqlName(tableIndex, table, sqlName)?.tsName,
+			)
+			.filter((name): name is string => name !== undefined);
+
+		if (indexTsNames.length === 0) continue;
+		ranked.push({
+			constraint: {
+				sqlColumns: index.columns,
+				tsKeys: indexTsNames,
+				...(index.whereSql ? { whereSql: index.whereSql } : {}),
+			},
+			rank,
+		});
+		rank += 1;
+	}
+
+	return ranked;
+}
+
+/**
+ * Split a singular `update`/`delete` `where` into unique identification plus
+ * extra `AND` predicates. Unique-key fields must be scalar equality (or
+ * `{ equals }`); everything else (`AND`/`OR`/`NOT`, relation filters,
+ * operators like `isNull`, leftover scalars) becomes extra filter state.
+ * The longest unique constraint that is a subset of the equality fields wins;
+ * ties prefer PK, then a unique column, then the first matching index, with
+ * non-partial indexes preferred over partial ones on the same columns.
+ */
+export function assertUniqueWhereWithExtra(
+	table: ManifestTable,
+	where: Record<string, unknown>,
+	operation: UniqueWhereOperation,
+	tableIndex?: TableIndex,
+): AssertedUniqueWhereWithExtra {
+	const relationNames = new Set<string>();
+	for (const name of tableIndex?.effectiveRelationsByName?.keys() ?? []) {
+		relationNames.add(name);
+	}
+	for (const relation of table.relations ?? []) {
+		relationNames.add(relation.name);
+	}
+
+	const equality: Record<string, unknown> = {};
+	const extra: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(where)) {
+		if (value === undefined) continue;
+		if (key === "AND" || key === "OR" || key === "NOT") {
+			extra[key] = value;
+			continue;
+		}
+		if (relationNames.has(key)) {
+			extra[key] = value;
+			continue;
+		}
+		const unwrapped = tryUnwrapUniqueEquals(value);
+		if (!unwrapped.ok) {
+			extra[key] = value;
+			continue;
+		}
+		equality[key] = unwrapped.value;
+	}
+
+	const equalityKeys = new Set(Object.keys(equality));
+	const matching = listCandidateConstraints(table, tableIndex).filter(
+		({ constraint }) =>
+			constraint.tsKeys.length > 0 &&
+			constraint.tsKeys.every((key) => equalityKeys.has(key)),
+	);
+	if (matching.length === 0) {
+		uniqueWhereInvalidError(table, operation);
+	}
+
+	matching.sort((a, b) => {
+		if (b.constraint.tsKeys.length !== a.constraint.tsKeys.length) {
+			return b.constraint.tsKeys.length - a.constraint.tsKeys.length;
+		}
+		const aPartial = a.constraint.whereSql !== undefined ? 1 : 0;
+		const bPartial = b.constraint.whereSql !== undefined ? 1 : 0;
+		if (aPartial !== bPartial) return aPartial - bPartial;
+		return a.rank - b.rank;
+	});
+
+	const winner = matching[0];
+	if (!winner) {
+		uniqueWhereInvalidError(table, operation);
+	}
+
+	const uniqueWhere: Record<string, unknown> = {};
+	for (const key of winner.constraint.tsKeys) {
+		uniqueWhere[key] = equality[key];
+	}
+	const extraWhere: Record<string, unknown> = { ...extra };
+	for (const [key, value] of Object.entries(equality)) {
+		if (!(key in uniqueWhere)) {
+			extraWhere[key] = value;
+		}
+	}
+
+	return {
+		constraint: winner.constraint,
+		uniqueWhere,
+		extraWhere,
+		where: { ...uniqueWhere, ...extraWhere },
+	};
+}
+
 /** AND a partial unique index predicate onto a compiled `WHERE` clause. */
 export function appendUniquePredicate(
 	whereSql: string,
@@ -261,15 +425,7 @@ export function assertUniqueWhere(
 	const scalarWhere = unwrapUniqueWhere(where, operation, table);
 	const constraint = resolveUniqueConstraint(table, scalarWhere, tableIndex);
 	if (!constraint) {
-		throw queryCompileError(
-			uniqueWhereQueryOperation(operation),
-			`${operation} requires a unique \`where\` clause (primary key, @unique column, composite unique index, or partial unique index) for table "${table.accessor}"`,
-			{
-				code: QueryErrorCode.unique_where_invalid,
-				tableAccessor: table.accessor,
-				tableSqlName: table.sqlName,
-			},
-		);
+		uniqueWhereInvalidError(table, operation);
 	}
 	return { constraint, where: scalarWhere };
 }
