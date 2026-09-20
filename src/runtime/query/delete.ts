@@ -27,7 +27,7 @@ import { resolvePkWhere } from "./primary-key.js";
 import { getTableIndex, requireTable } from "./table-index.js";
 import {
 	appendUniquePredicate,
-	assertUniqueWhere,
+	assertUniqueWhereWithExtra,
 	tryPkEqualityValues,
 } from "./unique.js";
 
@@ -151,8 +151,19 @@ export async function deleteRecord(
 	const { manifest } = runtime;
 	const table = requireTable(manifest, tableAccessor, "delete");
 	const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-	const pkValues = tryPkEqualityValues(table, args.where, tableIndex);
-	if (pkValues) {
+	const asserted = assertUniqueWhereWithExtra(
+		table,
+		args.where,
+		"delete",
+		tableIndex,
+	);
+	const pkValues = tryPkEqualityValues(
+		table,
+		asserted.uniqueWhere,
+		tableIndex,
+	);
+	const hasExtra = Object.keys(asserted.extraWhere).length > 0;
+	if (pkValues && !hasExtra && asserted.constraint.whereSql === undefined) {
 		return executePkEqualityDelete(
 			executor,
 			runtime,
@@ -162,24 +173,18 @@ export async function deleteRecord(
 			args,
 		);
 	}
-	const { constraint, where } = assertUniqueWhere(
-		table,
-		args.where,
-		"delete",
-		tableIndex,
-	);
 
 	const compiledWhere = compileWhere(
 		manifest,
 		table,
-		where,
+		asserted.where,
 		dialect,
 		1,
 		runtime.tableIndex,
 	);
 	const whereSql = appendUniquePredicate(
 		compiledWhere.sql,
-		constraint.whereSql,
+		asserted.constraint.whereSql,
 	);
 	const params = compiledWhere.params;
 

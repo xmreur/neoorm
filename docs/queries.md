@@ -30,7 +30,7 @@ await db.users.findFirst({
 const user = await db.users.findUnique({ where: { slug: "hello" } });
 ```
 
-Unique `where` (`findUnique`, `upsert`, `findOrCreate`, singular `update`/`delete`) is scalar equality per unique field — `{ email: "a@b.com" }`, not a filter. `{ equals: value }` is accepted and unwrapped to the scalar. Other operators (`contains`, `in`, `mode: "insensitive"`) throw `unique_where_invalid`. Partial unique indexes are valid targets: pass the indexed columns; the index `WHERE` is applied automatically so the lookup stays unique.
+Unique `where` (`findUnique`, `upsert`, `findOrCreate`) is scalar equality per unique field — `{ email: "a@b.com" }`, not a filter. `{ equals: value }` is accepted and unwrapped to the scalar. Other operators (`contains`, `in`, `mode: "insensitive"`) throw `unique_where_invalid`. Partial unique indexes are valid targets: pass the indexed columns; the index `WHERE` is applied automatically so the lookup stays unique. Singular `update`/`delete` start from the same unique identification but additionally accept extra filter fields, which are `AND`'d onto the statement (see below).
 
 ## Create
 
@@ -73,7 +73,15 @@ Unknown keys in `data` fail at compile time (`unknown_column`), same as `where`.
 
 ## Update
 
-Singular `update` requires a unique `where` (primary key, `@unique` column, composite unique index, or partial unique index), same as `findUnique`. Use `updateMany` when the filter can match multiple rows.
+Singular `update` requires a unique `where` (primary key, `@unique` column, composite unique index, or partial unique index). Extra filter fields are allowed and compiled as additional `AND` predicates, so conditional single-row writes stay atomic — if the extras do not match, the update touches 0 rows and returns `null`. Use `updateMany` when there is no unique identifier.
+
+```ts
+// Revoke a session only if it is still unrevoked (one statement)
+await db.sessions.update({
+  where: { token, revokedAt: { isNull: true } },
+  data: { revokedAt: new Date() },
+});
+```
 
 ```ts
 // Returns {} on success, null if no row matched
@@ -130,7 +138,7 @@ await db.posts.updateMany({
 
 ## Delete
 
-Singular `delete` requires a unique `where`. Use `deleteMany` for bulk deletes.
+Singular `delete` requires a unique `where`. Like `update`, it accepts extra filter fields that are `AND`'d onto the statement — a miss deletes 0 rows and returns `null`. Use `deleteMany` for bulk deletes.
 
 ```ts
 // Returns {} on success, null if no row matched

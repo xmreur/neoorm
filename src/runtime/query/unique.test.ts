@@ -12,6 +12,7 @@ import { findOrCreateRecord } from "./find-or-create.js";
 import { buildManifestIndex } from "./table-index.js";
 import {
 	assertUniqueWhere,
+	assertUniqueWhereWithExtra,
 	resolveUniqueConstraint,
 	tryPkEqualityValues,
 } from "./unique.js";
@@ -449,5 +450,201 @@ describe("partial unique index targets", () => {
 		expect(sql[0]).toContain(
 			'ON CONFLICT ("slug") WHERE "published" = true DO UPDATE SET',
 		);
+	});
+});
+
+describe("assertUniqueWhereWithExtra", () => {
+	const table = postsTable();
+
+	it("picks the longest composite subset and keeps leftover scalars as extra", () => {
+		const asserted = assertUniqueWhereWithExtra(
+			table,
+			{ slug: "hello", authorId: "user_1", published: true },
+			"update",
+		);
+		expect(asserted.constraint).toEqual({
+			sqlColumns: ["author_id", "slug"],
+			tsKeys: ["authorId", "slug"],
+		});
+		expect(asserted.uniqueWhere).toEqual({
+			slug: "hello",
+			authorId: "user_1",
+		});
+		expect(asserted.extraWhere).toEqual({ published: true });
+		expect(asserted.where).toEqual({
+			slug: "hello",
+			authorId: "user_1",
+			published: true,
+		});
+	});
+
+	it("keeps operator filters as extra without unwrapping", () => {
+		const asserted = assertUniqueWhereWithExtra(
+			table,
+			{ slug: "hello", published: { isNull: true } },
+			"update",
+		);
+		expect(asserted.constraint).toEqual({
+			sqlColumns: ["slug"],
+			tsKeys: ["slug"],
+		});
+		expect(asserted.uniqueWhere).toEqual({ slug: "hello" });
+		expect(asserted.extraWhere).toEqual({
+			published: { isNull: true },
+		});
+	});
+
+	it("passes AND/OR/NOT through as extra", () => {
+		const asserted = assertUniqueWhereWithExtra(
+			table,
+			{ slug: "hello", AND: [{ published: true }] },
+			"delete",
+		);
+		expect(asserted.uniqueWhere).toEqual({ slug: "hello" });
+		expect(asserted.extraWhere).toEqual({
+			AND: [{ published: true }],
+		});
+	});
+
+	it("unwraps { equals } on the unique field", () => {
+		const asserted = assertUniqueWhereWithExtra(
+			table,
+			{ slug: { equals: "hello" }, published: true },
+			"update",
+		);
+		expect(asserted.uniqueWhere).toEqual({ slug: "hello" });
+		expect(asserted.extraWhere).toEqual({ published: true });
+	});
+
+	it("prefers the primary key on equal-length ties", () => {
+		const asserted = assertUniqueWhereWithExtra(
+			table,
+			{ id: "post_1", slug: "hello" },
+			"update",
+		);
+		expect(asserted.constraint).toEqual({
+			sqlColumns: ["id"],
+			tsKeys: ["id"],
+		});
+		expect(asserted.uniqueWhere).toEqual({ id: "post_1" });
+		expect(asserted.extraWhere).toEqual({ slug: "hello" });
+	});
+
+	it("rejects a where with no unique subset", () => {
+		expect(() =>
+			assertUniqueWhereWithExtra(table, { published: true }, "update"),
+		).toThrow(
+			expect.objectContaining({
+				code: QueryErrorCode.unique_where_invalid,
+			}),
+		);
+	});
+
+	it("rejects an operator on the only unique field", () => {
+		expect(() =>
+			assertUniqueWhereWithExtra(
+				table,
+				{ slug: { contains: "hel" } },
+				"update",
+			),
+		).toThrow(
+			expect.objectContaining({
+				code: QueryErrorCode.unique_where_invalid,
+			}),
+		);
+	});
+});
+
+function rowCountExecutor(rowCount: number): {
+	executor: Executor;
+	sql: string[];
+} {
+	const sql: string[] = [];
+	const executor: Executor = {
+		query: async (query: string) => {
+			sql.push(query);
+			return [];
+		},
+		queryOne: async (query: string) => {
+			sql.push(query);
+			return null;
+		},
+		execute: async (query: string) => {
+			sql.push(query);
+			return { rows: [], rowCount };
+		},
+		transaction: async (fn) => fn(executor),
+	};
+	return { executor, sql };
+}
+
+describe("singular update/delete with extra AND filter", () => {
+	it("update ANDs the extra predicate into SQL", async () => {
+		const { executor, sql } = rowCountExecutor(1);
+		const result = await updateRecord(executor, postsRuntime(), "posts", {
+			where: { slug: "hello", published: true },
+			data: { published: false },
+		});
+		expect(result).toEqual({});
+		expect(sql[0]).toContain('"slug"');
+		expect(sql[0]).toContain('"published"');
+	});
+
+	it("update returns null when the extra predicate matches 0 rows", async () => {
+		const { executor, sql } = rowCountExecutor(0);
+		const result = await updateRecord(executor, postsRuntime(), "posts", {
+			where: { slug: "hello", published: { isNull: true } },
+			data: { published: false },
+		});
+		expect(result).toBeNull();
+		expect(sql[0]).toContain('"slug"');
+	});
+
+	it("update keeps exact unique-only where working", async () => {
+		const { executor, sql } = rowCountExecutor(1);
+		const result = await updateRecord(executor, postsRuntime(), "posts", {
+			where: { slug: "hello" },
+			data: { published: true },
+		});
+		expect(result).toEqual({});
+		expect(sql[0]).toContain('"slug"');
+	});
+
+	it("update with PK plus extra does not use the extra-dropping fast path", async () => {
+		const { executor, sql } = rowCountExecutor(1);
+		const result = await updateRecord(executor, postsRuntime(), "posts", {
+			where: { id: "post_1", slug: "hello" },
+			data: { published: true },
+		});
+		expect(result).toEqual({});
+		expect(sql[0]).toContain('"id"');
+		expect(sql[0]).toContain('"slug"');
+	});
+
+	it("delete ANDs the extra predicate and returns null on 0 rows", async () => {
+		const { executor: hitExecutor, sql: hitSql } = rowCountExecutor(1);
+		const hit = await deleteRecord(hitExecutor, postsRuntime(), "posts", {
+			where: { slug: "hello", published: true },
+		});
+		expect(hit).toEqual({});
+		expect(hitSql[0]).toContain('"slug"');
+		expect(hitSql[0]).toContain('"published"');
+
+		const { executor: missExecutor } = rowCountExecutor(0);
+		const miss = await deleteRecord(missExecutor, postsRuntime(), "posts", {
+			where: { slug: "hello", published: true },
+		});
+		expect(miss).toBeNull();
+	});
+
+	it("update still rejects a where with no unique subset", async () => {
+		await expect(
+			updateRecord(failingExecutor(), postsRuntime(), "posts", {
+				where: { published: true },
+				data: { slug: "changed" },
+			}),
+		).rejects.toMatchObject({
+			code: QueryErrorCode.unique_where_invalid,
+		});
 	});
 });

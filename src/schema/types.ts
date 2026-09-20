@@ -258,7 +258,8 @@ export type UpdateArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema> &
+		WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
 	returnUpdated?: boolean;
@@ -281,7 +282,8 @@ export type DeleteArgs<
 	TSchema extends Record<string, TableDef>,
 	TAccessor extends keyof TSchema & string,
 > = {
-	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema>;
+	where: UniqueWhere<TSchema[TAccessor]["_columns"], TSchema> &
+		WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	with?: WithInputMap<TSchema, TAccessor>;
 	returnDeleted?: boolean;
 };
