@@ -1,3 +1,4 @@
+import { defineSchema, fk, table, text, timestamp, uuid } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
@@ -12,8 +13,12 @@ import {
 	buildUpdateQuery,
 	buildUpsertQuery,
 	compileWhere,
+	dataToSqlValues,
 	dataToUpdateAssignments,
+	getCachedInsertQuery,
 } from "../src/runtime/query/compile.js";
+import { fillMissingPrimaryKeys } from "../src/runtime/query/primary-key.js";
+import { compareKeys } from "../src/runtime/query/table-index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 describe("update/delete SQL compilation", () => {
@@ -271,5 +276,66 @@ describe("update/delete SQL compilation", () => {
 		expect(() =>
 			buildInsertManyValueRows(users, [], [["a@example.com"]]),
 		).toThrow("Cannot build INSERT many value rows with no columns");
+	});
+});
+
+describe("insert bind order", () => {
+	const bansSchema = defineSchema({
+		users: table({
+			id: uuid().primary(),
+		}),
+		bans: table({
+			id: uuid().primary(),
+			userId: fk("users").notNull().inverse("bannedUsers"),
+			banReason: text().notNull(),
+			bannedBy: fk("users").notNull().inverse("issuedBans"),
+			bannedUntil: timestamp(),
+		}),
+	});
+
+	it("aligns camelCase values with INSERT columns when localeCompare disagrees", () => {
+		expect(compareKeys("banReason", "bannedBy")).toBeLessThan(0);
+		expect(Math.sign("banReason".localeCompare("bannedBy"))).not.toBe(
+			Math.sign(compareKeys("banReason", "bannedBy")),
+		);
+
+		const manifest = schemaToManifest(bansSchema);
+		const bans = manifestTable(manifest, "bans");
+		const bannedUntil = new Date("2026-09-21T01:19:06.743Z");
+		const bannedBy = "01a0b973-b596-7419-844c-09e3299671bf";
+		const userId = "11b1c084-c607-8520-955d-10f4300782c0";
+		const data: Record<string, unknown> = {
+			banReason: "Fraud",
+			bannedBy,
+			bannedUntil,
+			userId,
+		};
+		fillMissingPrimaryKeys(bans, data);
+
+		const { keys, values } = dataToSqlValues(bans, data);
+		const sql = buildInsertQuery(bans, keys, undefined, "none");
+		const cached = getCachedInsertQuery(undefined, bans, keys, "none");
+
+		const colList = /INSERT INTO "[^"]+" \(([^)]+)\) VALUES/.exec(sql)?.[1];
+		expect(colList).toBeDefined();
+		const sqlCols = (colList ?? "")
+			.split(", ")
+			.map((col) => col.replaceAll('"', ""));
+		const expectedSqlCols = keys.map(
+			(key) =>
+				bans.columns.find((col) => col.tsName === key)?.sqlName ?? key,
+		);
+		expect(sqlCols).toEqual(expectedSqlCols);
+		expect(cached).toBe(sql);
+
+		const untilIndex = keys.indexOf("bannedUntil");
+		expect(untilIndex).toBeGreaterThanOrEqual(0);
+		expect(sqlCols[untilIndex]).toBe("banned_until");
+		expect(values[untilIndex]).toBe(bannedUntil);
+
+		const bannedByIndex = keys.indexOf("bannedBy");
+		expect(sqlCols[bannedByIndex]).toBe("banned_by");
+		expect(values[bannedByIndex]).toBe(bannedBy);
+		expect(values[bannedByIndex]).not.toBeInstanceOf(Date);
 	});
 });

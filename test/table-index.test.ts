@@ -7,9 +7,11 @@ import {
 	CappedMap,
 	columnBySqlName,
 	columnByTsName,
+	compareKeys,
 	effectiveRelationByName,
 	getOrSetSqlCache,
 	relationByName,
+	reorderKeyValues,
 } from "../src/runtime/query/table-index.js";
 import { defined, manifestTable } from "./helpers/manifest.js";
 
@@ -142,5 +144,17 @@ describe("table index lookups", () => {
 			"SELECT 1499",
 		);
 		expect(tableIndex.findManySqlBySignature.has("key-0")).toBe(false);
+	});
+});
+
+describe("compareKeys", () => {
+	it("uses UTF-16 order so banReason sorts before bannedBy", () => {
+		expect(compareKeys("banReason", "bannedBy")).toBeLessThan(0);
+		const { keys, values } = reorderKeyValues(
+			["bannedUntil", "banReason", "bannedBy"],
+			["until", "reason", "by"],
+		);
+		expect(keys).toEqual(["banReason", "bannedBy", "bannedUntil"]);
+		expect(values).toEqual(["reason", "by", "until"]);
 	});
 });
