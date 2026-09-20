@@ -98,6 +98,24 @@ Options:
 
 The sidebar includes a search box with live results across all documentation pages.
 
+## `neoorm studio`
+
+Browse and edit data in a local Studio UI (spreadsheet grid, SQL console, query playground, schema explorer, ER graph, migrate status).
+
+```
+neoorm studio [options]
+```
+
+Options:
+- `-p, --port <port>` — port to listen on (default: `7584`)
+- `-H, --host <host>` — host to bind (default: `127.0.0.1`)
+- `--open` — open Studio in your default browser
+- `--read-only` — block row mutations and non-read SQL
+- `--verbose` — log SQL statements executed by Studio
+- `--token <token>` — require this token for API access (generated automatically when binding a non-loopback host)
+
+See [Studio](studio.md) for features, keyboard shortcuts, and security notes.
+
 ## `neoorm db push`
 
 Push the current `schema.ts` to the database without going through the migration ledger. You do not need to run `generate` first — push compiles the schema file you just saved. After a successful push, `snapshot.json` is updated so later `generate` does not emit the same DDL again.

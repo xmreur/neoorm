@@ -25,6 +25,7 @@ describe("docs server", () => {
 		expect(pages[0]?.slug).toBe("getting-started");
 		expect(pages[1]?.slug).toBe("examples");
 		expect(pages.some((page) => page.slug === "schema")).toBe(true);
+		expect(pages.some((page) => page.slug === "studio")).toBe(true);
 		expect(pages[0]?.title.length).toBeGreaterThan(0);
 		expect(pages[0]?.sourcePath).toBe(
 			join(docsDir, `${pages[0]?.slug}.md`),

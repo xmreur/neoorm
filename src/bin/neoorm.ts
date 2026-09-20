@@ -665,6 +665,64 @@ program
 		await server.close();
 	});
 
+program
+	.command("studio")
+	.description("Browse and edit data in a local Studio UI")
+	.option("-p, --port <port>", "Port to listen on", "7584")
+	.option("-H, --host <host>", "Host to bind", "127.0.0.1")
+	.option("--open", "Open Studio in your browser")
+	.option("--read-only", "Block row mutations and non-read SQL")
+	.option("--verbose", "Log SQL statements executed by Studio")
+	.option("--token <token>", "Require this token for API access")
+	.action(
+		async (options: {
+			port: string;
+			host: string;
+			open?: boolean;
+			readOnly?: boolean;
+			verbose?: boolean;
+			token?: string;
+		}) => {
+			const port = Number.parseInt(options.port, 10);
+			if (!Number.isFinite(port) || port < 1 || port > 65535) {
+				console.error("--port must be a number between 1 and 65535");
+				process.exit(1);
+			}
+
+			try {
+				const { startStudioServer } = await import(
+					"../studio/server.js"
+				);
+				const server = await startStudioServer({
+					port,
+					host: options.host,
+					...(options.open ? { open: true } : {}),
+					...(options.readOnly ? { readOnly: true } : {}),
+					...(options.verbose ? { verbose: true } : {}),
+					...(options.token ? { token: options.token } : {}),
+					version: packageJson.version,
+				});
+
+				console.log(`NeoOrm Studio running at ${server.url}`);
+				if (server.token) {
+					console.log(`Studio token: ${server.token}`);
+				}
+				console.log("Press Ctrl+C to stop");
+
+				await new Promise<void>((resolve) => {
+					const onSignal = () => resolve();
+					process.once("SIGINT", onSignal);
+					process.once("SIGTERM", onSignal);
+				});
+
+				await server.close();
+			} catch (err) {
+				printCliError(err);
+				process.exit(1);
+			}
+		},
+	);
+
 const dbCommand = program
 	.command("db")
 	.description("Database utilities without the migration ledger");

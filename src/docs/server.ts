@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import {
 	createServer,
 	type IncomingMessage,
 	type ServerResponse,
 } from "node:http";
+import { openBrowser } from "../studio/open-browser.js";
 import { type DocsPage, hydratePageTitles, loadDocsPages } from "./pages.js";
 import { renderDocsIndex, renderDocsPage } from "./render.js";
 import { resolveDocsDir } from "./resolve-docs-dir.js";
@@ -89,18 +89,6 @@ export function createRequestHandler(
 			sendText(res, 500, message);
 		}
 	};
-}
-
-function openBrowser(url: string): void {
-	const platform = process.platform;
-	const command =
-		platform === "darwin"
-			? "open"
-			: platform === "win32"
-				? "cmd"
-				: "xdg-open";
-	const args = platform === "win32" ? ["/c", "start", "", url] : [url];
-	spawn(command, args, { detached: true, stdio: "ignore" }).unref();
 }
 
 export async function startDocsServer(

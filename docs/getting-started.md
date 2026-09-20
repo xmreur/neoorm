@@ -16,6 +16,14 @@ bunx neoorm migrate dev
 
 The CLI loads `.env` automatically. You do not need to export `DATABASE_URL` in the shell first.
 
+Browse and edit data with Studio:
+
+```bash
+bunx neoorm studio --open
+```
+
+See [Studio](studio.md).
+
 Query:
 
 ```ts
