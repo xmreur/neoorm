@@ -86,8 +86,15 @@ export class CappedMap<K, V> extends Map<K, V> {
 	}
 }
 
+/** Locale-independent UTF-16 order so SQL columns and bound values stay aligned. */
+export function compareKeys(a: string, b: string): number {
+	if (a < b) return -1;
+	if (a > b) return 1;
+	return 0;
+}
+
 export function sortedKeysCacheKey(keys: readonly string[]): string {
-	return [...keys].sort().join("\0");
+	return [...keys].sort(compareKeys).join("\0");
 }
 
 export function reorderKeyValues(
@@ -99,7 +106,7 @@ export function reorderKeyValues(
 		key,
 		value: values[index],
 	}));
-	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	pairs.sort((a, b) => compareKeys(a.key, b.key));
 	return {
 		keys: pairs.map((pair) => pair.key),
 		values: pairs.map((pair) => pair.value),

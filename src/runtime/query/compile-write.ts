@@ -16,6 +16,7 @@ import {
 import {
 	columnBySqlName,
 	columnByTsName,
+	compareKeys,
 	getOrSetSqlCache,
 	getTableIndex,
 	type ManifestIndex,
@@ -149,7 +150,7 @@ function orderUpdateAssignments(
 		key,
 		op: ops?.[i] ?? ("set" as const),
 	}));
-	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	pairs.sort((a, b) => compareKeys(a.key, b.key));
 	return {
 		keys: pairs.map((pair) => pair.key),
 		ops: pairs.map((pair) => pair.op),
@@ -330,7 +331,7 @@ export function buildInsertQuery(
 		compileError("Cannot build INSERT query with no columns");
 	}
 
-	const orderedKeys = [...dataKeys].sort();
+	const orderedKeys = [...dataKeys].sort(compareKeys);
 
 	const cols = orderedKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
@@ -369,7 +370,7 @@ export function getCachedInsertQuery(
 	manifestIndex?: ManifestIndex,
 	dialect: Dialect = postgresDialect,
 ): string {
-	const orderedKeys = [...dataKeys].sort();
+	const orderedKeys = [...dataKeys].sort(compareKeys);
 	const cacheKey = `${dialect.name}:${sortedKeysCacheKey(orderedKeys)}:${returning}`;
 	if (!tableIndex) {
 		return buildInsertQuery(
@@ -817,7 +818,7 @@ export function dataToUpdateAssignments(
 		op: ops[index] ?? ("set" as const),
 		value: values[index],
 	}));
-	pairs.sort((a, b) => a.key.localeCompare(b.key));
+	pairs.sort((a, b) => compareKeys(a.key, b.key));
 	return {
 		keys: pairs.map((pair) => pair.key),
 		ops: pairs.map((pair) => pair.op),
