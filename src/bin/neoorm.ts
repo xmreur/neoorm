@@ -29,7 +29,7 @@ import {
 	introspectPostgres,
 	introspectSqlite,
 } from "../introspect/pull.js";
-import { acquireMigrateDevLock } from "../migrate/dev-lock.js";
+import { withMigrateDevLock } from "../migrate/dev-lock.js";
 import {
 	dbPushWarnings,
 	formatMigrateStatus,
@@ -524,11 +524,7 @@ program
 				}
 
 				if (subcommand === "deploy" || subcommand === "dev") {
-					const releaseDevLock =
-						subcommand === "dev"
-							? await acquireMigrateDevLock(outDir)
-							: undefined;
-					try {
+					const runMigrate = async () => {
 						const schemaPath = resolve(cwd, config.schema);
 						const { readSnapshot } = await import(
 							"../codegen/generate.js"
@@ -613,13 +609,16 @@ program
 								}
 							}
 							if (destructiveBlocked) {
-								process.exit(1);
+								process.exitCode = 1;
 							}
 						}
-						return;
-					} finally {
-						await releaseDevLock?.();
+					};
+					if (subcommand === "dev") {
+						await withMigrateDevLock(outDir, runMigrate);
+					} else {
+						await runMigrate();
 					}
+					return;
 				}
 
 				console.error(

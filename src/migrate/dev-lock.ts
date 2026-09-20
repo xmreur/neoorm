@@ -6,6 +6,7 @@ export type MigrateDevLockOptions = {
 	timeoutMs?: number;
 	pollIntervalMs?: number;
 	staleMs?: number;
+	onWait?: (message: string) => void;
 };
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -40,6 +41,31 @@ async function readHolderDesc(lockPath: string): Promise<string> {
 	}
 }
 
+function parseLockPid(holderDesc: string): number | undefined {
+	const pidPart = holderDesc.split(":")[0];
+	if (pidPart === undefined) return undefined;
+	const pid = Number.parseInt(pidPart, 10);
+	if (!Number.isInteger(pid) || pid <= 0) return undefined;
+	return pid;
+}
+
+function isPidAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return errorCode(error) !== "ESRCH";
+	}
+}
+
+async function tryUnlinkLock(lockPath: string): Promise<void> {
+	try {
+		await unlink(lockPath);
+	} catch (error) {
+		if (!isNotFoundError(error)) throw error;
+	}
+}
+
 /**
  * Acquire an exclusive file lock for `neoorm migrate dev` in `outDir`.
  *
@@ -54,10 +80,16 @@ export async function acquireMigrateDevLock(
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
+	const onWait =
+		options.onWait ??
+		((message: string) => {
+			console.error(message);
+		});
 	const lockPath = join(outDir, MIGRATE_DEV_LOCK_FILENAME);
 	const token = randomUUID();
 	const content = `${process.pid}:${token}:${Date.now()}`;
 	const start = Date.now();
+	let loggedWait = false;
 
 	await mkdir(outDir, { recursive: true });
 
@@ -82,24 +114,29 @@ export async function acquireMigrateDevLock(
 			if (errorCode(error) !== "EEXIST") throw error;
 		}
 
-		// Lock exists: check staleness, else wait or time out.
-		let holderDesc = "unknown";
+		const holderDesc = await readHolderDesc(lockPath);
+		const holderPid = parseLockPid(holderDesc);
+		if (holderPid !== undefined && !isPidAlive(holderPid)) {
+			await tryUnlinkLock(lockPath);
+			continue;
+		}
+
 		try {
 			const fileStat = await stat(lockPath);
 			const ageMs = Date.now() - fileStat.mtimeMs;
 			if (ageMs > staleMs) {
-				try {
-					await unlink(lockPath);
-				} catch (error) {
-					if (!isNotFoundError(error)) throw error;
-				}
+				await tryUnlinkLock(lockPath);
 				continue;
 			}
-			// Negative age (clock skew) or unreadable content: treat as fresh.
-			if (ageMs >= 0) holderDesc = await readHolderDesc(lockPath);
 		} catch (error) {
 			if (isNotFoundError(error)) continue;
-			holderDesc = await readHolderDesc(lockPath);
+		}
+
+		if (!loggedWait) {
+			loggedWait = true;
+			onWait(
+				`Waiting for another migrate dev (lock: ${lockPath}, holder: ${holderDesc})`,
+			);
 		}
 
 		if (Date.now() - start > timeoutMs) {
@@ -108,5 +145,39 @@ export async function acquireMigrateDevLock(
 			);
 		}
 		await delay(pollIntervalMs);
+	}
+}
+
+const LOCK_SIGNALS = ["SIGINT", "SIGTERM"] as const;
+
+function signalExitCode(signal: NodeJS.Signals): number {
+	return signal === "SIGTERM" ? 143 : 130;
+}
+
+/**
+ * Hold the migrate-dev lock for `fn`, releasing it on return, throw, or
+ * SIGINT/SIGTERM.
+ */
+export async function withMigrateDevLock<T>(
+	outDir: string,
+	fn: () => Promise<T>,
+	options: MigrateDevLockOptions = {},
+): Promise<T> {
+	const release = await acquireMigrateDevLock(outDir, options);
+	const onSignal = (signal: NodeJS.Signals) => {
+		void release().finally(() => {
+			process.exit(signalExitCode(signal));
+		});
+	};
+	for (const signal of LOCK_SIGNALS) {
+		process.once(signal, onSignal);
+	}
+	try {
+		return await fn();
+	} finally {
+		for (const signal of LOCK_SIGNALS) {
+			process.off(signal, onSignal);
+		}
+		await release();
 	}
 }
