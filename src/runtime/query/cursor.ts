@@ -108,10 +108,12 @@ export function resolveOrderSpec(
 export function compileOrderByFromSpec(
 	orderSpec: OrderKeySpec[],
 	dialect: Dialect = postgresDialect,
+	tableAlias?: string,
 ): string {
+	const prefix = tableAlias ? `${dialect.quoteIdentifier(tableAlias)}.` : "";
 	const parts = orderSpec.map(
 		(key) =>
-			`${dialect.quoteIdentifier(key.sqlName)} ${key.direction.toUpperCase()}`,
+			`${prefix}${dialect.quoteIdentifier(key.sqlName)} ${key.direction.toUpperCase()}`,
 	);
 	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
 }
@@ -142,6 +144,7 @@ export function compileCursorWhere(
 	startParamIndex = 1,
 	dialect: Dialect = postgresDialect,
 	bound: "after" | "before" = "after",
+	tableAlias?: string,
 ): { sql: string; params: unknown[] } {
 	for (const key of orderSpec) {
 		if (!(key.tsName in cursor)) {
@@ -166,8 +169,9 @@ export function compileCursorWhere(
 	const afterOperator = direction === "desc" ? "<" : ">";
 	const operator =
 		bound === "before" ? invertTupleOperator(afterOperator) : afterOperator;
+	const prefix = tableAlias ? `${dialect.quoteIdentifier(tableAlias)}.` : "";
 	const colRefs = orderSpec
-		.map((key) => dialect.quoteIdentifier(key.sqlName))
+		.map((key) => `${prefix}${dialect.quoteIdentifier(key.sqlName)}`)
 		.join(", ");
 	const placeholders = joinPlaceholders(
 		dialect,

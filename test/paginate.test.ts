@@ -195,3 +195,83 @@ describe("paginate hasMore / hasPrevious", () => {
 		expect(probeSql).not.toContain('"posts"');
 	});
 });
+
+describe("paginate with has-many", () => {
+	const manifest = schemaToManifest(paginateSchema);
+	const runtime: QueryRuntime = { manifest };
+
+	it("joins the has-many aggregate alias and groups parent rows", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					name: "Alice",
+					__neoorm_posts: [],
+				},
+			],
+		});
+
+		await paginateRecords(executor, runtime, "users", {
+			where: { name: "Alice" },
+			orderBy: { name: "desc" },
+			take: 10,
+			with: { posts: true },
+		});
+
+		const sql = executor.queries[0]?.sql ?? "";
+		expect(sql).toContain('LEFT JOIN "posts" AS "_hm_posts"');
+		expect(sql).toContain("json_agg");
+		expect(sql).toContain("GROUP BY");
+		expect(sql).toContain('"users"."name"');
+		expect(sql).toContain('"users"."id"');
+		expect(sql).toContain(
+			'ORDER BY "users"."name" DESC, "users"."id" DESC',
+		);
+		expect(sql).toContain('WHERE "users"."name" = $1');
+	});
+
+	it("qualifies after-cursor tuples against the parent table", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					name: "Alice",
+					__neoorm_posts: [],
+				},
+			],
+		});
+
+		await paginateRecords(executor, runtime, "users", {
+			orderBy: { name: "desc" },
+			take: 10,
+			after: { name: "Bob", id: "user_9" },
+			with: { posts: true },
+		});
+
+		const sql = executor.queries[0]?.sql ?? "";
+		expect(sql).toContain('LEFT JOIN "posts" AS "_hm_posts"');
+		expect(sql).toContain('("users"."name", "users"."id") < ($1, $2)');
+	});
+
+	it("does not join has-many aliases without with", async () => {
+		const executor = createMockExecutor({
+			query: () => [
+				{
+					id: "user_1",
+					name: "Alice",
+				},
+			],
+		});
+
+		await paginateRecords(executor, runtime, "users", {
+			orderBy: { name: "desc" },
+			take: 10,
+		});
+
+		const sql = executor.queries[0]?.sql ?? "";
+		expect(sql).not.toContain("_hm_");
+		expect(sql).not.toContain("json_agg");
+		expect(sql).not.toContain("GROUP BY");
+		expect(sql).toContain('ORDER BY "name" DESC, "id" DESC');
+	});
+});

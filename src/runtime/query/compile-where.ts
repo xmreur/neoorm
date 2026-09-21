@@ -1311,6 +1311,7 @@ export function buildPaginateQuery(
 	select?: readonly string[],
 	includeHidden?: boolean,
 	dialect: Dialect = postgresDialect,
+	groupBySql?: string,
 ): string {
 	return buildFindManyQuery(
 		table,
@@ -1322,7 +1323,7 @@ export function buildPaginateQuery(
 		extraSelectCols,
 		joinClauses,
 		manifestIndex,
-		undefined,
+		groupBySql,
 		select,
 		includeHidden,
 		dialect,

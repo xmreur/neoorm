@@ -26,7 +26,9 @@ import {
 	resolveParentProjection,
 } from "./projection.js";
 import {
+	buildAggregateGroupBy,
 	buildPlanExtraSelectCols,
+	planMainQueryJoins,
 	planRelationLoad,
 } from "./relation-planner.js";
 import { getTableIndex, requireTable } from "./table-index.js";
@@ -107,8 +109,37 @@ export async function paginateRecords(
 		runtime.tableIndex,
 	);
 
+	const plan = planRelationLoad(
+		manifest,
+		table,
+		args.with,
+		dialect,
+		runtime.tableIndex,
+	);
+	const joinClauses = planMainQueryJoins(plan);
+	const groupBySql = buildAggregateGroupBy(plan);
+	const needsQualifiedRefs =
+		joinClauses !== undefined ||
+		plan.countAggregate !== undefined ||
+		plan.hasManyAggregate !== undefined ||
+		plan.joinedRelations.size > 0;
+	const qualifyAlias = needsQualifiedRefs ? table.sqlName : undefined;
+
 	let whereSql = userWhereSql;
 	let params = userParams;
+	if (needsQualifiedRefs) {
+		const qualifiedWhere = compileWhere(
+			manifest,
+			table,
+			args?.where,
+			dialect,
+			1,
+			runtime.tableIndex,
+			true,
+		);
+		whereSql = qualifiedWhere.sql;
+		params = qualifiedWhere.params;
+	}
 
 	if (args.after) {
 		const cursorWhere = compileCursorWhere(
@@ -117,6 +148,7 @@ export async function paginateRecords(
 			params.length + 1,
 			dialect,
 			"after",
+			qualifyAlias,
 		);
 		const merged = mergeWhereWithCursor(whereSql, params, cursorWhere);
 		whereSql = merged.sql;
@@ -130,6 +162,7 @@ export async function paginateRecords(
 			params.length + 1,
 			dialect,
 			"before",
+			qualifyAlias,
 		);
 		const merged = mergeWhereWithCursor(whereSql, params, cursorWhere);
 		whereSql = merged.sql;
@@ -138,13 +171,10 @@ export async function paginateRecords(
 
 	const backward = Boolean(args.before) && args.after === undefined;
 	const queryOrderSpec = backward ? flipOrderSpec(orderSpec) : orderSpec;
-	const orderSql = compileOrderByFromSpec(queryOrderSpec, dialect);
-	const plan = planRelationLoad(
-		manifest,
-		table,
-		args.with,
+	const orderSql = compileOrderByFromSpec(
+		queryOrderSpec,
 		dialect,
-		runtime.tableIndex,
+		qualifyAlias,
 	);
 	const extraSelect = args.with
 		? buildPlanExtraSelectCols(
@@ -162,11 +192,12 @@ export async function paginateRecords(
 		orderSql,
 		args.take,
 		extraSelect.cols.length > 0 ? extraSelect.cols : undefined,
-		plan.joins.length > 0 ? plan.joins : undefined,
+		joinClauses,
 		runtime.tableIndex,
 		sqlColumns,
 		projection.includeHidden,
 		dialect,
+		groupBySql || undefined,
 	);
 
 	const rows = await runQuery(
