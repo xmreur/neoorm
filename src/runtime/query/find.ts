@@ -52,6 +52,7 @@ import {
 	getCachedFindByIdWithQuery,
 	getCachedRelationPlan,
 	hydrateRowsWithPlan,
+	planMainQueryJoins,
 	planRelationLoad,
 	type RelationLoadPlan,
 	type RelationPlanOptions,
@@ -923,14 +924,7 @@ async function executeFindManyWithRelations(
 			dialect,
 		);
 
-	const joinClauses =
-		plan.countAggregate && plan.countAggregate.joins.length > 0
-			? plan.countAggregate.joins
-			: plan.hasManyAggregate && plan.hasManyAggregate.joins.length > 0
-				? plan.hasManyAggregate.joins
-				: plan.joins.length > 0
-					? plan.joins
-					: undefined;
+	const joinClauses = planMainQueryJoins(plan);
 	const groupBySql = buildCountAggregateGroupBy(plan);
 
 	const distinctOn = normalizeSelectColumns(args.distinct);

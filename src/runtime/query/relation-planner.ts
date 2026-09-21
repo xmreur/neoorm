@@ -1279,6 +1279,21 @@ export function hasPlanMainQueryExtras(plan: RelationLoadPlan): boolean {
 	);
 }
 
+export function planMainQueryJoins(
+	plan: RelationLoadPlan,
+): string[] | undefined {
+	if (plan.countAggregate && plan.countAggregate.joins.length > 0) {
+		return plan.countAggregate.joins;
+	}
+	if (plan.hasManyAggregate && plan.hasManyAggregate.joins.length > 0) {
+		return plan.hasManyAggregate.joins;
+	}
+	if (plan.joins.length > 0) {
+		return plan.joins;
+	}
+	return undefined;
+}
+
 export function withShapeSignature(
 	withSpec: Record<string, WithInput>,
 ): string {
@@ -1391,12 +1406,7 @@ export function getCachedFindByIdWithQuery(
 	const pkCol = dialect.quoteIdentifier(sqlName);
 
 	const build = (): string => {
-		const joinClauses =
-			plan.hasManyAggregate && plan.hasManyAggregate.joins.length > 0
-				? plan.hasManyAggregate.joins
-				: plan.joins.length > 0
-					? plan.joins
-					: undefined;
+		const joinClauses = planMainQueryJoins(plan);
 		const hasJoins = Boolean(joinClauses && joinClauses.length > 0);
 		const selectCols = hasJoins
 			? buildQualifiedSelectColumns(
