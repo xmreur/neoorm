@@ -330,6 +330,15 @@ function compileColumnCondition(
 			}
 			continue;
 		}
+		if (
+			(operator === "in" || operator === "notIn") &&
+			!Array.isArray(value)
+		) {
+			compileError(`"${operator}" requires an array of values`, {
+				code: QueryErrorCode.invalid_args,
+				columnTsName: col.tsName,
+			});
+		}
 		const transform = operatorParamTransform[operator];
 		let paramValue: unknown =
 			operator === "in" || operator === "notIn"
