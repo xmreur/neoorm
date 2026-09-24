@@ -18,6 +18,7 @@ import {
 	normalizeSelectColumns,
 	type OrderByInput,
 	orderByShapeKey,
+	parseOrderDirection,
 	whereShapeKey,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
@@ -1247,7 +1248,7 @@ export function compileCountOrderBy(
 		const targetTable = manifest.tables[relation.targetAccessor];
 		if (!targetTable) continue;
 
-		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+		const dir = parseOrderDirection(direction);
 		const joinedAlias = dialect.quoteIdentifier(`_cnt_${relationName}`);
 		const isJoined = plan.countAggregate.joins.some((join) =>
 			join.includes(`AS ${joinedAlias}`),

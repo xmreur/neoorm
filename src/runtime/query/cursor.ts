@@ -7,7 +7,7 @@ import type {
 } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
 import { QueryErrorCode } from "../error-codes.js";
-import { serializeColumnValue } from "./compile.js";
+import { parseOrderDirection, serializeColumnValue } from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
 	columnByTsName,
@@ -50,7 +50,14 @@ export function resolveOrderSpec(
 			"orderBy",
 			"select",
 		);
-		const dir = direction.toLowerCase() === "desc" ? "desc" : "asc";
+		if (typeof direction !== "string") {
+			compileError('orderBy direction must be "asc" or "desc"', {
+				code: QueryErrorCode.invalid_args,
+			});
+		}
+		const dir = parseOrderDirection(direction).toLowerCase() as
+			| "asc"
+			| "desc";
 		directions.add(dir);
 		specs.push({
 			tsName: tsKey,

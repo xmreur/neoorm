@@ -11,6 +11,7 @@ import {
 	buildSelectColumns,
 	normalizeLimitOffset,
 	type OrderByInput,
+	parseOrderDirection,
 } from "./compile-where.js";
 import {
 	columnByTsName,
@@ -656,7 +657,7 @@ export function compileGroupByOrderBy(
 		if (tsKey === "_count") {
 			if (typeof direction === "string") {
 				requireStarCount(selectors, "orderBy._count");
-				const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+				const dir = parseOrderDirection(direction);
 				parts.push(`${countStarExpr()} ${dir}`);
 				continue;
 			}
@@ -672,7 +673,7 @@ export function compileGroupByOrderBy(
 					field,
 					`orderBy._count.${field}`,
 				);
-				const dir = colDir.toUpperCase() === "DESC" ? "DESC" : "ASC";
+				const dir = parseOrderDirection(colDir);
 				parts.push(
 					`${countFieldExpr(table, field, manifestIndex, dialect)} ${dir}`,
 				);
@@ -704,7 +705,7 @@ export function compileGroupByOrderBy(
 					dialect,
 					manifestIndex,
 				);
-				const dir = colDir.toUpperCase() === "DESC" ? "DESC" : "ASC";
+				const dir = parseOrderDirection(colDir);
 				parts.push(`${expr} ${dir}`);
 			}
 			continue;
@@ -721,7 +722,7 @@ export function compileGroupByOrderBy(
 			"groupBy orderBy",
 			"select",
 		);
-		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+		const dir = parseOrderDirection(direction);
 		parts.push(`${dialect.quoteIdentifier(col.sqlName)} ${dir}`);
 	}
 

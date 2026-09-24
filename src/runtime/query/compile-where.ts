@@ -1067,6 +1067,24 @@ export function isImpossibleWhere(whereSql: string): boolean {
 	return isImpossibleWhereSql(whereSql.replace(/^WHERE\s+/i, ""));
 }
 
+/**
+ * Fail-loud orderBy direction parsing shared by every orderBy compiler.
+ * Mirrors sqlOrderDirection in sql/builder.ts: anything but asc/desc
+ * (any casing) is a user error, never silently coerced to ASC.
+ */
+export function parseOrderDirection(direction: string): "ASC" | "DESC" {
+	switch (direction.toLowerCase()) {
+		case "asc":
+			return "ASC";
+		case "desc":
+			return "DESC";
+		default:
+			compileError('orderBy direction must be "asc" or "desc"', {
+				code: QueryErrorCode.invalid_args,
+			});
+	}
+}
+
 export function compileOrderBy(
 	table: ManifestTable,
 	orderBy: OrderByInput | undefined,
@@ -1088,7 +1106,7 @@ export function compileOrderBy(
 			"orderBy",
 			"select",
 		);
-		const dir = direction.toUpperCase() === "DESC" ? "DESC" : "ASC";
+		const dir = parseOrderDirection(direction);
 		parts.push(`${prefix}${dialect.quoteIdentifier(col.sqlName)} ${dir}`);
 	}
 
