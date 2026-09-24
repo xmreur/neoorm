@@ -17,6 +17,7 @@ import {
 	columnBySqlName,
 	columnByTsName,
 	compareKeys,
+	deleteByPkSqlFor,
 	getOrSetSqlCache,
 	getTableIndex,
 	type ManifestIndex,
@@ -611,8 +612,7 @@ export function getCachedDeleteByPkQuery(
 	dialect: Dialect = postgresDialect,
 	manifestIndex?: ManifestIndex,
 ): string {
-	if (tableIndex?.deleteByPkSql) return tableIndex.deleteByPkSql;
-	return buildDeleteByPkQuery(table, dialect, manifestIndex);
+	return deleteByPkSqlFor(tableIndex, table, dialect, manifestIndex);
 }
 
 export function serializePkEqualityParams(

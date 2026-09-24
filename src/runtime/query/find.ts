@@ -60,6 +60,8 @@ import {
 } from "./relation-planner.js";
 import {
 	columnBySqlName,
+	findAllSqlFor,
+	findByIdSqlFor,
 	getTableIndex,
 	type ManifestIndex,
 	requireTable,
@@ -1045,12 +1047,13 @@ export async function findMany(
 	if (isBareFindMany(args, projection) && tableIndex) {
 		const take = args?.take;
 		const skip = args?.skip;
+		const findAllSql = findAllSqlFor(tableIndex, table, dialect);
 		if (!args?.orderBy && take === undefined && skip === undefined) {
 			const rows = await runQuery(
 				executor,
 				runtime,
 				queryCtx,
-				tableIndex.findAllSql,
+				findAllSql,
 				[],
 			);
 			return mapRowsToTs(tableIndex, table, rows);
@@ -1064,12 +1067,10 @@ export async function findMany(
 				runtime.tableIndex,
 				dialect,
 			);
-			const signature = `all|${orderSql}|${take ?? ""}|${skip ?? ""}`;
+			const signature = `${dialect.name}|all|${orderSql}|${take ?? ""}|${skip ?? ""}`;
 			const query = getCachedFindManyQuery(tableIndex, signature, () =>
 				appendLimitOffset(
-					orderSql
-						? `${tableIndex.findAllSql} ${orderSql}`
-						: tableIndex.findAllSql,
+					orderSql ? `${findAllSql} ${orderSql}` : findAllSql,
 					take,
 					skip,
 				),
@@ -1352,18 +1353,32 @@ export async function findById(
 		const query = projection.hasProjection
 			? getCachedFindManyQuery(
 					tableIndex,
-					`byId|${projectionSignature(projection.sqlColumns, projection.includeHidden)}`,
+					`${dialect.name}|byId|${projectionSignature(projection.sqlColumns, projection.includeHidden)}`,
 					() =>
 						buildFindByIdQuery(
 							table,
 							projection.sqlColumns,
 							runtime.tableIndex,
 							projection.includeHidden,
+							dialect,
 						),
 				)
 			: projection.includeHidden
-				? buildFindByIdQuery(table, undefined, runtime.tableIndex, true)
-				: tableIndex?.findByIdSql || buildFindByIdQuery(table);
+				? buildFindByIdQuery(
+						table,
+						undefined,
+						runtime.tableIndex,
+						true,
+						dialect,
+					)
+				: findByIdSqlFor(tableIndex, table, dialect) ||
+					buildFindByIdQuery(
+						table,
+						undefined,
+						runtime.tableIndex,
+						undefined,
+						dialect,
+					);
 		const row = await runQueryOne(executor, runtime, ctx, query, [pkValue]);
 		return row
 			? projectFindRow(mapRowToTs(tableIndex, table, row), projection)
