@@ -658,6 +658,7 @@ function buildHasManySubqueryFromRef(
 			node.nestedSpec.orderBy,
 			childAlias,
 			manifestIndex,
+			dialect,
 		)}`;
 	}
 	if (node.nestedSpec?.take !== undefined) {
