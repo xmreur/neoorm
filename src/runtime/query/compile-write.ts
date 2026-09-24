@@ -581,7 +581,7 @@ export function getCachedUpdateByPkQuery(
 	const opKey = ordered.keys
 		.map((key, i) => `${key}:${ordered.ops[i] ?? "set"}`)
 		.join(",");
-	const cacheKey = `${dialect.name}|${opKey}|${exprSets.length}`;
+	const cacheKey = `${dialect.name}|${opKey}|${exprSets.join("\0")}`;
 	if (!tableIndex) {
 		return buildUpdateByPkQuery(
 			table,
@@ -721,7 +721,7 @@ export function getCachedUpdateManyQuery(
 	const opKey = ordered.keys
 		.map((key, i) => `${key}:${ordered.ops[i] ?? "set"}`)
 		.join(",");
-	const cacheKey = `${dialect.name}|${opKey}|${exprSets.length}|${whereSql}`;
+	const cacheKey = `${dialect.name}|${opKey}|${exprSets.join("\0")}|${whereSql}`;
 	if (!tableIndex) {
 		return buildUpdateManyQuery(
 			table,

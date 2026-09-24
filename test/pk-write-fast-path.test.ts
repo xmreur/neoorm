@@ -9,6 +9,7 @@ import {
 	buildDeleteByPkQuery,
 	buildUpdateByPkQuery,
 	getCachedUpdateByPkQuery,
+	getCachedUpdateManyQuery,
 } from "../src/runtime/query/compile.js";
 import {
 	deleteById,
@@ -118,6 +119,65 @@ describe("PK write SQL compilation", () => {
 		);
 		expect(second).toBe(first);
 		expect(tableIndex.updateByPkSqlByKeys.size).toBe(1);
+	});
+
+	it("keys update-by-PK cache on exprSets content, not length", () => {
+		const runtime = createRuntime();
+		const tableIndex = defined(
+			runtime.tableIndex?.get("users"),
+			"users table index",
+		);
+		const now = getCachedUpdateByPkQuery(
+			tableIndex,
+			users,
+			["name"],
+			['"updated_at" = NOW()'],
+			runtime.tableIndex,
+			postgresDialect,
+		);
+		const fixed = getCachedUpdateByPkQuery(
+			tableIndex,
+			users,
+			["name"],
+			["\"updated_at\" = '2000-01-01'"],
+			runtime.tableIndex,
+			postgresDialect,
+		);
+		expect(now).toContain("NOW()");
+		expect(fixed).toContain("2000-01-01");
+		expect(fixed).not.toBe(now);
+		expect(tableIndex.updateByPkSqlByKeys.size).toBe(2);
+	});
+
+	it("keys update-many cache on exprSets content, not length", () => {
+		const runtime = createRuntime();
+		const tableIndex = defined(
+			runtime.tableIndex?.get("users"),
+			"users table index",
+		);
+		const whereSql = 'WHERE "id" = $2';
+		const now = getCachedUpdateManyQuery(
+			tableIndex,
+			users,
+			["name"],
+			whereSql,
+			['"updated_at" = NOW()'],
+			runtime.tableIndex,
+			postgresDialect,
+		);
+		const fixed = getCachedUpdateManyQuery(
+			tableIndex,
+			users,
+			["name"],
+			whereSql,
+			["\"updated_at\" = '2000-01-01'"],
+			runtime.tableIndex,
+			postgresDialect,
+		);
+		expect(now).toContain("NOW()");
+		expect(fixed).toContain("2000-01-01");
+		expect(fixed).not.toBe(now);
+		expect(tableIndex.updateManySqlByKeys.size).toBe(2);
 	});
 
 	it("MySQL omits RETURNING even when full is requested", () => {
