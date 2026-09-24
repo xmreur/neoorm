@@ -103,6 +103,28 @@ describe("where compilation", () => {
 		expect(params).toEqual([["user_1", "user_2"]]);
 	});
 
+	it("throws on scalar in value instead of miscompiling", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				users,
+				{ email: { in: "a@b.c" } },
+				postgresDialect,
+			),
+		).toThrow('"in" requires an array of values');
+	});
+
+	it("throws on scalar notIn value", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				users,
+				{ email: { notIn: "a@b.c" } },
+				postgresDialect,
+			),
+		).toThrow('"notIn" requires an array of values');
+	});
+
 	it("compiles to-many relation filter with some", () => {
 		const { sql, params } = compileWhere(
 			manifest,
