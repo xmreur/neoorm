@@ -40,6 +40,7 @@ export {
 	normalizeSelectColumns,
 	type OrderByInput,
 	orderByShapeKey,
+	parseOrderDirection,
 	serializeColumnValue,
 	type WhereClause,
 	whereShapeKey,
