@@ -1,4 +1,4 @@
-import { defineSchema, id, table, text, timestamps } from "neoorm/schema";
+import { defineSchema, fk, id, table, text, timestamps } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
@@ -156,5 +156,75 @@ describe("pre-baked TableIndex SQL is dialect-aware", () => {
 		deleteByPkSqlFor(tableIndex, users, mysqlDialect, runtime.tableIndex);
 		expect(tableIndex.deleteByPkSqlByDialect.size).toBe(1);
 		expect(tableIndex.dialectName).toBe("postgresql");
+	});
+});
+
+describe("findMany cached-query signatures are dialect-scoped", () => {
+	const relSchema = defineSchema({
+		users: table({
+			id: id(),
+			name: text().notNull(),
+		}),
+		posts: table({
+			id: id(),
+			title: text().notNull(),
+			authorId: fk("users.id").as("author").inverse("posts").notNull(),
+		}),
+	});
+
+	function createSharedRuntimes(): {
+		pgRuntime: QueryRuntime;
+		mysqlRuntime: QueryRuntime;
+	} {
+		const manifest = schemaToManifest(relSchema);
+		const tableIndex = buildManifestIndex(manifest);
+		return {
+			pgRuntime: { manifest, tableIndex },
+			mysqlRuntime: { manifest, dialect: mysqlDialect, tableIndex },
+		};
+	}
+
+	it("projected findMany with take does not reuse pg SQL for mysql", async () => {
+		const { pgRuntime, mysqlRuntime } = createSharedRuntimes();
+		const pgExecutor = createMockExecutor({
+			query: () => [{ id: "u1", name: "Alice" }],
+		});
+		await findMany(pgExecutor, pgRuntime, "users", {
+			take: 5,
+			select: ["id", "name"],
+		});
+		expect(pgExecutor.queries[0]?.sql).toContain('"users"');
+
+		const mysqlExecutor = createMockExecutor({
+			query: () => [{ id: "u1", name: "Alice" }],
+		});
+		await findMany(mysqlExecutor, mysqlRuntime, "users", {
+			take: 5,
+			select: ["id", "name"],
+		});
+		expect(mysqlExecutor.queries[0]?.sql).toContain("`users`");
+		expect(mysqlExecutor.queries[0]?.sql).not.toContain('"users"');
+	});
+
+	it("findMany with relations does not reuse pg SQL for mysql", async () => {
+		const { pgRuntime, mysqlRuntime } = createSharedRuntimes();
+		const pgExecutor = createMockExecutor({
+			query: () => [{ id: "p1", title: "Hello" }],
+		});
+		await findMany(pgExecutor, pgRuntime, "posts", {
+			take: 5,
+			with: { author: true },
+		});
+		expect(pgExecutor.queries[0]?.sql).toContain('"posts"');
+
+		const mysqlExecutor = createMockExecutor({
+			query: () => [{ id: "p1", title: "Hello" }],
+		});
+		await findMany(mysqlExecutor, mysqlRuntime, "posts", {
+			take: 5,
+			with: { author: true },
+		});
+		expect(mysqlExecutor.queries[0]?.sql).toContain("`posts`");
+		expect(mysqlExecutor.queries[0]?.sql).not.toContain('"posts"');
 	});
 });

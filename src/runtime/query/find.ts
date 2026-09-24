@@ -939,7 +939,7 @@ async function executeFindManyWithRelations(
 		projection.sqlColumns,
 		projection.includeHidden,
 	);
-	const signature = `${whereSql}|${orderSqlForWith}|${args.take ?? ""}|${args.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
+	const signature = `${dialect.name}|${whereSql}|${orderSqlForWith}|${args.take ?? ""}|${args.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
 	const query = getCachedFindManyQuery(tableIndex, signature, () =>
 		buildFindManyQuery(
 			table,
@@ -1113,7 +1113,7 @@ export async function findMany(
 			projection.sqlColumns,
 			projection.includeHidden,
 		);
-		const signature = `${whereSql}|${orderSql}|${args?.take ?? ""}|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
+		const signature = `${dialect.name}|${whereSql}|${orderSql}|${args?.take ?? ""}|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
 				table,
@@ -1205,7 +1205,7 @@ export async function findFirst(
 			projection.sqlColumns,
 			projection.includeHidden,
 		);
-		const signature = `${whereSql}|${orderSql}|1|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
+		const signature = `${dialect.name}|${whereSql}|${orderSql}|1|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
 				table,
