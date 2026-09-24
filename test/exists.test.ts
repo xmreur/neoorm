@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { existsRecords } from "../src/runtime/query/count.js";
 import type { QueryRuntime } from "../src/runtime/query/execute.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
@@ -60,5 +61,26 @@ describe("exists", () => {
 
 		expect(found).toBe(false);
 		expect(executor.queries).toHaveLength(0);
+	});
+
+	it("uses mysql quoting and placeholders for the exists query", async () => {
+		const mysqlRuntime: QueryRuntime = {
+			manifest,
+			dialect: mysqlDialect,
+		};
+		const executor = createMockExecutor({
+			queryOne: () => ({ "?column?": 1 }),
+		});
+
+		const found = await existsRecords(executor, mysqlRuntime, "users", {
+			where: { email: "a@b.com" },
+		});
+
+		expect(found).toBe(true);
+		expect(executor.queries).toHaveLength(1);
+		expect(executor.queries[0]?.sql).toBe(
+			"SELECT 1 FROM `users` WHERE `email` = ? LIMIT 1",
+		);
+		expect(executor.queries[0]?.params).toEqual(["a@b.com"]);
 	});
 });
