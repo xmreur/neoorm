@@ -112,7 +112,7 @@ export async function existsRecords(
 		return false;
 	}
 
-	const query = buildExistsQuery(table, compiled.sql);
+	const query = buildExistsQuery(table, compiled.sql, dialect);
 	const row = await runQueryOne(
 		executor,
 		runtime,
