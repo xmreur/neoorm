@@ -658,6 +658,36 @@ describe("where compilation", () => {
 		expect(sql.match(/"published" = \$1/g)).toHaveLength(1);
 		expect(params).toEqual([true]);
 	});
+
+	it("correlates a nested to-one filter to the parent alias", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { some: { author: { email: "a@b.c" } } } },
+			postgresDialect,
+		);
+		expect(sql).toContain('"posts" AS "_rel"');
+		expect(sql).toContain('"users" AS "_rel1"');
+		expect(sql).toContain('"_rel1"."id" = "_rel"."author_id"');
+		expect(sql).toContain('"_rel1"."email" = $1');
+		expect(sql).not.toContain('"posts"."author_id"');
+		expect(params).toEqual(["a@b.c"]);
+	});
+
+	it("correlates a nested to-many filter to the parent alias", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { some: { comments: { some: { body: "hi" } } } } },
+			postgresDialect,
+		);
+		expect(sql).toContain('"posts" AS "_rel"');
+		expect(sql).toContain('"comments" AS "_rel1"');
+		expect(sql).toContain('"_rel1"."post_id" = "_rel"."id"');
+		expect(sql).toContain('"_rel1"."body" = $1');
+		expect(sql).not.toContain('"posts"."id"');
+		expect(params).toEqual(["hi"]);
+	});
 });
 
 describe("orderBy compilation", () => {
