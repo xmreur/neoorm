@@ -961,9 +961,10 @@ export function getCachedWhereClause(
 	}
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
-	const shape = qualifyColumns
+	const baseShape = qualifyColumns
 		? `${whereShapeKey(where)}|qualified`
 		: whereShapeKey(where);
+	const shape = `${dialect.name}|${baseShape}`;
 
 	const shellCached = tableIndex?.whereClauseByShape.get(shape);
 	if (shellCached) {
