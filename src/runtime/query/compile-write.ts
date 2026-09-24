@@ -1,4 +1,8 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import {
+	dialectDisplayName,
+	isMysqlFamilyDialect,
+} from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -191,6 +195,23 @@ function buildSetExpression(
 	}
 }
 
+/**
+ * MySQL/MariaDB ON DUPLICATE KEY UPDATE cannot scope conflicts to a
+ * WHERE predicate, so a partial unique target would silently degrade to
+ * an unconditional upsert. Fail loud instead.
+ */
+function assertFullConflictTarget(
+	dialect: Dialect,
+	conflictWhereSql: string | undefined,
+	operation: string,
+): void {
+	if (conflictWhereSql && isMysqlFamilyDialect(dialect)) {
+		compileError(
+			`${operation} with a partial unique index is not supported on ${dialectDisplayName(dialect.name)} (ON DUPLICATE KEY UPDATE cannot scope conflicts to a WHERE predicate)`,
+		);
+	}
+}
+
 export function buildUpsertQuery(
 	table: ManifestTable,
 	insertKeys: string[],
@@ -202,6 +223,7 @@ export function buildUpsertQuery(
 	updateOps?: readonly AtomicUpdateOp[],
 	conflictWhereSql?: string,
 ): string {
+	assertFullConflictTarget(dialect, conflictWhereSql, "upsert");
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
 		return dialect.quoteIdentifier(col?.sqlName ?? k);
@@ -270,6 +292,7 @@ export function buildFindOrCreateQuery(
 	if (conflictSqlColumns.length === 0) {
 		compileError("findOrCreate requires a unique conflict target");
 	}
+	assertFullConflictTarget(dialect, conflictWhereSql, "findOrCreate");
 
 	const insertCols = insertKeys.map((k) => {
 		const col = colByTs(table, k, manifestIndex);
