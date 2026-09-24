@@ -1,4 +1,4 @@
-import { defineSchema, table, text, id } from "neoorm/schema";
+import { defineSchema, id, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
