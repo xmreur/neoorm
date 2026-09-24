@@ -202,14 +202,6 @@ function qualifiedColumnRefForTable(
 		`${dialect.tableRef(table)}.${dialect.quoteIdentifier(col.sqlName)}`;
 }
 
-function parentPkRef(
-	table: ManifestTable,
-	dialect: Dialect = postgresDialect,
-): string {
-	const pkSql = primaryKeySqlName(table);
-	return `${dialect.tableRef(table)}.${dialect.quoteIdentifier(pkSql)}`;
-}
-
 function knownWhereOperatorNames(
 	col: ManifestColumn,
 	dialect: Dialect,
@@ -397,6 +389,32 @@ function compileExistsSubquery(existsSql: string, negate: boolean): string {
 	return negate ? `NOT EXISTS (${existsSql})` : `EXISTS (${existsSql})`;
 }
 
+type WhereAliasScope = {
+	rel: number;
+	jt: number;
+};
+
+function freshWhereAliasScope(): WhereAliasScope {
+	return { rel: 0, jt: 0 };
+}
+
+/**
+ * Unique aliases per nesting level. The first level keeps the historic
+ * `_rel` / `_jt` names so existing single-level SQL is unchanged; deeper
+ * levels get `_rel1`, `_jt1`, … so nested EXISTS subqueries neither
+ * shadow their parent scope nor correlate against an invisible real
+ * table name.
+ */
+function nextRelAlias(scope: WhereAliasScope): string {
+	const n = scope.rel++;
+	return n === 0 ? "_rel" : `_rel${n}`;
+}
+
+function nextJunctionAlias(scope: WhereAliasScope): string {
+	const n = scope.jt++;
+	return n === 0 ? "_jt" : `_jt${n}`;
+}
+
 function compileRelationCondition(
 	manifest: Manifest,
 	parentTable: ManifestTable,
@@ -405,6 +423,8 @@ function compileRelationCondition(
 	dialect: Dialect,
 	paramIndex: number,
 	manifestIndex?: ManifestIndex,
+	parentRef?: string,
+	aliasScope?: WhereAliasScope,
 ): CompiledNode {
 	const m2m = findM2M(manifest, parentTable.accessor, relation.name);
 	const targetTable = manifest.tables[relation.targetAccessor];
@@ -413,6 +433,9 @@ function compileRelationCondition(
 	}
 
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const scope = aliasScope ?? freshWhereAliasScope();
+	/** How the parent scope is addressable: its alias when nested, else its real table ref. */
+	const parent = parentRef ?? dialect.tableRef(parentTable);
 
 	if (relation.cardinality === "one") {
 		if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
@@ -425,7 +448,7 @@ function compileRelationCondition(
 			);
 		}
 
-		const relAlias = "_rel";
+		const relAlias = nextRelAlias(scope);
 		const columnRef = (col: ManifestColumn) =>
 			`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
 		const nested = compileWhereNode(
@@ -436,12 +459,14 @@ function compileRelationCondition(
 			paramIndex,
 			columnRef,
 			manifestIndex,
+			dialect.quoteIdentifier(relAlias),
+			scope,
 		);
 		const joinCond = ownedFkJoinPredicate(
 			dialect,
 			parentTable,
 			parentTableIndex,
-			dialect.tableRef(parentTable),
+			parent,
 			relAlias,
 			relation,
 		);
@@ -512,7 +537,7 @@ function compileRelationCondition(
 		);
 	}
 
-	const relAlias = "_rel";
+	const relAlias = nextRelAlias(scope);
 	const columnRef = (col: ManifestColumn) =>
 		`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
 	const nested = compileWhereNode(
@@ -523,6 +548,8 @@ function compileRelationCondition(
 		paramIndex,
 		columnRef,
 		manifestIndex,
+		dialect.quoteIdentifier(relAlias),
+		scope,
 	);
 
 	let fromClause: string;
@@ -534,13 +561,13 @@ function compileRelationCondition(
 		if (!throughTable) {
 			return { sql: "", params: [], nextParamIndex: paramIndex };
 		}
-		const junctionAlias = "_jt";
+		const junctionAlias = nextJunctionAlias(scope);
 		const parentFkCol = isLeft ? m2m.leftFkColumn : m2m.rightFkColumn;
 		const targetFkCol = isLeft ? m2m.rightFkColumn : m2m.leftFkColumn;
 		const targetPkSql = targetRelationPkSql(targetTable);
 		fromClause = `${dialect.tableRef(throughTable)} AS ${dialect.quoteIdentifier(junctionAlias)} INNER JOIN ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)} ON ${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(targetPkSql)} = ${dialect.quoteIdentifier(junctionAlias)}.${dialect.quoteIdentifier(targetFkCol)}`;
 		joinParts.push(
-			`${dialect.quoteIdentifier(junctionAlias)}.${dialect.quoteIdentifier(parentFkCol)} = ${parentPkRef(parentTable, dialect)}`,
+			`${dialect.quoteIdentifier(junctionAlias)}.${dialect.quoteIdentifier(parentFkCol)} = ${parent}.${dialect.quoteIdentifier(primaryKeySqlName(parentTable))}`,
 		);
 	} else {
 		fromClause = `${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)}`;
@@ -548,7 +575,7 @@ function compileRelationCondition(
 			inverseFkJoinPredicate(
 				dialect,
 				relAlias,
-				dialect.tableRef(parentTable),
+				parent,
 				relation,
 				primaryKeySqlName(parentTable),
 			),
@@ -612,6 +639,8 @@ function compileLogicalCombinator(
 	startParamIndex: number,
 	columnRef: (col: ManifestColumn) => string,
 	manifestIndex?: ManifestIndex,
+	parentRef?: string,
+	aliasScope?: WhereAliasScope,
 ): CompiledNode {
 	if (!Array.isArray(value)) {
 		compileError(`${combinator} must be an array of where objects`, {
@@ -645,6 +674,8 @@ function compileLogicalCombinator(
 			paramIndex,
 			columnRef,
 			manifestIndex,
+			parentRef,
+			aliasScope,
 		);
 		parts.push(`(${compiled.sql || "1=1"})`);
 		params.push(...compiled.params);
@@ -673,11 +704,15 @@ function compileWhereNode(
 	startParamIndex: number,
 	columnRef: (col: ManifestColumn) => string = defaultColumnRef,
 	manifestIndex?: ManifestIndex,
+	parentRef?: string,
+	aliasScope?: WhereAliasScope,
 ): CompiledNode {
 	const conditions: string[] = [];
 	const params: unknown[] = [];
 	let paramIndex = startParamIndex;
 	let impossible = false;
+	const scope = aliasScope ?? freshWhereAliasScope();
+	const parent = parentRef ?? dialect.tableRef(table);
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const relations =
@@ -699,6 +734,8 @@ function compileWhereNode(
 				paramIndex,
 				columnRef,
 				manifestIndex,
+				parent,
+				scope,
 			);
 			conditions.push(compiled.sql);
 			params.push(...compiled.params);
@@ -721,6 +758,8 @@ function compileWhereNode(
 				paramIndex,
 				columnRef,
 				manifestIndex,
+				parent,
+				scope,
 			);
 			conditions.push(`NOT (${compiled.sql || "1=1"})`);
 			params.push(...compiled.params);
@@ -738,6 +777,8 @@ function compileWhereNode(
 				dialect,
 				paramIndex,
 				manifestIndex,
+				parent,
+				scope,
 			);
 			if (compiled.sql) conditions.push(compiled.sql);
 			params.push(...compiled.params);
@@ -798,6 +839,9 @@ export function compileWhere(
 		startParamIndex,
 		columnRef,
 		manifestIndex,
+		tableAlias
+			? dialect.quoteIdentifier(tableAlias)
+			: dialect.tableRef(table),
 	);
 	return {
 		sql: result.sql ? `WHERE ${result.sql}` : "",
