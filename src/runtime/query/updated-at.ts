@@ -4,8 +4,7 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../../dialect/types.js";
-import { getColumnType } from "../../plugins/registry.js";
-import type { TableIndex } from "./table-index.js";
+import { type TableIndex, updatedAtSetExprsFor } from "./table-index.js";
 
 export function getUpdatedAtColumns(
 	tableIndex: TableIndex | undefined,
@@ -43,14 +42,5 @@ export function updatedAtSetExpressions(
 	tableIndex?: TableIndex,
 	dialect: Dialect = postgresDialect,
 ): string[] {
-	if (tableIndex) return tableIndex.updatedAtSetExprs;
-	const cols = getUpdatedAtColumns(undefined, table);
-	if (cols.length === 0) return [];
-	return cols.map((col) => {
-		const plugin = getColumnType(col.kind);
-		const expr =
-			plugin?.updatedAtExpression?.(col, dialect) ??
-			dialect.defaultNowExpression();
-		return `${dialect.quoteIdentifier(col.sqlName)} = ${expr}`;
-	});
+	return updatedAtSetExprsFor(tableIndex, table, dialect);
 }

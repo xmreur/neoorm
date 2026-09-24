@@ -230,7 +230,7 @@ async function runUpdate(
 		runtime.tableIndex,
 		dialect,
 	);
-	const exprSets = updatedAtSetExpressions(table, tableIndex);
+	const exprSets = updatedAtSetExpressions(table, tableIndex, dialect);
 	const needsRelationWrites = hasPostRelationWrites(
 		table,
 		manifest,
@@ -572,7 +572,7 @@ async function runUpdateMany(
 		runtime.tableIndex,
 		dialect,
 	);
-	const exprSets = updatedAtSetExpressions(table, tableIndex);
+	const exprSets = updatedAtSetExpressions(table, tableIndex, dialect);
 	const needsPostRelationWrites = hasPostRelationWrites(
 		table,
 		manifest,
@@ -755,7 +755,7 @@ async function runUpdateManyScalar(
 		runtime.tableIndex,
 		dialect,
 	);
-	const exprSets = updatedAtSetExpressions(table, tableIndex);
+	const exprSets = updatedAtSetExpressions(table, tableIndex, dialect);
 
 	if (keys.length === 0 && exprSets.length === 0) {
 		compileError(

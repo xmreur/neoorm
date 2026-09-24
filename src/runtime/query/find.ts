@@ -60,6 +60,8 @@ import {
 } from "./relation-planner.js";
 import {
 	columnBySqlName,
+	findAllSqlFor,
+	findByIdSqlFor,
 	getTableIndex,
 	type ManifestIndex,
 	requireTable,
@@ -937,7 +939,7 @@ async function executeFindManyWithRelations(
 		projection.sqlColumns,
 		projection.includeHidden,
 	);
-	const signature = `${whereSql}|${orderSqlForWith}|${args.take ?? ""}|${args.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
+	const signature = `${dialect.name}|${whereSql}|${orderSqlForWith}|${args.take ?? ""}|${args.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${withSignature}|${planMode}|${groupBySql}|${projSig}`;
 	const query = getCachedFindManyQuery(tableIndex, signature, () =>
 		buildFindManyQuery(
 			table,
@@ -1045,12 +1047,13 @@ export async function findMany(
 	if (isBareFindMany(args, projection) && tableIndex) {
 		const take = args?.take;
 		const skip = args?.skip;
+		const findAllSql = findAllSqlFor(tableIndex, table, dialect);
 		if (!args?.orderBy && take === undefined && skip === undefined) {
 			const rows = await runQuery(
 				executor,
 				runtime,
 				queryCtx,
-				tableIndex.findAllSql,
+				findAllSql,
 				[],
 			);
 			return mapRowsToTs(tableIndex, table, rows);
@@ -1064,12 +1067,10 @@ export async function findMany(
 				runtime.tableIndex,
 				dialect,
 			);
-			const signature = `all|${orderSql}|${take ?? ""}|${skip ?? ""}`;
+			const signature = `${dialect.name}|all|${orderSql}|${take ?? ""}|${skip ?? ""}`;
 			const query = getCachedFindManyQuery(tableIndex, signature, () =>
 				appendLimitOffset(
-					orderSql
-						? `${tableIndex.findAllSql} ${orderSql}`
-						: tableIndex.findAllSql,
+					orderSql ? `${findAllSql} ${orderSql}` : findAllSql,
 					take,
 					skip,
 				),
@@ -1112,7 +1113,7 @@ export async function findMany(
 			projection.sqlColumns,
 			projection.includeHidden,
 		);
-		const signature = `${whereSql}|${orderSql}|${args?.take ?? ""}|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
+		const signature = `${dialect.name}|${whereSql}|${orderSql}|${args?.take ?? ""}|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
 				table,
@@ -1204,7 +1205,7 @@ export async function findFirst(
 			projection.sqlColumns,
 			projection.includeHidden,
 		);
-		const signature = `${whereSql}|${orderSql}|1|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
+		const signature = `${dialect.name}|${whereSql}|${orderSql}|1|${args?.skip ?? ""}|${distinctOn?.join(",") ?? ""}|${projSig}`;
 		const query = getCachedFindManyQuery(tableIndex, signature, () =>
 			buildFindManyQuery(
 				table,
@@ -1352,18 +1353,32 @@ export async function findById(
 		const query = projection.hasProjection
 			? getCachedFindManyQuery(
 					tableIndex,
-					`byId|${projectionSignature(projection.sqlColumns, projection.includeHidden)}`,
+					`${dialect.name}|byId|${projectionSignature(projection.sqlColumns, projection.includeHidden)}`,
 					() =>
 						buildFindByIdQuery(
 							table,
 							projection.sqlColumns,
 							runtime.tableIndex,
 							projection.includeHidden,
+							dialect,
 						),
 				)
 			: projection.includeHidden
-				? buildFindByIdQuery(table, undefined, runtime.tableIndex, true)
-				: tableIndex?.findByIdSql || buildFindByIdQuery(table);
+				? buildFindByIdQuery(
+						table,
+						undefined,
+						runtime.tableIndex,
+						true,
+						dialect,
+					)
+				: findByIdSqlFor(tableIndex, table, dialect) ||
+					buildFindByIdQuery(
+						table,
+						undefined,
+						runtime.tableIndex,
+						undefined,
+						dialect,
+					);
 		const row = await runQueryOne(executor, runtime, ctx, query, [pkValue]);
 		return row
 			? projectFindRow(mapRowToTs(tableIndex, table, row), projection)

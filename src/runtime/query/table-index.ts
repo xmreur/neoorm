@@ -21,6 +21,7 @@ import {
 import type { QueryOperation } from "../errors.js";
 import {
 	buildCountAllQuery,
+	buildDeleteByPkQuery,
 	buildFindAllQuery,
 	buildFindByIdQuery,
 } from "./compile.js";
@@ -29,6 +30,8 @@ import type { RelationLoadPlan } from "./relation-planner.js";
 export type TableIndex = {
 	manifest: Manifest;
 	manifestIndex?: ManifestIndex;
+	/** Dialect the pre-baked SQL strings below were built with. */
+	dialectName: string;
 	columnsByTsName: Map<string, ManifestColumn>;
 	columnsBySqlName: Map<string, ManifestColumn>;
 	relationsByName: Map<string, ManifestRelation>;
@@ -48,6 +51,12 @@ export type TableIndex = {
 	updateManySqlByKeys: CappedMap<string, string>;
 	updateByPkSqlByKeys: CappedMap<string, string>;
 	deleteByPkSql: string;
+	/** Per-dialect builds for indexes shared across dialects. */
+	findAllSqlByDialect: CappedMap<string, string>;
+	findByIdSqlByDialect: CappedMap<string, string>;
+	countAllSqlByDialect: CappedMap<string, string>;
+	deleteByPkSqlByDialect: CappedMap<string, string>;
+	updatedAtSetExprsByDialect: CappedMap<string, string[]>;
 	aggregateSqlBySelector: CappedMap<string, string>;
 	groupBySqlBySignature: CappedMap<string, string>;
 	findManySqlBySignature: CappedMap<string, string>;
@@ -210,6 +219,7 @@ export function buildTableIndex(
 
 	return {
 		manifest,
+		dialectName: dialect.name,
 		columnsByTsName,
 		columnsBySqlName,
 		relationsByName,
@@ -238,6 +248,11 @@ export function buildTableIndex(
 		whereClauseByShape: new CappedMap(),
 		orderBySqlByShape: new CappedMap(),
 		deleteManySqlByWhereShape: new CappedMap(),
+		findAllSqlByDialect: new CappedMap(),
+		findByIdSqlByDialect: new CappedMap(),
+		countAllSqlByDialect: new CappedMap(),
+		deleteByPkSqlByDialect: new CappedMap(),
+		updatedAtSetExprsByDialect: new CappedMap(),
 	};
 }
 
@@ -263,6 +278,131 @@ export function getTableIndex(
 	tableAccessor: string,
 ): TableIndex | undefined {
 	return index?.get(tableAccessor);
+}
+
+function isIndexDialect(
+	tableIndex: TableIndex | undefined,
+	dialect: Dialect,
+): boolean {
+	return tableIndex !== undefined && tableIndex.dialectName === dialect.name;
+}
+
+/** Pre-baked `findAllSql` when dialects match, otherwise a cached rebuild. */
+export function findAllSqlFor(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dialect: Dialect,
+): string {
+	if (!tableIndex || isIndexDialect(tableIndex, dialect)) {
+		return tableIndex?.findAllSql ?? buildFindAllQuery(table, dialect);
+	}
+	return getOrSetSqlCache(tableIndex.findAllSqlByDialect, dialect.name, () =>
+		buildFindAllQuery(table, dialect),
+	);
+}
+
+/** Pre-baked `findByIdSql` when dialects match, otherwise a cached rebuild. */
+export function findByIdSqlFor(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dialect: Dialect,
+): string {
+	if (!tableIndex || isIndexDialect(tableIndex, dialect)) {
+		return (
+			tableIndex?.findByIdSql ??
+			buildFindByIdQuery(table, undefined, undefined, undefined, dialect)
+		);
+	}
+	return getOrSetSqlCache(
+		tableIndex.findByIdSqlByDialect,
+		dialect.name,
+		() => {
+			try {
+				return buildFindByIdQuery(
+					table,
+					undefined,
+					tableIndex.manifestIndex,
+					undefined,
+					dialect,
+				);
+			} catch {
+				return "";
+			}
+		},
+	);
+}
+
+/** Pre-baked `countAllSql` when dialects match, otherwise a cached rebuild. */
+export function countAllSqlFor(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dialect: Dialect,
+): string {
+	if (!tableIndex || isIndexDialect(tableIndex, dialect)) {
+		return tableIndex?.countAllSql ?? buildCountAllQuery(table, dialect);
+	}
+	return getOrSetSqlCache(tableIndex.countAllSqlByDialect, dialect.name, () =>
+		buildCountAllQuery(table, dialect),
+	);
+}
+
+/** Pre-baked `deleteByPkSql` when dialects match, otherwise a cached rebuild. */
+export function deleteByPkSqlFor(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dialect: Dialect,
+	manifestIndex?: ManifestIndex,
+): string {
+	if (!tableIndex || isIndexDialect(tableIndex, dialect)) {
+		return (
+			tableIndex?.deleteByPkSql ??
+			(table.primaryKey.length > 0
+				? buildDeleteByPkQuery(table, dialect, manifestIndex)
+				: "")
+		);
+	}
+	if (table.primaryKey.length === 0) return "";
+	return getOrSetSqlCache(
+		tableIndex.deleteByPkSqlByDialect,
+		dialect.name,
+		() => buildDeleteByPkQuery(table, dialect, manifestIndex),
+	);
+}
+
+/** Pre-baked `updatedAtSetExprs` when dialects match, else a cached rebuild. */
+export function updatedAtSetExprsFor(
+	tableIndex: TableIndex | undefined,
+	table: ManifestTable,
+	dialect: Dialect,
+): string[] {
+	const cols = tableIndex
+		? tableIndex.updatedAtColumns
+		: table.columns.filter((col) => col.updatedAt === true);
+	if (cols.length === 0) return [];
+	if (!tableIndex || isIndexDialect(tableIndex, dialect)) {
+		return (
+			tableIndex?.updatedAtSetExprs ??
+			buildUpdatedAtSetExprs(cols, dialect)
+		);
+	}
+	const cached = tableIndex.updatedAtSetExprsByDialect.get(dialect.name);
+	if (cached !== undefined) return cached;
+	const exprs = buildUpdatedAtSetExprs(cols, dialect);
+	tableIndex.updatedAtSetExprsByDialect.set(dialect.name, exprs);
+	return exprs;
+}
+
+function buildUpdatedAtSetExprs(
+	cols: ManifestColumn[],
+	dialect: Dialect,
+): string[] {
+	return cols.map((col) => {
+		const plugin = getColumnType(col.kind);
+		const expr =
+			plugin?.updatedAtExpression?.(col, dialect) ??
+			dialect.defaultNowExpression();
+		return `${dialect.quoteIdentifier(col.sqlName)} = ${expr}`;
+	});
 }
 
 export function columnByTsName(

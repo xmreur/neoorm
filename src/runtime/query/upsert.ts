@@ -64,7 +64,7 @@ export async function upsertRecord(
 		runtime.tableIndex,
 		dialect,
 	);
-	const exprSets = updatedAtSetExpressions(table, tableIndex);
+	const exprSets = updatedAtSetExpressions(table, tableIndex, dialect);
 
 	const upsertSql = buildUpsertQuery(
 		table,

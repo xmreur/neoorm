@@ -2,13 +2,12 @@ import { postgresDialect } from "../../dialect/postgres.js";
 import type { Executor } from "../executor.js";
 import {
 	type AggregateSelectors,
-	buildCountAllQuery,
 	compileWhere,
 	getCachedAggregateQuery,
 	toCountSelector,
 } from "./compile.js";
 import { type QueryRuntime, runQueryOne } from "./execute.js";
-import { getTableIndex, requireTable } from "./table-index.js";
+import { countAllSqlFor, getTableIndex, requireTable } from "./table-index.js";
 
 function coerceAggregateNumber(value: unknown): unknown {
 	if (value === null || value === undefined) return null;
@@ -110,8 +109,7 @@ export async function aggregateRecords(
 
 	if (isSimpleStarCount(args)) {
 		const tableIndex = getTableIndex(runtime.tableIndex, tableAccessor);
-		const query =
-			tableIndex?.countAllSql ?? buildCountAllQuery(table, dialect);
+		const query = countAllSqlFor(tableIndex, table, dialect);
 		const row = await runQueryOne<{ c?: unknown }>(
 			executor,
 			runtime,
