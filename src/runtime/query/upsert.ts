@@ -4,6 +4,7 @@ import {
 	buildUpsertQuery,
 	dataToSqlValues,
 	dataToUpdateAssignments,
+	serializeColumnValue,
 } from "./compile.js";
 import { type QueryRuntime, runExecute, runQueryOne } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
@@ -98,8 +99,12 @@ export async function upsertRecord(
 			upsertParams,
 		);
 		const lookups = Object.entries(uniqueWhere);
-		const whereParts = lookups.map(([tsName, _value], i) => {
+		const lookupParams: unknown[] = [];
+		const whereParts = lookups.map(([tsName, value], i) => {
 			const col = table.columns.find((c) => c.tsName === tsName);
+			lookupParams.push(
+				col ? serializeColumnValue(col, value, dialect) : value,
+			);
 			return `${dialect.quoteIdentifier(col?.sqlName ?? tsName)} = ${dialect.placeholder(i + 1)}`;
 		});
 		if (constraint.whereSql) {
@@ -111,7 +116,7 @@ export async function upsertRecord(
 			table,
 			tableAccessor,
 			whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "",
-			lookups.map(([, value]) => value),
+			lookupParams,
 			"upsert",
 		);
 		const reloaded = rows[0];
