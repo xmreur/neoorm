@@ -1,3 +1,5 @@
+import { compileError } from "./compile-error.js";
+import { QueryErrorCode } from "./error-codes.js";
 import { CappedMap } from "./query/table-index.js";
 
 /**
@@ -127,7 +129,15 @@ export function applyPositionalPlan(
 	if (!plan) return { sql, params };
 	return {
 		sql: plan.sql,
-		params: plan.slots.map((index) => params[index - 1] ?? null),
+		params: plan.slots.map((index) => {
+			if (index < 1 || index > params.length) {
+				compileError(
+					`placeholder $${index} has no bound value (${params.length} params provided)`,
+					{ code: QueryErrorCode.invalid_args },
+				);
+			}
+			return params[index - 1] ?? null;
+		}),
 	};
 }
 
