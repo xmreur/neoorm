@@ -26,6 +26,7 @@ import {
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
+	resolveRelationSelectKeys,
 } from "./compile.js";
 import { type QueryRuntime, runQuery, runQueryOne } from "./execute.js";
 import { findM2M, findRelation, tableOwnsFkColumn } from "./manifest-lookup.js";
@@ -70,6 +71,7 @@ import { appendUniquePredicate } from "./unique.js";
 
 type RelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
+	omit?: readonly string[] | Record<string, boolean | undefined>;
 	where?: Record<string, unknown>;
 	orderBy?: OrderByInput;
 	take?: number;
@@ -89,6 +91,7 @@ function isRelationSpec(
 	if (typeof withSpec !== "object" || withSpec === null) return false;
 	return (
 		"select" in withSpec ||
+		"omit" in withSpec ||
 		"where" in withSpec ||
 		"orderBy" in withSpec ||
 		"take" in withSpec ||
@@ -345,7 +348,11 @@ function columnsForSelect(
 	dialect: Dialect = postgresDialect,
 ): string {
 	const nestedSpec = isRelationSpec(withSpec) ? withSpec : undefined;
-	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
+	const selectKeys = resolveRelationSelectKeys(
+		table,
+		nestedSpec,
+		getTableIndex(manifestIndex, table.accessor),
+	);
 	return buildSelectColumns(
 		table,
 		selectKeys ? [...selectKeys] : undefined,

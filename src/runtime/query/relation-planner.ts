@@ -19,6 +19,7 @@ import {
 	type OrderByInput,
 	orderByShapeKey,
 	parseOrderDirection,
+	resolveRelationSelectKeys,
 	whereShapeKey,
 } from "./compile.js";
 import type { QueryRuntime } from "./execute.js";
@@ -37,6 +38,7 @@ export type RelationCountSpec = true | { where?: Record<string, unknown> };
 
 export type InlineRelationSpec = {
 	select?: readonly string[] | Record<string, boolean | undefined>;
+	omit?: readonly string[] | Record<string, boolean | undefined>;
 	where?: Record<string, unknown>;
 	orderBy?: OrderByInput;
 	take?: number;
@@ -213,12 +215,12 @@ function columnsForInlineSelect(
 	nestedSpec?: InlineRelationSpec,
 	manifestIndex?: ManifestIndex,
 ): ManifestTable["columns"] {
-	const selectKeys = normalizeSelectColumns(nestedSpec?.select);
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const selectKeys = resolveRelationSelectKeys(table, nestedSpec, tableIndex);
 	return columnsForOutput(
 		tableIndex,
 		table,
-		selectKeys,
+		selectKeys ? [...selectKeys] : undefined,
 		nestedSpec?.includeHidden,
 	);
 }
@@ -517,14 +519,16 @@ function buildJoinClauses(
 			manifestIndex,
 			targetTable.accessor,
 		);
-		const selectKeys = nestedSpec?.select
-			? normalizeSelectColumns(nestedSpec.select)
-			: undefined;
+		const selectKeys = resolveRelationSelectKeys(
+			targetTable,
+			nestedSpec,
+			targetTableIndex,
+		);
 
 		const targetCols = columnsForOutput(
 			targetTableIndex,
 			targetTable,
-			selectKeys,
+			selectKeys ? [...selectKeys] : undefined,
 			nestedSpec?.includeHidden,
 		);
 
@@ -1339,6 +1343,10 @@ export function withShapeSignature(
 			const selectKeys = normalizeSelectColumns(spec.select);
 			if (selectKeys && selectKeys.length > 0) {
 				bits.push(`s${[...selectKeys].sort().join(",")}`);
+			}
+			const omitKeys = normalizeSelectColumns(spec.omit);
+			if (omitKeys && omitKeys.length > 0) {
+				bits.push(`m${[...omitKeys].sort().join(",")}`);
 			}
 			if (spec.with) {
 				bits.push(

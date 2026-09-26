@@ -41,6 +41,8 @@ export {
 	type OrderByInput,
 	orderByShapeKey,
 	parseOrderDirection,
+	type RelationSelectSpec,
+	resolveRelationSelectKeys,
 	serializeColumnValue,
 	type WhereClause,
 	whereShapeKey,
