@@ -1,13 +1,47 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdtemp,
+	readFile,
+	rm,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	acquireMigrateDevLock,
 	MIGRATE_DEV_LOCK_FILENAME,
 	withMigrateDevLock,
 } from "../src/migrate/dev-lock.js";
+
+type FsOpen = typeof import("node:fs/promises").open;
+type FsStat = typeof import("node:fs/promises").stat;
+
+const { fsOverrides } = vi.hoisted(() => ({
+	fsOverrides: {
+		open: [] as Array<(...args: Parameters<FsOpen>) => ReturnType<FsOpen>>,
+		stat: [] as Array<(...args: Parameters<FsStat>) => ReturnType<FsStat>>,
+	},
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs/promises")>();
+	return {
+		...actual,
+		open: (...args: Parameters<FsOpen>): ReturnType<FsOpen> => {
+			const override = fsOverrides.open.shift();
+			if (override) return override(...args);
+			return actual.open(...args);
+		},
+		stat: (...args: Parameters<FsStat>): ReturnType<FsStat> => {
+			const override = fsOverrides.stat.shift();
+			if (override) return override(...args);
+			return actual.stat(...args);
+		},
+	};
+});
 
 async function fileExists(path: string): Promise<boolean> {
 	try {
@@ -136,6 +170,69 @@ describe("acquireMigrateDevLock", () => {
 		expect(Date.now() - started).toBeLessThan(500);
 		await release();
 		expect(await fileExists(lockPath)).toBe(false);
+	});
+
+	it("does not release a lock whose content merely contains our token", async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-dev-lock-"));
+		const lockPath = join(tmpDir, MIGRATE_DEV_LOCK_FILENAME);
+		const release = await acquireMigrateDevLock(tmpDir, {
+			onWait: () => {},
+		});
+		const content = await readFile(lockPath, "utf-8");
+		await writeFile(lockPath, `tampered:${content}`, "utf-8");
+
+		await release();
+
+		expect(await fileExists(lockPath)).toBe(true);
+	});
+
+	it("removes the partial lock and closes the handle when the write fails", async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-dev-lock-"));
+		const lockPath = join(tmpDir, MIGRATE_DEV_LOCK_FILENAME);
+		const { open: realOpen } =
+			await vi.importActual<typeof import("node:fs/promises")>(
+				"node:fs/promises",
+			);
+		let closeCalls = 0;
+		fsOverrides.open.push(async (...args) => {
+			const fh = await realOpen(...args);
+			const originalClose = fh.close.bind(fh);
+			vi.spyOn(fh, "close").mockImplementation(async () => {
+				closeCalls++;
+				return originalClose();
+			});
+			vi.spyOn(fh, "writeFile").mockRejectedValueOnce(
+				Object.assign(new Error("No space left on device"), {
+					code: "ENOSPC",
+				}),
+			);
+			return fh;
+		});
+
+		await expect(
+			acquireMigrateDevLock(tmpDir, { onWait: () => {} }),
+		).rejects.toThrow("No space left on device");
+		expect(closeCalls).toBe(1);
+		expect(await fileExists(lockPath)).toBe(false);
+	});
+
+	it("rethows stat errors instead of waiting out the timeout", async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-dev-lock-"));
+		const lockPath = join(tmpDir, MIGRATE_DEV_LOCK_FILENAME);
+		await writeFile(lockPath, `${process.pid}:live:${Date.now()}`, "utf-8");
+		fsOverrides.stat.push(async () => {
+			throw Object.assign(new Error("EACCES: permission denied"), {
+				code: "EACCES",
+			});
+		});
+
+		await expect(
+			acquireMigrateDevLock(tmpDir, {
+				timeoutMs: 2000,
+				pollIntervalMs: 20,
+				onWait: () => {},
+			}),
+		).rejects.toThrow("EACCES");
 	});
 });
 

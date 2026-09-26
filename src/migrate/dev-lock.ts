@@ -96,15 +96,28 @@ export async function acquireMigrateDevLock(
 	while (true) {
 		try {
 			const fh = await open(lockPath, "wx");
-			await fh.writeFile(content, "utf-8");
-			await fh.close();
+			try {
+				await fh.writeFile(content, "utf-8");
+				await fh.close();
+			} catch (error) {
+				// Best-effort cleanup: never leak the fd, and never leave a
+				// partial lock behind. The file is ours alone (O_EXCL just
+				// created it), so unlinking cannot remove another holder.
+				await fh.close().catch(() => undefined);
+				await tryUnlinkLock(lockPath);
+				throw error;
+			}
 			let released = false;
 			return async () => {
 				if (released) return;
 				released = true;
 				try {
 					const current = await readFile(lockPath, "utf-8");
-					if (!current.includes(token)) return;
+					// Exact full-content match: a substring check could
+					// match a successor's token, and check-and-unlink is
+					// inherently non-atomic, so never delete content that
+					// is not provably ours.
+					if (current.trim() !== content) return;
 					await unlink(lockPath);
 				} catch (error) {
 					if (!isNotFoundError(error)) throw error;
@@ -130,6 +143,7 @@ export async function acquireMigrateDevLock(
 			}
 		} catch (error) {
 			if (isNotFoundError(error)) continue;
+			throw error;
 		}
 
 		if (!loggedWait) {
