@@ -53,4 +53,20 @@ describe("convertNumberedToPositional", () => {
 			params: ["second", "second"],
 		});
 	});
+
+	it("throws on out-of-range placeholders instead of binding NULL", () => {
+		expect(() =>
+			convertNumberedToPositional("SELECT $1, $3", ["a", "b"]),
+		).toThrow("placeholder $3 has no bound value (2 params provided)");
+		expect(() => convertNumberedToPositional("SELECT $0", ["a"])).toThrow(
+			"placeholder $0 has no bound value (1 params provided)",
+		);
+	});
+
+	it("still coerces in-range undefined to NULL", () => {
+		expect(convertNumberedToPositional("SELECT $1", [undefined])).toEqual({
+			sql: "SELECT ?",
+			params: [null],
+		});
+	});
 });
