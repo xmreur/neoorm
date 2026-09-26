@@ -269,8 +269,8 @@ function createSpatialTypePlugin(
 		serializeValue(_col, value) {
 			return geoJsonToParam(value);
 		},
-		deserializeValue(_col, dbValue) {
-			return geoJsonFromValue(dbValue);
+		deserializeValue(col, dbValue) {
+			return geoJsonFromValue(dbValue, col);
 		},
 		whereOperators: postgisWhereOperators,
 		introspect(_pgDataType, udtName) {
