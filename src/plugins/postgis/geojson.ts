@@ -1,3 +1,5 @@
+import type { ManifestColumn } from "../../dialect/types.js";
+import { parseDbJsonValue } from "../../runtime/parse-db-json.js";
 import type { GeoJsonGeometry } from "./columns.js";
 
 export function geoJsonToParam(value: unknown): unknown {
@@ -10,12 +12,19 @@ export function geoJsonToParam(value: unknown): unknown {
 	return JSON.stringify(value);
 }
 
-export function geoJsonFromValue(dbValue: unknown): GeoJsonGeometry | null {
+export function geoJsonFromValue(
+	dbValue: unknown,
+	col?: ManifestColumn,
+): GeoJsonGeometry | null {
 	if (dbValue === null || dbValue === undefined) {
 		return null;
 	}
 	if (typeof dbValue === "string") {
-		return JSON.parse(dbValue) as GeoJsonGeometry;
+		return parseDbJsonValue(dbValue, {
+			...(col !== undefined
+				? { columnTsName: col.tsName, columnSqlName: col.sqlName }
+				: {}),
+		}) as GeoJsonGeometry;
 	}
 	if (typeof dbValue === "object") {
 		return dbValue as GeoJsonGeometry;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManifestColumn } from "../../dialect/types.js";
-import { NeoOrmSchemaError } from "../../runtime/errors.js";
+import { InvalidInputError, NeoOrmSchemaError } from "../../runtime/errors.js";
 import {
 	geography,
 	geographyType,
@@ -9,6 +9,7 @@ import {
 	point,
 	pointType,
 } from "./columns.js";
+import { geoJsonFromValue } from "./geojson.js";
 
 function spatialColumn(
 	kind: "geometry" | "geography" | "point",
@@ -136,5 +137,45 @@ describe("PostGIS spatial SQL types", () => {
 			spatialColumn("geometry"),
 		);
 		expect(geometryIr?.kind).toBe("union");
+	});
+});
+
+describe("PostGIS GeoJSON parsing", () => {
+	const col = spatialColumn("geometry");
+
+	it("parses valid GeoJSON and passes through null/objects", () => {
+		expect(
+			geoJsonFromValue('{"type":"Point","coordinates":[1,2]}', col),
+		).toEqual({ type: "Point", coordinates: [1, 2] });
+		expect(geoJsonFromValue(null, col)).toBeNull();
+		expect(geoJsonFromValue(undefined, col)).toBeNull();
+		const obj = { type: "Point", coordinates: [1, 2] };
+		expect(geoJsonFromValue(obj, col)).toBe(obj);
+	});
+
+	it("wraps corrupt JSON in InvalidInputError instead of SyntaxError", () => {
+		let caught: unknown;
+		try {
+			geoJsonFromValue("not-json{{{", col);
+		} catch (err) {
+			caught = err;
+		}
+		expect(caught).toBeInstanceOf(InvalidInputError);
+		expect(caught).not.toBeInstanceOf(SyntaxError);
+		expect(String((caught as Error).message)).toContain(
+			"Database returned invalid JSON",
+		);
+	});
+
+	it("carries column context and surfaces via deserializeValue", () => {
+		try {
+			geometryType.deserializeValue?.(col, "not-json{{{");
+			expect.unreachable("expected corrupt GeoJSON to throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(InvalidInputError);
+			const context = (err as InvalidInputError).context;
+			expect(context?.columnTsName).toBe("location");
+			expect(context?.columnSqlName).toBe("location");
+		}
 	});
 });
