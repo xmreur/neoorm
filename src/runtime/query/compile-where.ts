@@ -1176,6 +1176,59 @@ export function normalizeSelectColumns(
 		.map(([key]) => key);
 }
 
+export type RelationSelectSpec = {
+	select?: readonly string[] | Record<string, boolean | undefined>;
+	omit?: readonly string[] | Record<string, boolean | undefined>;
+	includeHidden?: boolean;
+};
+
+/**
+ * Resolve nested-relation select keys honoring both select and omit,
+ * mirroring the top-level projection errors. Returns undefined for
+ * "all columns".
+ */
+export function resolveRelationSelectKeys(
+	table: ManifestTable,
+	spec: RelationSelectSpec | undefined,
+	tableIndex?: TableIndex,
+): readonly string[] | undefined {
+	const select = spec?.select;
+	const omit = spec?.omit;
+	if (select !== undefined && omit !== undefined) {
+		compileError("select and omit cannot be used together", {
+			tableAccessor: table.accessor,
+			tableSqlName: table.sqlName,
+		});
+	}
+	if (select !== undefined) {
+		return normalizeSelectColumns(select);
+	}
+	if (omit !== undefined) {
+		const omitKeys = normalizeSelectColumns(omit) ?? [];
+		if (omitKeys.length === 0) return undefined;
+		for (const key of omitKeys) {
+			requireTsColumn(tableIndex, table, key, "omit", "select");
+		}
+		const omitSet = new Set(omitKeys);
+		const requested = columnsForOutput(
+			tableIndex,
+			table,
+			undefined,
+			spec?.includeHidden,
+		)
+			.map((col) => col.tsName)
+			.filter((name) => !omitSet.has(name));
+		if (requested.length === 0) {
+			compileError("omit cannot remove every column", {
+				tableAccessor: table.accessor,
+				tableSqlName: table.sqlName,
+			});
+		}
+		return requested;
+	}
+	return undefined;
+}
+
 /** Columns returned by default SELECT (omits `.hidden()` unless `includeHidden` or explicitly selected). */
 export function columnsForOutput(
 	tableIndex: TableIndex | undefined,

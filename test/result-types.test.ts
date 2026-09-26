@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
 import type { schema } from "../examples/blog/schema.js";
+import type { WithRelationOptions } from "../src/schema/relation-types.js";
 import type {
 	InferAggregateResult,
 	InferCountResult,
@@ -88,6 +89,16 @@ describe("select return types", () => {
 		>;
 		const _assert: _Check = true;
 		void _assert;
+	});
+
+	it("allows nested omit in relation options", () => {
+		const arraySpec: WithRelationOptions<typeof schema._tables, "posts"> = {
+			omit: ["body"],
+		};
+		const objectSpec: WithRelationOptions<typeof schema._tables, "posts"> =
+			{ omit: { body: true } };
+		void arraySpec;
+		void objectSpec;
 	});
 });
 

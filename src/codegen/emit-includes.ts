@@ -44,6 +44,7 @@ function emitRelationIncludeType(
   | boolean
   | {
       select?: ${selectType(columns)};
+      omit?: ${selectType(columns)};
       where?: ${targetWhere};
       orderBy?: ${orderByType(columns)};
       take?: number;

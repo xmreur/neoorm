@@ -636,12 +636,13 @@ export type SelectInput<TColumns extends Record<string, ColumnDef>> =
 export type OmitInput<TColumns extends Record<string, ColumnDef>> =
 	SelectInput<TColumns>;
 
-/** Options for a single relation include (select, where, orderBy, take, skip, nested with) */
+/** Options for a single relation include (select, omit, where, orderBy, take, skip, nested with) */
 export type WithRelationOptions<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
 > = {
 	select?: SelectInput<TargetColumns<TSchema, TTargetAccessor>>;
+	omit?: OmitInput<TargetColumns<TSchema, TTargetAccessor>>;
 	where?: WhereInput<
 		TargetColumns<TSchema, TTargetAccessor>,
 		TSchema,
