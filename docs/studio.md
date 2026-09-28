@@ -31,7 +31,8 @@ Build `findMany`, `findFirst`, `findUnique`, `findById`, `count`, `exists`, `agg
 ## Schema, ER, migrate
 
 - Schema explorer: columns, kinds, constraints, indexes (including partial `WHERE`), foreign keys, and relations per table. Read-only — schema changes belong in `schema.ts` plus `migrate dev`.
-- ER graph: tables as nodes, `1:1` / `1:n` / `n:n` edges, junction tables hidden by default. Click a node to open its data.
+- ER graph: tables as nodes, `1:1` / `1:n` / `n:n` edges, junction tables hidden by default. Click a node to open its data. Drag tables to rearrange — positions, the junction toggle, and the viewport (pan/zoom) persist in `localStorage` per schema. `Reset layout` restores the auto-grid; `Export`/`Import JSON` moves a layout between browsers.
+- Team-shared ER layout (opt-in): restart Studio with `neoorm studio --er-layout ./neoorm.er-layout.json`, switch Scope to `Team`, then `Push to team` / `Pull from team`. The file is committable so the whole team sees the same arrangement. Without the flag the server answers `404` and local layout still works.
 - Migrate status: applied, pending, and orphan migrations. Studio never applies, resets, or rolls back migrations — use the CLI.
 
 ## Keyboard
