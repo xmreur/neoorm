@@ -79,13 +79,21 @@ describe("emitQueryTypesTs", () => {
 		expect(source).toContain("export type UserInclude = UserWith;");
 	});
 
-	it("requires create fields without defaults and omits managed timestamps", () => {
+	it("requires create fields without defaults and omits updatedAt", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
 		expect(source).toContain("email: string;");
 		expect(source).toContain("password: string;");
-		expect(source).not.toMatch(/CreateUserInput[^}]*createdAt/);
-		expect(source).not.toMatch(/CreateUserInput[^}]*updatedAt/);
+		const createBlock = source.match(
+			/export interface CreateUserInput \{[\s\S]*?\n\}/,
+		)?.[0];
+		expect(createBlock).toContain("createdAt?: Date;");
+		expect(createBlock).not.toContain("updatedAt");
+		const updateBlock = source.match(
+			/export interface UpdateUserInput \{[\s\S]*?\n\}/,
+		)?.[0];
+		expect(updateBlock).toContain("createdAt?: Date | { set?: Date };");
+		expect(updateBlock).not.toContain("updatedAt");
 		expect(source).toContain("published?: boolean");
 		expect(source).toContain("name?: string | null;");
 	});

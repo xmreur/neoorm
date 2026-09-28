@@ -85,7 +85,7 @@ describe("validationFromManifest", () => {
 		expect(users.select.some((field) => field.name === "id")).toBe(true);
 	});
 
-	it("omits timestamps() fields from create and update, not select", () => {
+	it("omits updatedAt from create and update, keeps defaultNow createdAt writable", () => {
 		const users = tableNamed(ir, "users");
 		expect(users.select.some((field) => field.name === "createdAt")).toBe(
 			true,
@@ -93,16 +93,12 @@ describe("validationFromManifest", () => {
 		expect(users.select.some((field) => field.name === "updatedAt")).toBe(
 			true,
 		);
-		expect(users.create.some((field) => field.name === "createdAt")).toBe(
-			false,
-		);
+		expect(fieldNamed(users.create, "createdAt").optional).toBe(true);
 		expect(users.create.some((field) => field.name === "updatedAt")).toBe(
 			false,
 		);
 		expect(users.update.some((field) => field.name === "id")).toBe(false);
-		expect(users.update.some((field) => field.name === "createdAt")).toBe(
-			false,
-		);
+		expect(fieldNamed(users.update, "createdAt").optional).toBe(true);
 		expect(users.update.some((field) => field.name === "updatedAt")).toBe(
 			false,
 		);
@@ -124,11 +120,15 @@ describe("validationFromManifest", () => {
 		expect(users.create.map((field) => field.name)).toEqual([
 			"email",
 			"password",
+			"createdAt",
 		]);
+		expect(fieldNamed(users.create, "createdAt").optional).toBe(true);
 		expect(users.update.map((field) => field.name)).toEqual([
 			"email",
 			"password",
+			"createdAt",
 		]);
+		expect(fieldNamed(users.update, "createdAt").optional).toBe(true);
 		expect(users.select.map((field) => field.name)).toEqual([
 			"id",
 			"email",
@@ -138,16 +138,49 @@ describe("validationFromManifest", () => {
 	});
 
 	it("keeps timestamp columns that are not defaultNow or updatedAt", () => {
-		const events = defineSchema({
+		const plainEvents = defineSchema({
 			events: table({
 				id: id(),
 				startsAt: timestamp(),
 			}),
 		});
+		const plainEventsIr = validationFromManifest(
+			schemaToManifest(plainEvents),
+		);
+		const plainEventsTable = tableNamed(plainEventsIr, "events");
+		expect(fieldNamed(plainEventsTable.create, "startsAt").optional).toBe(
+			true,
+		);
+		expect(fieldNamed(plainEventsTable.update, "startsAt").optional).toBe(
+			true,
+		);
+	});
+
+	it("keeps custom defaultNow columns writable, omits updatedAt", () => {
+		const events = defineSchema({
+			events: table({
+				id: id(),
+				expiresAt: timestamp().notNull().defaultNow(),
+				remindedAt: timestamp().defaultNow(),
+				touchedAt: timestamp().notNull().defaultNow().updatedAt(),
+			}),
+		});
 		const eventsIr = validationFromManifest(schemaToManifest(events));
 		const eventsTable = tableNamed(eventsIr, "events");
-		expect(fieldNamed(eventsTable.create, "startsAt").optional).toBe(true);
-		expect(fieldNamed(eventsTable.update, "startsAt").optional).toBe(true);
+		expect(fieldNamed(eventsTable.create, "expiresAt").optional).toBe(true);
+		expect(fieldNamed(eventsTable.update, "expiresAt").optional).toBe(true);
+		expect(fieldNamed(eventsTable.create, "remindedAt").optional).toBe(
+			true,
+		);
+		expect(fieldNamed(eventsTable.update, "remindedAt").optional).toBe(
+			true,
+		);
+		expect(
+			eventsTable.create.some((field) => field.name === "touchedAt"),
+		).toBe(false);
+		expect(
+			eventsTable.update.some((field) => field.name === "touchedAt"),
+		).toBe(false);
 	});
 
 	it("marks defaulted and nullable create fields optional", () => {

@@ -70,8 +70,8 @@ Per table (accessor `users` → model `User`):
 | Export | Shape |
 |--------|--------|
 | `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
-| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `timestamps()`; defaults optional; includes `.hidden()`) |
-| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `timestamps()`; all optional; includes `.hidden()`) |
+| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
+| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
 
 `UserSelect` / `UserCreate` / `UserUpdate` are `typeof Schema.static` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
 
@@ -79,7 +79,7 @@ Per table (accessor `users` → model `User`):
 
 `.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
 
-`createdAt` and `updatedAt` from `timestamps()` (and any `timestamp().defaultNow()` / `.updatedAt()` column) are ORM-managed. They appear on select schemas only — create and update parsers reject them so API clients cannot stamp those fields. A plain `timestamp()` without `defaultNow` stays on create/update.
+`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
 
 Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
 

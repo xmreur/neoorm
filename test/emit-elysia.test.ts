@@ -69,13 +69,13 @@ describe("emitElysiaTs", () => {
 		expect(source).toContain("export const UserCreateSchema = t.Object({");
 		expect(source).toContain("name: t.Optional(t.Nullable(t.String()))");
 		expect(source).not.toMatch(/UserCreateSchema[\s\S]*\bid: /);
-		expect(source).not.toMatch(/UserCreateSchema[\s\S]*createdAt/);
+		expect(source).toMatch(/UserCreateSchema[\s\S]*createdAt/);
 		expect(source).not.toMatch(/UserCreateSchema[\s\S]*updatedAt/);
 		expect(source).toContain("export const UserUpdateSchema = t.Object({");
 		expect(source).toContain(
 			'email: t.Optional(t.String({ format: "email" }))',
 		);
-		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*createdAt/);
+		expect(source).toMatch(/UserUpdateSchema[\s\S]*createdAt/);
 		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*updatedAt/);
 		expect(source).toContain(
 			"users: { select: UserSchema, create: UserCreateSchema, update: UserUpdateSchema }",

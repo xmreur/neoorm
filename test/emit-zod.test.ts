@@ -76,11 +76,11 @@ describe("emitZodTs", () => {
 		expect(source).toContain("email: z.email()");
 		expect(source).toContain("name: z.string().nullable().optional()");
 		expect(source).not.toMatch(/UserCreateSchema[\s\S]*\bid: /);
-		expect(source).not.toMatch(/UserCreateSchema[\s\S]*createdAt/);
+		expect(source).toMatch(/UserCreateSchema[\s\S]*createdAt/);
 		expect(source).not.toMatch(/UserCreateSchema[\s\S]*updatedAt/);
 		expect(source).toContain("export const UserUpdateSchema = z.object({");
 		expect(source).toContain("email: z.email().optional()");
-		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*createdAt/);
+		expect(source).toMatch(/UserUpdateSchema[\s\S]*createdAt/);
 		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*updatedAt/);
 		expect(source).toContain(
 			"users: { select: UserSchema, create: UserCreateSchema, update: UserUpdateSchema }",

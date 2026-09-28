@@ -265,9 +265,9 @@ export function uniqueKeyCandidates(table: ManifestTable): string[][] {
 	return candidates;
 }
 
-/** `timestamps()` / `.defaultNow()` / `.updatedAt()` — ORM-owned, not client-writable. */
+/** `.updatedAt()` — ORM-owned, auto-bumped on writes, not client-writable. `defaultNow()` alone is just a SQL DEFAULT: optional on create, writable on update. */
 export function isManagedTimestamp(col: ManifestColumn): boolean {
-	return col.defaultNow || col.updatedAt === true;
+	return col.updatedAt === true;
 }
 
 export function isJunctionTable(manifest: Manifest, accessor: string): boolean {
