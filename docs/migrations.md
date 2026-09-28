@@ -6,8 +6,8 @@
 |---------|-------------|
 | `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
 | `neoorm generate` | Emit manifest, typed client, models, includes, and migrations |
-| `neoorm migrate dev` | Apply pending migrations, then generate a new one if the schema changed |
-| `neoorm migrate deploy` | Apply pending migrations |
+| `neoorm migrate dev` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed |
+| `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
 | `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite / MySQL / MariaDB) and re-apply migrations (local dev) |
@@ -30,6 +30,12 @@ When migration is blocked, the CLI explains why — for example unsupported type
 ```bash
 neoorm generate --accept-data-loss
 ```
+
+## Existing tables vs pending CREATE TABLE
+
+`generate` diffs `snapshot.json`. If that file is missing, the first migration is a full `CREATE TABLE` script. `migrate deploy` will not run that SQL when those relations already exist (for example after `db push`). It throws `migration_drift` before any user statement.
+
+`neoorm migrate dev` detects the same collision, diffs the live database to `schema.ts`, applies that catch-up SQL (often none, sometimes `ALTER`), records the pending files in `_neoorm_migrations` using the on-disk checksums, and writes `snapshot.json`. Destructive catch-up still requires `--accept-data-loss`. Empty databases still run `CREATE TABLE` as before.
 
 ## Deploy locking and checksums
 

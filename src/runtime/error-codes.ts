@@ -47,6 +47,7 @@ export const SchemaErrorCode = {
 	unknown_fk_column: "unknown_fk_column",
 	unknown_column_kind: "unknown_column_kind",
 	migration_failed: "migration_failed",
+	migration_drift: "migration_drift",
 	migration_guard: "migration_guard",
 	invalid_config: "invalid_config",
 	plugin_error: "plugin_error",

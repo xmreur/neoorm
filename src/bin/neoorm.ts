@@ -38,6 +38,7 @@ import {
 	migrateReset,
 	migrateStatus,
 	pushCurrentSchema,
+	reconcilePendingCreates,
 } from "../migrate/runner.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
@@ -530,6 +531,40 @@ program
 							"../codegen/generate.js"
 						);
 						const snapshotManifest = await readSnapshot(outDir);
+						let recordedExisting = false;
+						if (subcommand === "dev") {
+							const compiled = await compileSchemaToManifest(
+								schemaPath,
+								generateOptionsFromConfig(
+									config,
+									options,
+									dbSchema,
+								),
+							);
+							const reconciled = await reconcilePendingCreates(
+								client,
+								dialect,
+								migrationsDir,
+								{
+									target: compiled.manifest,
+									outDir,
+									schemaPath,
+									...(options.acceptDataLoss
+										? { acceptDataLoss: true }
+										: {}),
+									...(dbSchema ? { schema: dbSchema } : {}),
+								},
+							);
+							if (reconciled.length > 0) {
+								recordedExisting = true;
+								console.log(
+									`Recorded ${reconciled.length} pending migration(s) against existing tables:`,
+								);
+								for (const name of reconciled) {
+									console.log(`  - ${name}`);
+								}
+							}
+						}
 						const applied = await migrateDeploy(
 							client,
 							dialect,
@@ -543,7 +578,9 @@ program
 							},
 						);
 						if (applied.length === 0) {
-							console.log("No pending migrations");
+							if (!recordedExisting) {
+								console.log("No pending migrations");
+							}
 						} else {
 							console.log(
 								`Applied ${applied.length} migration(s):`,
@@ -590,22 +627,45 @@ program
 								console.warn(`Warning: ${warning}`);
 							}
 							if (migrationName) {
-								const newlyApplied = await migrateDeploy(
-									client,
-									dialect,
-									join(outDir, "migrations"),
-									{
-										...(dbSchema
-											? { schema: dbSchema }
-											: {}),
-										manifest,
-										schemaPath,
-									},
-								);
-								if (newlyApplied.length > 0) {
-									console.log(
-										`Applied new migration: ${newlyApplied.join(", ")}`,
+								const newlyRecorded =
+									await reconcilePendingCreates(
+										client,
+										dialect,
+										join(outDir, "migrations"),
+										{
+											target: manifest,
+											outDir,
+											schemaPath,
+											...(options.acceptDataLoss
+												? { acceptDataLoss: true }
+												: {}),
+											...(dbSchema
+												? { schema: dbSchema }
+												: {}),
+										},
 									);
+								if (newlyRecorded.length > 0) {
+									console.log(
+										`Recorded new migration against existing tables: ${newlyRecorded.join(", ")}`,
+									);
+								} else {
+									const newlyApplied = await migrateDeploy(
+										client,
+										dialect,
+										join(outDir, "migrations"),
+										{
+											...(dbSchema
+												? { schema: dbSchema }
+												: {}),
+											manifest,
+											schemaPath,
+										},
+									);
+									if (newlyApplied.length > 0) {
+										console.log(
+											`Applied new migration: ${newlyApplied.join(", ")}`,
+										);
+									}
 								}
 							}
 							if (destructiveBlocked) {

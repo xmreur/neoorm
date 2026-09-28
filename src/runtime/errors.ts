@@ -135,7 +135,9 @@ export function formatQueryError(context: QueryErrorContext): string {
 export function formatSchemaError(context: SchemaErrorContext): string {
 	const lines: string[] = [];
 
-	if (context.schemaPath) {
+	if (context.migrationName) {
+		lines.push("Migration error");
+	} else if (context.schemaPath) {
 		lines.push(`Schema error in ${context.schemaPath}`);
 	} else {
 		lines.push("Schema error");

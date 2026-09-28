@@ -34,7 +34,7 @@ Options:
 
 ## `neoorm migrate dev`
 
-Apply pending migrations, then generate a new migration if the schema changed.
+Apply pending migrations, then generate a new migration if the schema changed. If a pending `CREATE TABLE` targets a relation that already exists, catch the live database up to `schema.ts` and record those files as applied instead of re-running the create.
 
 ```
 neoorm migrate dev
@@ -42,7 +42,7 @@ neoorm migrate dev
 
 ## `neoorm migrate deploy`
 
-Apply all pending migrations.
+Apply all pending migrations. Throws `migration_drift` if a pending `CREATE TABLE` would hit an existing relation.
 
 ```
 neoorm migrate deploy

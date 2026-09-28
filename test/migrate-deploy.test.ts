@@ -2,14 +2,20 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { defineSchema, id, table, text } from "neoorm/schema";
 import { afterEach, describe, expect, it } from "vitest";
+import { readSnapshot } from "../src/codegen/generate.js";
+import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
+import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest.js";
 import {
+	dbPush,
 	hashMigrationSql,
 	listAppliedMigrations,
 	migrateDeploy,
+	reconcilePendingCreates,
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
 import type { DatabaseClient, DriverResult } from "../src/runtime/driver.js";
@@ -293,5 +299,144 @@ describe("resetDatabaseSchema", () => {
 		expect(queries[0]).toBe("SET FOREIGN_KEY_CHECKS=0");
 		expect(queries.at(-1)).toBe("SET FOREIGN_KEY_CHECKS=1");
 		expect(queries).toContain("DROP TABLE IF EXISTS `posts`");
+	});
+});
+
+describe("CREATE TABLE collisions", () => {
+	const tmpDirs: string[] = [];
+
+	afterEach(async () => {
+		while (tmpDirs.length > 0) {
+			const dir = tmpDirs.pop();
+			if (dir) {
+				await rm(dir, { recursive: true, force: true });
+			}
+		}
+	});
+
+	async function tempDir(prefix: string): Promise<string> {
+		const dir = await mkdtemp(join(tmpdir(), prefix));
+		tmpDirs.push(dir);
+		return dir;
+	}
+
+	it("still applies CREATE TABLE on an empty database", async () => {
+		const root = await tempDir("neoorm-create-empty-");
+		const migrationsDir = join(root, "migrations");
+		await writeMigration(migrationsDir, "20200101_init", INIT_SQL);
+
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		const applied = await migrateDeploy(
+			client,
+			sqliteDialect,
+			migrationsDir,
+		);
+		expect(applied).toEqual(["20200101_init"]);
+		const tables = db
+			.prepare(
+				`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 't'`,
+			)
+			.all() as { name: string }[];
+		expect(tables).toHaveLength(1);
+	});
+
+	it("throws migration_drift from migrateDeploy when the table already exists", async () => {
+		const root = await tempDir("neoorm-create-drift-");
+		const migrationsDir = join(root, "migrations");
+		await writeMigration(migrationsDir, "20200101_init", INIT_SQL);
+
+		const db = new DatabaseSync(":memory:");
+		db.exec(INIT_SQL);
+		const client = sqliteClient(db);
+
+		await expect(
+			migrateDeploy(client, sqliteDialect, migrationsDir),
+		).rejects.toMatchObject({
+			code: SchemaErrorCode.migration_drift,
+		});
+
+		const records = await listAppliedMigrations(client, sqliteDialect);
+		expect(records).toHaveLength(0);
+	});
+
+	it("records pending CREATE TABLE files when reconcile finds matching live tables", async () => {
+		const root = await tempDir("neoorm-create-reconcile-");
+		const outDir = join(root, "out");
+		const migrationsDir = join(outDir, "migrations");
+		const schema = defineSchema({
+			users: table({ id: id() }),
+		});
+		const target = schemaToManifest(schema, undefined, {
+			provider: "sqlite",
+		});
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await dbPush(client, sqliteDialect, target);
+
+		await writeMigration(
+			migrationsDir,
+			"20200101_init",
+			`CREATE TABLE "users" (\n  "id" INTEGER PRIMARY KEY\n);\n`,
+		);
+
+		const recorded = await reconcilePendingCreates(
+			client,
+			sqliteDialect,
+			migrationsDir,
+			{ target, outDir },
+		);
+		expect(recorded).toEqual(["20200101_init"]);
+
+		const records = await listAppliedMigrations(client, sqliteDialect);
+		expect(records).toHaveLength(1);
+		expect(records[0]?.name).toBe("20200101_init");
+
+		const snapshot = await readSnapshot(outDir);
+		expect(snapshot?.tables.users).toBeDefined();
+	});
+
+	it("applies ALTER from live to target instead of running colliding CREATE TABLE", async () => {
+		const root = await tempDir("neoorm-create-alter-");
+		const outDir = join(root, "out");
+		const migrationsDir = join(outDir, "migrations");
+		const schemaV1 = defineSchema({
+			users: table({ id: id() }),
+		});
+		const schemaV2 = defineSchema({
+			users: table({
+				id: id(),
+				email: text(),
+			}),
+		});
+		const v1 = schemaToManifest(schemaV1, undefined, {
+			provider: "sqlite",
+		});
+		const v2 = schemaToManifest(schemaV2, undefined, {
+			provider: "sqlite",
+		});
+
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await dbPush(client, sqliteDialect, v1);
+
+		await writeMigration(
+			migrationsDir,
+			"20200101_init",
+			`CREATE TABLE "users" (\n  "id" INTEGER PRIMARY KEY,\n  "email" TEXT\n);\n`,
+		);
+
+		const recorded = await reconcilePendingCreates(
+			client,
+			sqliteDialect,
+			migrationsDir,
+			{ target: v2, outDir },
+		);
+		expect(recorded).toEqual(["20200101_init"]);
+
+		const live = await introspectSqliteToManifest(client);
+		expect(
+			live.tables.users?.columns.some((col) => col.sqlName === "email"),
+		).toBe(true);
 	});
 });
