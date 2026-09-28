@@ -673,6 +673,10 @@ program
 	.option("--read-only", "Block row mutations and non-read SQL")
 	.option("--verbose", "Log SQL statements executed by Studio")
 	.option("--token <token>", "Require this token for API access")
+	.option(
+		"--er-layout <path>",
+		"Enable team-shared ER layout stored at <path> (e.g. ./neoorm.er-layout.json)",
+	)
 	.action(
 		async (options: {
 			port: string;
@@ -681,6 +685,7 @@ program
 			readOnly?: boolean;
 			verbose?: boolean;
 			token?: string;
+			erLayout?: string;
 		}) => {
 			const port = Number.parseInt(options.port, 10);
 			if (!Number.isFinite(port) || port < 1 || port > 65535) {
@@ -699,6 +704,9 @@ program
 					...(options.readOnly ? { readOnly: true } : {}),
 					...(options.verbose ? { verbose: true } : {}),
 					...(options.token ? { token: options.token } : {}),
+					...(options.erLayout
+						? { erLayoutPath: options.erLayout }
+						: {}),
 					version: packageJson.version,
 				});
 

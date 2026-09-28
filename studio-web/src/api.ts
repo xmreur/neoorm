@@ -98,6 +98,14 @@ export type StudioGraphResponse = {
 	}[];
 };
 
+export type StudioErLayout = {
+	version: 1;
+	updatedAt?: string;
+	positions: Record<string, { x: number; y: number }>;
+	showJunctions: boolean;
+	viewport?: { x: number; y: number; zoom: number };
+};
+
 export type StudioErrorShape = {
 	error: {
 		code: string;
@@ -220,6 +228,15 @@ export const api = {
 		),
 	graph: () =>
 		request("/api/graph").then((r) => parse<StudioGraphResponse>(r)),
+	graphLayout: () =>
+		request("/api/graph/layout").then((r) =>
+			parse<{ available: boolean; layout: StudioErLayout | null }>(r),
+		),
+	saveGraphLayout: (layout: StudioErLayout) =>
+		request("/api/graph/layout", {
+			method: "PUT",
+			body: JSON.stringify({ layout }),
+		}).then((r) => parse<{ layout: StudioErLayout }>(r)),
 	migrateStatus: () =>
 		request("/api/migrate/status").then((r) =>
 			parse<
