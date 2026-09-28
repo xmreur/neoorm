@@ -20,9 +20,9 @@ import type {
 	ValidationType,
 } from "./types.js";
 
-/** `timestamps()` / `.defaultNow()` / `.updatedAt()` — ORM-owned, not client-writable. */
+/** `.updatedAt()` — ORM-owned, auto-bumped on writes, not client-writable. `defaultNow()` alone is just a SQL DEFAULT: optional on create, writable on update. */
 function isManagedTimestamp(col: ManifestColumn): boolean {
-	return col.defaultNow || col.updatedAt === true;
+	return col.updatedAt === true;
 }
 
 function isJunctionPkColumn(

@@ -91,7 +91,7 @@ describe("emitTypeboxTs", () => {
 			"name: Type.Optional(Type.Union([Type.String(), Type.Null()]))",
 		);
 		expect(source).not.toMatch(/UserCreateSchema[\s\S]*\bid: /);
-		expect(source).not.toMatch(/UserCreateSchema[\s\S]*createdAt/);
+		expect(source).toMatch(/UserCreateSchema[\s\S]*createdAt/);
 		expect(source).not.toMatch(/UserCreateSchema[\s\S]*updatedAt/);
 		expect(source).toContain(
 			"export const UserUpdateSchema = Type.Object({",
@@ -99,7 +99,7 @@ describe("emitTypeboxTs", () => {
 		expect(source).toContain(
 			'email: Type.Optional(Type.String({ format: "email" }))',
 		);
-		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*createdAt/);
+		expect(source).toMatch(/UserUpdateSchema[\s\S]*createdAt/);
 		expect(source).not.toMatch(/UserUpdateSchema[\s\S]*updatedAt/);
 		expect(source).toContain(
 			"users: { select: UserSchema, create: UserCreateSchema, update: UserUpdateSchema }",
