@@ -219,6 +219,13 @@ await db.posts.findFirst({
 
 Unknown column names and operators fail at compile time (`unknown_column`, with “did you mean” hints). JSON columns may still use a plain object as equality (`{ metadata: { featured: true } }`).
 
+Operator bags are named filter interfaces (`StringFilter`, `ComparableFilter`, `JsonFilter` — also exported from `neoorm/schema`), so a wrong operator points at the filter instead of dumping the whole input type:
+
+```ts
+// error TS2353: 'contains' does not exist in type 'ComparableFilter<string>'.
+await db.posts.findMany({ where: { price: { contains: "9" } } });
+```
+
 | Type | Operators |
 |------|-----------|
 | String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `in`, `notIn`, `mode` |

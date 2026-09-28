@@ -65,7 +65,8 @@ type NullableOperators = {
 	isNotNull?: true;
 };
 
-type ComparableWhereOperators<T> = {
+/** Named so type errors point at the filter instead of expanding it. */
+export interface ComparableFilter<T> {
 	equals?: T;
 	gt?: T;
 	gte?: T;
@@ -73,11 +74,14 @@ type ComparableWhereOperators<T> = {
 	lte?: T;
 	in?: readonly T[];
 	notIn?: readonly T[];
-} & NullableOperators;
+	isNull?: true;
+	isNotNull?: true;
+}
 
 export type QueryMode = "default" | "insensitive";
 
-type StringWhereOperators<T extends string> = {
+/** Named so type errors point at the filter instead of expanding it. */
+export interface StringFilter<T extends string = string> {
 	equals?: T;
 	contains?: T;
 	startsWith?: T;
@@ -86,7 +90,9 @@ type StringWhereOperators<T extends string> = {
 	mode?: QueryMode;
 	in?: readonly T[];
 	notIn?: readonly T[];
-} & NullableOperators;
+	isNull?: true;
+	isNotNull?: true;
+}
 
 type JsonPathWhere = {
 	segments: readonly string[];
@@ -94,19 +100,22 @@ type JsonPathWhere = {
 	jsonContains?: unknown;
 };
 
-type JsonWhereOperators<T> = {
+/** Named so type errors point at the filter instead of expanding it. */
+export interface JsonFilter<T> {
 	equals?: T;
 	jsonContains?: Partial<T> | T;
 	hasKey?: string;
 	hasAnyKeys?: readonly string[];
 	hasAllKeys?: readonly string[];
 	path?: JsonPathWhere;
-} & NullableOperators;
+	isNull?: true;
+	isNotNull?: true;
+}
 
 export type WhereOperators<T> = T extends string
-	? StringWhereOperators<T>
+	? StringFilter<T>
 	: T extends number | boolean | Date
-		? ComparableWhereOperators<T>
+		? ComparableFilter<T>
 		: {
 				equals?: T;
 			} & NullableOperators;
@@ -135,9 +144,9 @@ type CoreColumnWhereOperators<
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
 > =
 	ColumnKindOf<TCol> extends "decimal"
-		? ComparableWhereOperators<string>
+		? ComparableFilter<string>
 		: ColumnKindOf<TCol> extends "json" | "jsonb"
-			? JsonWhereOperators<InferColumnValue<TCol, TSchema>>
+			? JsonFilter<InferColumnValue<TCol, TSchema>>
 			: TCol extends ColumnBuilder<unknown, infer _M>
 				? WhereOperators<InferColumnValue<TCol, TSchema>>
 				: TCol extends FkBuilder

@@ -39,9 +39,12 @@ type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
 export type {
 	ColumnWhereInput,
+	ComparableFilter,
 	InferColumnValue,
+	JsonFilter,
 	PluginColumnWhereOperators,
 	QueryMode,
+	StringFilter,
 	WhereOperators,
 } from "./column-where.js";
 export type {
