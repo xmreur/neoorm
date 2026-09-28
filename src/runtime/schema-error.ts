@@ -28,6 +28,28 @@ export function extractTableSqlName(statement: string): string | undefined {
 	return match?.[1] ?? match?.[2] ?? match?.[3];
 }
 
+const CREATE_TABLE_NAME_RE =
+	/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"[^"]+"|`[^`]+`|'[^']+'|[A-Za-z_][\w$]*)\s*\.\s*)?(?:"([^"]+)"|`([^`]+)`|'([^']+)'|([A-Za-z_][\w$]*))/gi;
+
+function isMigrationsLedgerTable(sqlName: string): boolean {
+	return sqlName === "_neoorm_migrations" || sqlName.startsWith("_neoorm_");
+}
+
+/** Unqualified table names from `CREATE TABLE` statements in a migration. */
+export function extractCreateTableSqlNames(sql: string): string[] {
+	const names: string[] = [];
+	const seen = new Set<string>();
+	for (const match of sql.matchAll(CREATE_TABLE_NAME_RE)) {
+		const name = match[1] ?? match[2] ?? match[3] ?? match[4];
+		if (!name || isMigrationsLedgerTable(name) || seen.has(name)) {
+			continue;
+		}
+		seen.add(name);
+		names.push(name);
+	}
+	return names;
+}
+
 function findTableBySqlName(
 	manifest: Manifest,
 	sqlName: string,

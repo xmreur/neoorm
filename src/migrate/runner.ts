@@ -24,6 +24,7 @@ import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { NeoOrmDriverError } from "../runtime/errors.js";
 import {
 	enrichMigrationError,
+	extractCreateTableSqlNames,
 	type MigrateContext,
 	resolveMigrateContext,
 } from "../runtime/schema-error.js";
@@ -491,6 +492,234 @@ export async function listPendingMigrations(
 	return diskMigrations.filter((name) => !applied.has(name));
 }
 
+async function listLiveTableSqlNames(
+	client: DatabaseClient,
+	dialect: Dialect,
+	schema?: string,
+): Promise<string[]> {
+	switch (dialect.name) {
+		case "sqlite": {
+			const result = await client.query<{ name: string }>(
+				`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_neoorm_%'`,
+			);
+			return result.rows.map((row) => row.name);
+		}
+		case "mysql":
+		case "mariadb": {
+			const result = await client.query<{ table_name: string }>(
+				`SELECT TABLE_NAME AS table_name
+				 FROM information_schema.TABLES
+				 WHERE TABLE_SCHEMA = DATABASE()
+				   AND TABLE_TYPE = 'BASE TABLE'
+				   AND TABLE_NAME NOT LIKE '_neoorm_%'`,
+			);
+			return result.rows.map((row) => row.table_name);
+		}
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(schema);
+			const result = await client.query<{ table_name: string }>(
+				`SELECT table_name
+				 FROM information_schema.tables
+				 WHERE table_schema = $1
+				   AND table_type = 'BASE TABLE'
+				   AND table_name NOT LIKE '_neoorm_%'`,
+				[schemaName],
+			);
+			return result.rows.map((row) => row.table_name);
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
+	}
+}
+
+function liveTableNameSet(names: readonly string[]): Set<string> {
+	const set = new Set<string>();
+	for (const name of names) {
+		set.add(name);
+		set.add(name.toLowerCase());
+	}
+	return set;
+}
+
+export function collidingCreateTableNames(
+	createNames: readonly string[],
+	liveNames: readonly string[],
+): string[] {
+	const live = liveTableNameSet(liveNames);
+	return createNames.filter(
+		(name) => live.has(name) || live.has(name.toLowerCase()),
+	);
+}
+
+async function readPendingCreateCollisions(
+	client: DatabaseClient,
+	dialect: Dialect,
+	migrationsDir: string,
+	pending: readonly string[],
+	schema?: string,
+): Promise<{
+	migrationName: string;
+	collisions: string[];
+} | null> {
+	if (pending.length === 0) {
+		return null;
+	}
+
+	const liveNames = await listLiveTableSqlNames(client, dialect, schema);
+	for (const name of pending) {
+		const sql = await readFile(
+			join(migrationsDir, name, "migration.sql"),
+			"utf-8",
+		);
+		const creates = extractCreateTableSqlNames(sql);
+		const collisions = collidingCreateTableNames(creates, liveNames);
+		if (collisions.length > 0) {
+			return { migrationName: name, collisions };
+		}
+	}
+	return null;
+}
+
+function createTableDriftError(
+	migrationName: string,
+	collisions: string[],
+	schemaPath: string | undefined,
+	suggestions: string[],
+): ReturnType<typeof schemaError> {
+	const listed = collisions.map((name) => `"${name}"`).join(", ");
+	return schemaError(
+		SchemaErrorCode.migration_drift,
+		`Pending migration "${migrationName}" would CREATE TABLE ${listed} that already exist.`,
+		{
+			migrationName,
+			...(schemaPath ? { schemaPath } : {}),
+			...(collisions[0] ? { tableSqlName: collisions[0] } : {}),
+		},
+		suggestions,
+	);
+}
+
+export async function introspectLiveManifest(
+	client: DatabaseClient,
+	dialect: Dialect,
+	target: Manifest,
+	schema?: string,
+): Promise<{ live: Manifest; qualifiedTarget: Manifest }> {
+	switch (dialect.name) {
+		case "sqlite":
+			return {
+				live: await introspectSqliteToManifest(client),
+				qualifiedTarget: target,
+			};
+		case "mysql":
+		case "mariadb":
+			return {
+				live: await introspectMysqlToManifest(client),
+				qualifiedTarget: target,
+			};
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(schema);
+			return {
+				live: applySchemaToManifest(
+					await introspectToManifest(client, { schema: schemaName }),
+					schemaName,
+				),
+				qualifiedTarget: applySchemaToManifest(target, schemaName),
+			};
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
+	}
+}
+
+export type ReconcilePendingCreatesOptions = {
+	target: Manifest;
+	outDir: string;
+	acceptDataLoss?: boolean;
+	schema?: string;
+	schemaPath?: string;
+};
+
+/** When pending CREATE TABLE SQL targets existing relations, catch the live DB up to `target` and record those files as applied. */
+export async function reconcilePendingCreates(
+	client: DatabaseClient,
+	dialect: Dialect,
+	migrationsDir: string,
+	options: ReconcilePendingCreatesOptions,
+): Promise<string[]> {
+	const records = await listAppliedMigrations(
+		client,
+		dialect,
+		options.schema,
+	);
+	const applied = new Set(records.map((record) => record.name));
+	const pending = await listPendingMigrations(migrationsDir, applied);
+	const collision = await readPendingCreateCollisions(
+		client,
+		dialect,
+		migrationsDir,
+		pending,
+		options.schema,
+	);
+	if (!collision) {
+		return [];
+	}
+
+	const { live, qualifiedTarget } = await introspectLiveManifest(
+		client,
+		dialect,
+		options.target,
+		options.schema,
+	);
+	const manifestDiff = diffManifest(live, qualifiedTarget, dialect);
+	const { sql, blocked } = resolveMigrationSql(
+		manifestDiff,
+		live,
+		qualifiedTarget,
+		options.acceptDataLoss ?? false,
+		dialect,
+	);
+	if (blocked.length > 0 && !(options.acceptDataLoss ?? false)) {
+		throw createTableDriftError(
+			collision.migrationName,
+			collision.collisions,
+			options.schemaPath,
+			[
+				...formatDestructiveWarnings(blocked),
+				"The live database already has tables this pending migration would create, and catching up requires destructive DDL.",
+				"Re-run `neoorm migrate dev --accept-data-loss`, or `neoorm migrate reset --force` locally.",
+			],
+		);
+	}
+
+	await applySql(client, sql, {
+		...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
+		manifest: qualifiedTarget,
+		...(options.schema ? { schema: options.schema } : {}),
+	});
+
+	const tableRef = migrationsTableRef(dialect, options.schema);
+	await client.transaction(async (tx) => {
+		for (const name of pending) {
+			const fileSql = await readFile(
+				join(migrationsDir, name, "migration.sql"),
+				"utf-8",
+			);
+			await tx.query(
+				`INSERT INTO ${tableRef} (name, checksum) VALUES ($1, $2)`,
+				[name, hashMigrationSql(fileSql)],
+			);
+		}
+	});
+
+	await writeSnapshot(options.outDir, options.target);
+	return pending;
+}
+
 export async function applySql(
 	client: DatabaseClient,
 	sql: string[],
@@ -595,6 +824,25 @@ export async function migrateDeploy(
 			);
 			const applied = new Set(records.map((record) => record.name));
 			const pending = await listPendingMigrations(migrationsDir, applied);
+			const collision = await readPendingCreateCollisions(
+				locked,
+				dialect,
+				migrationsDir,
+				pending,
+				context.schema,
+			);
+			if (collision) {
+				throw createTableDriftError(
+					collision.migrationName,
+					collision.collisions,
+					context.schemaPath,
+					[
+						"The database already has these tables (for example from db push) but they are not in the migration ledger.",
+						"Run `neoorm migrate reset --force` locally to drop the schema and apply migrations from disk.",
+						"Run `neoorm migrate dev` in development to catch the live schema up and record the pending files as applied.",
+					],
+				);
+			}
 
 			for (const name of pending) {
 				await applyMigration(
@@ -756,33 +1004,12 @@ export async function dbPush(
 	target: Manifest,
 	options: DbPushOptions = {},
 ): Promise<DbPushResult> {
-	let live: Manifest;
-	let qualifiedTarget: Manifest;
-
-	switch (dialect.name) {
-		case "sqlite":
-			live = await introspectSqliteToManifest(client);
-			qualifiedTarget = target;
-			break;
-		case "mysql":
-		case "mariadb":
-			live = await introspectMysqlToManifest(client);
-			qualifiedTarget = target;
-			break;
-		case "postgresql": {
-			const schemaName = resolvePgSchemaName(options.schema);
-			live = applySchemaToManifest(
-				await introspectToManifest(client, { schema: schemaName }),
-				schemaName,
-			);
-			qualifiedTarget = applySchemaToManifest(target, schemaName);
-			break;
-		}
-		default: {
-			const _never: never = dialect.name;
-			return _never;
-		}
-	}
+	const { live, qualifiedTarget } = await introspectLiveManifest(
+		client,
+		dialect,
+		target,
+		options.schema,
+	);
 
 	const manifestDiff = diffManifest(live, qualifiedTarget, dialect);
 	const { sql, blocked } = resolveMigrationSql(

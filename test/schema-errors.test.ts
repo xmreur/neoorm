@@ -15,6 +15,7 @@ import {
 } from "../src/runtime/errors.js";
 import {
 	enrichMigrationError,
+	extractCreateTableSqlNames,
 	schemaCompileError,
 } from "../src/runtime/schema-error.js";
 
@@ -51,7 +52,8 @@ describe("NeoOrmSchemaError", () => {
 				'CREATE TABLE "posts_tags" (\n  PRIMARY KEY ("post_id", "tag_id")\n);',
 		});
 
-		expect(message).toContain("Schema error in schema.ts");
+		expect(message).toContain("Migration error");
+		expect(message).not.toContain("Schema error in schema.ts");
 		expect(message).toContain("posts_tags");
 		expect(message).toContain("auto junction for posts ↔ tags");
 		expect(message).toContain('Migration "20260902_migration" failed');
@@ -105,7 +107,10 @@ describe("NeoOrmSchemaError", () => {
 		} catch (err) {
 			expect(err).toBeInstanceOf(NeoOrmSchemaError);
 			const schemaErr = err as NeoOrmSchemaError;
-			expect(schemaErr.message).toContain("Schema error in schema.ts");
+			expect(schemaErr.message).toContain("Migration error");
+			expect(schemaErr.message).not.toContain(
+				"Schema error in schema.ts",
+			);
 			expect(schemaErr.message).toContain("posts_tags");
 			expect(schemaErr.message).toContain(
 				"auto junction for posts ↔ tags",
@@ -136,5 +141,23 @@ describe("NeoOrmSchemaError", () => {
 
 		expect(driverErr.message).toContain("posts_tags");
 		expect(driverErr.message).toContain('near "PRIMARY": syntax error');
+	});
+});
+
+describe("extractCreateTableSqlNames", () => {
+	it("collects the last identifier from quoted, qualified, and IF NOT EXISTS creates", () => {
+		const sql = `
+CREATE TABLE IF NOT EXISTS "users" (id INTEGER);
+CREATE TABLE public.posts (id INTEGER);
+CREATE TABLE "tenant"."sessions" (id INTEGER);
+CREATE TABLE \`brands\` (id INTEGER);
+CREATE TABLE _neoorm_migrations (id INTEGER);
+`;
+		expect(extractCreateTableSqlNames(sql)).toEqual([
+			"users",
+			"posts",
+			"sessions",
+			"brands",
+		]);
 	});
 });
