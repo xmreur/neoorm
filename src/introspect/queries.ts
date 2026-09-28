@@ -35,6 +35,7 @@ export type IndexRow = {
 	method: string;
 	where_sql: string | null;
 	opclass: string | null;
+	options: string[] | string | null;
 };
 
 export type UniqueConstraintRow = {
@@ -153,7 +154,8 @@ export async function queryIndexes(
         WHEN ix.indkey[ord] = 0 THEN pg_get_indexdef(ix.indexrelid, ord, true)
         ELSE a.attname
       END AS key_sql,
-      opc.opcname AS opclass
+      opc.opcname AS opclass,
+      i.reloptions AS options
     FROM pg_class t
     JOIN pg_index ix ON t.oid = ix.indrelid
     JOIN pg_class i ON i.oid = ix.indexrelid

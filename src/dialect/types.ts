@@ -1,5 +1,6 @@
 import type { ValidationType } from "../codegen/validation/types.js";
 import type { DatabaseProvider } from "../datasource-provider.js";
+import type { BloomIndexOptions } from "../schema/table.js";
 
 export type CoreColumnKind =
 	| "id"
@@ -113,7 +114,7 @@ export type ManifestManyToMany = {
 	inverse: string;
 };
 
-export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin";
+export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin" | "bloom";
 
 export type ManifestIndexKey = {
 	sqlName?: string;
@@ -129,6 +130,7 @@ export type ManifestIndex = {
 	whereSql?: string;
 	using?: IndexMethod;
 	opclass?: string;
+	with?: BloomIndexOptions;
 	keys?: readonly ManifestIndexKey[];
 };
 

@@ -428,6 +428,46 @@ describe("diffManifest", () => {
 		expect(destructive.some((d) => d.kind === "drop_index")).toBe(true);
 	});
 
+	it("recreates bloom indexes when WITH options change", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+			col("a", "a", {}),
+			col("b", "b", {}),
+		];
+		const bloom = (withOptions?: { length?: number; cols?: number[] }) =>
+			table("events", "events", columns, {
+				indexes: [
+					{
+						name: "a_b",
+						sqlName: "events_a_b_idx",
+						columns: ["a", "b"],
+						unique: false,
+						using: "bloom",
+						...(withOptions ? { with: withOptions } : {}),
+					},
+				],
+			});
+		const prev = manifest({ events: bloom({ length: 80, cols: [2, 2] }) });
+		const next = manifest({ events: bloom({ length: 96, cols: [2, 2] }) });
+
+		const { sql } = diffManifest(prev, next);
+		expect(
+			sql.some((s) =>
+				s.includes('DROP INDEX IF EXISTS "events_a_b_idx"'),
+			),
+		).toBe(true);
+		expect(
+			sql.some((s) =>
+				s.includes(
+					'USING bloom ("a", "b") WITH (length = 96, col1 = 2, col2 = 2)',
+				),
+			),
+		).toBe(true);
+
+		const { sql: sameSql } = diffManifest(prev, prev);
+		expect(sameSql.some((s) => s.includes("DROP INDEX"))).toBe(false);
+	});
+
 	it("detects foreign key add, drop, and change", () => {
 		const users = table("users", "users", [
 			col("id", "id", { kind: "id", primary: true, nullable: false }),

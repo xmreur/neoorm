@@ -210,11 +210,18 @@ function indexKeySignature(index: ManifestIndex): string {
 		.join("|");
 }
 
+function indexWithSignature(index: ManifestIndex): string {
+	const withOptions = index.with;
+	if (!withOptions) return "";
+	return `len:${withOptions.length ?? ""};cols:${(withOptions.cols ?? []).join(",")}`;
+}
+
 function indexesEqual(a: ManifestIndex, b: ManifestIndex): boolean {
 	return (
 		a.unique === b.unique &&
 		(a.using ?? "btree") === (b.using ?? "btree") &&
 		(a.opclass ?? "") === (b.opclass ?? "") &&
+		indexWithSignature(a) === indexWithSignature(b) &&
 		a.columns.length === b.columns.length &&
 		a.columns.every((col, i) => col === b.columns[i]) &&
 		indexKeySignature(a) === indexKeySignature(b) &&
@@ -223,7 +230,7 @@ function indexesEqual(a: ManifestIndex, b: ManifestIndex): boolean {
 }
 
 function indexSignature(index: ManifestIndex): string {
-	return `${index.unique ? "u" : "n"}:${index.using ?? "btree"}:${index.opclass ?? ""}:${indexKeySignature(index)}:${index.whereSql ?? ""}`;
+	return `${index.unique ? "u" : "n"}:${index.using ?? "btree"}:${index.opclass ?? ""}:${indexWithSignature(index)}:${indexKeySignature(index)}:${index.whereSql ?? ""}`;
 }
 
 function diffIndexes(

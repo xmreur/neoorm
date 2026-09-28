@@ -310,6 +310,144 @@ describe("schema DSL 0.6", () => {
 		);
 	});
 
+	it("emits bloom indexes with WITH options and registers the extension", () => {
+		const schema = defineSchema({
+			events: table(
+				{
+					id: id(),
+					a: text().notNull(),
+					b: text().notNull(),
+				},
+				(t) => [
+					index(t.a, t.b)
+						.using("bloom")
+						.with({ length: 80, cols: [2, 2] }),
+				],
+			),
+		});
+		const manifest = schemaToManifest(schema);
+		expect(manifest.extensions).toContain("bloom");
+		const events = manifestTable(manifest, "events");
+		const bloom = events.indexes.find((idx) => idx.using === "bloom");
+		expect(bloom).toEqual(
+			expect.objectContaining({
+				using: "bloom",
+				with: { length: 80, cols: [2, 2] },
+				columns: ["a", "b"],
+			}),
+		);
+		if (!bloom) return;
+		expect(postgresDialect.emitCreateIndex(events, bloom)).toBe(
+			`CREATE INDEX "events_a_b_idx" ON "events" USING bloom ("a", "b") WITH (length = 80, col1 = 2, col2 = 2);`,
+		);
+	});
+
+	it("emits bloom indexes without WITH options when unconfigured", () => {
+		const schema = defineSchema({
+			events: table(
+				{
+					id: id(),
+					a: text().notNull(),
+				},
+				(t) => [index(t.a).using("bloom")],
+			),
+		});
+		const manifest = schemaToManifest(schema);
+		expect(manifest.extensions).toContain("bloom");
+		const events = manifestTable(manifest, "events");
+		const bloom = events.indexes.find((idx) => idx.using === "bloom");
+		if (!bloom) return;
+		expect(bloom.with).toBeUndefined();
+		expect(postgresDialect.emitCreateIndex(events, bloom)).toBe(
+			`CREATE INDEX "events_a_idx" ON "events" USING bloom ("a");`,
+		);
+	});
+
+	it("rejects UNIQUE bloom indexes", () => {
+		const schema = defineSchema({
+			items: table(
+				{
+					id: id(),
+					tags: text().notNull(),
+				},
+				(t) => [unique(t.tags).using("bloom")],
+			),
+		});
+		expect(() => schemaToManifest(schema)).toThrow(
+			/UNIQUE indexes cannot use bloom/,
+		);
+	});
+
+	it("rejects WITH options without using bloom", () => {
+		const schema = defineSchema({
+			items: table(
+				{
+					id: id(),
+					tags: text().notNull(),
+				},
+				(t) => [index(t.tags).using("gin").with({ length: 80 })],
+			),
+		});
+		expect(() => schemaToManifest(schema)).toThrow(
+			/WITH options require using\("bloom"\)/,
+		);
+	});
+
+	it("rejects bloom WITH cols that do not match the key count", () => {
+		const schema = defineSchema({
+			items: table(
+				{
+					id: id(),
+					a: text().notNull(),
+					b: text().notNull(),
+				},
+				(t) => [
+					index(t.a, t.b)
+						.using("bloom")
+						.with({ cols: [2] }),
+				],
+			),
+		});
+		expect(() => schemaToManifest(schema)).toThrow(
+			/must match the number of index keys/,
+		);
+	});
+
+	it("rejects non-positive bloom WITH values", () => {
+		const badLength = defineSchema({
+			items: table({ id: id(), a: text().notNull() }, (t) => [
+				index(t.a).using("bloom").with({ length: 0 }),
+			]),
+		});
+		expect(() => schemaToManifest(badLength)).toThrow(
+			/length must be a positive integer/,
+		);
+		const badCols = defineSchema({
+			items: table({ id: id(), a: text().notNull() }, (t) => [
+				index(t.a)
+					.using("bloom")
+					.with({ cols: [-1] }),
+			]),
+		});
+		expect(() => schemaToManifest(badCols)).toThrow(
+			/non-empty array of positive integers/,
+		);
+	});
+
+	it("rejects bloom indexes on SQLite and MySQL", () => {
+		const schema = defineSchema({
+			items: table({ id: id(), a: text().notNull() }, (t) => [
+				index(t.a).using("bloom"),
+			]),
+		});
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "sqlite" }),
+		).toThrow(/SQLite does not support bloom indexes/);
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "mysql" }),
+		).toThrow(/does not support bloom indexes/);
+	});
+
 	it("emits onUpdate, deferrable, and composite foreignKey extras", () => {
 		const schema = defineSchema({
 			users: table(

@@ -91,6 +91,7 @@ export type {
 	SqlNameToAccessor,
 } from "./relation-types.js";
 export type {
+	BloomIndexOptions,
 	ColumnDef,
 	ColumnNaming,
 	ColumnRefs,

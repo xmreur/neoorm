@@ -49,6 +49,7 @@ import {
 	resolveFkAccessorTarget,
 } from "../schema/relation.js";
 import {
+	type BloomIndexOptions,
 	type ColumnDef,
 	type ColumnNaming,
 	type ForeignKeyDef,
@@ -498,6 +499,21 @@ function extraIndexOpclass(extra: TableExtra): string | undefined {
 	return undefined;
 }
 
+function extraIndexWith(extra: TableExtra): BloomIndexOptions | undefined {
+	if (extra.kind !== "index") return undefined;
+	if (
+		"with" in extra &&
+		extra.with !== undefined &&
+		typeof extra.with !== "function"
+	) {
+		return extra.with;
+	}
+	if ("_with" in extra && extra._with !== undefined) {
+		return extra._with;
+	}
+	return undefined;
+}
+
 function extraIndexKeys(extra: TableExtra): readonly IndexKeyInput[] {
 	if (extra.kind !== "index") return [];
 	if ("keys" in extra && extra.keys) return extra.keys;
@@ -512,7 +528,45 @@ function sanitizeIndexNamePart(sql: string): string {
 	return token.length > 0 ? token : "expr";
 }
 
-const NON_UNIQUE_INDEX_METHODS = new Set<IndexMethod>(["gin", "gist", "brin"]);
+const NON_UNIQUE_INDEX_METHODS = new Set<IndexMethod>([
+	"gin",
+	"gist",
+	"brin",
+	"bloom",
+]);
+
+function assertBloomWithOptions(
+	withOptions: BloomIndexOptions,
+	keyCount: number,
+): void {
+	if (
+		withOptions.length !== undefined &&
+		(!Number.isInteger(withOptions.length) || withOptions.length <= 0)
+	) {
+		throw schemaError(
+			"invalid_column",
+			`Bloom index WITH length must be a positive integer`,
+		);
+	}
+	if (withOptions.cols !== undefined) {
+		if (
+			!Array.isArray(withOptions.cols) ||
+			withOptions.cols.length === 0 ||
+			withOptions.cols.some((n) => !Number.isInteger(n) || n <= 0)
+		) {
+			throw schemaError(
+				"invalid_column",
+				`Bloom index WITH cols must be a non-empty array of positive integers`,
+			);
+		}
+		if (withOptions.cols.length !== keyCount) {
+			throw schemaError(
+				"invalid_column",
+				`Bloom index WITH cols length (${withOptions.cols.length}) must match the number of index keys (${keyCount})`,
+			);
+		}
+	}
+}
 
 function extrasToManifest(
 	extras: readonly TableExtra[],
@@ -533,10 +587,17 @@ function extrasToManifest(
 		if (extra.kind === "index") {
 			const using = extraIndexUsing(extra);
 			const opclass = extraIndexOpclass(extra);
+			const withOptions = extraIndexWith(extra);
 			if (extra.unique && using && NON_UNIQUE_INDEX_METHODS.has(using)) {
 				throw schemaError(
 					"invalid_column",
 					`UNIQUE indexes cannot use ${using}`,
+				);
+			}
+			if (withOptions && using !== "bloom") {
+				throw schemaError(
+					"invalid_column",
+					`Index WITH options require using("bloom")`,
 				);
 			}
 			if (using && using !== "btree") {
@@ -575,6 +636,9 @@ function extrasToManifest(
 			const sqlColumns = keys
 				.map((key) => key.sqlName)
 				.filter((name): name is string => name !== undefined);
+			if (withOptions) {
+				assertBloomWithOptions(withOptions, keys.length);
+			}
 			const nameParts = keys.map(
 				(key) =>
 					key.sqlName ?? sanitizeIndexNamePart(key.expr ?? "expr"),
@@ -586,6 +650,7 @@ function extrasToManifest(
 				keys,
 				...(using && using !== "btree" ? { using } : {}),
 				...(opclass ? { opclass } : {}),
+				...(withOptions ? { with: withOptions } : {}),
 			};
 			if (wherePredicate) {
 				if (isMysqlFamilyProvider(provider)) {
@@ -1313,7 +1378,16 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 		),
 	);
 	const userExtensions = schema._extensions ?? [];
-	const extensions = [...new Set([...pluginExtensions, ...userExtensions])];
+	const usesBloom = Object.values(manifestTables).some((table) =>
+		table.indexes.some((index) => index.using === "bloom"),
+	);
+	const extensions = [
+		...new Set([
+			...pluginExtensions,
+			...(usesBloom ? ["bloom"] : []),
+			...userExtensions,
+		]),
+	];
 
 	return {
 		version: 1,
