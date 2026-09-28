@@ -28,6 +28,11 @@ import {
 	encodeStudioRows,
 } from "./codec.js";
 import { parseCsv, toCsv, toMarkdown, toSqlInserts } from "./csv.js";
+import {
+	loadSharedErLayout,
+	parseSharedErLayout,
+	saveSharedErLayout,
+} from "./er-layout.js";
 import { toStudioError } from "./errors.js";
 import { toStudioGraph } from "./graph.js";
 import { type StudioMeta, toStudioMeta } from "./meta.js";
@@ -54,6 +59,8 @@ export type StudioServerOptions = {
 	migrationsDir?: string;
 	/** Existing SQLite handle (tests, embedding). Takes precedence over connectionString for SQLite. */
 	sqliteDb?: SqliteDatabaseLike;
+	/** Path to a shared team ER layout JSON file. When omitted, shared layout is disabled. */
+	erLayoutPath?: string;
 };
 
 export type StudioServer = {
@@ -82,6 +89,7 @@ type StudioContext = {
 	verbose: boolean;
 	token?: string;
 	metaSource: "schema" | "snapshot";
+	erLayoutPath?: string;
 };
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
@@ -372,6 +380,17 @@ async function handleApi(
 			segments[1] === "graph"
 		) {
 			sendJson(res, 200, toStudioGraph(ctx.manifest));
+			return;
+		}
+
+		// GET /api/graph/layout, PUT /api/graph/layout (team-shared ER positions)
+		if (
+			segments.length === 3 &&
+			segments[0] === "api" &&
+			segments[1] === "graph" &&
+			segments[2] === "layout"
+		) {
+			await handleErLayout(ctx, req, res, method);
 			return;
 		}
 
@@ -1089,6 +1108,53 @@ async function readMigrateStatus(ctx: StudioContext): Promise<unknown> {
 	};
 }
 
+async function handleErLayout(
+	ctx: StudioContext,
+	req: IncomingMessage,
+	res: ServerResponse,
+	method: string,
+): Promise<void> {
+	if (!ctx.erLayoutPath) {
+		sendJson(res, 404, {
+			error: {
+				code: "not_found",
+				message:
+					"Shared ER layout is not enabled. Restart Studio with --er-layout <path>.",
+			},
+		});
+		return;
+	}
+	if (method === "GET") {
+		const layout = await loadSharedErLayout(ctx.erLayoutPath);
+		if (!layout) {
+			sendJson(res, 200, { available: false, layout: null });
+			return;
+		}
+		sendJson(res, 200, { available: true, layout });
+		return;
+	}
+	if (method === "PUT") {
+		requireWritable(ctx);
+		const body = parseJsonBody(await readBody(req)) as unknown;
+		const payload =
+			typeof body === "object" &&
+			body !== null &&
+			"layout" in (body as Record<string, unknown>)
+				? (body as Record<string, unknown>).layout
+				: body;
+		const layout = parseSharedErLayout(payload);
+		await saveSharedErLayout(ctx.erLayoutPath, layout);
+		sendJson(res, 200, { layout });
+		return;
+	}
+	sendJson(res, 405, {
+		error: {
+			code: "method_not_allowed",
+			message: `Method ${method} not allowed`,
+		},
+	});
+}
+
 export function createStudioRequestHandler(
 	ctx: StudioContext,
 	uiDir: string | null,
@@ -1281,6 +1347,9 @@ export async function startStudioServer(
 		verbose,
 		...(token !== undefined ? { token } : {}),
 		metaSource,
+		...(options.erLayoutPath !== undefined
+			? { erLayoutPath: resolve(cwd, options.erLayoutPath) }
+			: {}),
 	};
 
 	const uiDir = resolveStudioUiDir(cwd, options.uiDir);
