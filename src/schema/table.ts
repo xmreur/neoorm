@@ -82,7 +82,7 @@ export type IndexWherePredicate = Record<
 	boolean | number | string | null
 >;
 
-export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin";
+export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin" | "bloom";
 
 export type IndexExpr = {
 	readonly kind: "indexExpr";
@@ -98,6 +98,7 @@ export type IndexDef = {
 	unique: boolean;
 	using?: IndexMethod;
 	opclass?: string;
+	with?: BloomIndexOptions;
 	where?: IndexWherePredicate;
 };
 
@@ -199,6 +200,18 @@ export type ColumnRefs<TColumns extends Record<string, ColumnDef>> = {
 	readonly [K in keyof TColumns]: K & string;
 };
 
+/**
+ * `WITH` storage options for `USING bloom` indexes.
+ *
+ * `cols` maps positionally to the index keys (`col1`, `col2`, … in DDL),
+ * so its length must match the number of keys. `length` is the bloom
+ * signature length. Omit `.with()` entirely for server defaults.
+ */
+export type BloomIndexOptions = {
+	length?: number;
+	cols?: readonly number[];
+};
+
 export type IndexBuilder = {
 	readonly kind: "index";
 	readonly keys: readonly IndexKeyInput[];
@@ -206,8 +219,11 @@ export type IndexBuilder = {
 	readonly unique: boolean;
 	readonly _using?: IndexMethod;
 	readonly _opclass?: string;
+	readonly _with?: BloomIndexOptions;
 	using(method: IndexMethod): IndexBuilder;
 	ops(opclass: string): IndexBuilder;
+	/** Bloom `WITH` options (requires `.using("bloom")`). */
+	with(options: BloomIndexOptions): IndexBuilder;
 	/** Partial index: only index rows matching the predicate. */
 	where(predicate: IndexWherePredicate): IndexDef;
 };
@@ -235,6 +251,7 @@ function createIndexBuilder(state: {
 	unique: boolean;
 	using?: IndexMethod;
 	opclass?: string;
+	with?: BloomIndexOptions;
 }): IndexBuilder {
 	const def: IndexDef = {
 		kind: "index",
@@ -243,6 +260,7 @@ function createIndexBuilder(state: {
 		unique: state.unique,
 		...(state.using ? { using: state.using } : {}),
 		...(state.opclass ? { opclass: state.opclass } : {}),
+		...(state.with ? { with: state.with } : {}),
 	};
 	return {
 		kind: "index",
@@ -251,11 +269,15 @@ function createIndexBuilder(state: {
 		unique: state.unique,
 		...(state.using ? { _using: state.using } : {}),
 		...(state.opclass ? { _opclass: state.opclass } : {}),
+		...(state.with ? { _with: state.with } : {}),
 		using(method: IndexMethod) {
 			return createIndexBuilder({ ...state, using: method });
 		},
 		ops(opclass: string) {
 			return createIndexBuilder({ ...state, opclass });
+		},
+		with(options: BloomIndexOptions) {
+			return createIndexBuilder({ ...state, with: options });
 		},
 		where(predicate: IndexWherePredicate) {
 			return { ...def, where: predicate };

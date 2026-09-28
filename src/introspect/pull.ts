@@ -403,6 +403,18 @@ function emitTableExtras(
 		if (index.opclass) {
 			extra += `.ops("${escapeTsString(index.opclass)}")`;
 		}
+		if (index.using === "bloom" && index.with) {
+			const withParts: string[] = [];
+			if (index.with.length !== undefined) {
+				withParts.push(`length: ${index.with.length}`);
+			}
+			if (index.with.cols !== undefined) {
+				withParts.push(`cols: [${index.with.cols.join(", ")}]`);
+			}
+			if (withParts.length > 0) {
+				extra += `.with({ ${withParts.join(", ")} })`;
+			}
+		}
 		if (index.whereSql) {
 			const where = parseEqualityWhere(index.whereSql, tsNameBySql);
 			if (where) extra += where;

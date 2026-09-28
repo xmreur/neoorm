@@ -55,6 +55,24 @@ export function indexUsingClause(index: ManifestIndex): string {
 	return ` USING ${index.using}`;
 }
 
+/**
+ * `WITH (...)` storage options for `USING bloom` indexes.
+ * `cols` maps positionally to the index keys (`col1`, `col2`, …).
+ */
+export function indexWithClause(index: ManifestIndex): string {
+	if (index.using !== "bloom" || !index.with) {
+		return "";
+	}
+	const parts: string[] = [];
+	if (index.with.length !== undefined) {
+		parts.push(`length = ${index.with.length}`);
+	}
+	for (let i = 0; i < (index.with.cols ?? []).length; i++) {
+		parts.push(`col${i + 1} = ${index.with.cols?.[i]}`);
+	}
+	return parts.length > 0 ? ` WITH (${parts.join(", ")})` : "";
+}
+
 export function formatIndexKeyList(
 	index: ManifestIndex,
 	quote: (ident: string) => string,

@@ -287,6 +287,32 @@ describe("introspectPostgres extras", () => {
 						where_sql: null,
 						opclass: null,
 					},
+					{
+						index_name: "docs_email_metadata_bloom_idx",
+						column_name: "email",
+						key_sql: "email",
+						is_expr: false,
+						is_unique: false,
+						is_primary: false,
+						ordinal: 1,
+						method: "bloom",
+						where_sql: null,
+						opclass: null,
+						options: ["length=80", "col1=2", "col2=2"],
+					},
+					{
+						index_name: "docs_email_metadata_bloom_idx",
+						column_name: "metadata",
+						key_sql: "metadata",
+						is_expr: false,
+						is_unique: false,
+						is_primary: false,
+						ordinal: 2,
+						method: "bloom",
+						where_sql: null,
+						opclass: null,
+						options: ["length=80", "col1=2", "col2=2"],
+					},
 				],
 			},
 			primaryKeys: { docs: ["id"] },
@@ -296,6 +322,9 @@ describe("introspectPostgres extras", () => {
 			'index(t.metadata).using("gin").ops("jsonb_path_ops")',
 		);
 		expect(schema).toContain('unique(expr("lower(email)"))');
+		expect(schema).toContain(
+			'index(t.email, t.metadata).using("bloom").with({ length: 80, cols: [2, 2] })',
+		);
 		expect(schema).toContain("expr,");
 	});
 });

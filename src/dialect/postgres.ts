@@ -12,6 +12,7 @@ import { numberedPlaceholder } from "./placeholders.js";
 import {
 	formatIndexKeyList,
 	indexUsingClause,
+	indexWithClause,
 	isSolePrimaryKeyColumn,
 	quoteIdentifier as q,
 	tableRef,
@@ -436,8 +437,9 @@ function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 	const cols = formatIndexKeyList(index, q);
 	const unique = index.unique ? "UNIQUE " : "";
 	const using = indexUsingClause(index);
+	const withClause = indexWithClause(index);
 	const where = index.whereSql ? ` WHERE ${index.whereSql}` : "";
-	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)}${using} (${cols})${where};`;
+	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)}${using} (${cols})${withClause}${where};`;
 }
 
 function emitDropIndex(indexName: string, _tableSqlName?: string): string {

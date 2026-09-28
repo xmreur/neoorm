@@ -13,12 +13,17 @@ import {
 	getPluginRegistry,
 } from "../plugins/registry.js";
 import type { DatabaseClient } from "../runtime/driver.js";
+import type { BloomIndexOptions } from "../schema/table.js";
 import {
 	columnTsNameFromSqlName,
 	tableAccessorFromSqlName,
 } from "../utils/case.js";
 import { groupForeignKeyRows, mapReferentialAction } from "./group-fks.js";
-import type { CheckConstraintRow, UniqueConstraintRow } from "./queries.js";
+import type {
+	CheckConstraintRow,
+	IndexRow,
+	UniqueConstraintRow,
+} from "./queries.js";
 import {
 	queryCheckConstraints,
 	queryColumns,
@@ -178,6 +183,55 @@ function parseDefaultValue(
 	return { defaultNow: false };
 }
 
+function normalizeReloptions(options: IndexRow["options"]): string[] {
+	if (!options) return [];
+	if (Array.isArray(options)) return options;
+	const trimmed = options.trim();
+	if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+		return trimmed
+			.slice(1, -1)
+			.split(",")
+			.map((entry) => entry.trim())
+			.filter((entry) => entry.length > 0);
+	}
+	return [trimmed];
+}
+
+/** Parse Postgres `reloptions` (`{length=80,col1=2}`) into bloom `WITH` options. */
+function bloomWithFromOptions(
+	options: IndexRow["options"],
+): BloomIndexOptions | undefined {
+	const entries = normalizeReloptions(options);
+	if (entries.length === 0) return undefined;
+	let length: number | undefined;
+	const colsByPosition = new Map<number, number>();
+	for (const entry of entries) {
+		const match = entry.match(/^([^=]+)=(.*)$/);
+		if (!match) continue;
+		const name = match[1]?.trim() ?? "";
+		const value = Number(match[2]);
+		if (!Number.isInteger(value)) continue;
+		if (name === "length") {
+			length = value;
+			continue;
+		}
+		const col = name.match(/^col(\d+)$/);
+		if (col?.[1]) colsByPosition.set(Number(col[1]), value);
+	}
+	const positions = [...colsByPosition.keys()].sort((a, b) => a - b);
+	const dense =
+		positions.length > 0 &&
+		positions.every((position, i) => position === i + 1);
+	const cols = dense
+		? positions.map((position) => colsByPosition.get(position) ?? 0)
+		: undefined;
+	if (length === undefined && cols === undefined) return undefined;
+	return {
+		...(length !== undefined ? { length } : {}),
+		...(cols ? { cols } : {}),
+	};
+}
+
 function indexKeyFromRow(row: {
 	column_name: string | null;
 	key_sql: string | null;
@@ -246,9 +300,12 @@ function buildIndexes(
 			method === "hash" ||
 			method === "gin" ||
 			method === "gist" ||
-			method === "brin"
+			method === "brin" ||
+			method === "bloom"
 				? method
 				: undefined;
+		const withOptions =
+			using === "bloom" ? bloomWithFromOptions(row.options) : undefined;
 		const keyOpclasses = [key.opclass].filter((name): name is string =>
 			Boolean(name),
 		);
@@ -259,6 +316,7 @@ function buildIndexes(
 			unique: row.is_unique,
 			keys: [key],
 			...(using ? { using } : {}),
+			...(withOptions ? { with: withOptions } : {}),
 			...(row.where_sql ? { whereSql: row.where_sql } : {}),
 			...(keyOpclasses.length === 1 ? { opclass: keyOpclasses[0] } : {}),
 		});
