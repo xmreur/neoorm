@@ -276,6 +276,13 @@ export type UpdateManyArgs<
 > = {
 	where?: WhereInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
 	data: UpdateInput<TSchema[TAccessor]["_columns"], TSchema, TAccessor>;
+	/**
+	 * Compile top-level to-one relation filters as `UPDATE..JOIN`
+	 * (MySQL/MariaDB) or `UPDATE..FROM` (Postgres) instead of `EXISTS`
+	 * subqueries. Defaults on for MySQL/MariaDB, off elsewhere;
+	 * unsupported on SQLite.
+	 */
+	useJoin?: boolean;
 };
 
 export type UpdateManyAndReturnArgs<

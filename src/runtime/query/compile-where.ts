@@ -521,10 +521,11 @@ function compileExistsSubquery(existsSql: string, negate: boolean): string {
 type WhereAliasScope = {
 	rel: number;
 	jt: number;
+	uj: number;
 };
 
 function freshWhereAliasScope(): WhereAliasScope {
-	return { rel: 0, jt: 0 };
+	return { rel: 0, jt: 0, uj: 0 };
 }
 
 /**
@@ -544,6 +545,65 @@ function nextJunctionAlias(scope: WhereAliasScope): string {
 	return n === 0 ? "_jt" : `_jt${n}`;
 }
 
+/** Update-`JOIN` aliases (`_uj`, `_uj1`, …) — never collide with `_rel` EXISTS aliases. */
+function nextJoinAlias(scope: WhereAliasScope): string {
+	const n = scope.uj++;
+	return n === 0 ? "_uj" : `_uj${n}`;
+}
+
+function compileToOneParts(
+	manifest: Manifest,
+	parentTable: ManifestTable,
+	targetTable: ManifestTable,
+	relation: ManifestRelation,
+	rawValue: unknown,
+	dialect: Dialect,
+	paramIndex: number,
+	manifestIndex: ManifestIndex | undefined,
+	parent: string,
+	scope: WhereAliasScope,
+	nextAlias: (scope: WhereAliasScope) => string = nextRelAlias,
+): {
+	relAlias: string;
+	joinCond: string;
+	nested: CompiledNode;
+} {
+	if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
+		compileError(
+			`Relation filter "${relation.name}" must be a where object`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
+	}
+
+	const relAlias = nextAlias(scope);
+	const columnRef = (col: ManifestColumn) =>
+		`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
+	const nested = compileWhereNode(
+		manifest,
+		targetTable,
+		rawValue,
+		dialect,
+		paramIndex,
+		columnRef,
+		manifestIndex,
+		dialect.quoteIdentifier(relAlias),
+		scope,
+	);
+	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
+	const joinCond = ownedFkJoinPredicate(
+		dialect,
+		parentTable,
+		parentTableIndex,
+		parent,
+		relAlias,
+		relation,
+	);
+	return { relAlias, joinCond, nested };
+}
+
 function compileRelationCondition(
 	manifest: Manifest,
 	parentTable: ManifestTable,
@@ -561,52 +621,31 @@ function compileRelationCondition(
 		return { sql: "", params: [], nextParamIndex: paramIndex };
 	}
 
-	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
 	const scope = aliasScope ?? freshWhereAliasScope();
 	/** How the parent scope is addressable: its alias when nested, else its real table ref. */
 	const parent = parentRef ?? dialect.tableRef(parentTable);
 
 	if (relation.cardinality === "one") {
-		if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
-			compileError(
-				`Relation filter "${relation.name}" must be a where object`,
-				{
-					tableAccessor: parentTable.accessor,
-					tableSqlName: parentTable.sqlName,
-				},
-			);
-		}
-
-		const relAlias = nextRelAlias(scope);
-		const columnRef = (col: ManifestColumn) =>
-			`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
-		const nested = compileWhereNode(
+		const parts = compileToOneParts(
 			manifest,
+			parentTable,
 			targetTable,
+			relation,
 			rawValue,
 			dialect,
 			paramIndex,
-			columnRef,
 			manifestIndex,
-			dialect.quoteIdentifier(relAlias),
+			parent,
 			scope,
 		);
-		const joinCond = ownedFkJoinPredicate(
-			dialect,
-			parentTable,
-			parentTableIndex,
-			parent,
-			relAlias,
-			relation,
-		);
-		const whereParts = [joinCond];
-		if (nested.sql) whereParts.push(nested.sql);
-		const existsSql = `SELECT 1 FROM ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(relAlias)} WHERE ${whereParts.join(" AND ")}`;
+		const whereParts = [parts.joinCond];
+		if (parts.nested.sql) whereParts.push(parts.nested.sql);
+		const existsSql = `SELECT 1 FROM ${dialect.tableRef(targetTable)} AS ${dialect.quoteIdentifier(parts.relAlias)} WHERE ${whereParts.join(" AND ")}`;
 		return compiledResult(
 			compileExistsSubquery(existsSql, false),
-			nested.params,
-			nested.nextParamIndex,
-			nested.impossible,
+			parts.nested.params,
+			parts.nested.nextParamIndex,
+			parts.nested.impossible,
 		);
 	}
 
@@ -747,6 +786,122 @@ function compileRelationCondition(
 			);
 		}
 	}
+}
+
+/**
+ * A to-one relation filter rewritten as an `UPDATE` join instead of an
+ * `EXISTS` subquery. `whereSql` holds the nested conditions against
+ * `alias`; `onCond` correlates the join to the updated table.
+ */
+export type UpdateJoinDescriptor = {
+	alias: string;
+	targetRef: string;
+	onCond: string;
+	whereSql: string;
+};
+
+export type UpdateJoinEntry = {
+	key: string;
+	relation: ManifestRelation;
+	value: Record<string, unknown>;
+};
+
+/**
+ * Partition top-level to-one relation filters (JOIN candidates) out of an
+ * update `where`. To-many (`some`/`every`/`none`), M2M, combinators, and
+ * malformed values stay in `restWhere` for the regular `EXISTS` path, so
+ * error behavior is unchanged.
+ */
+export function splitUpdateJoinKeys(
+	manifest: Manifest,
+	table: ManifestTable,
+	where: Record<string, unknown> | undefined,
+	manifestIndex?: ManifestIndex,
+): {
+	entries: UpdateJoinEntry[];
+	restWhere: Record<string, unknown>;
+} {
+	const entries: UpdateJoinEntry[] = [];
+	const restWhere: Record<string, unknown> = {};
+	if (!where) return { entries, restWhere };
+	const tableIndex = getTableIndex(manifestIndex, table.accessor);
+	const relations =
+		tableIndex?.effectiveRelationsByName ??
+		new Map(
+			effectiveRelations(manifest, table).map((rel) => [rel.name, rel]),
+		);
+	for (const [key, value] of Object.entries(where)) {
+		const relation = relations.get(key);
+		if (
+			relation &&
+			relation.cardinality === "one" &&
+			manifest.tables[relation.targetAccessor] &&
+			!findM2M(manifest, table.accessor, key) &&
+			isOperatorObject(value) &&
+			!Array.isArray(value)
+		) {
+			entries.push({
+				key,
+				relation,
+				value: value as Record<string, unknown>,
+			});
+			continue;
+		}
+		restWhere[key] = value;
+	}
+	return { entries, restWhere };
+}
+
+export type UpdateJoinPlan = {
+	joins: UpdateJoinDescriptor[];
+	params: unknown[];
+	nextParamIndex: number;
+	impossible: boolean;
+};
+
+/** Compile previously split JOIN entries with alias-qualified conditions. */
+export function compileUpdateJoins(
+	manifest: Manifest,
+	table: ManifestTable,
+	entries: UpdateJoinEntry[],
+	dialect: Dialect,
+	startParamIndex: number,
+	manifestIndex?: ManifestIndex,
+	parentRef?: string,
+): UpdateJoinPlan {
+	const joins: UpdateJoinDescriptor[] = [];
+	const params: unknown[] = [];
+	let paramIndex = startParamIndex;
+	let impossible = false;
+	const parent = parentRef ?? dialect.tableRef(table);
+	const scope = freshWhereAliasScope();
+	for (const entry of entries) {
+		const targetTable = manifest.tables[entry.relation.targetAccessor];
+		if (!targetTable) continue;
+		const parts = compileToOneParts(
+			manifest,
+			table,
+			targetTable,
+			entry.relation,
+			entry.value,
+			dialect,
+			paramIndex,
+			manifestIndex,
+			parent,
+			scope,
+			nextJoinAlias,
+		);
+		joins.push({
+			alias: parts.relAlias,
+			targetRef: dialect.tableRef(targetTable),
+			onCond: parts.joinCond,
+			whereSql: parts.nested.sql,
+		});
+		params.push(...parts.nested.params);
+		paramIndex = parts.nested.nextParamIndex;
+		if (parts.nested.impossible) impossible = true;
+	}
+	return { joins, params, nextParamIndex: paramIndex, impossible };
 }
 
 function combinatorTableContext(table: ManifestTable): {

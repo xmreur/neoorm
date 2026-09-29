@@ -139,6 +139,8 @@ await db.posts.updateMany({
 ```
 
 On dialects without `RETURNING` (MySQL; MariaDB for updates), `returnUpdated` / `updateManyAndReturn` re-select the rows after writing: by primary key when the table has one (composite keys included), otherwise by the original predicate. PK-less re-selects return currently-matching rows, so if `data` changed a filtered column the result may differ from the pre-update set.
+
+Top-level to-one relation filters in `updateMany` compile to `UPDATE..JOIN` on MySQL/MariaDB (automatic) instead of `EXISTS` subqueries; pass `useJoin: true` for the `UPDATE..FROM` form on PostgreSQL (`useJoin: false` forces `EXISTS`). To-many (`some`/`every`/`none`), M2M, and nested filters always use `EXISTS`. SQLite has no join form — `useJoin: true` fails there.
 ```
 
 ## Delete
