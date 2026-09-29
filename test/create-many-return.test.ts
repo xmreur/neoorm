@@ -222,10 +222,15 @@ describe("mysql-family bulk insert", () => {
 			{ message: "a", id: 10 },
 			{ message: "b", id: 11 },
 		]);
-		expect(executor.query).not.toHaveBeenCalled();
-		expect(executor.queries).toHaveLength(1);
 		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
 		expect(executor.queries[0]?.sql).not.toContain("SELECT");
+		// Hydration re-select runs after synthesis; empty here, so the
+		// synthesized rows above are returned as the fallback.
+		const reselect = executor.queries.find((q) =>
+			q.sql.startsWith("SELECT"),
+		);
+		expect(reselect?.sql).toContain("IN");
+		expect(reselect?.params).toEqual([10, 11]);
 	});
 
 	it("does not synthesize consecutive ids when skipDuplicates is set", async () => {
