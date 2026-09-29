@@ -324,6 +324,7 @@ function emitArgsTypes(table: ManifestTable): string {
 		`export interface UpdateMany${model}Args {`,
 		`  where?: ${model}Where;`,
 		`  data: Update${model}Input;`,
+		`  useJoin?: boolean;`,
 		`}`,
 		`export interface Delete${model}Args {`,
 		`  where: ${model}WhereUnique & ${model}Where;`,

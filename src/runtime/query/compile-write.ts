@@ -167,8 +167,10 @@ function buildSetExpression(
 	paramIndex: number,
 	op: AtomicUpdateOp = "set",
 	dialect: Dialect = postgresDialect,
+	qualifier?: string,
 ): string {
-	const sqlCol = dialect.quoteIdentifier(col?.sqlName ?? "");
+	const colRef = dialect.quoteIdentifier(col?.sqlName ?? "");
+	const sqlCol = qualifier ? `${qualifier}.${colRef}` : colRef;
 	const placeholder = buildValuePlaceholder(col, paramIndex, dialect);
 
 	switch (op) {
@@ -730,6 +732,64 @@ export function buildUpdateManyQuery(
 	return sql;
 }
 
+export type UpdateManyJoin = {
+	alias: string;
+	targetRef: string;
+	onCond: string;
+};
+
+export function buildUpdateManyJoinQuery(
+	table: ManifestTable,
+	dataKeys: string[],
+	whereSql: string,
+	joins: UpdateManyJoin[],
+	exprSets: string[] = [],
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+	ops?: readonly AtomicUpdateOp[],
+): string {
+	const ordered = orderUpdateAssignments(dataKeys, ops);
+	const targetRef = dialect.tableRef(table);
+	// MySQL multi-table UPDATE requires qualified targets; Postgres
+	// forbids qualifying the target columns.
+	const qualifier = isMysqlFamilyDialect(dialect) ? targetRef : undefined;
+	const paramSets = ordered.keys.map((k, i) => {
+		const col = colByTs(table, k, manifestIndex);
+		const op = ordered.ops[i] ?? "set";
+		return buildSetExpression(col, i + 1, op, dialect, qualifier);
+	});
+	const sets = [...paramSets, ...exprSets];
+	const whereOffset = ordered.keys.length;
+	const rebase = (sql: string) => rebaseParamRefs(sql, whereOffset);
+
+	if (isMysqlFamilyDialect(dialect)) {
+		const joinSql = joins
+			.map(
+				(j) =>
+					`INNER JOIN ${j.targetRef} AS ${dialect.quoteIdentifier(j.alias)} ON ${j.onCond}`,
+			)
+			.join(" ");
+		let sql = `UPDATE ${targetRef} ${joinSql} SET ${sets.join(", ")}`;
+		if (whereSql) {
+			sql += ` ${rebase(whereSql)}`;
+		}
+		return sql;
+	}
+
+	const fromSql = joins
+		.map((j) => `${j.targetRef} AS ${dialect.quoteIdentifier(j.alias)}`)
+		.join(", ");
+	const conds = joins.map((j) => j.onCond);
+	if (whereSql) {
+		conds.push(rebase(whereSql).replace(/^WHERE\s+/, ""));
+	}
+	let sql = `UPDATE ${targetRef} SET ${sets.join(", ")} FROM ${fromSql}`;
+	if (conds.length > 0) {
+		sql += ` WHERE ${conds.join(" AND ")}`;
+	}
+	return sql;
+}
+
 export function getCachedUpdateManyQuery(
 	tableIndex: TableIndex | undefined,
 	table: ManifestTable,
@@ -739,34 +799,41 @@ export function getCachedUpdateManyQuery(
 	manifestIndex?: ManifestIndex,
 	dialect: Dialect = postgresDialect,
 	ops?: readonly AtomicUpdateOp[],
+	joins?: UpdateManyJoin[],
 ): string {
 	const ordered = orderUpdateAssignments(dataKeys, ops);
 	const opKey = ordered.keys
 		.map((key, i) => `${key}:${ordered.ops[i] ?? "set"}`)
 		.join(",");
-	const cacheKey = `${dialect.name}|${opKey}|${exprSets.join("\0")}|${whereSql}`;
+	const joinKey = (joins ?? [])
+		.map((j) => `${j.alias}:${j.targetRef}:${j.onCond}`)
+		.join("\0");
+	const cacheKey = `${dialect.name}|${opKey}|${exprSets.join("\0")}|${whereSql}|${joinKey}`;
+	const build = () =>
+		joins && joins.length > 0
+			? buildUpdateManyJoinQuery(
+					table,
+					ordered.keys,
+					whereSql,
+					joins,
+					exprSets,
+					manifestIndex,
+					dialect,
+					ordered.ops,
+				)
+			: buildUpdateManyQuery(
+					table,
+					ordered.keys,
+					whereSql,
+					exprSets,
+					manifestIndex,
+					dialect,
+					ordered.ops,
+				);
 	if (!tableIndex) {
-		return buildUpdateManyQuery(
-			table,
-			ordered.keys,
-			whereSql,
-			exprSets,
-			manifestIndex,
-			dialect,
-			ordered.ops,
-		);
+		return build();
 	}
-	return getOrSetSqlCache(tableIndex.updateManySqlByKeys, cacheKey, () =>
-		buildUpdateManyQuery(
-			table,
-			ordered.keys,
-			whereSql,
-			exprSets,
-			manifestIndex,
-			dialect,
-			ordered.ops,
-		),
-	);
+	return getOrSetSqlCache(tableIndex.updateManySqlByKeys, cacheKey, build);
 }
 
 export function getCachedDeleteManyQuery(

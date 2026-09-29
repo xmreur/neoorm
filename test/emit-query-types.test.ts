@@ -96,6 +96,10 @@ describe("emitQueryTypesTs", () => {
 		expect(updateBlock).not.toContain("updatedAt");
 		expect(source).toContain("published?: boolean");
 		expect(source).toContain("name?: string | null;");
+		const updateManyBlock = source.match(
+			/export interface UpdateManyUserArgs \{[\s\S]*?\n\}/,
+		)?.[0];
+		expect(updateManyBlock).toContain("useJoin?: boolean;");
 	});
 
 	it("emits unique-where unions and relation filters", () => {

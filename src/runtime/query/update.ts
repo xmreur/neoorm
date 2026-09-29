@@ -1,4 +1,6 @@
 import { postgresDialect } from "../../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
+import type { Dialect, ManifestTable } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
 import { QueryErrorCode } from "../error-codes.js";
@@ -6,9 +8,11 @@ import type { Executor } from "../executor.js";
 import {
 	type AtomicUpdateOp,
 	buildPkEqualityWhereSql,
+	buildQualifiedSelectColumns,
 	buildReturningPkColumns,
 	buildSelectColumns,
 	buildUpdateQuery,
+	compileUpdateJoins,
 	compileWhere,
 	dataToUpdateAssignments,
 	getCachedUpdateByPkQuery,
@@ -16,6 +20,8 @@ import {
 	getCachedWhereClause,
 	isImpossibleWhere,
 	serializePkEqualityParams,
+	splitUpdateJoinKeys,
+	type UpdateManyJoin,
 	type UpdateReturning,
 } from "./compile.js";
 import { runCreate } from "./create.js";
@@ -70,6 +76,110 @@ function dataHasRelationKeys(
 		if (relationByName(tableIndex, table, key)) return true;
 	}
 	return false;
+}
+
+function shouldUseJoinUpdate(
+	dialect: Dialect,
+	useJoin: boolean | undefined,
+): boolean {
+	if (dialect.name === "sqlite") {
+		if (useJoin === true) {
+			compileError("JOIN updates (useJoin) are not supported on sqlite", {
+				code: QueryErrorCode.unsupported_operation,
+			});
+		}
+		return false;
+	}
+	if (isMysqlFamilyDialect(dialect)) return useJoin !== false;
+	return useJoin === true;
+}
+
+type CompiledUpdateManyWhere = {
+	updateWhereSql: string;
+	updateWhereParams: unknown[];
+	selectWhereSql: string;
+	selectWhereParams: unknown[];
+	joins: UpdateManyJoin[];
+	impossible: boolean;
+};
+
+function compileUpdateManyWhere(
+	runtime: QueryRuntime,
+	table: ManifestTable,
+	where: Record<string, unknown> | undefined,
+	useJoin: boolean | undefined,
+): CompiledUpdateManyWhere {
+	const dialect = runtime.dialect ?? postgresDialect;
+	const { manifest } = runtime;
+	const fallback = (): CompiledUpdateManyWhere => {
+		const compiled = getCachedWhereClause(
+			manifest,
+			table,
+			where,
+			dialect,
+			1,
+			runtime.tableIndex,
+		);
+		return {
+			updateWhereSql: compiled.sql,
+			updateWhereParams: compiled.params,
+			selectWhereSql: compiled.sql,
+			selectWhereParams: compiled.params,
+			joins: [],
+			impossible: compiled.impossible === true,
+		};
+	};
+	if (!shouldUseJoinUpdate(dialect, useJoin) || !where) return fallback();
+	const { entries, restWhere } = splitUpdateJoinKeys(
+		manifest,
+		table,
+		where,
+		runtime.tableIndex,
+	);
+	if (entries.length === 0) return fallback();
+	const rest = getCachedWhereClause(
+		manifest,
+		table,
+		restWhere,
+		dialect,
+		1,
+		runtime.tableIndex,
+	);
+	const plan = compileUpdateJoins(
+		manifest,
+		table,
+		entries,
+		dialect,
+		rest.params.length + 1,
+		runtime.tableIndex,
+	);
+	const parts = plan.joins
+		.map((j) => j.whereSql)
+		.filter((sql) => sql.length > 0);
+	if (rest.sql) parts.push(rest.sql.replace(/^WHERE\s+/, ""));
+	const select = getCachedWhereClause(
+		manifest,
+		table,
+		where,
+		dialect,
+		1,
+		runtime.tableIndex,
+	);
+	return {
+		updateWhereSql: parts.length > 0 ? `WHERE ${parts.join(" AND ")}` : "",
+		updateWhereParams: [...rest.params, ...plan.params],
+		selectWhereSql: select.sql,
+		selectWhereParams: select.params,
+		joins: plan.joins.map((j) => ({
+			alias: j.alias,
+			targetRef: j.targetRef,
+			onCond: j.onCond,
+		})),
+		impossible:
+			rest.impossible === true ||
+			plan.impossible ||
+			select.impossible === true,
+	};
 }
 
 async function executePkEqualityUpdate(
@@ -539,6 +649,7 @@ async function runUpdateMany(
 		scalarData?: Record<string, unknown>;
 		relationWrites?: ParsedRelationWrite[];
 		returnRows?: boolean;
+		useJoin?: boolean;
 	},
 ): Promise<number | Record<string, unknown>[]> {
 	const dialect = runtime.dialect ?? postgresDialect;
@@ -600,19 +711,23 @@ async function runUpdateMany(
 		);
 	}
 
-	const compiledWhere = getCachedWhereClause(
-		manifest,
+	const compiled = compileUpdateManyWhere(
+		runtime,
 		table,
 		args.where,
-		dialect,
-		1,
-		runtime.tableIndex,
+		args.useJoin,
 	);
-	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+	if (compiled.impossible || isImpossibleWhere(compiled.updateWhereSql)) {
 		return returnRows ? [] : 0;
 	}
 
-	const { sql: whereSql, params: whereParams } = compiledWhere;
+	const {
+		updateWhereSql: whereSql,
+		updateWhereParams: whereParams,
+		selectWhereSql,
+		selectWhereParams,
+		joins,
+	} = compiled;
 
 	const selectCols = buildSelectColumns(table, undefined, runtime.tableIndex);
 	let affectedCount = 0;
@@ -629,12 +744,23 @@ async function runUpdateMany(
 			runtime.tableIndex,
 			dialect,
 			ops,
+			joins,
 		);
 		if (returnRows || needsPostRelationWrites) {
 			if (dialect.supportsUpdateReturning) {
 				const returning = returnRows
-					? selectCols
-					: dialect.quoteIdentifier(primaryKeySqlName(table));
+					? joins.length > 0
+						? buildQualifiedSelectColumns(
+								table,
+								undefined,
+								runtime.tableIndex,
+								undefined,
+								dialect,
+							)
+						: selectCols
+					: joins.length > 0
+						? `${dialect.tableRef(table)}.${dialect.quoteIdentifier(primaryKeySqlName(table))}`
+						: dialect.quoteIdentifier(primaryKeySqlName(table));
 				const rows = await runQuery(
 					executor,
 					runtime,
@@ -649,8 +775,8 @@ async function runUpdateMany(
 					runtime,
 					table,
 					tableAccessor,
-					whereSql,
-					whereParams,
+					selectWhereSql,
+					selectWhereParams,
 					"select",
 				);
 				await runExecute(
@@ -667,8 +793,8 @@ async function runUpdateMany(
 						table,
 						tableAccessor,
 						mappedRows,
-						whereSql,
-						whereParams,
+						selectWhereSql,
+						selectWhereParams,
 						"update",
 					);
 				}
@@ -694,13 +820,13 @@ async function runUpdateMany(
 			? selectCols
 			: dialect.quoteIdentifier(primaryKeySqlName(table));
 		let selectSql = `SELECT ${selectList} FROM ${dialect.tableRef(table)}`;
-		if (whereSql) selectSql += ` ${whereSql}`;
+		if (selectWhereSql) selectSql += ` ${selectWhereSql}`;
 		const rows = await runQuery(
 			executor,
 			runtime,
 			{ operation: "select", tableAccessor },
 			selectSql,
-			whereParams,
+			selectWhereParams,
 		);
 		mappedRows = mapRowsToTs(tableIndex, table, rows);
 		if (needsPostRelationWrites) {
@@ -736,6 +862,7 @@ async function runUpdateManyScalar(
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
 		returnRows?: boolean;
+		useJoin?: boolean;
 	},
 ): Promise<number | Record<string, unknown>[]> {
 	const dialect = runtime.dialect ?? postgresDialect;
@@ -760,19 +887,23 @@ async function runUpdateManyScalar(
 		);
 	}
 
-	const compiledWhere = getCachedWhereClause(
-		manifest,
+	const compiled = compileUpdateManyWhere(
+		runtime,
 		table,
 		args.where,
-		dialect,
-		1,
-		runtime.tableIndex,
+		args.useJoin,
 	);
-	if (compiledWhere.impossible || isImpossibleWhere(compiledWhere.sql)) {
+	if (compiled.impossible || isImpossibleWhere(compiled.updateWhereSql)) {
 		return returnRows ? [] : 0;
 	}
 
-	const { sql: whereSql, params: whereParams } = compiledWhere;
+	const {
+		updateWhereSql: whereSql,
+		updateWhereParams: whereParams,
+		selectWhereSql,
+		selectWhereParams,
+		joins,
+	} = compiled;
 
 	const query = getCachedUpdateManyQuery(
 		tableIndex,
@@ -783,14 +914,32 @@ async function runUpdateManyScalar(
 		runtime.tableIndex,
 		dialect,
 		ops,
+		joins,
 	);
 	if (returnRows) {
 		if (dialect.supportsUpdateReturning) {
+			const returning =
+				joins.length > 0
+					? buildQualifiedSelectColumns(
+							table,
+							undefined,
+							runtime.tableIndex,
+							undefined,
+							dialect,
+						)
+					: buildSelectColumns(
+							table,
+							undefined,
+							runtime.tableIndex,
+							undefined,
+							undefined,
+							dialect,
+						);
 			const rows = await runQuery(
 				executor,
 				runtime,
 				{ operation: "update", tableAccessor },
-				`${query} RETURNING ${buildSelectColumns(table, undefined, runtime.tableIndex, undefined, undefined, dialect)}`,
+				`${query} RETURNING ${returning}`,
 				[...values, ...whereParams],
 			);
 			return mapRowsToTs(tableIndex, table, rows);
@@ -800,8 +949,8 @@ async function runUpdateManyScalar(
 			runtime,
 			table,
 			tableAccessor,
-			whereSql,
-			whereParams,
+			selectWhereSql,
+			selectWhereParams,
 			"select",
 		);
 		await runExecute(
@@ -818,8 +967,8 @@ async function runUpdateManyScalar(
 				table,
 				tableAccessor,
 				preRows,
-				whereSql,
-				whereParams,
+				selectWhereSql,
+				selectWhereParams,
 				"update",
 			);
 		}
@@ -843,6 +992,7 @@ async function updateManyInternal(
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
 		returnRows?: boolean;
+		useJoin?: boolean;
 	},
 ): Promise<number | Record<string, unknown>[]> {
 	const { manifest } = runtime;
@@ -886,6 +1036,7 @@ export async function updateManyRecords(
 	args: {
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
+		useJoin?: boolean;
 	},
 ): Promise<number> {
 	return updateManyInternal(
@@ -903,6 +1054,7 @@ export async function updateManyAndReturnRecords(
 	args: {
 		where?: Record<string, unknown>;
 		data: Record<string, unknown>;
+		useJoin?: boolean;
 	},
 ): Promise<Record<string, unknown>[]> {
 	return updateManyInternal(executor, runtime, tableAccessor, {
