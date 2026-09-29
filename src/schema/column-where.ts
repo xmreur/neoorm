@@ -80,6 +80,16 @@ export interface ComparableFilter<T> {
 
 export type QueryMode = "default" | "insensitive";
 
+/** Full-text query parser (`plainto_tsquery` / `phraseto_tsquery` / `websearch_to_tsquery` on Postgres). */
+export type SearchTsParser = "plain" | "phrase" | "websearch";
+
+/** Full-text search (`searchTs`): query text plus optional language/parser options. */
+export interface SearchTsQuery {
+	query: string;
+	language?: string;
+	parser?: SearchTsParser;
+}
+
 /** Named so type errors point at the filter instead of expanding it. */
 export interface StringFilter<T extends string = string> {
 	equals?: T;
@@ -87,6 +97,7 @@ export interface StringFilter<T extends string = string> {
 	startsWith?: T;
 	endsWith?: T;
 	search?: T;
+	searchTs?: string | SearchTsQuery;
 	mode?: QueryMode;
 	in?: readonly T[];
 	notIn?: readonly T[];

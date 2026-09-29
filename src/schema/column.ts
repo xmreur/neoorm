@@ -31,6 +31,7 @@ export type CoreColumnKind =
 	| "tstzRange"
 	| "dateRange"
 	| "citext"
+	| "tsvector"
 	| "fk";
 export type ColumnKind = CoreColumnKind | (string & {});
 
@@ -490,6 +491,7 @@ export {
 	timestamp,
 	tsRange,
 	tstzRange,
+	tsvector,
 	uuid,
 	uuidArray,
 	xml,

@@ -228,7 +228,7 @@ await db.posts.findMany({ where: { price: { contains: "9" } } });
 
 | Type | Operators |
 |------|-----------|
-| String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `in`, `notIn`, `mode` |
+| String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `searchTs`, `in`, `notIn`, `mode` |
 | Numeric / Date | `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn` |
 | JSON | `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, `path` |
 | PostGIS (`geometry`, `geography`, `point`) | `intersects`, `within`, `dWithin` |
@@ -237,6 +237,24 @@ await db.posts.findMany({ where: { price: { contains: "9" } } });
 `contains`, `startsWith`, `endsWith`, and `equals` compile to `LIKE` / `=`. Pass sibling `mode: "insensitive"` for case-folding (`ILIKE` on Postgres, `LOWER(col) LIKE LOWER($n)` on SQLite/MySQL/MariaDB). SQLite `LIKE` is ASCII case-insensitive even in default mode. `%` and `_` in the search string are matched literally (`ESCAPE '\'` on Postgres/SQLite, `ESCAPE '\\'` on MySQL/MariaDB).
 
 `search` is POSIX regex on PostgreSQL (`~`, or `~*` with `mode: "insensitive"`), `REGEXP_LIKE` on MySQL 8, `REGEXP` on MariaDB, and JavaScript `RegExp` (`REGEXP` / `regexp_i`) on SQLite.
+
+`searchTs` is full-text search: `to_tsvector(...) @@ plainto_tsquery(...)` on PostgreSQL, `MATCH ... AGAINST (... IN NATURAL LANGUAGE MODE)` on MySQL/MariaDB, and unsupported on SQLite (it fails at query-build time — SQLite FTS5 needs virtual tables). It works on `text` / `citext` columns and directly on `tsvector()` columns (no `to_tsvector` wrapper):
+
+```ts
+await db.posts.findMany({
+  where: { title: { searchTs: "orm tutorial" } },
+});
+
+await db.posts.findMany({
+  where: {
+    title: {
+      searchTs: { query: "orm tutorial", language: "german", parser: "phrase" },
+    },
+  },
+});
+```
+
+`parser` is `plain` (`plainto_tsquery`, the default), `phrase` (`phraseto_tsquery`), or `websearch` (`websearch_to_tsquery`). `language` defaults to `english` and must match `/^[a-z_]+$/` since it is interpolated as the `regconfig`. On MySQL/MariaDB the `language` and `parser` options are accepted but ignored.
 
 JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path). On MySQL and MariaDB they compile to `JSON_CONTAINS`, `JSON_CONTAINS_PATH`, and `JSON_EXTRACT`.
 

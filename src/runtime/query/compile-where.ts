@@ -127,6 +127,117 @@ function parseQueryMode(value: unknown): QueryMode {
 	compileError(`unsupported query mode: ${String(value)}`);
 }
 
+export const SEARCH_TS_OPERATOR = "searchTs";
+
+type SearchTsParser = "plain" | "phrase" | "websearch";
+
+const SEARCH_TS_PARSERS: ReadonlySet<string> = new Set([
+	"plain",
+	"phrase",
+	"websearch",
+]);
+
+/** Postgres regconfig names are identifiers — validate before interpolating. */
+const SEARCH_TS_LANGUAGE_PATTERN = /^[a-z_]+$/;
+
+function isTextSearchableKind(kind: string): boolean {
+	return kind === "text" || kind === "citext" || kind === "tsvector";
+}
+
+function parseSearchTs(
+	value: unknown,
+	col: ManifestColumn,
+): { query: string; language: string; parser: SearchTsParser } {
+	let query: unknown;
+	let language = "english";
+	let parser: SearchTsParser = "plain";
+	if (typeof value === "string") {
+		query = value;
+	} else if (isOperatorObject(value)) {
+		const input = value as Record<string, unknown>;
+		query = input.query;
+		if (input.language !== undefined) {
+			if (
+				typeof input.language !== "string" ||
+				!SEARCH_TS_LANGUAGE_PATTERN.test(input.language)
+			) {
+				compileError(
+					`unsupported searchTs language: ${String(input.language)}`,
+					{
+						code: QueryErrorCode.invalid_args,
+						columnTsName: col.tsName,
+					},
+				);
+			}
+			language = input.language;
+		}
+		if (input.parser !== undefined) {
+			if (
+				typeof input.parser !== "string" ||
+				!SEARCH_TS_PARSERS.has(input.parser)
+			) {
+				compileError(
+					`unsupported searchTs parser: ${String(input.parser)} (expected plain, phrase, or websearch)`,
+					{
+						code: QueryErrorCode.invalid_args,
+						columnTsName: col.tsName,
+					},
+				);
+			}
+			parser = input.parser as SearchTsParser;
+		}
+	} else {
+		compileError(`"searchTs" requires a query string`, {
+			code: QueryErrorCode.invalid_args,
+			columnTsName: col.tsName,
+		});
+	}
+	if (typeof query !== "string") {
+		compileError(`"searchTs" requires a query string`, {
+			code: QueryErrorCode.invalid_args,
+			columnTsName: col.tsName,
+		});
+	}
+	return { query, language, parser };
+}
+
+function searchTsSql(
+	col: ManifestColumn,
+	sqlCol: string,
+	paramIndex: number,
+	parsed: { query: string; language: string; parser: SearchTsParser },
+	dialect: Dialect,
+): { sql: string; params: unknown[] } {
+	if (isMysqlFamilyDialect(dialect)) {
+		return {
+			sql: `MATCH (${sqlCol}) AGAINST (${dialect.placeholder(paramIndex)} IN NATURAL LANGUAGE MODE)`,
+			params: [parsed.query],
+		};
+	}
+	if (dialect.name !== "postgresql") {
+		compileError(
+			`full-text search (searchTs) is not supported on ${dialect.name}`,
+			{
+				code: QueryErrorCode.unsupported_operation,
+			},
+		);
+	}
+	const tsFunction =
+		parsed.parser === "phrase"
+			? "phraseto_tsquery"
+			: parsed.parser === "websearch"
+				? "websearch_to_tsquery"
+				: "plainto_tsquery";
+	const document =
+		col.kind === "tsvector"
+			? sqlCol
+			: `to_tsvector('${parsed.language}', ${sqlCol})`;
+	return {
+		sql: `${document} @@ ${tsFunction}('${parsed.language}', ${dialect.placeholder(paramIndex)})`,
+		params: [parsed.query],
+	};
+}
+
 function isStringPatternOp(op: WhereOperator): op is StringPatternOp {
 	return (
 		op === "equals" ||
@@ -206,10 +317,14 @@ function knownWhereOperatorNames(
 	col: ManifestColumn,
 	dialect: Dialect,
 ): string[] {
-	return [
+	const names = [
 		...Object.keys(dialect.whereOperators),
 		...Object.keys(pluginWhereOperators(col)),
 	];
+	if (isTextSearchableKind(col.kind)) {
+		names.push(SEARCH_TS_OPERATOR);
+	}
+	return names;
 }
 
 function throwUnsupportedWhereOperator(
@@ -285,6 +400,20 @@ function compileColumnCondition(
 
 	for (const [op, value] of Object.entries(rawValue)) {
 		if (op === "mode") continue;
+		if (op === SEARCH_TS_OPERATOR) {
+			const parsed = parseSearchTs(value, col);
+			const compiled = searchTsSql(
+				col,
+				sqlCol,
+				nextParamIndex,
+				parsed,
+				dialect,
+			);
+			conditions.push(compiled.sql);
+			params.push(...compiled.params);
+			nextParamIndex += compiled.params.length;
+			continue;
+		}
 		if (op in spatialOps) {
 			const operator = spatialOps[op];
 			if (!operator) {

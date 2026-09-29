@@ -44,6 +44,8 @@ export type {
 	JsonFilter,
 	PluginColumnWhereOperators,
 	QueryMode,
+	SearchTsParser,
+	SearchTsQuery,
 	StringFilter,
 	WhereOperators,
 } from "./column-where.js";

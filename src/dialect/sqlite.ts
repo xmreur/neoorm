@@ -46,6 +46,7 @@ const SQLITE_TEXT_TYPES = new Set([
 	"uuidArray",
 	"enumArray",
 	"citext",
+	"tsvector",
 	"enum",
 	"timestamp",
 	"date",

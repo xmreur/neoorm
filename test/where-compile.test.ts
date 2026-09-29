@@ -13,11 +13,19 @@ import {
 	orderByShapeKey,
 } from "../src/runtime/query/compile.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
+import { defineSchema, id, table, tsvector } from "../src/schema/index.js";
 import { manifestTable } from "./helpers/manifest.js";
 
 function blogManifest() {
 	return schemaToManifest(schema);
 }
+
+const tsvectorSchema = defineSchema({
+	docs: table({
+		id: id(),
+		body: tsvector(),
+	}),
+});
 
 describe("where compilation", () => {
 	const manifest = blogManifest();
@@ -251,6 +259,144 @@ describe("where compilation", () => {
 				postgresDialect,
 			),
 		).toThrow("unsupported query mode: bogus");
+	});
+
+	it("compiles searchTs as @@ plainto_tsquery on postgres", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { searchTs: "orm tutorial" } },
+			postgresDialect,
+		);
+		expect(sql).toContain(
+			`to_tsvector('english', "title") @@ plainto_tsquery('english', $1)`,
+		);
+		expect(params).toEqual(["orm tutorial"]);
+	});
+
+	it("compiles searchTs with language and phrase parser on postgres", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{
+				title: {
+					searchTs: {
+						query: "orm tutorial",
+						language: "german",
+						parser: "phrase",
+					},
+				},
+			},
+			postgresDialect,
+		);
+		expect(sql).toContain(
+			`to_tsvector('german', "title") @@ phraseto_tsquery('german', $1)`,
+		);
+		expect(params).toEqual(["orm tutorial"]);
+	});
+
+	it("compiles searchTs with websearch parser on postgres", () => {
+		const { sql } = compileWhere(
+			manifest,
+			posts,
+			{
+				title: {
+					searchTs: { query: "orm -tutorial", parser: "websearch" },
+				},
+			},
+			postgresDialect,
+		);
+		expect(sql).toContain("websearch_to_tsquery('english', $1)");
+	});
+
+	it("compiles searchTs on tsvector columns without to_tsvector", () => {
+		const docsManifest = schemaToManifest(tsvectorSchema);
+		const docs = manifestTable(docsManifest, "docs");
+		const { sql, params } = compileWhere(
+			docsManifest,
+			docs,
+			{ body: { searchTs: "hello" } },
+			postgresDialect,
+		);
+		expect(sql).toContain(`"body" @@ plainto_tsquery('english', $1)`);
+		expect(sql).not.toContain("to_tsvector");
+		expect(params).toEqual(["hello"]);
+	});
+
+	it("compiles searchTs as MATCH AGAINST on mysql and mariadb", () => {
+		for (const dialect of [mysqlDialect, mariadbDialect]) {
+			const { sql, params } = compileWhere(
+				manifest,
+				posts,
+				{ title: { searchTs: "orm tutorial" } },
+				dialect,
+			);
+			expect(sql).toContain("MATCH (");
+			expect(sql).toContain("AGAINST (");
+			expect(sql).toContain("IN NATURAL LANGUAGE MODE");
+			expect(params).toEqual(["orm tutorial"]);
+		}
+	});
+
+	it("combines searchTs with sibling operators", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ title: { contains: "ORM", searchTs: "tutorial" } },
+			postgresDialect,
+		);
+		expect(sql).toContain("LIKE");
+		expect(sql).toContain("@@ plainto_tsquery");
+		expect(params).toEqual(["%ORM%", "tutorial"]);
+	});
+
+	it("throws for searchTs on sqlite", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { searchTs: "orm" } },
+				sqliteDialect,
+			),
+		).toThrow(/not supported on sqlite/);
+	});
+
+	it("throws for invalid searchTs language, parser, and query", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { searchTs: { query: "x", language: "en; DROP" } } },
+				postgresDialect,
+			),
+		).toThrow(/unsupported searchTs language/);
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { searchTs: { query: "x", parser: "nope" } } },
+				postgresDialect,
+			),
+		).toThrow(/unsupported searchTs parser/);
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { searchTs: 42 } },
+				postgresDialect,
+			),
+		).toThrow(/requires a query string/);
+	});
+
+	it("suggests searchTs for misspelled full-text operators", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ title: { searchT: "orm" } },
+				postgresDialect,
+			),
+		).toThrow(/searchTs/);
 	});
 
 	it("compiles sqlite contains as LIKE and insensitive as LOWER", () => {

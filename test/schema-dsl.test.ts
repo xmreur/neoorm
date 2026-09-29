@@ -4,6 +4,7 @@ import {
 	validateManifest,
 } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
+import { sqliteDialect } from "../src/dialect/sqlite.js";
 import {
 	defineSchema,
 	expr,
@@ -16,6 +17,7 @@ import {
 	table,
 	text,
 	timestamps,
+	tsvector,
 	unique,
 	uuid,
 } from "../src/schema/index.js";
@@ -446,6 +448,26 @@ describe("schema DSL 0.6", () => {
 		expect(() =>
 			schemaToManifest(schema, undefined, { provider: "mysql" }),
 		).toThrow(/does not support bloom indexes/);
+	});
+
+	it("emits tsvector columns as TSVECTOR on Postgres and TEXT on SQLite", () => {
+		const schema = defineSchema({
+			docs: table({
+				id: id(),
+				body: tsvector(),
+			}),
+		});
+		const manifest = schemaToManifest(schema);
+		const docs = manifestTable(manifest, "docs");
+		expect(docs.columns.find((c) => c.tsName === "body")?.kind).toBe(
+			"tsvector",
+		);
+		expect(postgresDialect.emitCreateTable(docs, { manifest })).toContain(
+			'"body" TSVECTOR',
+		);
+		expect(sqliteDialect.emitCreateTable(docs, { manifest })).toContain(
+			'"body" TEXT',
+		);
 	});
 
 	it("emits onUpdate, deferrable, and composite foreignKey extras", () => {
