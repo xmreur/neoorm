@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
@@ -11,7 +12,6 @@ import {
 	updateManyAndReturnRecords,
 	updateManyRecords,
 } from "../src/runtime/query/update.js";
-import { schema } from "../examples/blog/schema.js";
 import { createMockExecutor } from "./helpers/mock-executor.js";
 
 function runtimeFor(dialect: Dialect): QueryRuntime {
