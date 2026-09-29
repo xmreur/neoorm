@@ -39,3 +39,12 @@ expectPostsWhere({ author: { emial: "a@b.com" } });
 
 // @ts-expect-error -- wrong operator in nested relation filter
 expectPostsWhere({ author: { name: { contains: 42 } } });
+
+// full-text search operator — valid forms keep compiling
+expectPostsWhere({ title: { searchTs: "orm tutorial" } });
+expectPostsWhere({
+	title: { searchTs: { query: "orm", language: "german", parser: "phrase" } },
+});
+
+// @ts-expect-error -- unknown searchTs parser
+expectPostsWhere({ title: { searchTs: { query: "x", parser: "nope" } } });

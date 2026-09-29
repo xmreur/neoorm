@@ -370,6 +370,7 @@ export function isTextKind(kind: string): boolean {
 	return (
 		kind === "text" ||
 		kind === "citext" ||
+		kind === "tsvector" ||
 		kind === "id" ||
 		kind === "uuid" ||
 		kind === "xml" ||

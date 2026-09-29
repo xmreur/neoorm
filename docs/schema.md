@@ -61,6 +61,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 | `money()` | `MONEY` | `string \| null` | MySQL `DECIMAL(19,4)`, SQLite `TEXT` |
 | `int4Range()` / `int8Range()` / `numRange()` / `tsRange()` / `tstzRange()` / `dateRange()` | matching PG ranges | `string \| null` | PostgreSQL only (rejected on SQLite and MySQL/MariaDB) |
 | `citext()` | `CITEXT` | `string \| null` | Requires `citext` extension |
+| `tsvector()` | `TSVECTOR` | `string \| null` | Full-text document; `TEXT` on SQLite/MySQL. See [Full-text search](#full-text-search) |
 
 All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, `.notEmpty()`, `.email()`, and `.url()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`, `real`, `double`) add `.min()`, `.max()`, and `.positive()`.
 
@@ -77,6 +78,38 @@ All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.prim
 ```ts
 createdAt: timestamp().notNull().defaultNow(),
 updatedAt: timestamp().notNull().defaultNow().updatedAt(),
+```
+
+### Full-text search
+
+`tsvector()` declares a full-text document column (`TSVECTOR` on Postgres, `TEXT` elsewhere). It is maintained by the database — typically a trigger:
+
+```ts
+docs: table({
+  id: id(),
+  title: text().notNull(),
+  body: tsvector(),
+}),
+```
+
+```sql
+CREATE OR REPLACE FUNCTION docs_body_tsvector() RETURNS trigger AS $$
+BEGIN
+  NEW.body := to_tsvector('english', NEW.title);
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER docs_body_tsvector_trigger
+  BEFORE INSERT OR UPDATE ON docs
+  FOR EACH ROW EXECUTE FUNCTION docs_body_tsvector();
+```
+
+Index it with GIN and query it with the `searchTs` where operator (see [Where clauses](queries.md#column-filters)):
+
+```ts
+(t) => [index(t.body).using("gin")],
+// or over plain text without a tsvector column:
+(t) => [index(expr("to_tsvector('english', title)")).using("gin")],
 ```
 
 ## Foreign keys

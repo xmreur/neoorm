@@ -976,6 +976,34 @@ const citextType: ColumnTypePlugin = {
 	},
 };
 
+const tsvectorType: ColumnTypePlugin = {
+	kind: "tsvector",
+	createBuilder() {
+		return createColumnBuilder<
+			string | null,
+			ColumnMeta & { kind: "tsvector" }
+		>({
+			kind: "tsvector",
+			nullable: true,
+			unique: false,
+			primary: false,
+			defaultNow: false,
+		});
+	},
+	columnType() {
+		return "TSVECTOR";
+	},
+	columnTsType(col) {
+		return scalarTsType(col, "string");
+	},
+	columnValidation() {
+		return { kind: "string" };
+	},
+	introspect(_pgDataType, udtName) {
+		return udtName === "tsvector";
+	},
+};
+
 export const builtinPlugin: NeoOrmPlugin = {
 	name: "builtin",
 	columnTypes: [
@@ -1009,6 +1037,7 @@ export const builtinPlugin: NeoOrmPlugin = {
 		tsRangeType,
 		tstzRangeType,
 		dateRangeType,
+		tsvectorType,
 		uuidArrayType,
 		enumArrayType,
 	],
@@ -1273,5 +1302,20 @@ export function citext(): TextColumnBuilder<
 	return citextType.createBuilder() as TextColumnBuilder<
 		string | null,
 		ColumnMeta & { kind: "citext" }
+	>;
+}
+
+/**
+ * `TSVECTOR` full-text document (PostgreSQL; `TEXT` elsewhere).
+ * Maintained by the database (trigger or generated column) — query it
+ * with the `searchTs` where operator.
+ */
+export function tsvector(): ColumnBuilder<
+	string | null,
+	ColumnMeta & { kind: "tsvector" }
+> {
+	return tsvectorType.createBuilder() as ColumnBuilder<
+		string | null,
+		ColumnMeta & { kind: "tsvector" }
 	>;
 }

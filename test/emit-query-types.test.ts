@@ -130,6 +130,8 @@ describe("emitQueryTypesTs", () => {
 		expect(source).toContain(
 			"status?: PostStatus | StringFilter<PostStatus>;",
 		);
+		expect(source).toContain("searchTs?: string | SearchTsQuery;");
+		expect(source).toContain("export interface SearchTsQuery {");
 	});
 });
 
