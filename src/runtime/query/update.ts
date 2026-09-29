@@ -1,4 +1,3 @@
-import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { compileError } from "../compile-error.js";
 import { queryCompileError } from "../error-builders.js";
@@ -28,7 +27,11 @@ import {
 } from "./execute.js";
 import { loadRelations, type WithInput } from "./find.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
-import { fetchRowsByWhere } from "./mutation-returning.js";
+import {
+	fetchRowsByWhere,
+	pkEqualityConditions,
+	reloadManyRows,
+} from "./mutation-returning.js";
 import {
 	primaryKeySqlName,
 	resolvePkWhere,
@@ -386,25 +389,32 @@ async function runUpdate(
 					query,
 					[...values, ...whereParams],
 				);
-				const pkTs = table.columns.find((c) => c.primary)?.tsName;
-				const pkValue = pkTs ? preRows[0]?.[pkTs] : undefined;
-				if (pkTs && pkValue != null) {
-					const col = dialect.quoteIdentifier(
-						table.columns.find((c) => c.tsName === pkTs)?.sqlName ??
-							pkTs,
-					);
+				const pkLookup = preRows[0]
+					? pkEqualityConditions(table, preRows[0], dialect)
+					: undefined;
+				if (pkLookup) {
 					const reloaded = await fetchRowsByWhere(
 						executor,
 						runtime,
 						table,
 						tableAccessor,
-						`WHERE ${col} = ${dialect.placeholder(1)}`,
-						[pkValue],
+						`WHERE ${pkLookup.conditions.join(" AND ")}`,
+						pkLookup.params,
 						"update",
 					);
 					result = reloaded[0] ?? preRows[0] ?? {};
 				} else {
-					result = preRows[0] ?? {};
+					// No usable PK identity (pk-less table): reload by predicate.
+					const reloaded = await fetchRowsByWhere(
+						executor,
+						runtime,
+						table,
+						tableAccessor,
+						whereSql,
+						whereParams,
+						"update",
+					);
+					result = reloaded[0] ?? preRows[0] ?? {};
 				}
 			}
 		}
@@ -651,29 +661,16 @@ async function runUpdateMany(
 					[...values, ...whereParams],
 				);
 				if (returnRows && mappedRows.length > 0) {
-					const pkTs = table.columns.find((c) => c.primary)?.tsName;
-					if (pkTs) {
-						const pkValues = mappedRows
-							.map((row) => row[pkTs])
-							.filter((value) => value != null);
-						const col = dialect.quoteIdentifier(
-							table.columns.find((c) => c.tsName === pkTs)
-								?.sqlName ?? pkTs,
-						);
-						const placeholders = joinPlaceholders(
-							dialect,
-							pkValues.length,
-						);
-						mappedRows = await fetchRowsByWhere(
-							executor,
-							runtime,
-							table,
-							tableAccessor,
-							`WHERE ${col} IN (${placeholders})`,
-							pkValues,
-							"update",
-						);
-					}
+					mappedRows = await reloadManyRows(
+						executor,
+						runtime,
+						table,
+						tableAccessor,
+						mappedRows,
+						whereSql,
+						whereParams,
+						"update",
+					);
 				}
 			}
 			if (needsPostRelationWrites) {
@@ -814,22 +811,15 @@ async function runUpdateManyScalar(
 			query,
 			[...values, ...whereParams],
 		);
-		const pkTs = table.columns.find((c) => c.primary)?.tsName;
-		if (pkTs && preRows.length > 0) {
-			const pkValues = preRows
-				.map((row) => row[pkTs])
-				.filter((value) => value != null);
-			const col = dialect.quoteIdentifier(
-				table.columns.find((c) => c.tsName === pkTs)?.sqlName ?? pkTs,
-			);
-			const placeholders = joinPlaceholders(dialect, pkValues.length);
-			return fetchRowsByWhere(
+		if (preRows.length > 0) {
+			return reloadManyRows(
 				executor,
 				runtime,
 				table,
 				tableAccessor,
-				`WHERE ${col} IN (${placeholders})`,
-				pkValues,
+				preRows,
+				whereSql,
+				whereParams,
 				"update",
 			);
 		}

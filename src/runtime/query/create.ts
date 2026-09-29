@@ -1,4 +1,3 @@
-import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import { compileError } from "../compile-error.js";
@@ -20,7 +19,8 @@ import { loadRelations, type WithInput } from "./find.js";
 import { mapRowsToTs, mapRowToTs } from "./map-row.js";
 import {
 	fetchInsertedRow,
-	fetchRowsByWhere,
+	fetchRowsByPkLookups,
+	fetchRowsByPrimaryKeyIn,
 	mysqlFamilySerialPrimaryKey,
 	synthesizeSerialPkRows,
 } from "./mutation-returning.js";
@@ -318,7 +318,7 @@ export async function createManyAndReturnRecords(
 	const dialect = runtime.dialect ?? postgresDialect;
 	const skipDuplicates = args.skipDuplicates === true;
 	const serialPk =
-		isMysqlFamilyDialect(dialect) && !skipDuplicates
+		!dialect.supportsReturning && !skipDuplicates
 			? mysqlFamilySerialPrimaryKey(table)
 			: undefined;
 	const returning = dialect.supportsReturning && serialPk === undefined;
@@ -358,32 +358,48 @@ export async function createManyAndReturnRecords(
 		executed.insertId !== undefined &&
 		executed.rowCount === scalarRows.length
 	) {
-		return mapRowsToTs(
-			getTableIndex(runtime.tableIndex, tableAccessor),
-			table,
-			synthesizeSerialPkRows(
-				scalarRows,
-				serialPk.tsName,
-				executed.insertId,
-			),
+		const synthesized = synthesizeSerialPkRows(
+			scalarRows,
+			serialPk.tsName,
+			executed.insertId,
 		);
-	}
-	const pkTs = table.columns.find((c) => c.primary)?.tsName;
-	if (pkTs && scalarRows.every((row) => row[pkTs] != null)) {
-		const pkValues = scalarRows.map((row) => row[pkTs]);
-		const col = dialect.quoteIdentifier(
-			table.columns.find((c) => c.tsName === pkTs)?.sqlName ?? pkTs,
-		);
-		const placeholders = joinPlaceholders(dialect, pkValues.length);
-		return fetchRowsByWhere(
+		// Synthesized rows lack DB-side defaults: hydrate with a re-select.
+		const hydrated = await fetchRowsByPrimaryKeyIn(
 			executor,
 			runtime,
 			table,
 			tableAccessor,
-			`WHERE ${col} IN (${placeholders})`,
-			pkValues,
+			synthesized.map((row) => row[serialPk.tsName]),
 			"insert",
 		);
+		if (hydrated.length > 0) return hydrated;
+		return mapRowsToTs(
+			getTableIndex(runtime.tableIndex, tableAccessor),
+			table,
+			synthesized,
+		);
+	}
+	const pkTs = table.columns.find((c) => c.primary)?.tsName;
+	if (pkTs && scalarRows.every((row) => row[pkTs] != null)) {
+		if (table.primaryKey.length === 1) {
+			return fetchRowsByPrimaryKeyIn(
+				executor,
+				runtime,
+				table,
+				tableAccessor,
+				scalarRows.map((row) => row[pkTs]),
+				"insert",
+			);
+		}
+		const reloaded = await fetchRowsByPkLookups(
+			executor,
+			runtime,
+			table,
+			tableAccessor,
+			scalarRows,
+			"insert",
+		);
+		if (reloaded) return reloaded;
 	}
 	return scalarRows;
 }

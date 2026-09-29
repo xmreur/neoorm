@@ -69,6 +69,8 @@ const users = await db.users.createManyAndReturn({
 });
 ```
 
+On MySQL (no `RETURNING`), serial-PK batches are hydrated with a follow-up re-select so DB-side defaults come back too; MariaDB uses `RETURNING` directly.
+
 Unknown keys in `data` fail at compile time (`unknown_column`), same as `where`.
 
 ## Update
@@ -134,6 +136,9 @@ await db.posts.updateMany({
   where: { published: true },
   data: { views: { multiply: 2 } },
 });
+```
+
+On dialects without `RETURNING` (MySQL; MariaDB for updates), `returnUpdated` / `updateManyAndReturn` re-select the rows after writing: by primary key when the table has one (composite keys included), otherwise by the original predicate. PK-less re-selects return currently-matching rows, so if `data` changed a filtered column the result may differ from the pre-update set.
 ```
 
 ## Delete
