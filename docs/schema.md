@@ -279,7 +279,7 @@ posts: table(
 ),
 ```
 
-Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, `.with()` (bloom only), and `.where()` for partial indexes.
+Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, `.with()` (bloom only), and `.where()` for partial indexes. Key names from the extras scope (`t.col`) are validated against the table's columns; raw strings are unchecked.
 
 ### Index methods and expressions
 

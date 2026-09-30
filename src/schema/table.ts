@@ -217,6 +217,18 @@ export type ColumnRef<
 };
 
 /**
+ * Column-name key for index/PK/FK declarations. Without table context
+ * (default columns) any string is accepted; once `TColumns` is inferred
+ * from `t.col` refs, only real column names validate so typos error.
+ * Expression keys stay separate (`IndexExpr` in each signature).
+ */
+export type ColumnKey<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+> = Extract<keyof TColumns & string, string> & {
+	readonly __tableCols?: TColumns;
+};
+
+/**
  * Per-column value for a partial-index predicate.
  * Scalar columns keep their precise types (including string-literal unions
  * for enums) so IDEs autocomplete values; anything else (dates, json,
@@ -364,12 +376,13 @@ function createIndexBuilder<
 /**
  * Create a non-unique index on one or more columns (use in table extras).
  * When keys come from the extras scope (`t.col`), the table's columns are
- * inferred so `.where()` gets key completion. Raw strings stay untyped.
+ * inferred: `.where()` gets key completion and unknown key names error.
+ * Raw strings stay untyped.
  */
 export function index<
 	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
 >(
-	...keys: readonly (ColumnRef<TColumns> | IndexExpr)[]
+	...keys: readonly (ColumnKey<TColumns> | IndexExpr)[]
 ): IndexBuilder<TColumns> {
 	return createIndexBuilder<TColumns>({ keys, unique: false });
 }
@@ -377,12 +390,13 @@ export function index<
 /**
  * Create a unique index on one or more columns (use in table extras).
  * Supports `.where()` for partial uniques; when keys come from the extras
- * scope (`t.col`), the predicate is typed. Raw strings stay untyped.
+ * scope (`t.col`), the predicate is typed and unknown key names error.
+ * Raw strings stay untyped.
  */
 export function unique<
 	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
 >(
-	...keys: readonly (ColumnRef<TColumns> | IndexExpr)[]
+	...keys: readonly (ColumnKey<TColumns> | IndexExpr)[]
 ): IndexBuilder<TColumns> {
 	return createIndexBuilder<TColumns>({ keys, unique: true });
 }
@@ -395,8 +409,11 @@ type UnbrandColumnNames<T extends readonly string[]> = {
 };
 
 /** Declare a composite primary key (use in table extras). */
-export function primaryKey<const T extends readonly string[]>(
-	...columns: T
+export function primaryKey<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+	const T extends readonly string[] = readonly [],
+>(
+	...columns: T & readonly ColumnKey<TColumns>[]
 ): { kind: "primaryKey"; columns: UnbrandColumnNames<T> } {
 	return {
 		kind: "primaryKey",
@@ -458,10 +475,11 @@ function createForeignKeyBuilder<
 /**
  * Declare a composite foreign-key constraint as a first-class relation
  * (use in table extras). Local columns must not also be `fk()`.
+ * Keys from the extras scope (`t.col`) are validated against the table.
  */
-export function foreignKey(
-	...columns: readonly string[]
-): ForeignKeyBuilder<"", "", ""> {
+export function foreignKey<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+>(...columns: readonly ColumnKey<TColumns>[]): ForeignKeyBuilder<"", "", ""> {
 	return createForeignKeyBuilder({
 		kind: "foreignKey",
 		columns,
