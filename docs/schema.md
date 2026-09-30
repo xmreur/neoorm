@@ -305,10 +305,15 @@ Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` m
 
 ```ts
 (t) => [
-  index(t.title).where({ published: true }),
-  unique(t.email).where({ deleted: false }),
+  t.index(t.title).where({ published: true }),
+  t.unique(t.email).where({ deleted: false }),
 ],
 ```
+
+Use `t.index` / `t.unique` (instead of the top-level `index()` / `unique()`)
+so the `where` predicate is typed: keys and scalar values autocomplete from
+the table's columns. Top-level `index()` / `unique()` still accept `.where()`
+with an untyped predicate.
 
 Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
 
