@@ -98,16 +98,21 @@ export type {
 	ColumnRefs,
 	ForeignKeyBuilder,
 	ForeignKeyDef,
+	IndexBuilder,
 	IndexDef,
 	IndexExpr,
 	IndexKeyInput,
 	IndexMethod,
+	IndexScopeHelpers,
+	IndexWhereInput,
 	IndexWherePredicate,
+	IndexWhereValue,
 	PrimaryKeyDef,
 	ScalarColumnKeys,
 	TableDef,
 	TableExtra,
 	TableOptions,
+	TableScope,
 } from "./table.js";
 export { expr, foreignKey, index, primaryKey, table, unique } from "./table.js";
 export { clearTableRegistry } from "./table-registry.js";

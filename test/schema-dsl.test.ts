@@ -172,6 +172,70 @@ describe("schema DSL 0.6", () => {
 		);
 	});
 
+	it("supports typed t.index / t.unique with identical manifests", () => {
+		const viaScope = defineSchema({
+			users: table(
+				{
+					id: id(),
+					email: text().notNull(),
+					deleted: text().notNull().default("false"),
+				},
+				(t) => [t.unique(t.email).where({ deleted: "false" })],
+			),
+		});
+		const viaGlobal = defineSchema({
+			users: table(
+				{
+					id: id(),
+					email: text().notNull(),
+					deleted: text().notNull().default("false"),
+				},
+				(t) => [unique(t.email).where({ deleted: "false" })],
+			),
+		});
+		const fromScope = manifestTable(schemaToManifest(viaScope), "users");
+		const fromGlobal = manifestTable(schemaToManifest(viaGlobal), "users");
+		expect(fromScope.indexes).toEqual(fromGlobal.indexes);
+
+		// `{ extras }` object form receives the same scope
+		const viaOptions = defineSchema({
+			users: table(
+				{
+					id: id(),
+					email: text().notNull(),
+					deleted: text().notNull().default("false"),
+				},
+				{
+					extras: (t) => [
+						t.unique(t.email).where({ deleted: "false" }),
+					],
+				},
+			),
+		});
+		expect(
+			manifestTable(schemaToManifest(viaOptions), "users").indexes,
+		).toEqual(fromGlobal.indexes);
+	});
+
+	it("does not shadow columns named index/unique on the extras scope", () => {
+		const schema = defineSchema({
+			docs: table(
+				{
+					id: id(),
+					index: text().notNull(),
+				},
+				(t) => {
+					// column ref wins over the helper; global still works (untyped)
+					expect(typeof t.index).toBe("string");
+					return [index(t.index).where({ index: "a" })];
+				},
+			),
+		});
+		const docs = manifestTable(schemaToManifest(schema), "docs");
+		expect(docs.indexes[0]?.columns).toEqual(["index"]);
+		expect(docs.indexes[0]?.whereSql).toBe(`"index" = 'a'`);
+	});
+
 	it("emits non-partial unique extras as CREATE UNIQUE INDEX", () => {
 		const schema = defineSchema({
 			posts: table(

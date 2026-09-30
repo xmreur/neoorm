@@ -506,7 +506,7 @@ See [Plugins](plugins.md).
 Composite unique constraint and partial unique (soft-delete emails):
 
 ```ts
-import { bool, fk, id, index, table, text, unique } from "neoorm/schema";
+import { bool, fk, id, table, text, unique } from "neoorm/schema";
 
 posts: table(
   {
@@ -517,7 +517,7 @@ posts: table(
   },
   (t) => [
     unique(t.authorId, t.title),
-    index(t.title).where({ published: true }),
+    t.index(t.title).where({ published: true }),
   ],
 ),
 
@@ -527,7 +527,7 @@ users: table(
     email: text().notNull(),
     deleted: bool().notNull().default(false),
   },
-  (t) => [unique(t.email).where({ deleted: false })],
+  (t) => [t.unique(t.email).where({ deleted: false })],
 ),
 ```
 

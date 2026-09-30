@@ -1,6 +1,7 @@
 import { schemaError } from "../runtime/error-builders.js";
 import { SchemaErrorCode } from "../runtime/error-codes.js";
 import type { ColumnBuilder, ColumnMeta } from "./column.js";
+import type { InferColumnValue } from "./column-where.js";
 import type { ManyToManyExtra } from "./many-to-many.js";
 import type {
 	FkBuilder,
@@ -179,7 +180,7 @@ export type TableOptions<
 	TExtras extends readonly TableExtra[] = readonly TableExtra[],
 > = {
 	columnNaming?: ColumnNaming;
-	extras?: (t: ColumnRefs<TColumns>) => TExtras;
+	extras?: (t: TableScope<TColumns>) => TExtras;
 };
 
 export type TableDef<
@@ -201,6 +202,61 @@ export type ColumnRefs<TColumns extends Record<string, ColumnDef>> = {
 };
 
 /**
+ * Per-column value for a partial-index predicate.
+ * Scalar columns keep their precise types (including string-literal unions
+ * for enums) so IDEs autocomplete values; anything else (dates, json,
+ * bigint, …) falls back to the primitive union `compileIndexWhere`
+ * supports at runtime.
+ */
+export type IndexWhereValue<TCol extends ColumnDef> =
+	InferColumnValue<TCol, Record<string, TableDef>> extends infer V
+		? [V] extends [boolean | number | string | null]
+			? V | null
+			: boolean | number | string | null
+		: never;
+
+/**
+ * Equality-only predicate for partial indexes.
+ * Keys come from the table's columns, so IDEs get autocomplete. Matches
+ * what `compileIndexWhere` supports at runtime (`= / IS NULL` joined by
+ * `AND`); no `OR` / operator bags.
+ */
+export type IndexWhereInput<TColumns extends Record<string, ColumnDef>> = {
+	[K in ScalarColumnKeys<TColumns>]?: IndexWhereValue<TColumns[K]>;
+};
+
+type IndexScopeKeys<TColumns extends Record<string, ColumnDef>> = readonly (
+	| Extract<keyof TColumns & string, string>
+	| IndexExpr
+)[];
+
+/**
+ * `index()` / `unique()` bound to the enclosing `table()` so `.where()`
+ * is typed. Exposed as `t.index` / `t.unique` on the extras scope.
+ * Omitted when the table has a column with the same name (use the
+ * top-level `index()` / `unique()` instead, with an untyped predicate).
+ */
+export type IndexScopeHelpers<TColumns extends Record<string, ColumnDef>> =
+	("index" extends Extract<keyof TColumns, string>
+		? Record<never, never>
+		: {
+				index(
+					...keys: IndexScopeKeys<TColumns>
+				): IndexBuilder<TColumns>;
+			}) &
+		("unique" extends Extract<keyof TColumns, string>
+			? Record<never, never>
+			: {
+					unique(
+						...keys: IndexScopeKeys<TColumns>
+					): IndexBuilder<TColumns>;
+				});
+
+/** Extras-callback scope: column refs plus typed `t.index` / `t.unique`. */
+export type TableScope<TColumns extends Record<string, ColumnDef>> =
+	ColumnRefs<TColumns> & IndexScopeHelpers<TColumns>;
+
+/**
  * `WITH` storage options for `USING bloom` indexes.
  *
  * `cols` maps positionally to the index keys (`col1`, `col2`, … in DDL),
@@ -212,7 +268,9 @@ export type BloomIndexOptions = {
 	cols?: readonly number[];
 };
 
-export type IndexBuilder = {
+export type IndexBuilder<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+> = {
 	readonly kind: "index";
 	readonly keys: readonly IndexKeyInput[];
 	readonly columns: readonly string[];
@@ -220,12 +278,12 @@ export type IndexBuilder = {
 	readonly _using?: IndexMethod;
 	readonly _opclass?: string;
 	readonly _with?: BloomIndexOptions;
-	using(method: IndexMethod): IndexBuilder;
-	ops(opclass: string): IndexBuilder;
+	using(method: IndexMethod): IndexBuilder<TColumns>;
+	ops(opclass: string): IndexBuilder<TColumns>;
 	/** Bloom `WITH` options (requires `.using("bloom")`). */
-	with(options: BloomIndexOptions): IndexBuilder;
+	with(options: BloomIndexOptions): IndexBuilder<TColumns>;
 	/** Partial index: only index rows matching the predicate. */
-	where(predicate: IndexWherePredicate): IndexDef;
+	where(predicate: IndexWhereInput<TColumns>): IndexDef;
 };
 
 function identifierTsNames(keys: readonly IndexKeyInput[]): string[] {
@@ -246,13 +304,15 @@ export function expr(sql: string): IndexExpr {
 	return { kind: "indexExpr", sql };
 }
 
-function createIndexBuilder(state: {
+function createIndexBuilder<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+>(state: {
 	keys: readonly IndexKeyInput[];
 	unique: boolean;
 	using?: IndexMethod;
 	opclass?: string;
 	with?: BloomIndexOptions;
-}): IndexBuilder {
+}): IndexBuilder<TColumns> {
 	const def: IndexDef = {
 		kind: "index",
 		keys: state.keys,
@@ -279,18 +339,25 @@ function createIndexBuilder(state: {
 		with(options: BloomIndexOptions) {
 			return createIndexBuilder({ ...state, with: options });
 		},
-		where(predicate: IndexWherePredicate) {
-			return { ...def, where: predicate };
+		where(predicate: IndexWhereInput<TColumns>) {
+			return { ...def, where: predicate as IndexWherePredicate };
 		},
 	};
 }
 
-/** Create a non-unique index on one or more columns (use in table extras). */
+/**
+ * Create a non-unique index on one or more columns (use in table extras).
+ * Inside extras, prefer `t.index(...)` for a typed `.where()` predicate.
+ */
 export function index(...keys: readonly IndexKeyInput[]): IndexBuilder {
 	return createIndexBuilder({ keys, unique: false });
 }
 
-/** Create a unique index on one or more columns (use in table extras). Supports `.where()` for partial uniques. */
+/**
+ * Create a unique index on one or more columns (use in table extras).
+ * Supports `.where()` for partial uniques; inside extras, prefer
+ * `t.unique(...)` for a typed predicate.
+ */
 export function unique(...keys: readonly IndexKeyInput[]): IndexBuilder {
 	return createIndexBuilder({ keys, unique: true });
 }
@@ -380,9 +447,9 @@ function isColumnMap(value: unknown): value is Record<string, ColumnDef> {
 }
 
 function resolveExtras<TColumns extends Record<string, ColumnDef>>(
-	refs: ColumnRefs<TColumns>,
+	refs: TableScope<TColumns>,
 	config?:
-		| ((t: ColumnRefs<TColumns>) => readonly TableExtra[])
+		| ((t: TableScope<TColumns>) => readonly TableExtra[])
 		| TableOptions<TColumns>,
 ): readonly TableExtra[] {
 	if (!config) {
@@ -396,7 +463,7 @@ function resolveExtras<TColumns extends Record<string, ColumnDef>>(
 
 function configColumnNaming(
 	config:
-		| ((t: ColumnRefs<Record<string, ColumnDef>>) => readonly TableExtra[])
+		| ((t: TableScope<Record<string, ColumnDef>>) => readonly TableExtra[])
 		| TableOptions<Record<string, ColumnDef>>
 		| Record<string, ColumnDef>
 		| undefined,
@@ -473,7 +540,7 @@ export function table<
 >(
 	columns: TColumns,
 	config?:
-		| ((t: ColumnRefs<TColumns>) => TExtras)
+		| ((t: TableScope<TColumns>) => TExtras)
 		| TableOptions<TColumns, TExtras>,
 ): TableDef<"", TColumns, `.${PkColumnName<TColumns>}`, TExtras> &
 	TableColumns<"", TColumns>;
@@ -485,7 +552,7 @@ export function table<
 	sqlName: TName,
 	columns: TColumns,
 	config?:
-		| ((t: ColumnRefs<TColumns>) => TExtras)
+		| ((t: TableScope<TColumns>) => TExtras)
 		| TableOptions<TColumns, TExtras>,
 ): TableDef<TName, TColumns, `${TName}.${PkColumnName<TColumns>}`, TExtras> &
 	TableColumns<TName, TColumns>;
@@ -493,17 +560,31 @@ export function table(
 	first: string | Record<string, ColumnDef>,
 	second?:
 		| Record<string, ColumnDef>
-		| ((t: ColumnRefs<Record<string, ColumnDef>>) => readonly TableExtra[])
+		| ((t: TableScope<Record<string, ColumnDef>>) => readonly TableExtra[])
 		| TableOptions<Record<string, ColumnDef>>,
 	third?:
-		| ((t: ColumnRefs<Record<string, ColumnDef>>) => readonly TableExtra[])
+		| ((t: TableScope<Record<string, ColumnDef>>) => readonly TableExtra[])
 		| TableOptions<Record<string, ColumnDef>>,
 ): TableDef & TableColumns<string, Record<string, ColumnDef>> {
+	// Extras scope: column-name refs plus `t.index` / `t.unique` helpers that
+	// return table-typed builders (typed `.where()`). The helpers are only
+	// attached when they don't shadow a same-named column.
+	const toScope = (
+		columnMap: Record<string, ColumnDef>,
+	): TableScope<Record<string, ColumnDef>> => {
+		const scope = Object.fromEntries(
+			Object.keys(columnMap).map((k) => [k, k]),
+		) as TableScope<Record<string, ColumnDef>>;
+		if (!("index" in scope)) {
+			(scope as Record<string, unknown>).index = index;
+		}
+		if (!("unique" in scope)) {
+			(scope as Record<string, unknown>).unique = unique;
+		}
+		return scope;
+	};
 	if (typeof first === "string" && isColumnMap(second)) {
-		const refs = Object.fromEntries(
-			Object.keys(second).map((k) => [k, k]),
-		) as ColumnRefs<Record<string, ColumnDef>>;
-		const extras = resolveExtras(refs, third);
+		const extras = resolveExtras(toScope(second), third);
 		return buildTableDef(first, second, extras, configColumnNaming(third));
 	}
 
@@ -514,10 +595,7 @@ export function table(
 		);
 	}
 
-	const refs = Object.fromEntries(
-		Object.keys(first).map((k) => [k, k]),
-	) as ColumnRefs<Record<string, ColumnDef>>;
-	const extras = resolveExtras(refs, second);
+	const extras = resolveExtras(toScope(first), second);
 	return buildTableDef("", first, extras, configColumnNaming(second));
 }
 
