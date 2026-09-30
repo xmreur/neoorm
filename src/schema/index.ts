@@ -94,6 +94,7 @@ export type {
 export type {
 	BloomIndexOptions,
 	ColumnDef,
+	ColumnKey,
 	ColumnNaming,
 	ColumnRef,
 	ColumnRefs,
