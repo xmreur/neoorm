@@ -198,7 +198,22 @@ export type TableDef<
 };
 
 export type ColumnRefs<TColumns extends Record<string, ColumnDef>> = {
-	readonly [K in keyof TColumns]: K & string;
+	readonly [K in keyof TColumns]: K &
+		string & {
+			readonly __colName?: K & string;
+			readonly __tableCols?: TColumns;
+		};
+};
+
+/**
+ * Branded column-name ref. Runtime is still a plain string; the phantom
+ * `__tableCols` lets top-level `index()` / `unique()` infer the table's
+ * columns from `t.col` args so `.where()` gets key completion.
+ */
+export type ColumnRef<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+> = string & {
+	readonly __tableCols?: TColumns;
 };
 
 /**
@@ -234,7 +249,8 @@ type IndexScopeKeys<TColumns extends Record<string, ColumnDef>> = readonly (
  * `index()` / `unique()` bound to the enclosing `table()` so `.where()`
  * is typed. Exposed as `t.index` / `t.unique` on the extras scope.
  * Omitted when the table has a column with the same name (use the
- * top-level `index()` / `unique()` instead, with an untyped predicate).
+ * top-level `index()` / `unique()` instead, which infers the same typed
+ * predicate from `t.col` keys).
  */
 export type IndexScopeHelpers<TColumns extends Record<string, ColumnDef>> =
 	("index" extends Extract<keyof TColumns, string>
@@ -347,26 +363,45 @@ function createIndexBuilder<
 
 /**
  * Create a non-unique index on one or more columns (use in table extras).
- * Inside extras, prefer `t.index(...)` for a typed `.where()` predicate.
+ * When keys come from the extras scope (`t.col`), the table's columns are
+ * inferred so `.where()` gets key completion. Raw strings stay untyped.
  */
-export function index(...keys: readonly IndexKeyInput[]): IndexBuilder {
-	return createIndexBuilder({ keys, unique: false });
+export function index<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+>(
+	...keys: readonly (ColumnRef<TColumns> | IndexExpr)[]
+): IndexBuilder<TColumns> {
+	return createIndexBuilder<TColumns>({ keys, unique: false });
 }
 
 /**
  * Create a unique index on one or more columns (use in table extras).
- * Supports `.where()` for partial uniques; inside extras, prefer
- * `t.unique(...)` for a typed predicate.
+ * Supports `.where()` for partial uniques; when keys come from the extras
+ * scope (`t.col`), the predicate is typed. Raw strings stay untyped.
  */
-export function unique(...keys: readonly IndexKeyInput[]): IndexBuilder {
-	return createIndexBuilder({ keys, unique: true });
+export function unique<
+	TColumns extends Record<string, ColumnDef> = Record<string, ColumnDef>,
+>(
+	...keys: readonly (ColumnRef<TColumns> | IndexExpr)[]
+): IndexBuilder<TColumns> {
+	return createIndexBuilder<TColumns>({ keys, unique: true });
 }
 
+/** Strip column-ref brands back to plain string literals. */
+type UnbrandColumnNames<T extends readonly string[]> = {
+	[I in keyof T]: T[I] extends { readonly __colName?: infer N extends string }
+		? N
+		: T[I];
+};
+
 /** Declare a composite primary key (use in table extras). */
-export function primaryKey<C extends string>(
-	...columns: readonly C[]
-): { kind: "primaryKey"; columns: readonly C[] } {
-	return { kind: "primaryKey", columns };
+export function primaryKey<const T extends readonly string[]>(
+	...columns: T
+): { kind: "primaryKey"; columns: UnbrandColumnNames<T> } {
+	return {
+		kind: "primaryKey",
+		columns: columns as unknown as UnbrandColumnNames<T>,
+	};
 }
 
 function createForeignKeyBuilder<
