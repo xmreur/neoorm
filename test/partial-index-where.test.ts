@@ -13,7 +13,7 @@ import {
 } from "../src/schema/index.js";
 import type { IndexWherePredicate } from "../src/schema/table.js";
 
-function whereSqlFor(where: IndexWherePredicate, provider?: "sqlite"): string {
+function whereSqlFor(where: unknown, provider?: "sqlite"): string {
 	const schema = defineSchema({
 		users: table(
 			{
@@ -24,7 +24,11 @@ function whereSqlFor(where: IndexWherePredicate, provider?: "sqlite"): string {
 				active: bool().notNull(),
 				deletedAt: timestamp(),
 			},
-			(t) => [unique(t.email).where(where)],
+			// Intentionally-typed as unknown: this helper feeds both valid
+			// predicates and invalid ones (asserted to throw), so it
+			// bypasses the builder's per-column input type. Positive typing
+			// is covered by partial-index-where.test-d.ts.
+			(t) => [unique(t.email).where(where as unknown as never)],
 		),
 	});
 	const manifest = schemaToManifest(
@@ -38,8 +42,8 @@ function whereSqlFor(where: IndexWherePredicate, provider?: "sqlite"): string {
 	return idx?.whereSql ?? "";
 }
 
-function expectPartialError(where: IndexWherePredicate, pattern: RegExp): void {
-	expect(() => whereSqlFor(where)).toThrow(pattern);
+function expectPartialError(where: unknown, pattern: RegExp): void {
+	expect(() => whereSqlFor(where as IndexWherePredicate)).toThrow(pattern);
 }
 
 describe("partial index where: flat equality (backward compatible)", () => {
