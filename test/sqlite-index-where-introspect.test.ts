@@ -9,13 +9,7 @@ import {
 } from "../src/introspect/sqlite/to-manifest.js";
 import { dbPush } from "../src/migrate/runner.js";
 import { sqliteClient } from "../src/runtime/driver.js";
-import {
-	bool,
-	defineSchema,
-	int,
-	table,
-	text,
-} from "../src/schema/index.js";
+import { bool, defineSchema, int, table, text } from "../src/schema/index.js";
 
 describe("extractPartialIndexWhere", () => {
 	it("returns undefined for null sql and indexes without WHERE", () => {
