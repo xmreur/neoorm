@@ -77,10 +77,52 @@ export type PkColumnName<TColumns> = {
 		: never;
 }[keyof TColumns & string];
 
-export type IndexWherePredicate = Record<
-	string,
-	boolean | number | string | null
->;
+export type IndexWhereLiteral =
+	| boolean
+	| number
+	| bigint
+	| string
+	| Date
+	| null;
+
+/** Per-column operators accepted in an index `where()` predicate. */
+export type IndexWhereColumnFilter = {
+	equals?: boolean | number | bigint | string | Date | null;
+	gt?: boolean | number | bigint | string | Date;
+	gte?: boolean | number | bigint | string | Date;
+	lt?: boolean | number | bigint | string | Date;
+	lte?: boolean | number | bigint | string | Date;
+	in?: readonly (boolean | number | bigint | string | Date)[];
+	notIn?: readonly (boolean | number | bigint | string | Date)[];
+	contains?: string;
+	startsWith?: string;
+	endsWith?: string;
+	search?: string;
+	mode?: "default" | "insensitive";
+	isNull?: true;
+	isNotNull?: true;
+};
+
+export type IndexWhereColumnValue = IndexWhereLiteral | IndexWhereColumnFilter;
+
+/**
+ * Partial index predicate (`index(...).where()` / `unique(...).where()`).
+ *
+ * Flat equality (`{ published: true }`) plus full combinator syntax
+ * (`AND` / `OR` / `NOT`) and per-column operators (`gt`, `in`, `isNull`,
+ * `contains`, …), mirroring query `where` shapes. Relation filters are not
+ * supported — keys must be scalar columns of the indexed table.
+ */
+export interface IndexWherePredicate {
+	AND?: IndexWherePredicate | readonly IndexWherePredicate[];
+	OR?: IndexWherePredicate | readonly IndexWherePredicate[];
+	NOT?: IndexWherePredicate;
+	[column: string]:
+		| IndexWhereColumnValue
+		| IndexWherePredicate
+		| readonly IndexWherePredicate[]
+		| undefined;
+}
 
 export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin" | "bloom";
 
@@ -224,7 +266,11 @@ export type IndexBuilder = {
 	ops(opclass: string): IndexBuilder;
 	/** Bloom `WITH` options (requires `.using("bloom")`). */
 	with(options: BloomIndexOptions): IndexBuilder;
-	/** Partial index: only index rows matching the predicate. */
+	/**
+	 * Partial index: only index rows matching the predicate.
+	 * Flat equality plus `AND` / `OR` / `NOT` and per-column operators
+	 * (`gt`, `in`, `isNull`, `contains`, …), like query `where`.
+	 */
 	where(predicate: IndexWherePredicate): IndexDef;
 };
 

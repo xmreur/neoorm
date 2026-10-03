@@ -307,10 +307,18 @@ Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` m
 (t) => [
   index(t.title).where({ published: true }),
   unique(t.email).where({ deleted: false }),
+  // Full predicate syntax, like query `where`:
+  unique(t.email).where({
+    OR: [{ status: "banned" }, { status: "suspended" }],
+  }),
+  unique(t.slug).where({
+    AND: [{ deletedAt: { isNull: true } }, { score: { gt: 10 } }],
+    NOT: { status: "trial" },
+  }),
 ],
 ```
 
-Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
+Flat equality (`{ published: true }`, `null` → `IS NULL`) plus `AND` / `OR` / `NOT` combinators and per-column operators: `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `isNull`, `isNotNull`, `contains`, `startsWith`, `endsWith`, `search`, and `mode: "insensitive"` on string operators. Compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
 
 ## Many-to-many
 

@@ -29,6 +29,7 @@ import {
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { schemaError } from "../runtime/error-builders.js";
 import {
+	didYouMean,
 	formatCandidateList,
 	listColumnTsNames,
 	listTableAccessors,
@@ -272,34 +273,556 @@ function resolveFkTargetSql(
 	return `${targetTable._tableName}.${targetColSql}`;
 }
 
-function compileIndexWhere(
-	where: IndexWherePredicate,
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		!(value instanceof Date)
+	);
+}
+
+function quoteIndexColumn(
+	sqlName: string,
+	provider?: DatabaseProvider,
+): string {
+	if (isMysqlFamilyProvider(provider)) {
+		return `\`${sqlName.replace(/`/g, "``")}\``;
+	}
+	return `"${sqlName.replace(/"/g, '""')}"`;
+}
+
+function formatIndexLiteral(
+	value: boolean | number | bigint | string | Date,
+	provider?: DatabaseProvider,
+): string {
+	if (typeof value === "boolean") {
+		return isSqliteProvider(provider) || isMysqlFamilyProvider(provider)
+			? value
+				? "1"
+				: "0"
+			: value
+				? "true"
+				: "false";
+	}
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) {
+			throw schemaError(
+				"invalid_column",
+				`Index where value must be finite (got ${value})`,
+			);
+		}
+		return String(value);
+	}
+	if (typeof value === "bigint") {
+		return value.toString();
+	}
+	if (value instanceof Date) {
+		if (Number.isNaN(value.getTime())) {
+			throw schemaError("invalid_column", "Index where Date is invalid");
+		}
+		return `'${value.toISOString().replace(/'/g, "''")}'`;
+	}
+	return `'${value.replace(/'/g, "''")}'`;
+}
+
+function escapeIndexLikePattern(value: string): string {
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/%/g, "\\%")
+		.replace(/_/g, "\\_");
+}
+
+function indexLikeEscape(provider?: DatabaseProvider): string {
+	return isMysqlFamilyProvider(provider) ? "ESCAPE '\\\\'" : "ESCAPE '\\'";
+}
+
+function indexModeOf(
+	filter: Record<string, unknown>,
+): "default" | "insensitive" {
+	const mode = filter.mode;
+	if (mode === undefined || mode === "default") return "default";
+	if (mode === "insensitive") return "insensitive";
+	throw schemaError(
+		"invalid_column",
+		`Index where mode must be "default" or "insensitive" (got ${JSON.stringify(mode)})`,
+	);
+}
+
+const INDEX_WHERE_STRING_OPS = new Set([
+	"equals",
+	"contains",
+	"startsWith",
+	"endsWith",
+	"search",
+]);
+
+const INDEX_WHERE_OPERATORS = new Set([
+	"equals",
+	"contains",
+	"startsWith",
+	"endsWith",
+	"search",
+	"gt",
+	"gte",
+	"lt",
+	"lte",
+	"in",
+	"notIn",
+	"isNull",
+	"isNotNull",
+	"mode",
+]);
+
+function suggestIndexOperator(op: string): string[] {
+	return didYouMean(
+		op,
+		[...INDEX_WHERE_OPERATORS].filter((c) => c !== "mode"),
+	);
+}
+
+function compileIndexComparison(
+	quoted: string,
+	op: ">" | ">=" | "<" | "<=",
+	value: unknown,
+	provider?: DatabaseProvider,
+	tsName?: string,
+): string {
+	if (
+		typeof value !== "boolean" &&
+		typeof value !== "number" &&
+		typeof value !== "bigint" &&
+		typeof value !== "string" &&
+		!(value instanceof Date)
+	) {
+		throw schemaError(
+			"invalid_column",
+			`Index where operator on "${tsName ?? quoted}" requires a scalar literal`,
+		);
+	}
+	return `${quoted} ${op} ${formatIndexLiteral(value, provider)}`;
+}
+
+function compileIndexInList(
+	quoted: string,
+	negated: boolean,
+	value: unknown,
+	provider?: DatabaseProvider,
+	tsName?: string,
+): string {
+	if (!Array.isArray(value) || value.length === 0) {
+		throw schemaError(
+			"invalid_column",
+			`Index where "${negated ? "notIn" : "in"}" on "${tsName ?? quoted}" requires a non-empty array`,
+		);
+	}
+	const items = value.map((entry) => {
+		if (entry === null || entry === undefined) {
+			throw schemaError(
+				"invalid_column",
+				`Index where "${negated ? "notIn" : "in"}" on "${tsName ?? quoted}" cannot contain null (use isNull instead)`,
+			);
+		}
+		if (
+			typeof entry !== "boolean" &&
+			typeof entry !== "number" &&
+			typeof entry !== "bigint" &&
+			typeof entry !== "string" &&
+			!(entry instanceof Date)
+		) {
+			throw schemaError(
+				"invalid_column",
+				`Index where "${negated ? "notIn" : "in"}" on "${tsName ?? quoted}" accepts only scalar literals`,
+			);
+		}
+		return formatIndexLiteral(entry, provider);
+	});
+	return negated
+		? `${quoted} NOT IN (${items.join(", ")})`
+		: `${quoted} IN (${items.join(", ")})`;
+}
+
+function compileIndexPattern(
+	quoted: string,
+	op: "contains" | "startsWith" | "endsWith",
+	pattern: unknown,
+	mode: "default" | "insensitive",
+	provider?: DatabaseProvider,
+	tsName?: string,
+): string {
+	if (typeof pattern !== "string" && typeof pattern !== "number") {
+		throw schemaError(
+			"invalid_column",
+			`Index where "${op}" on "${tsName ?? quoted}" requires a string`,
+		);
+	}
+	const escaped = escapeIndexLikePattern(String(pattern)).replace(/'/g, "''");
+	const body =
+		op === "contains"
+			? `%${escaped}%`
+			: op === "startsWith"
+				? `${escaped}%`
+				: `%${escaped}`;
+	const sqlLiteral = `'${body}'`;
+	if (mode === "insensitive") {
+		return `LOWER(${quoted}) LIKE LOWER(${sqlLiteral}) ${indexLikeEscape(provider)}`;
+	}
+	return `${quoted} LIKE ${sqlLiteral} ${indexLikeEscape(provider)}`;
+}
+
+function compileIndexSearch(
+	quoted: string,
+	pattern: unknown,
+	mode: "default" | "insensitive",
+	provider?: DatabaseProvider,
+	tsName?: string,
+): string {
+	if (typeof pattern !== "string") {
+		throw schemaError(
+			"invalid_column",
+			`Index where "search" on "${tsName ?? quoted}" requires a string`,
+		);
+	}
+	const literal = `'${pattern.replace(/'/g, "''")}'`;
+	if (isSqliteProvider(provider)) {
+		return mode === "insensitive"
+			? `regexp_i(${literal}, ${quoted})`
+			: `${quoted} REGEXP ${literal}`;
+	}
+	return mode === "insensitive"
+		? `${quoted} ~* ${literal}`
+		: `${quoted} ~ ${literal}`;
+}
+
+function compileIndexColumnFilter(
+	quoted: string,
+	filter: Record<string, unknown>,
+	provider?: DatabaseProvider,
+	tsName?: string,
+): string {
+	const mode = indexModeOf(filter);
+	const opKeys = Object.keys(filter).filter(
+		(key) => filter[key] !== undefined && key !== "mode",
+	);
+	if (opKeys.length === 0) {
+		throw schemaError(
+			"invalid_column",
+			`Index where on "${tsName ?? quoted}" requires at least one operator`,
+		);
+	}
+	for (const op of opKeys) {
+		if (!INDEX_WHERE_OPERATORS.has(op)) {
+			const suggestions = suggestIndexOperator(op);
+			throw schemaError(
+				"unknown_column",
+				`Unsupported index where operator "${op}" on "${tsName ?? quoted}"`,
+				{},
+				suggestions.length > 0
+					? [`Did you mean: ${suggestions.join(", ")}?`]
+					: [
+							"See query where operators: equals, gt, gte, lt, lte, in, notIn, isNull, isNotNull, contains, startsWith, endsWith, search",
+						],
+			);
+		}
+	}
+	if (
+		mode === "insensitive" &&
+		!opKeys.some((op) => INDEX_WHERE_STRING_OPS.has(op))
+	) {
+		throw schemaError(
+			"invalid_column",
+			`Index where mode "insensitive" on "${tsName ?? quoted}" requires a string operator (equals, contains, startsWith, endsWith, search)`,
+		);
+	}
+	const parts: string[] = [];
+	for (const op of opKeys) {
+		const value = filter[op];
+		switch (op) {
+			case "equals": {
+				if (value === null) {
+					parts.push(`${quoted} IS NULL`);
+				} else if (
+					typeof value === "boolean" ||
+					typeof value === "number" ||
+					typeof value === "bigint" ||
+					typeof value === "string" ||
+					value instanceof Date
+				) {
+					if (
+						mode === "insensitive" &&
+						(typeof value === "string" || typeof value === "number")
+					) {
+						const literal = formatIndexLiteral(
+							typeof value === "number" ? String(value) : value,
+							provider,
+						);
+						parts.push(`LOWER(${quoted}) = LOWER(${literal})`);
+					} else if (mode === "insensitive") {
+						throw schemaError(
+							"invalid_column",
+							`Index where mode "insensitive" on "${tsName ?? quoted}" requires a string value`,
+						);
+					} else {
+						parts.push(
+							`${quoted} = ${formatIndexLiteral(value, provider)}`,
+						);
+					}
+				} else {
+					throw schemaError(
+						"invalid_column",
+						`Index where "equals" on "${tsName ?? quoted}" requires a scalar literal or null`,
+					);
+				}
+				break;
+			}
+			case "gt":
+				parts.push(
+					compileIndexComparison(
+						quoted,
+						">",
+						value,
+						provider,
+						tsName,
+					),
+				);
+				break;
+			case "gte":
+				parts.push(
+					compileIndexComparison(
+						quoted,
+						">=",
+						value,
+						provider,
+						tsName,
+					),
+				);
+				break;
+			case "lt":
+				parts.push(
+					compileIndexComparison(
+						quoted,
+						"<",
+						value,
+						provider,
+						tsName,
+					),
+				);
+				break;
+			case "lte":
+				parts.push(
+					compileIndexComparison(
+						quoted,
+						"<=",
+						value,
+						provider,
+						tsName,
+					),
+				);
+				break;
+			case "in":
+				parts.push(
+					compileIndexInList(quoted, false, value, provider, tsName),
+				);
+				break;
+			case "notIn":
+				parts.push(
+					compileIndexInList(quoted, true, value, provider, tsName),
+				);
+				break;
+			case "contains":
+			case "startsWith":
+			case "endsWith":
+				parts.push(
+					compileIndexPattern(
+						quoted,
+						op,
+						value,
+						mode,
+						provider,
+						tsName,
+					),
+				);
+				break;
+			case "search":
+				parts.push(
+					compileIndexSearch(quoted, value, mode, provider, tsName),
+				);
+				break;
+			case "isNull": {
+				if (value !== true) {
+					throw schemaError(
+						"invalid_column",
+						`Index where "isNull" on "${tsName ?? quoted}" requires true`,
+					);
+				}
+				parts.push(`${quoted} IS NULL`);
+				break;
+			}
+			case "isNotNull": {
+				if (value !== true) {
+					throw schemaError(
+						"invalid_column",
+						`Index where "isNotNull" on "${tsName ?? quoted}" requires true`,
+					);
+				}
+				parts.push(`${quoted} IS NOT NULL`);
+				break;
+			}
+			default:
+				break;
+		}
+	}
+	return parts.join(" AND ");
+}
+
+function compileIndexColumnValue(
+	quoted: string,
+	value: unknown,
+	provider?: DatabaseProvider,
+	tsName?: string,
+): string {
+	if (value === null) {
+		return `${quoted} IS NULL`;
+	}
+	if (
+		typeof value === "boolean" ||
+		typeof value === "number" ||
+		typeof value === "bigint" ||
+		typeof value === "string" ||
+		value instanceof Date
+	) {
+		return `${quoted} = ${formatIndexLiteral(value, provider)}`;
+	}
+	if (isPlainRecord(value)) {
+		return compileIndexColumnFilter(quoted, value, provider, tsName);
+	}
+	throw schemaError(
+		"invalid_column",
+		`Index where on "${tsName ?? quoted}" requires a scalar literal, null, or operator object`,
+	);
+}
+
+function compileIndexCombinator(
+	combinator: "AND" | "OR",
+	value: unknown,
+	columns: Record<string, ColumnDef>,
+	columnNaming: ColumnNaming,
+	provider?: DatabaseProvider,
+): string {
+	const items = Array.isArray(value) ? value : [value];
+	if (items.length === 0) {
+		throw schemaError(
+			"invalid_column",
+			`Index where "${combinator}" requires at least one where object`,
+		);
+	}
+	const branches = items.map((item) => {
+		if (!isPlainRecord(item)) {
+			throw schemaError(
+				"invalid_column",
+				`Index where "${combinator}" items must be where objects`,
+			);
+		}
+		const sql = compileIndexWhereNode(
+			item,
+			columns,
+			columnNaming,
+			provider,
+		);
+		if (!sql) {
+			throw schemaError(
+				"invalid_column",
+				`Index where "${combinator}" items must not be empty`,
+			);
+		}
+		return `(${sql})`;
+	});
+	const joiner = combinator === "OR" ? " OR " : " AND ";
+	return `(${branches.join(joiner)})`;
+}
+
+function compileIndexWhereNode(
+	where: Record<string, unknown>,
 	columns: Record<string, ColumnDef>,
 	columnNaming: ColumnNaming,
 	provider?: DatabaseProvider,
 ): string {
 	const parts: string[] = [];
 	for (const [tsName, value] of Object.entries(where)) {
+		if (value === undefined) continue;
+		if (tsName === "AND" || tsName === "OR") {
+			parts.push(
+				compileIndexCombinator(
+					tsName,
+					value,
+					columns,
+					columnNaming,
+					provider,
+				),
+			);
+			continue;
+		}
+		if (tsName === "NOT") {
+			if (!isPlainRecord(value)) {
+				throw schemaError(
+					"invalid_column",
+					'Index where "NOT" must be a where object',
+				);
+			}
+			const sql = compileIndexWhereNode(
+				value,
+				columns,
+				columnNaming,
+				provider,
+			);
+			if (!sql) {
+				throw schemaError(
+					"invalid_column",
+					'Index where "NOT" must not be empty',
+				);
+			}
+			parts.push(`NOT (${sql})`);
+			continue;
+		}
 		const col = requireColumnDef(columns, tsName);
 		const sqlName = resolveSqlName(tsName, col, columnNaming);
-		const quoted = isMysqlFamilyProvider(provider)
-			? `\`${sqlName.replace(/`/g, "``")}\``
-			: `"${sqlName.replace(/"/g, '""')}"`;
-		if (value === null) {
-			parts.push(`${quoted} IS NULL`);
-		} else if (typeof value === "boolean") {
-			parts.push(
-				isSqliteProvider(provider) || isMysqlFamilyProvider(provider)
-					? `${quoted} = ${value ? 1 : 0}`
-					: `${quoted} = ${value}`,
-			);
-		} else if (typeof value === "number") {
-			parts.push(`${quoted} = ${value}`);
-		} else {
-			parts.push(`${quoted} = '${String(value).replace(/'/g, "''")}'`);
-		}
+		parts.push(
+			compileIndexColumnValue(
+				quoteIndexColumn(sqlName, provider),
+				value,
+				provider,
+				tsName,
+			),
+		);
 	}
 	return parts.join(" AND ");
+}
+
+function compileIndexWhere(
+	where: IndexWherePredicate,
+	columns: Record<string, ColumnDef>,
+	columnNaming: ColumnNaming,
+	provider?: DatabaseProvider,
+): string {
+	if (!isPlainRecord(where)) {
+		throw schemaError(
+			"invalid_column",
+			"Index where predicate must be an object",
+		);
+	}
+	const sql = compileIndexWhereNode(
+		where as Record<string, unknown>,
+		columns,
+		columnNaming,
+		provider,
+	);
+	if (!sql) {
+		throw schemaError(
+			"invalid_column",
+			"Index where predicate requires at least one condition",
+		);
+	}
+	return sql;
 }
 
 function columnToManifest(
