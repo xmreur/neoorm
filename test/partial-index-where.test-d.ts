@@ -44,10 +44,15 @@ export const schema = defineSchema({
 			t.unique(t.price).where({ archived: "false" }),
 			// @ts-expect-error -- wrong scalar type in global partial predicate
 			unique(t.price).where({ archived: "false" }),
-			// @ts-expect-error -- operator bags are not supported in partial predicates
+			// operator bags are supported in partial predicates
 			t.unique(t.price).where({ published: { equals: "true" } }),
-			// @ts-expect-error -- OR is not supported in partial predicates
+			t.unique(t.price).where({ price: { gt: 10, lt: 20 } }),
+			// AND / OR / NOT are supported in partial predicates
 			t.unique(t.price).where({ OR: [{ published: "true" }] }),
+			t.unique(t.price).where({
+				AND: [{ archived: false }],
+				NOT: { published: "x" },
+			}),
 		],
 	),
 	bans: table(

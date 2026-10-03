@@ -83,6 +83,50 @@ export type IndexWherePredicate = Record<
 	boolean | number | string | null
 >;
 
+/** Scalar literal accepted in a partial-index predicate. */
+export type IndexWhereLiteral =
+	| boolean
+	| number
+	| bigint
+	| string
+	| Date
+	| null;
+
+/**
+ * Per-column operator bag for a partial-index predicate.
+ * Mirrors the scalar operators `compileIndexWhere` supports at runtime;
+ * multiple operators on one column are ANDed (`{ gt: 5, lt: 10 }`).
+ */
+export type IndexWhereColumnFilter<
+	TValue extends boolean | number | bigint | string | Date =
+		| boolean
+		| number
+		| bigint
+		| string
+		| Date,
+> = {
+	equals?: TValue | null;
+	gt?: TValue;
+	gte?: TValue;
+	lt?: TValue;
+	lte?: TValue;
+	in?: readonly TValue[];
+	notIn?: readonly TValue[];
+	contains?: string;
+	startsWith?: string;
+	endsWith?: string;
+	search?: string;
+	mode?: "default" | "insensitive";
+	isNull?: true;
+	isNotNull?: true;
+};
+
+export type IndexWhereColumnValue = IndexWhereLiteral | IndexWhereColumnFilter;
+
+type IndexFilterValue<TCol extends ColumnDef> =
+	| NonNullable<IndexWhereValue<TCol>>
+	| Date;
+
 export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin" | "bloom";
 
 export type IndexExpr = {
@@ -243,13 +287,24 @@ export type IndexWhereValue<TCol extends ColumnDef> =
 		: never;
 
 /**
- * Equality-only predicate for partial indexes.
- * Keys come from the table's columns, so IDEs get autocomplete. Matches
- * what `compileIndexWhere` supports at runtime (`= / IS NULL` joined by
- * `AND`); no `OR` / operator bags.
+ * Predicate for partial indexes (`index(...).where()` / `unique(...).where()`).
+ * Keys come from the table's columns, so IDEs get autocomplete; values are
+ * flat scalars (`null` → `IS NULL`) or operator bags (`gt`, `in`, `isNull`,
+ * `contains`, …), plus `AND` / `OR` / `NOT` combinators like query `where`.
+ * Matches what `compileIndexWhere` supports at runtime.
  */
 export type IndexWhereInput<TColumns extends Record<string, ColumnDef>> = {
-	[K in ScalarColumnKeys<TColumns>]?: IndexWhereValue<TColumns[K]>;
+	[K in ScalarColumnKeys<TColumns> | "AND" | "OR" | "NOT"]?: K extends
+		| "AND"
+		| "OR"
+		? IndexWhereInput<TColumns> | readonly IndexWhereInput<TColumns>[]
+		: K extends "NOT"
+			? IndexWhereInput<TColumns>
+			: K extends ScalarColumnKeys<TColumns>
+				?
+						| IndexWhereValue<TColumns[K]>
+						| IndexWhereColumnFilter<IndexFilterValue<TColumns[K]>>
+				: never;
 };
 
 type IndexScopeKeys<TColumns extends Record<string, ColumnDef>> = readonly (
@@ -310,7 +365,11 @@ export type IndexBuilder<
 	ops(opclass: string): IndexBuilder<TColumns>;
 	/** Bloom `WITH` options (requires `.using("bloom")`). */
 	with(options: BloomIndexOptions): IndexBuilder<TColumns>;
-	/** Partial index: only index rows matching the predicate. */
+	/**
+	 * Partial index: only index rows matching the predicate.
+	 * Flat equality plus `AND` / `OR` / `NOT` and per-column operators
+	 * (`gt`, `in`, `isNull`, `contains`, …), like query `where`.
+	 */
 	where(predicate: IndexWhereInput<TColumns>): IndexDef;
 };
 

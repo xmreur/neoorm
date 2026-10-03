@@ -279,7 +279,7 @@ posts: table(
 ),
 ```
 
-Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, `.with()` (bloom only), and `.where()` for partial indexes. Key names from the extras scope (`t.col`) are validated against the table's columns; raw strings are unchecked.
+Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, `.with()` (bloom only), and `.where()` for partial indexes.
 
 ### Index methods and expressions
 
@@ -307,15 +307,23 @@ Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` m
 (t) => [
   t.index(t.title).where({ published: true }),
   t.unique(t.email).where({ deleted: false }),
+  // Full predicate syntax, like query `where`:
+  t.unique(t.email).where({
+    OR: [{ status: "banned" }, { status: "suspended" }],
+  }),
+  t.unique(t.slug).where({
+    AND: [{ deletedAt: { isNull: true } }, { score: { gt: 10 } }],
+    NOT: { status: "trial" },
+  }),
 ],
 ```
 
 Use `t.index` / `t.unique` or the top-level `index()` / `unique()` with
-`t.col` keys — in both cases the `where` predicate is typed: keys and scalar
-values autocomplete from the table's columns. Raw-string keys
+`t.col` keys — in both cases the `where` predicate is typed: keys, scalar
+values, and operators autocomplete from the table's columns. Raw-string keys
 (`unique("email")`) still accept `.where()` with an untyped predicate.
 
-Equality map of column refs → values; compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
+Flat equality (`{ published: true }`, `null` → `IS NULL`) plus `AND` / `OR` / `NOT` combinators and per-column operators: `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `isNull`, `isNotNull`, `contains`, `startsWith`, `endsWith`, `search`, and `mode: "insensitive"` on string operators. Compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
 
 ## Many-to-many
 

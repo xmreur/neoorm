@@ -331,48 +331,613 @@ function formatTsValue(kind: string, value: unknown): string {
 	return JSON.stringify(value);
 }
 
-function parseEqualityWhere(
+type ParsedIndexPredicate =
+	| { kind: "and"; items: ParsedIndexPredicate[] }
+	| { kind: "or"; items: ParsedIndexPredicate[] }
+	| { kind: "not"; item: ParsedIndexPredicate }
+	| { kind: "col"; ts: string; expr: string; ops?: Record<string, string> };
+
+function stripOuterParens(sql: string): string {
+	let text = sql.trim();
+	for (;;) {
+		if (!text.startsWith("(") || !text.endsWith(")")) return text;
+		let depth = 0;
+		let balanced = true;
+		let inStr = false;
+		for (let i = 0; i < text.length; i++) {
+			const ch = text[i];
+			if (inStr) {
+				if (ch === "'") {
+					if (text[i + 1] === "'") {
+						i++;
+					} else {
+						inStr = false;
+					}
+				}
+				continue;
+			}
+			if (ch === "'") {
+				inStr = true;
+			} else if (ch === "(") {
+				depth++;
+			} else if (ch === ")") {
+				depth--;
+				if (depth === 0 && i !== text.length - 1) {
+					balanced = false;
+					break;
+				}
+			}
+		}
+		if (!balanced || depth !== 0) return text;
+		text = text.slice(1, -1).trim();
+	}
+}
+
+function splitTopLevel(
+	sql: string,
+	keyword: "AND" | "OR",
+): string[] | undefined {
+	const parts: string[] = [];
+	let depth = 0;
+	let inStr = false;
+	let current = "";
+	const upper = sql.toUpperCase();
+	let i = 0;
+	while (i < sql.length) {
+		const ch = sql[i];
+		if (inStr) {
+			current += ch;
+			if (ch === "'") {
+				if (sql[i + 1] === "'") {
+					current += "'";
+					i += 2;
+					continue;
+				}
+				inStr = false;
+			}
+			i++;
+			continue;
+		}
+		if (ch === "'") {
+			inStr = true;
+			current += ch;
+			i++;
+			continue;
+		}
+		if (ch === "(") {
+			depth++;
+			current += ch;
+			i++;
+			continue;
+		}
+		if (ch === ")") {
+			depth--;
+			current += ch;
+			i++;
+			continue;
+		}
+		if (depth === 0) {
+			const rest = upper.slice(i);
+			const match = rest.match(/^(AND|OR)\b/);
+			if (match?.[1] === keyword) {
+				const before = sql[i - 1];
+				if (
+					before === undefined ||
+					/\s/.test(before) ||
+					before === "(" ||
+					before === ")"
+				) {
+					parts.push(current);
+					current = "";
+					i += keyword.length;
+					continue;
+				}
+			}
+		}
+		current += ch;
+		i++;
+	}
+	if (inStr || depth !== 0) return undefined;
+	parts.push(current);
+	if (parts.length <= 1) return undefined;
+	return parts;
+}
+
+function parseIndexLiteralValue(
+	valueSql: string,
+): { ok: true; ts: string } | { ok: false } {
+	const text = valueSql.trim();
+	if (text === "true" || text === "false") {
+		return { ok: true, ts: text };
+	}
+	if (/^-?\d+(\.\d+)?$/.test(text)) {
+		return { ok: true, ts: text };
+	}
+	if (text.startsWith("'") && text.endsWith("'") && text.length >= 2) {
+		return {
+			ok: true,
+			ts: `"${escapeTsString(text.slice(1, -1).replace(/''/g, "'"))}"`,
+		};
+	}
+	if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
+		return { ok: true, ts: `"${escapeTsString(text.slice(1, -1))}"` };
+	}
+	return { ok: false };
+}
+
+function unescapeLikePattern(pattern: string): string | undefined {
+	let out = "";
+	for (let i = 0; i < pattern.length; i++) {
+		const ch = pattern[i];
+		if (ch === "\\") {
+			const next = pattern[i + 1];
+			if (next === "%" || next === "_" || next === "\\") {
+				out += next;
+				i++;
+				continue;
+			}
+			return undefined;
+		}
+		if (ch === "%" || ch === "_") return undefined;
+		out += ch;
+	}
+	return out;
+}
+
+function likePatternToOp(
+	pattern: string,
+): { op: "contains" | "startsWith" | "endsWith"; value: string } | undefined {
+	const starts = pattern.startsWith("%");
+	const ends = pattern.endsWith("%");
+	const inner = pattern.slice(
+		starts ? 1 : 0,
+		ends ? pattern.length - 1 : pattern.length,
+	);
+	if (inner.includes("%")) return undefined;
+	const value = unescapeLikePattern(inner);
+	if (value === undefined) return undefined;
+	if (starts && ends) return { op: "contains", value };
+	if (ends) return { op: "startsWith", value };
+	if (starts) return { op: "endsWith", value };
+	return undefined;
+}
+
+const INDEX_ATOM_COL = String.raw`(?:"(?<q1>[^"]+)"|(?<q2>[A-Za-z_][\w]*))`;
+
+function parseIndexAtom(
+	atom: string,
+	tsNameBySql: Map<string, string>,
+): ParsedIndexPredicate | undefined {
+	const text = stripOuterParens(atom);
+	const notMatch = text.match(/^NOT\b\s*([\s\S]*)$/i);
+	if (notMatch?.[1]) {
+		const inner = parseIndexConjunction(notMatch[1], tsNameBySql);
+		if (!inner) return undefined;
+		return { kind: "not", item: inner };
+	}
+	const tsOf = (sql: string | undefined): string | undefined => {
+		if (sql === undefined) return undefined;
+		return tsNameBySql.get(sql) ?? sql;
+	};
+
+	let match = text.match(
+		new RegExp(`^${INDEX_ATOM_COL}\\s+IS\\s+NOT\\s+NULL$`, "i"),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		if (!ts) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: "{ isNotNull: true }",
+			ops: { isNotNull: "true" },
+		};
+	}
+	match = text.match(new RegExp(`^${INDEX_ATOM_COL}\\s+IS\\s+NULL$`, "i"));
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		if (!ts) return undefined;
+		return { kind: "col", ts, expr: "null" };
+	}
+	match = text.match(
+		new RegExp(
+			`^LOWER\\(${INDEX_ATOM_COL}\\)\\s*=\\s*LOWER\\((?<lit>[\\s\\S]+)\\)$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ equals: ${lit.ts}, mode: "insensitive" }`,
+			ops: { equals: lit.ts, mode: '"insensitive"' },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^LOWER\\(${INDEX_ATOM_COL}\\)\\s+LIKE\\s+LOWER\\((?<lit>[\\s\\S]+?)\\)(?:\\s+ESCAPE\\s+'(?:\\\\|\\\\\\\\)')?$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		const raw = match.groups?.lit?.trim() ?? "";
+		const inner = raw.startsWith("'")
+			? raw.slice(1, -1).replace(/''/g, "'")
+			: undefined;
+		if (inner === undefined) return undefined;
+		const mapped = likePatternToOp(inner);
+		if (!mapped) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ ${mapped.op}: "${escapeTsString(mapped.value)}", mode: "insensitive" }`,
+			ops: {
+				[mapped.op]: `"${escapeTsString(mapped.value)}"`,
+				mode: '"insensitive"',
+			},
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^${INDEX_ATOM_COL}\\s+NOT\\s+IN\\s*\\((?<list>[\\s\\S]+)\\)$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const list = parseIndexLiteralList(match.groups?.list ?? "");
+		if (!ts || !list) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ notIn: [${list.join(", ")}] }`,
+			ops: { notIn: `[${list.join(", ")}]` },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^${INDEX_ATOM_COL}\\s+IN\\s*\\((?<list>[\\s\\S]+)\\)$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const list = parseIndexLiteralList(match.groups?.list ?? "");
+		if (!ts || !list) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ in: [${list.join(", ")}] }`,
+			ops: { in: `[${list.join(", ")}]` },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^${INDEX_ATOM_COL}\\s+LIKE\\s+(?<lit>'(?:[^']|'')*')\\s*(?:ESCAPE\\s+'(?:\\\\|\\\\\\\\)')?$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		const raw = (match.groups?.lit ?? "").slice(1, -1).replace(/''/g, "'");
+		const mapped = likePatternToOp(raw);
+		if (!mapped) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ ${mapped.op}: "${escapeTsString(mapped.value)}" }`,
+			ops: { [mapped.op]: `"${escapeTsString(mapped.value)}"` },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^${INDEX_ATOM_COL}\\s*(?<op>~\\*|~)\\s*(?<lit>'(?:[^']|'')*')$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		const insensitive = match.groups?.op === "~*";
+		return {
+			kind: "col",
+			ts,
+			expr: insensitive
+				? `{ search: ${lit.ts}, mode: "insensitive" }`
+				: `{ search: ${lit.ts} }`,
+			ops: insensitive
+				? { search: lit.ts, mode: '"insensitive"' }
+				: { search: lit.ts },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^${INDEX_ATOM_COL}\\s+REGEXP\\s+(?<lit>'(?:[^']|'')*')$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ search: ${lit.ts} }`,
+			ops: { search: lit.ts },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^regexp_i\\((?<lit>'(?:[^']|'')*')\\s*,\\s*${INDEX_ATOM_COL}\\)$`,
+			"i",
+		),
+	);
+	if (match) {
+		const allGroups = match.groups ?? {};
+		const colSql = allGroups.q1 ?? allGroups.q2;
+		const ts = tsOf(colSql);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		return {
+			kind: "col",
+			ts,
+			expr: `{ search: ${lit.ts}, mode: "insensitive" }`,
+			ops: { search: lit.ts, mode: '"insensitive"' },
+		};
+	}
+	match = text.match(
+		new RegExp(
+			`^${INDEX_ATOM_COL}\\s*(?<op>=|<>|!=|>=|<=|>|<)\\s*(?<lit>[\\s\\S]+)$`,
+			"i",
+		),
+	);
+	if (match) {
+		const ts = tsOf(match.groups?.q1 ?? match.groups?.q2);
+		const lit = match.groups?.lit
+			? parseIndexLiteralValue(match.groups.lit)
+			: { ok: false as const };
+		if (!ts || !lit.ok) return undefined;
+		const op = match.groups?.op ?? "=";
+		if (op === "=") {
+			if (lit.ts === "1" || lit.ts === "0") {
+				return {
+					kind: "col",
+					ts,
+					expr: lit.ts === "1" ? "true" : "false",
+				};
+			}
+			if (lit.ts === "true" || lit.ts === "false") {
+				return { kind: "col", ts, expr: lit.ts };
+			}
+			return { kind: "col", ts, expr: lit.ts };
+		}
+		if (op === "<>" || op === "!=") {
+			return {
+				kind: "not",
+				item: { kind: "col", ts, expr: lit.ts },
+			};
+		}
+		const opName =
+			op === ">" ? "gt" : op === ">=" ? "gte" : op === "<" ? "lt" : "lte";
+		return {
+			kind: "col",
+			ts,
+			expr: `{ ${opName}: ${lit.ts} }`,
+			ops: { [opName]: lit.ts },
+		};
+	}
+	return undefined;
+}
+
+function parseIndexLiteralList(listSql: string): string[] | undefined {
+	const items: string[] = [];
+	let depth = 0;
+	let inStr = false;
+	let current = "";
+	for (let i = 0; i < listSql.length; i++) {
+		const ch = listSql[i];
+		if (inStr) {
+			current += ch;
+			if (ch === "'") {
+				if (listSql[i + 1] === "'") {
+					current += "'";
+					i++;
+				} else {
+					inStr = false;
+				}
+			}
+			continue;
+		}
+		if (ch === "'") {
+			inStr = true;
+			current += ch;
+			continue;
+		}
+		if (ch === "(") depth++;
+		if (ch === ")") depth--;
+		if (ch === "," && depth === 0) {
+			const parsed = parseIndexLiteralValue(current);
+			if (!parsed.ok) return undefined;
+			if (parsed.ts === "1" || parsed.ts === "0") return undefined;
+			items.push(parsed.ts);
+			current = "";
+			continue;
+		}
+		current += ch;
+	}
+	if (inStr || depth !== 0) return undefined;
+	if (current.trim().length > 0) {
+		const parsed = parseIndexLiteralValue(current);
+		if (!parsed.ok) return undefined;
+		if (parsed.ts === "1" || parsed.ts === "0") return undefined;
+		items.push(parsed.ts);
+	}
+	if (items.length === 0) return undefined;
+	return items;
+}
+
+function parseIndexConjunction(
+	sql: string,
+	tsNameBySql: Map<string, string>,
+): ParsedIndexPredicate | undefined {
+	const text = stripOuterParens(sql);
+	const orBranches = splitTopLevel(text, "OR");
+	if (orBranches) {
+		const items: ParsedIndexPredicate[] = [];
+		for (const branch of orBranches) {
+			const parsed = parseIndexConjunction(branch, tsNameBySql);
+			if (!parsed) return undefined;
+			items.push(parsed);
+		}
+		return { kind: "or", items };
+	}
+	const andBranches = splitTopLevel(text, "AND");
+	if (andBranches) {
+		const items: ParsedIndexPredicate[] = [];
+		for (const branch of andBranches) {
+			const parsed = parseIndexConjunction(branch, tsNameBySql);
+			if (!parsed) return undefined;
+			items.push(parsed);
+		}
+		return { kind: "and", items };
+	}
+	return parseIndexAtom(text, tsNameBySql);
+}
+
+function renderIndexPredicate(node: ParsedIndexPredicate): string | undefined {
+	switch (node.kind) {
+		case "and": {
+			const bodies = conjunctBodies(node.items);
+			if (!bodies) return undefined;
+			if (bodies.length === 1) return bodies[0];
+			return `AND: [${bodies.map((body) => `{ ${body} }`).join(", ")}]`;
+		}
+		case "or": {
+			const elements: string[] = [];
+			for (const item of node.items) {
+				if (item.kind === "and") {
+					const bodies = conjunctBodies(item.items);
+					if (!bodies) return undefined;
+					for (const body of bodies) elements.push(`{ ${body} }`);
+					continue;
+				}
+				const inner = renderIndexPredicate(item);
+				if (!inner) return undefined;
+				elements.push(`{ ${inner} }`);
+			}
+			return `OR: [${elements.join(", ")}]`;
+		}
+		case "not": {
+			const inner = renderIndexPredicate(node.item);
+			if (!inner) return undefined;
+			return `NOT: { ${inner} }`;
+		}
+		case "col":
+			return `${node.ts}: ${node.expr}`;
+	}
+}
+
+/** Group an AND level into where-object bodies, merging same-column operators. */
+function conjunctBodies(items: ParsedIndexPredicate[]): string[] | undefined {
+	const bodies: string[] = [];
+	const pending = new Map<
+		string,
+		{ expr: string; ops?: Record<string, string> }
+	>();
+	const order: string[] = [];
+	const flush = (): void => {
+		if (order.length === 0) return;
+		bodies.push(
+			order
+				.map((ts) => `${ts}: ${pending.get(ts)?.expr ?? ""}`)
+				.join(", "),
+		);
+		pending.clear();
+		order.length = 0;
+	};
+	for (const item of items) {
+		if (item.kind === "col") {
+			const incomingOps: Record<string, string> =
+				item.ops ??
+				(item.expr === "null"
+					? { equals: "null" }
+					: { equals: item.expr });
+			const existing = pending.get(item.ts);
+			if (!existing) {
+				pending.set(
+					item.ts,
+					item.ops
+						? { expr: item.expr, ops: incomingOps }
+						: { expr: item.expr, ops: incomingOps },
+				);
+				order.push(item.ts);
+				continue;
+			}
+			if (!existing.ops) return undefined;
+			const merged: Record<string, string> = { ...existing.ops };
+			for (const [op, val] of Object.entries(incomingOps)) {
+				if (op in merged) return undefined;
+				merged[op] = val;
+			}
+			pending.set(item.ts, {
+				expr: `{ ${Object.entries(merged)
+					.map(([op, val]) => `${op}: ${val}`)
+					.join(", ")} }`,
+				ops: merged,
+			});
+			continue;
+		}
+		flush();
+		const rendered = renderIndexPredicate(item);
+		if (!rendered) return undefined;
+		bodies.push(rendered);
+	}
+	flush();
+	return bodies;
+}
+
+export function parseIndexWhere(
 	whereSql: string,
 	tsNameBySql: Map<string, string>,
 ): string | undefined {
-	const parts = whereSql.split(/\s+AND\s+/i);
-	const fields: string[] = [];
-	for (const raw of parts) {
-		const part = raw
-			.trim()
-			.replace(/^\(|\)$/g, "")
-			.trim();
-		const isNull = part.match(/^"?([A-Za-z_][\w]*)"?\s+IS NULL$/i);
-		if (isNull?.[1]) {
-			const ts = tsNameBySql.get(isNull[1]) ?? isNull[1];
-			fields.push(`${ts}: null`);
-			continue;
-		}
-		const eq = part.match(/^"?([A-Za-z_][\w]*)"?\s*=\s*(.+)$/);
-		if (!eq?.[1] || eq[2] === undefined) {
-			return undefined;
-		}
-		const ts = tsNameBySql.get(eq[1]) ?? eq[1];
-		const valueSql = eq[2].trim();
-		let value: string;
-		if (valueSql === "true" || valueSql === "false") {
-			value = valueSql;
-		} else if (valueSql === "1" || valueSql === "0") {
-			value = valueSql === "1" ? "true" : "false";
-		} else if (/^-?\d+(\.\d+)?$/.test(valueSql)) {
-			value = valueSql;
-		} else if (
-			(valueSql.startsWith("'") && valueSql.endsWith("'")) ||
-			(valueSql.startsWith('"') && valueSql.endsWith('"'))
-		) {
-			value = `"${escapeTsString(valueSql.slice(1, -1))}"`;
-		} else {
-			return undefined;
-		}
-		fields.push(`${ts}: ${value}`);
+	const parsed = parseIndexConjunction(whereSql, tsNameBySql);
+	if (!parsed) return undefined;
+	if (parsed.kind === "col") {
+		return `.where({ ${parsed.ts}: ${parsed.expr} })`;
 	}
-	if (fields.length === 0) return undefined;
-	return `.where({ ${fields.join(", ")} })`;
+	if (parsed.kind === "and") {
+		const bodies = conjunctBodies(parsed.items);
+		if (!bodies || bodies.length === 0) return undefined;
+		if (bodies.length === 1) {
+			return `.where({ ${bodies[0]} })`;
+		}
+		return `.where({ AND: [${bodies.map((body) => `{ ${body} }`).join(", ")}] })`;
+	}
+	const rendered = renderIndexPredicate(parsed);
+	if (!rendered) return undefined;
+	return `.where({ ${rendered} })`;
 }
 
 function emitTableExtras(
@@ -416,7 +981,7 @@ function emitTableExtras(
 			}
 		}
 		if (index.whereSql) {
-			const where = parseEqualityWhere(index.whereSql, tsNameBySql);
+			const where = parseIndexWhere(index.whereSql, tsNameBySql);
 			if (where) extra += where;
 		}
 		extras.push(`    ${extra},`);
