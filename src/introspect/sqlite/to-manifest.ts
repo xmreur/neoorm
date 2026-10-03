@@ -42,6 +42,11 @@ interface IndexListRow {
 	partial: number;
 }
 
+interface IndexSqlRow {
+	name: string;
+	sql: string | null;
+}
+
 interface IndexInfoRow {
 	seqno: number;
 	cid: number;
@@ -50,6 +55,74 @@ interface IndexInfoRow {
 
 function mapDeleteRule(rule: string): string | undefined {
 	return mapReferentialAction(rule);
+}
+
+/**
+ * Extract the trailing `WHERE <predicate>` from a `CREATE INDEX` statement
+ * as stored in `sqlite_master`. Returns `undefined` for `NULL` sql
+ * (auto-indexes), statements without a top-level `WHERE`, or an empty
+ * predicate. The scan skips quoted identifiers (`"…"`, `` `…` ``, `[…]`),
+ * `'…'` literals (with `''` escapes), and `--` / `/* … *\/` comments, so a
+ * `where` inside any of them (e.g. a column literally named `"where"`)
+ * can never match.
+ */
+export function extractPartialIndexWhere(
+	createSql: string | null,
+): string | undefined {
+	if (!createSql) return undefined;
+	const text = createSql.trim().replace(/;\s*$/, "");
+	const n = text.length;
+	const isWordChar = (ch: string | undefined): boolean =>
+		ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
+	let i = 0;
+	let matchAt = -1;
+	while (i < n) {
+		const ch = text[i];
+		if (ch === "-" && text[i + 1] === "-") {
+			const end = text.indexOf("\n", i + 2);
+			i = end === -1 ? n : end + 1;
+			continue;
+		}
+		if (ch === "/" && text[i + 1] === "*") {
+			const end = text.indexOf("*/", i + 2);
+			i = end === -1 ? n : end + 2;
+			continue;
+		}
+		if (ch === "'" || ch === '"' || ch === "`") {
+			i++;
+			while (i < n) {
+				if (text[i] === ch) {
+					if (text[i + 1] === ch) {
+						i += 2;
+						continue;
+					}
+					i++;
+					break;
+				}
+				i++;
+			}
+			continue;
+		}
+		if (ch === "[") {
+			const end = text.indexOf("]", i + 1);
+			i = end === -1 ? n : end + 1;
+			continue;
+		}
+		if (
+			(ch === "W" || ch === "w") &&
+			text.slice(i, i + 5).toUpperCase() === "WHERE" &&
+			!isWordChar(text[i - 1]) &&
+			!isWordChar(text[i + 5])
+		) {
+			matchAt = i;
+			i += 5;
+			continue;
+		}
+		i++;
+	}
+	if (matchAt === -1) return undefined;
+	const predicate = text.slice(matchAt + 5).trim();
+	return predicate ? predicate : undefined;
 }
 
 function parseSqliteTableDeferrable(
@@ -294,6 +367,19 @@ async function introspectSqliteTable(
 	const uniqueColumns = new Set(
 		manifestColumns.filter((col) => col.unique).map((col) => col.sqlName),
 	);
+	const indexSqlByName = new Map<string, string | null>();
+	if (indexRows.length > 0) {
+		const placeholders = indexRows.map((_, i) => `$${i + 1}`).join(", ");
+		const sqlRows = (
+			await client.query<IndexSqlRow>(
+				`SELECT name, sql FROM sqlite_master WHERE type = 'index' AND name IN (${placeholders})`,
+				indexRows.map((row) => row.name),
+			)
+		).rows;
+		for (const sqlRow of sqlRows) {
+			indexSqlByName.set(sqlRow.name, sqlRow.sql);
+		}
+	}
 	const indexes: ManifestIndex[] = [];
 	for (const row of indexRows) {
 		if (row.origin === "pk" || row.name.startsWith("sqlite_autoindex_")) {
@@ -326,11 +412,15 @@ async function introspectSqliteTable(
 		) {
 			continue;
 		}
+		const whereSql = extractPartialIndexWhere(
+			indexSqlByName.get(row.name) ?? null,
+		);
 		indexes.push({
 			name: row.name,
 			columns,
 			unique: row.unique === 1,
 			keys,
+			...(whereSql ? { whereSql } : {}),
 		});
 	}
 
