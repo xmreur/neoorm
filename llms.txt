@@ -1,0 +1,39 @@
+# NeoOrm
+
+> TypeScript-first SQL ORM: schema → codegen → typed client for PostgreSQL, SQLite, MySQL, and MariaDB. You own the SQL; it handles the boilerplate.
+
+## Guide
+
+- [Getting started](docs/getting-started.md): install, scaffold a project, first migration, Studio.
+- [Examples](docs/examples.md): end-to-end schema and query patterns, including the blog example.
+- [CLI](docs/cli.md): `init`, `generate`, `migrate`, and `studio` commands.
+- [Configuration](docs/configuration.md): `neoorm.config.ts` and datasource setup.
+- [Studio](docs/studio.md): local data browser and schema explorer.
+- [Migrations](docs/migrations.md): migration workflow and `dbPush`.
+
+## Schema and validation
+
+- [Schema DSL](docs/schema.md): tables, columns, indexes (including partial), relations.
+- [Zod](docs/zod.md): Zod validation schemas from the schema.
+- [TypeBox](docs/typebox.md): TypeBox validation schemas from the schema.
+- [Elysia](docs/elysia.md): Elysia integration.
+
+## Queries
+
+- [Queries](docs/queries.md): `findMany`, `findUnique`, writes, filters, pagination, aggregations.
+- [Relations](docs/relations.md): `with` reads, nested writes, many-to-many.
+- [Transactions](docs/transactions.md): interactive transactions and isolation.
+
+## Dialects
+
+- [SQLite](docs/sqlite.md): SQLite specifics and limitations.
+- [MySQL](docs/mysql.md): MySQL 8 specifics and limitations.
+- [MariaDB](docs/mariadb.md): MariaDB 10.11 specifics and limitations.
+
+## Reference
+
+- [Errors](docs/errors.md): error codes and handling.
+- [Plugins](docs/plugins.md): column-type plugins (PostGIS and custom).
+- [API docstring conventions](docs/api-docstrings.md): TSDoc rules for contributors (docstrings ship in IDE hovers and `.d.ts`).
+
+Full contents in one file: [llms-full.txt](llms-full.txt) (generated from `docs/` — do not edit; run `bun run docs:llms`).

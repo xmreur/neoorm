@@ -84,6 +84,7 @@
 		"studio:typecheck": "bunx tsc -p studio-web/tsconfig.json --noEmit",
 		"studio:dev": "bun scripts/studio-dev.ts",
 		"dev": "bunx tsc -w -p tsconfig.build.json",
+		"docs:llms": "bun scripts/generate-llms.ts",
 		"lint": "biome check .",
 		"format": "biome format --write .",
 		"test": "bunx vitest run",
