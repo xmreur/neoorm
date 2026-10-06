@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -109,7 +109,15 @@ describe("generateFromSchema migration name enforcement", () => {
 		schemaPath: string;
 		outDir: string;
 	}> {
-		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-gen-"));
+		// Schemas must live inside the repo so `neoorm/schema` self-resolves
+		// (same pattern as accept-data-loss.test.ts).
+		const workBaseDir = join(
+			import.meta.dirname,
+			"fixtures",
+			"write-migration-work",
+		);
+		await mkdir(workBaseDir, { recursive: true });
+		tmpDir = await mkdtemp(join(workBaseDir, "run-"));
 		const schemaPath = join(tmpDir, "schema.ts");
 		await writeFile(schemaPath, NAMED_SCHEMA, "utf-8");
 		return { schemaPath, outDir: join(tmpDir, "neoorm") };
