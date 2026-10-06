@@ -5,8 +5,8 @@
 | Command | Description |
 |---------|-------------|
 | `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
-| `neoorm generate` | Emit manifest, typed client, models, includes, and migrations |
-| `neoorm migrate dev` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed |
+| `neoorm generate --name <name>` | Emit manifest, typed client, models, includes, and migrations |
+| `neoorm migrate dev --name <name>` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed |
 | `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
@@ -22,13 +22,15 @@
 |---------|---------|
 | Schema unchanged | Snapshot hash matches — no manifest or migration changes |
 | Client regenerated | Manifest changed but no database DDL needed |
-| Migration created | New `migrations/<timestamp>/migration.sql` written |
+| Migration created | New `migrations/<timestamp>_<name>/migration.sql` written |
 | Migration blocked | Destructive or manual changes prevented writing SQL |
+
+Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is required for `generate` and `migrate dev`: the CLI prompts on a TTY and errors in non-interactive runs. Older `*_migration` folders still apply in order.
 
 When migration is blocked, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL:
 
 ```bash
-neoorm generate --accept-data-loss
+neoorm generate --name add_users --accept-data-loss
 ```
 
 ## Existing tables vs pending CREATE TABLE

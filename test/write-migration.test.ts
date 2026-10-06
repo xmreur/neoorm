@@ -2,7 +2,11 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeMigration } from "../src/codegen/generate.js";
+import {
+	MIGRATION_SLUG_MAX_LENGTH,
+	slugifyMigrationName,
+	writeMigration,
+} from "../src/codegen/generate.js";
 
 describe("writeMigration path handling", () => {
 	let tmpDir: string;
@@ -40,5 +44,48 @@ describe("writeMigration path handling", () => {
 		expect(name).toMatch(/^\d{14}_migration$/);
 		const entries = await readdir(join(tmpDir, "migrations"));
 		expect(entries).toEqual([name]);
+	});
+
+	it("prefixes a slugified name with a timestamp", async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-mig-"));
+
+		const name = await writeMigration(tmpDir, ["CREATE TABLE x ();"], {
+			name: "Add Users",
+		});
+		expect(name).toMatch(/^\d{14}_add_users$/);
+	});
+
+	it("caps the slug at 50 chars", async () => {
+		expect(slugifyMigrationName("a".repeat(100))).toHaveLength(
+			MIGRATION_SLUG_MAX_LENGTH,
+		);
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-mig-"));
+
+		const name = await writeMigration(tmpDir, ["CREATE TABLE x ();"], {
+			name: "a".repeat(100),
+		});
+		expect(name).toMatch(/^\d{14}_a{50}$/);
+	});
+
+	it("suffixes colliding names instead of overwriting", async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-mig-"));
+
+		const first = await writeMigration(tmpDir, ["CREATE TABLE x ();"], {
+			name: "Add Users",
+		});
+		const second = await writeMigration(tmpDir, ["CREATE TABLE y ();"], {
+			name: "Add Users",
+		});
+		expect(second).toBe(`${first}_1`);
+		const entries = await readdir(join(tmpDir, "migrations"));
+		expect(entries.sort()).toEqual([first, second].sort());
+	});
+
+	it("rejects names with no usable characters", async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-mig-"));
+
+		await expect(
+			writeMigration(tmpDir, ["CREATE TABLE x ();"], { name: "!!!" }),
+		).rejects.toThrow(/Invalid migration name/);
 	});
 });
