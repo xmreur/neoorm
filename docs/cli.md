@@ -30,7 +30,7 @@ neoorm generate [options]
 ```
 
 Options:
-- `-n, --name <name>` — migration name (e.g. `--name add_users`). Required; prompts interactively on a TTY when omitted, errors in CI. Folders are `<timestamp>_<slug>` with the slug capped at 50 chars.
+- `-n, --name <name>` — migration name (e.g. `--name add_users`). Required when a migration is created; prompts interactively on a TTY when omitted, errors in CI. Folders are `<timestamp>_<slug>` with the slug capped at 50 chars. No-change runs (client regeneration only) succeed without `--name`.
 - `--accept-data-loss` — include destructive DDL changes (column drops, type changes)
 
 ## `neoorm migrate dev`
@@ -41,7 +41,7 @@ Apply pending migrations, then generate a new migration if the schema changed. I
 neoorm migrate dev --name <name>
 ```
 
-- `-n, --name <name>` — same as `generate`: required for `dev`, prompts on a TTY, errors in CI. Not used by `deploy`, `status`, `reset`, or `down`.
+- `-n, --name <name>` — same as `generate`: required when `dev` creates a migration, prompts on a TTY, errors in CI. Not used by `deploy`, `status`, `reset`, or `down`.
 
 ## `neoorm migrate deploy`
 

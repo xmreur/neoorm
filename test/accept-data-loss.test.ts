@@ -62,7 +62,7 @@ describe("accept-data-loss generate flow", () => {
 			"schema-v1.ts",
 		);
 
-		await generateFromSchema(schemaV1Path, outDir);
+		await generateFromSchema(schemaV1Path, outDir, { name: "v1_init" });
 		const snapshotAfterV1 = await readSnapshot(outDir);
 		expect(snapshotAfterV1?.tables.archives).toBeDefined();
 
@@ -99,7 +99,7 @@ describe("accept-data-loss generate flow", () => {
 			"schema-v1.ts",
 		);
 
-		await generateFromSchema(schemaV1Path, outDir);
+		await generateFromSchema(schemaV1Path, outDir, { name: "v1_init" });
 		const schemaV2Path = await writeSchema(
 			workDir,
 			SCHEMA_V2,
@@ -108,6 +108,7 @@ describe("accept-data-loss generate flow", () => {
 
 		const accepted = await generateFromSchema(schemaV2Path, outDir, {
 			acceptDataLoss: true,
+			name: "v2_drop_archives",
 		});
 		expect(accepted.destructiveBlocked).toBe(false);
 		expect(accepted.migrationName).not.toBeNull();
@@ -143,7 +144,7 @@ describe("accept-data-loss generate flow", () => {
 			"schema-v1.ts",
 		);
 
-		await generateFromSchema(schemaV1Path, outDir);
+		await generateFromSchema(schemaV1Path, outDir, { name: "v1_init" });
 		const schemaV2Path = await writeSchema(
 			workDir,
 			SCHEMA_V2,
@@ -155,6 +156,7 @@ describe("accept-data-loss generate flow", () => {
 
 		const accepted = await generateFromSchema(schemaV2Path, outDir, {
 			acceptDataLoss: true,
+			name: "v2_drop_archives",
 		});
 		expect(accepted.destructiveBlocked).toBe(false);
 		expect(accepted.migrationName).not.toBeNull();

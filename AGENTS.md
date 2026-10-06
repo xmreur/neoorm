@@ -18,7 +18,7 @@
 - `bun run lint` — `biome check .` (must pass clean).
 - `bun run test` — full vitest run; `bunx vitest run <path>` for a single file.
 - `bun run docs:llms` — regenerate `llms-full.txt` after touching `docs/`.
-- `bun run dist/bin/neoorm.js generate` — regenerate the example client (CI does this).
+- `bun run dist/bin/neoorm.js generate --name <name>` — regenerate the example client (CI uses `--name ci`).
 
 ## Code conventions
 

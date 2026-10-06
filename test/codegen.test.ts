@@ -26,6 +26,7 @@ describe("codegen", () => {
 		const { manifest } = await generateFromSchema(schemaPath, outDir, {
 			provider: "sqlite",
 			url: "./dev.db",
+			name: "test_migration",
 		});
 
 		expect(manifest.provider).toBe("sqlite");
@@ -51,6 +52,7 @@ describe("codegen", () => {
 		await generateFromSchema(schemaPath, outDir, {
 			provider: "sqlite",
 			url: "./dev.db",
+			name: "test_migration",
 		});
 
 		const migrationsDir = join(outDir, "migrations");
@@ -75,7 +77,9 @@ describe("codegen", () => {
 			import.meta.dirname,
 			"../examples/blog/schema.ts",
 		);
-		const { manifest } = await generateFromSchema(schemaPath, outDir);
+		const { manifest } = await generateFromSchema(schemaPath, outDir, {
+			name: "test_migration",
+		});
 
 		expect(manifest.version).toBe(1);
 		expect(manifest.tables.users).toBeDefined();
@@ -144,7 +148,9 @@ describe("codegen", () => {
 			import.meta.dirname,
 			"../examples/blog/schema.ts",
 		);
-		await generateFromSchema(schemaPath, outDir);
+		await generateFromSchema(schemaPath, outDir, {
+			name: "test_migration",
+		});
 		await expect(
 			readFile(join(outDir, "zod.ts"), "utf-8"),
 		).rejects.toMatchObject({ code: "ENOENT" });
@@ -172,6 +178,7 @@ describe("codegen", () => {
 		);
 		const { warnings } = await generateFromSchema(schemaPath, outDir, {
 			zod: true,
+			name: "test_migration",
 		});
 		const zodContent = await readFile(join(outDir, "zod.ts"), "utf-8");
 		expect(zodContent).toContain('import { z } from "zod";');
@@ -189,7 +196,9 @@ describe("codegen", () => {
 				warning.includes('"zod" is not installed'),
 			),
 		).toBe(false);
-		await generateFromSchema(schemaPath, outDir);
+		await generateFromSchema(schemaPath, outDir, {
+			name: "test_migration",
+		});
 		await expect(
 			readFile(join(outDir, "zod.ts"), "utf-8"),
 		).rejects.toMatchObject({ code: "ENOENT" });
@@ -204,6 +213,7 @@ describe("codegen", () => {
 		);
 		const { warnings } = await generateFromSchema(schemaPath, outDir, {
 			typebox: true,
+			name: "test_migration",
 		});
 		const typeboxContent = await readFile(
 			join(outDir, "typebox.ts"),
@@ -227,7 +237,9 @@ describe("codegen", () => {
 				warning.includes('"typebox" is not installed'),
 			),
 		).toBe(false);
-		await generateFromSchema(schemaPath, outDir);
+		await generateFromSchema(schemaPath, outDir, {
+			name: "test_migration",
+		});
 		await expect(
 			readFile(join(outDir, "typebox.ts"), "utf-8"),
 		).rejects.toMatchObject({ code: "ENOENT" });
@@ -243,6 +255,7 @@ describe("codegen", () => {
 		await generateFromSchema(schemaPath, outDir, {
 			zod: true,
 			typebox: true,
+			name: "test_migration",
 		});
 		const clientContent = await readFile(
 			join(outDir, "client.ts"),
@@ -269,6 +282,7 @@ describe("codegen", () => {
 		);
 		const { warnings } = await generateFromSchema(schemaPath, outDir, {
 			elysia: true,
+			name: "test_migration",
 		});
 		const elysiaContent = await readFile(
 			join(outDir, "elysia.ts"),
@@ -293,7 +307,9 @@ describe("codegen", () => {
 				warning.includes('"elysia" is not installed'),
 			),
 		).toBe(true);
-		await generateFromSchema(schemaPath, outDir);
+		await generateFromSchema(schemaPath, outDir, {
+			name: "test_migration",
+		});
 		await expect(
 			readFile(join(outDir, "elysia.ts"), "utf-8"),
 		).rejects.toMatchObject({ code: "ENOENT" });
@@ -309,6 +325,7 @@ describe("codegen", () => {
 		await generateFromSchema(schemaPath, outDir, {
 			zod: true,
 			elysia: true,
+			name: "test_migration",
 		});
 		const clientContent = await readFile(
 			join(outDir, "client.ts"),

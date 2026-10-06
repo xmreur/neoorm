@@ -1,12 +1,20 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	generateFromSchema,
 	MIGRATION_SLUG_MAX_LENGTH,
 	slugifyMigrationName,
 	writeMigration,
 } from "../src/codegen/generate.js";
+
+const NAMED_SCHEMA = `import { defineSchema, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	users: table({ id: id() }),
+});
+`;
 
 describe("writeMigration path handling", () => {
 	let tmpDir: string;
@@ -87,5 +95,58 @@ describe("writeMigration path handling", () => {
 		await expect(
 			writeMigration(tmpDir, ["CREATE TABLE x ();"], { name: "!!!" }),
 		).rejects.toThrow(/Invalid migration name/);
+	});
+});
+
+describe("generateFromSchema migration name enforcement", () => {
+	let tmpDir: string;
+
+	afterEach(async () => {
+		if (tmpDir) await rm(tmpDir, { recursive: true, force: true });
+	});
+
+	async function writeSchemaDir(): Promise<{
+		schemaPath: string;
+		outDir: string;
+	}> {
+		tmpDir = await mkdtemp(join(tmpdir(), "neoorm-gen-"));
+		const schemaPath = join(tmpDir, "schema.ts");
+		await writeFile(schemaPath, NAMED_SCHEMA, "utf-8");
+		return { schemaPath, outDir: join(tmpDir, "neoorm") };
+	}
+
+	it("throws when a migration would be written without a name", async () => {
+		const { schemaPath, outDir } = await writeSchemaDir();
+
+		await expect(generateFromSchema(schemaPath, outDir)).rejects.toThrow(
+			/Missing migration name/,
+		);
+		// nothing is written before the name check
+		await expect(stat(join(outDir, "migrations"))).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+	});
+
+	it("succeeds without a name when the schema is unchanged", async () => {
+		const { schemaPath, outDir } = await writeSchemaDir();
+
+		const first = await generateFromSchema(schemaPath, outDir, {
+			name: "init",
+		});
+		expect(first.migrationName).toMatch(/^\d{14}_init$/);
+
+		const second = await generateFromSchema(schemaPath, outDir);
+		expect(second.migrationName).toBeNull();
+	});
+
+	it("rejects invalid names before writing", async () => {
+		const { schemaPath, outDir } = await writeSchemaDir();
+
+		await expect(
+			generateFromSchema(schemaPath, outDir, { name: "!!!" }),
+		).rejects.toThrow(/Invalid migration name/);
+		await expect(stat(join(outDir, "migrations"))).rejects.toMatchObject({
+			code: "ENOENT",
+		});
 	});
 });

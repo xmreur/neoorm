@@ -266,15 +266,30 @@ export {
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
 
+export function missingMigrationNameError(): ReturnType<typeof schemaError> {
+	return schemaError(
+		"migration_guard",
+		"Missing migration name. Re-run with --name <name> (e.g. neoorm generate --name add_users).",
+		undefined,
+		["Use --name add_users to name the migration"],
+	);
+}
+
+export function invalidMigrationNameError(
+	name: string,
+): ReturnType<typeof schemaError> {
+	return schemaError(
+		"migration_guard",
+		`Invalid migration name "${name}". Use letters, numbers, and underscores (e.g. add_users).`,
+		undefined,
+		["Re-run with --name add_users"],
+	);
+}
+
 function sanitizeMigrationName(name: string): string {
 	const slug = slugifyMigrationName(name);
 	if (!slug) {
-		throw schemaError(
-			"migration_guard",
-			`Invalid migration name "${name}". Use letters, numbers, and underscores (e.g. add_users).`,
-			undefined,
-			["Re-run with --name add_users"],
-		);
+		throw invalidMigrationNameError(name);
 	}
 	return slug;
 }
@@ -633,6 +648,15 @@ async function generateFromSchemaInner(
 	const migrationBlocked =
 		blocked.length > 0 && !(options.acceptDataLoss ?? false);
 	const migrationSql = migrationBlocked ? [] : sql;
+
+	if (migrationSql.length > 0) {
+		const rawName = options.name?.trim();
+		if (!rawName) {
+			throw missingMigrationNameError();
+		}
+		// Validate before any files are written.
+		sanitizeMigrationName(rawName);
+	}
 
 	const { migrationName } = await writeGeneratedFiles(
 		outDir,

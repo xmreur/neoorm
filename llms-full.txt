@@ -2375,7 +2375,7 @@ After the transaction commits or rolls back, `query_only` is turned off so later
 | Migration created | New `migrations/<timestamp>_<name>/migration.sql` written |
 | Migration blocked | Destructive or manual changes prevented writing SQL |
 
-Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is required for `generate` and `migrate dev`: the CLI prompts on a TTY and errors in non-interactive runs. Older `*_migration` folders still apply in order.
+Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is required when a migration is created: the CLI prompts on a TTY and errors in non-interactive runs. Runs with no schema changes (client regeneration only) succeed without `--name`. Older `*_migration` folders still apply in order.
 
 When migration is blocked, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL:
 
@@ -2599,7 +2599,7 @@ neoorm generate [options]
 ```
 
 Options:
-- `-n, --name <name>` — migration name (e.g. `--name add_users`). Required; prompts interactively on a TTY when omitted, errors in CI. Folders are `<timestamp>_<slug>` with the slug capped at 50 chars.
+- `-n, --name <name>` — migration name (e.g. `--name add_users`). Required when a migration is created; prompts interactively on a TTY when omitted, errors in CI. Folders are `<timestamp>_<slug>` with the slug capped at 50 chars. No-change runs (client regeneration only) succeed without `--name`.
 - `--accept-data-loss` — include destructive DDL changes (column drops, type changes)
 
 ## `neoorm migrate dev`
@@ -2610,7 +2610,7 @@ Apply pending migrations, then generate a new migration if the schema changed. I
 neoorm migrate dev --name <name>
 ```
 
-- `-n, --name <name>` — same as `generate`: required for `dev`, prompts on a TTY, errors in CI. Not used by `deploy`, `status`, `reset`, or `down`.
+- `-n, --name <name>` — same as `generate`: required when `dev` creates a migration, prompts on a TTY, errors in CI. Not used by `deploy`, `status`, `reset`, or `down`.
 
 ## `neoorm migrate deploy`
 

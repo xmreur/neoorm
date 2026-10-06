@@ -211,7 +211,9 @@ describe.skipIf(!DATABASE_URL)("migrate down integration", () => {
 		const outDir = join(tmpDir, "neoorm");
 		const migrationsDir = join(outDir, "migrations");
 
-		const { migrationName } = await generateFromSchema(schemaPath, outDir);
+		const { migrationName } = await generateFromSchema(schemaPath, outDir, {
+			name: "test_migration",
+		});
 		const resolvedMigrationName = defined(migrationName, "migrationName");
 
 		const migrationDir = join(migrationsDir, resolvedMigrationName);

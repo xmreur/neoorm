@@ -42,7 +42,6 @@ import {
 } from "../migrate/runner.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
-import { schemaError } from "../runtime/error-builders.js";
 import { isNeoOrmError } from "../runtime/errors.js";
 import {
 	createMariadbPoolFromUrl,
@@ -240,35 +239,29 @@ function generateOptionsFromConfig(
 	};
 }
 
-function missingMigrationNameError(): ReturnType<typeof schemaError> {
-	return schemaError(
-		"migration_guard",
-		"Missing migration name. Re-run with --name <name> (e.g. neoorm generate --name add_users).",
-		undefined,
-		["Use --name add_users to name the migration"],
-	);
-}
-
-/** Fail-fast name resolution: flag → interactive prompt (TTY) → error (CI). */
+/**
+ * Resolve `--name` for `generate` / `migrate dev`.
+ *
+ * Flag → interactive prompt (TTY) → `undefined` in non-interactive runs.
+ * `undefined` is passed through: `generateFromSchema` throws
+ * `migration_guard` only when a migration would actually be written, so
+ * no-change runs (like CI client regeneration) succeed without `--name`.
+ */
 async function resolveMigrationNameOption(
 	raw: string | undefined,
 	interactive: boolean,
-): Promise<string> {
+): Promise<string | undefined> {
 	const trimmed = raw?.trim();
 	if (trimmed) {
-		const { slugifyMigrationName } = await import("../codegen/generate.js");
+		const { invalidMigrationNameError, slugifyMigrationName } =
+			await import("../codegen/generate.js");
 		if (!slugifyMigrationName(trimmed)) {
-			throw schemaError(
-				"migration_guard",
-				`Invalid migration name "${raw}". Use letters, numbers, and underscores (e.g. add_users).`,
-				undefined,
-				["Re-run with --name add_users"],
-			);
+			throw invalidMigrationNameError(raw ?? trimmed);
 		}
 		return trimmed;
 	}
 	if (!interactive) {
-		throw missingMigrationNameError();
+		return undefined;
 	}
 	const { isCancel, text } = await import("@clack/prompts");
 	const answer = await text({
@@ -287,16 +280,16 @@ async function resolveMigrationNameOption(
 	}
 	const resolved = String(answer ?? "").trim();
 	if (!resolved) {
+		const { missingMigrationNameError } = await import(
+			"../codegen/generate.js"
+		);
 		throw missingMigrationNameError();
 	}
-	const { slugifyMigrationName } = await import("../codegen/generate.js");
+	const { invalidMigrationNameError, slugifyMigrationName } = await import(
+		"../codegen/generate.js"
+	);
 	if (!slugifyMigrationName(resolved)) {
-		throw schemaError(
-			"migration_guard",
-			`Invalid migration name "${resolved}". Use letters, numbers, and underscores (e.g. add_users).`,
-			undefined,
-			["Re-run with --name add_users"],
-		);
+		throw invalidMigrationNameError(resolved);
 	}
 	return resolved;
 }
@@ -454,7 +447,7 @@ program
 	)
 	.option(
 		"-n, --name <name>",
-		"Migration name (e.g. --name add_users). Required; prompts on a TTY when omitted.",
+		"Migration name (e.g. --name add_users). Required when a migration is created; prompts on a TTY when omitted.",
 	)
 	.action(async (options: { acceptDataLoss?: boolean; name?: string }) => {
 		try {
@@ -465,7 +458,10 @@ program
 				options.name,
 				interactive,
 			);
-			await runGenerateCommand({ ...options, name });
+			await runGenerateCommand({
+				...options,
+				...(name ? { name } : {}),
+			});
 		} catch (err) {
 			printCliError(err);
 			process.exit(1);
@@ -503,7 +499,7 @@ program
 	.option("--steps <n>", "Number of migrations to roll back (down)", "1")
 	.option(
 		"-n, --name <name>",
-		"Migration name for dev (e.g. --name add_users). Required for dev; prompts on a TTY when omitted.",
+		"Migration name for dev (e.g. --name add_users). Required when dev creates a migration; prompts on a TTY when omitted.",
 	)
 	.action(
 		async (
