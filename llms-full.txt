@@ -2357,6 +2357,7 @@ After the transaction commits or rolls back, `query_only` is turned off so later
 | `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
 | `neoorm generate [--name <name>]` | Emit manifest, typed client, models, includes, and migrations (`--name` only when a migration is created) |
 | `neoorm migrate dev [--name <name>]` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed (`--name` only when a new migration is created) |
+| `neoorm migrate diff [--accept-data-loss] [--json]` | Preview the SQL a new migration would contain — no files written, no `--name` needed |
 | `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
@@ -2381,6 +2382,13 @@ When migration is blocked, the CLI explains why — for example unsupported type
 
 ```bash
 neoorm generate --name add_users --accept-data-loss
+```
+
+To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
+
+```bash
+neoorm migrate diff
+neoorm migrate diff --json
 ```
 
 ## Existing tables vs pending CREATE TABLE
@@ -2611,6 +2619,21 @@ neoorm migrate dev --name <name>
 ```
 
 - `-n, --name <name>` — same as `generate`: only needed when `dev` creates a migration, prompts on a TTY at that point, errors in CI. Applying pending migrations never requires `--name`. Not used by `deploy`, `status`, `reset`, or `down`.
+
+## `neoorm migrate diff`
+
+Preview the migration SQL `generate` / `migrate dev` would write, without writing anything.
+
+```
+neoorm migrate diff [--accept-data-loss] [--json]
+```
+
+Read-only: diffs `schema.ts` against `snapshot.json` only. No database connection, no files written, and `--name` is never needed (ignored if passed). Shows the exact statements that would go into `migration.sql`, so you can inspect a change before naming it.
+
+- `--accept-data-loss` — include destructive DDL in the preview (by default destructive changes are reported as blocked, same as `generate`)
+- `--json` — print `{ schemaChanged, sql, blocked, destructiveBlocked, warnings }` instead of human-readable text
+
+Exit code is `1` when destructive changes would block the migration (mirrors `generate`), `0` otherwise. For already-written but unapplied migrations, use `migrate status`.
 
 ## `neoorm migrate deploy`
 

@@ -7,6 +7,7 @@
 | `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
 | `neoorm generate [--name <name>]` | Emit manifest, typed client, models, includes, and migrations (`--name` only when a migration is created) |
 | `neoorm migrate dev [--name <name>]` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed (`--name` only when a new migration is created) |
+| `neoorm migrate diff [--accept-data-loss] [--json]` | Preview the SQL a new migration would contain — no files written, no `--name` needed |
 | `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
@@ -31,6 +32,13 @@ When migration is blocked, the CLI explains why — for example unsupported type
 
 ```bash
 neoorm generate --name add_users --accept-data-loss
+```
+
+To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
+
+```bash
+neoorm migrate diff
+neoorm migrate diff --json
 ```
 
 ## Existing tables vs pending CREATE TABLE
