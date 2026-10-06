@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { Command } from "commander";
 import { Pool } from "pg";
 import packageJson from "../../package.json" with { type: "json" };
@@ -918,6 +918,58 @@ program
 			}
 		},
 	);
+
+program
+	.command("seed")
+	.description("Run seed scripts against the database in one transaction")
+	.option("--env <name>", "Run seeds/<name>.ts instead of seed.ts")
+	.option("--file <path>", "Run a specific seed file")
+	.action(async (options: { env?: string; file?: string }) => {
+		try {
+			const cwd = process.cwd();
+			const config = await loadConfig(cwd);
+			const schemaPath = resolve(cwd, config.schema);
+			const dbSchema = isPostgresProvider(config.datasource.provider)
+				? config.datasource.schema
+				: undefined;
+			const { compileSchemaToManifest } = await import(
+				"../codegen/generate.js"
+			);
+			const { manifest } = await compileSchemaToManifest(
+				schemaPath,
+				generateOptionsFromConfig(config, {}, dbSchema),
+			);
+			const { resolveSeedFile, runSeed } = await import(
+				"../seed/runner.js"
+			);
+			const seedPath = await resolveSeedFile({
+				cwd,
+				schemaPath,
+				...(config.seed?.env ? { env: config.seed.env } : {}),
+				...(config.seed?.file ? { configFile: config.seed.file } : {}),
+				...(options.env ? { env: options.env } : {}),
+				...(options.file ? { file: options.file } : {}),
+			});
+			const { createNeoOrmClient } = await import("../runtime/client.js");
+			const url = config.datasource.url;
+			const db = createNeoOrmClient(manifest, {
+				provider: config.datasource.provider,
+				...(isSqliteProvider(config.datasource.provider)
+					? { databasePath: url }
+					: { connectionString: url }),
+				...(dbSchema ? { schema: dbSchema } : {}),
+			});
+			try {
+				await runSeed(db, seedPath);
+				console.log(`Seeded from ${relative(cwd, seedPath)}`);
+			} finally {
+				await db.$disconnect();
+			}
+		} catch (err) {
+			printCliError(err);
+			process.exit(1);
+		}
+	});
 
 program
 	.command("docs")

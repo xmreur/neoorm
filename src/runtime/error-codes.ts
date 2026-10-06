@@ -50,6 +50,7 @@ export const SchemaErrorCode = {
 	migration_drift: "migration_drift",
 	migration_guard: "migration_guard",
 	invalid_config: "invalid_config",
+	invalid_seed: "invalid_seed",
 	plugin_error: "plugin_error",
 } as const;
 

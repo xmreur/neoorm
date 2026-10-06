@@ -101,6 +101,19 @@ neoorm migrate reset --force [--skip-apply]
 
 PostgreSQL: the connecting role owns the recreated schema. `PUBLIC` is not granted.
 
+## `neoorm seed`
+
+Run a seed script against the database inside a single transaction. Any failure rolls the whole seed back.
+
+```
+neoorm seed [--env <name>] [--file <path>]
+```
+
+- `--env <name>` — run `seeds/<name>.ts` (next to `schema.ts`) instead of `seed.ts`
+- `--file <path>` — run a specific seed file (wins over `--env` and config)
+
+Resolution order: `--file` → config `seed.file` → `seeds/<env>.ts` → `seed.ts`. The client is compiled from `schema.ts`, so seeding works on a fresh checkout with no codegen. Write idempotent seeds (`upsert`, `findOrCreate`, `createMany` with `skipDuplicates`) — re-runs are by convention, there is no seed ledger. See [Seeding](seeding.md).
+
 ## `neoorm docs`
 
 Serve the NeoOrm documentation locally in your browser.

@@ -10,6 +10,7 @@
 - [Configuration](docs/configuration.md): `neoorm.config.ts` and datasource setup.
 - [Studio](docs/studio.md): local data browser and schema explorer.
 - [Migrations](docs/migrations.md): migration workflow and `dbPush`.
+- [Seeding](docs/seeding.md): `neoorm seed`, environments, idempotent seeds.
 
 ## Schema and validation
 
