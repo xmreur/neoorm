@@ -18,11 +18,14 @@ export type {
 	GenerateResult,
 	GenerateStatus,
 	GenerateSummary,
+	PreviewMigrationOptions,
+	PreviewMigrationResult,
 } from "./codegen/generate.js";
 export {
 	compileSchemaToManifest,
 	formatGenerateSummary,
 	generateFromSchema,
+	previewMigrationSql,
 	summarizeGenerateOutcome,
 } from "./codegen/generate.js";
 export type { SchemaValidationIssue } from "./codegen/schema-to-manifest.js";

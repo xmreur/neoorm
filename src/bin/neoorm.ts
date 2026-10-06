@@ -506,7 +506,7 @@ program
 program
 	.command("migrate")
 	.description("Run migrations")
-	.argument("[subcommand]", "dev | deploy | status | reset | down")
+	.argument("[subcommand]", "dev | deploy | status | reset | down | diff")
 	.option(
 		"--accept-data-loss",
 		"Include destructive schema changes in generated migrations",
@@ -521,6 +521,10 @@ program
 	)
 	.option("--steps <n>", "Number of migrations to roll back (down)", "1")
 	.option(
+		"--json",
+		"With diff, print the preview as JSON instead of human-readable text",
+	)
+	.option(
 		"-n, --name <name>",
 		"Migration name for dev (e.g. --name add_users). Only needed when dev creates a migration; prompts on a TTY at that point.",
 	)
@@ -533,6 +537,7 @@ program
 				skipApply?: boolean;
 				steps?: string;
 				name?: string;
+				json?: boolean;
 			},
 		) => {
 			const interactive = Boolean(
@@ -560,6 +565,71 @@ program
 			const dbSchema = isPostgresProvider(config.datasource.provider)
 				? config.datasource.schema
 				: undefined;
+
+			if (subcommand === "diff") {
+				// Read-only preview: no DB connection, no lock, no --name.
+				// Shows the SQL that generate / dev would write, if any.
+				try {
+					const schemaPath = resolve(cwd, config.schema);
+					const { previewMigrationSql } = await import(
+						"../codegen/generate.js"
+					);
+					const preview = await previewMigrationSql(
+						schemaPath,
+						outDir,
+						generateOptionsFromConfig(
+							config,
+							{
+								...(options.acceptDataLoss
+									? { acceptDataLoss: true }
+									: {}),
+							},
+							dbSchema,
+						),
+					);
+					if (options.json === true) {
+						console.log(
+							JSON.stringify(
+								{
+									schemaChanged: preview.schemaChanged,
+									sql: preview.sql,
+									blocked: preview.blocked,
+									destructiveBlocked:
+										preview.destructiveBlocked,
+									warnings: preview.warnings,
+								},
+								null,
+								2,
+							),
+						);
+					} else if (!preview.schemaChanged) {
+						console.log(
+							"Snapshot matches schema — no migration would be created.",
+						);
+					} else if (preview.sql.length > 0) {
+						console.log(
+							`Would create migration (${preview.sql.length} statement(s)). Re-run with --name <name> to write it:`,
+						);
+						console.log("");
+						console.log(preview.sql.join("\n\n"));
+					} else {
+						console.log(
+							"Schema changed, but no database migration would be created (client regeneration only).",
+						);
+					}
+					for (const warning of preview.warnings) {
+						console.warn(`Warning: ${warning}`);
+					}
+					if (preview.destructiveBlocked) {
+						process.exitCode = 1;
+					}
+				} catch (err) {
+					printCliError(err);
+					process.exit(1);
+				}
+				return;
+			}
+
 			const { client, dialect, close } = connectDb(config);
 
 			try {
@@ -840,7 +910,7 @@ program
 				}
 
 				console.error(
-					"Usage: neoorm migrate dev | deploy | status | reset | down",
+					"Usage: neoorm migrate dev | deploy | status | reset | down | diff",
 				);
 				process.exit(1);
 			} finally {

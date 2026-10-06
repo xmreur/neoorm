@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { DatabaseProvider } from "../datasource-provider.js";
 import { applySchemaToManifest } from "../dialect/postgres.js";
 import { dialectForProvider } from "../dialect/resolve.js";
-import type { Dialect, Manifest } from "../dialect/types.js";
+import type { DestructiveChange, Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { schemaError } from "../runtime/error-builders.js";
 import { NeoOrmSchemaError } from "../runtime/errors.js";
@@ -577,36 +577,41 @@ async function compileSchemaToManifestInner(
 	return { manifest, warnings };
 }
 
-/**
- * Generate client, models, and migration SQL from a schema file.
- *
- * @param schemaPath - Path to `schema.ts`.
- * @param outDir - Output directory from config `out`.
- */
-export async function generateFromSchema(
-	schemaPath: string,
-	outDir: string,
-	options: GenerateOptions = {},
-): Promise<GenerateResult> {
-	try {
-		return await generateFromSchemaInner(schemaPath, outDir, options);
-	} catch (err) {
-		if (err instanceof NeoOrmSchemaError) {
-			throw err;
-		}
-		throw schemaCompileError(
-			schemaPath,
-			err instanceof Error ? err.message : String(err),
-			err,
-		);
-	}
-}
+/** Options for {@link previewMigrationSql}. Never takes a `name`: previewing writes nothing. */
+export type PreviewMigrationOptions = Omit<GenerateOptions, "name">;
 
-async function generateFromSchemaInner(
+/** Result of {@link previewMigrationSql}. Pure: no files are written. */
+export type PreviewMigrationResult = {
+	manifest: Manifest;
+	schemaChanged: boolean;
+	/** The SQL a `generate` / `migrate dev` run would write to `migration.sql`. Empty when blocked or unchanged. */
+	sql: string[];
+	blocked: DestructiveChange[];
+	destructiveBlocked: boolean;
+	warnings: string[];
+};
+
+/**
+ * Shared compile → diff → resolve prefix of `generateFromSchemaInner`.
+ * Extracted so `previewMigrationSql` and `generateFromSchema` can never
+ * diverge: the preview shows exactly what generate would write.
+ */
+async function computeMigrationPreview(
 	schemaPath: string,
 	outDir: string,
-	options: GenerateOptions = {},
-): Promise<GenerateResult> {
+	options: PreviewMigrationOptions | GenerateOptions = {},
+): Promise<{
+	manifest: Manifest;
+	prev: Manifest | null;
+	manifestDiff: ReturnType<typeof diffManifest>;
+	dialect: Dialect;
+	schemaChanged: boolean;
+	sql: string[];
+	blocked: DestructiveChange[];
+	migrationSql: string[];
+	migrationBlocked: boolean;
+	warnings: string[];
+}> {
 	const { manifest, warnings } = await compileSchemaToManifest(
 		schemaPath,
 		options,
@@ -648,6 +653,111 @@ async function generateFromSchemaInner(
 	const migrationBlocked =
 		blocked.length > 0 && !(options.acceptDataLoss ?? false);
 	const migrationSql = migrationBlocked ? [] : sql;
+
+	return {
+		manifest,
+		prev,
+		manifestDiff,
+		dialect,
+		schemaChanged,
+		sql,
+		blocked,
+		migrationSql,
+		migrationBlocked,
+		warnings: allWarnings,
+	};
+}
+
+/**
+ * Preview the migration SQL for a schema file without writing any files.
+ *
+ * Computes exactly what `generateFromSchema` would write to `migration.sql`
+ * (same snapshot diff, same `--accept-data-loss` handling) but never writes
+ * client files, snapshots, or migrations — and never requires `--name`.
+ *
+ * @param schemaPath - Path to `schema.ts`.
+ * @param outDir - Output directory from config `out` (only read).
+ */
+export async function previewMigrationSql(
+	schemaPath: string,
+	outDir: string,
+	options: PreviewMigrationOptions = {},
+): Promise<PreviewMigrationResult> {
+	try {
+		const preview = await computeMigrationPreview(
+			schemaPath,
+			outDir,
+			options,
+		);
+		const warnings = [...preview.warnings];
+		if (preview.migrationBlocked) {
+			warnings.push(...formatDestructiveWarnings(preview.blocked));
+			warnings.push(
+				"Destructive schema changes are excluded from this preview. Re-run with --accept-data-loss to include them.",
+			);
+		}
+		return {
+			manifest: preview.manifest,
+			schemaChanged: preview.schemaChanged,
+			sql: preview.migrationSql,
+			blocked: preview.blocked,
+			destructiveBlocked: preview.migrationBlocked,
+			warnings,
+		};
+	} catch (err) {
+		if (err instanceof NeoOrmSchemaError) {
+			throw err;
+		}
+		throw schemaCompileError(
+			schemaPath,
+			err instanceof Error ? err.message : String(err),
+			err,
+		);
+	}
+}
+
+/**
+ * Generate client, models, and migration SQL from a schema file.
+ *
+ * @param schemaPath - Path to `schema.ts`.
+ * @param outDir - Output directory from config `out`.
+ */
+export async function generateFromSchema(
+	schemaPath: string,
+	outDir: string,
+	options: GenerateOptions = {},
+): Promise<GenerateResult> {
+	try {
+		return await generateFromSchemaInner(schemaPath, outDir, options);
+	} catch (err) {
+		if (err instanceof NeoOrmSchemaError) {
+			throw err;
+		}
+		throw schemaCompileError(
+			schemaPath,
+			err instanceof Error ? err.message : String(err),
+			err,
+		);
+	}
+}
+
+async function generateFromSchemaInner(
+	schemaPath: string,
+	outDir: string,
+	options: GenerateOptions = {},
+): Promise<GenerateResult> {
+	const preview = await computeMigrationPreview(schemaPath, outDir, options);
+	const {
+		manifest,
+		prev,
+		manifestDiff,
+		dialect,
+		schemaChanged,
+		blocked,
+		migrationSql,
+		migrationBlocked,
+	} = preview;
+	const allWarnings = [...preview.warnings];
 
 	if (migrationSql.length > 0) {
 		const rawName = options.name?.trim();
