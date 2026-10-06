@@ -67,6 +67,6 @@ jobs:
       - run: git diff --exit-code -- llms-full.txt
       - run: bun run lint
       - run: bun run build
-      - run: bun run dist/bin/neoorm.js generate
+      - run: bun run dist/bin/neoorm.js generate --name ci
       - run: bun run typecheck
       - run: bun run test

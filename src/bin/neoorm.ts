@@ -221,11 +221,12 @@ function registerDbPushPull(cmd: Command): void {
 
 function generateOptionsFromConfig(
 	config: Awaited<ReturnType<typeof loadConfig>>,
-	options: { acceptDataLoss?: boolean },
+	options: { acceptDataLoss?: boolean; name?: string },
 	dbSchema: string | undefined,
 ) {
 	return {
 		...(options.acceptDataLoss ? { acceptDataLoss: true } : {}),
+		...(options.name ? { name: options.name } : {}),
 		...(config.datasource.enum ? { enumMode: config.datasource.enum } : {}),
 		...(config.datasource.provider
 			? { provider: config.datasource.provider }
@@ -238,8 +239,64 @@ function generateOptionsFromConfig(
 	};
 }
 
+/**
+ * Resolve `--name` for `generate` / `migrate dev`.
+ *
+ * Flag → interactive prompt (TTY) → `undefined` in non-interactive runs.
+ * `undefined` is passed through: `generateFromSchema` throws
+ * `migration_guard` only when a migration would actually be written, so
+ * no-change runs (like CI client regeneration) succeed without `--name`.
+ */
+async function resolveMigrationNameOption(
+	raw: string | undefined,
+	interactive: boolean,
+): Promise<string | undefined> {
+	const trimmed = raw?.trim();
+	if (trimmed) {
+		const { invalidMigrationNameError, slugifyMigrationName } =
+			await import("../codegen/generate.js");
+		if (!slugifyMigrationName(trimmed)) {
+			throw invalidMigrationNameError(raw ?? trimmed);
+		}
+		return trimmed;
+	}
+	if (!interactive) {
+		return undefined;
+	}
+	const { isCancel, text } = await import("@clack/prompts");
+	const answer = await text({
+		message: "Migration name",
+		placeholder: "add_users",
+		validate: (input) => {
+			const value = (input ?? "").trim();
+			if (!value) return "Migration name is required";
+			return undefined;
+		},
+	});
+	if (isCancel(answer)) {
+		const { cancel } = await import("@clack/prompts");
+		cancel("Migration cancelled.");
+		process.exit(0);
+	}
+	const resolved = String(answer ?? "").trim();
+	if (!resolved) {
+		const { missingMigrationNameError } = await import(
+			"../codegen/generate.js"
+		);
+		throw missingMigrationNameError();
+	}
+	const { invalidMigrationNameError, slugifyMigrationName } = await import(
+		"../codegen/generate.js"
+	);
+	if (!slugifyMigrationName(resolved)) {
+		throw invalidMigrationNameError(resolved);
+	}
+	return resolved;
+}
+
 async function runGenerateCommand(options: {
 	acceptDataLoss?: boolean;
+	name?: string;
 }): Promise<void> {
 	const cwd = process.cwd();
 	const config = await loadConfig(cwd);
@@ -388,9 +445,23 @@ program
 		"--accept-data-loss",
 		"Include destructive schema changes in generated migrations",
 	)
-	.action(async (options: { acceptDataLoss?: boolean }) => {
+	.option(
+		"-n, --name <name>",
+		"Migration name (e.g. --name add_users). Required when a migration is created; prompts on a TTY when omitted.",
+	)
+	.action(async (options: { acceptDataLoss?: boolean; name?: string }) => {
 		try {
-			await runGenerateCommand(options);
+			const interactive = Boolean(
+				process.stdin.isTTY && process.stdout.isTTY,
+			);
+			const name = await resolveMigrationNameOption(
+				options.name,
+				interactive,
+			);
+			await runGenerateCommand({
+				...options,
+				...(name ? { name } : {}),
+			});
 		} catch (err) {
 			printCliError(err);
 			process.exit(1);
@@ -426,6 +497,10 @@ program
 		"With reset, only drop schema without re-applying migrations",
 	)
 	.option("--steps <n>", "Number of migrations to roll back (down)", "1")
+	.option(
+		"-n, --name <name>",
+		"Migration name for dev (e.g. --name add_users). Required when dev creates a migration; prompts on a TTY when omitted.",
+	)
 	.action(
 		async (
 			subcommand,
@@ -434,8 +509,24 @@ program
 				force?: boolean;
 				skipApply?: boolean;
 				steps?: string;
+				name?: string;
 			},
 		) => {
+			const interactive = Boolean(
+				process.stdin.isTTY && process.stdout.isTTY,
+			);
+			let devMigrationName: string | undefined;
+			if (subcommand === "dev") {
+				try {
+					devMigrationName = await resolveMigrationNameOption(
+						options.name,
+						interactive,
+					);
+				} catch (err) {
+					printCliError(err);
+					process.exit(1);
+				}
+			}
 			const cwd = process.cwd();
 			const config = await loadConfig(cwd);
 			const outDir = resolve(cwd, config.out);
@@ -537,7 +628,12 @@ program
 								schemaPath,
 								generateOptionsFromConfig(
 									config,
-									options,
+									{
+										...options,
+										...(devMigrationName
+											? { name: devMigrationName }
+											: {}),
+									},
 									dbSchema,
 								),
 							);
@@ -602,7 +698,12 @@ program
 								outDir,
 								generateOptionsFromConfig(
 									config,
-									options,
+									{
+										...options,
+										...(devMigrationName
+											? { name: devMigrationName }
+											: {}),
+									},
 									dbSchema,
 								),
 							);

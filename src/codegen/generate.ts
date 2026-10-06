@@ -266,13 +266,73 @@ export {
 	summarizeGenerateOutcome,
 } from "./generate-summary.js";
 
+export function missingMigrationNameError(): ReturnType<typeof schemaError> {
+	return schemaError(
+		"migration_guard",
+		"Missing migration name. Re-run with --name <name> (e.g. neoorm generate --name add_users).",
+		undefined,
+		["Use --name add_users to name the migration"],
+	);
+}
+
+export function invalidMigrationNameError(
+	name: string,
+): ReturnType<typeof schemaError> {
+	return schemaError(
+		"migration_guard",
+		`Invalid migration name "${name}". Use letters, numbers, and underscores (e.g. add_users).`,
+		undefined,
+		["Re-run with --name add_users"],
+	);
+}
+
 function sanitizeMigrationName(name: string): string {
-	const cleaned = name
-		.replace(/[\\/]/g, "_")
-		.replace(/\.\./g, "_")
-		.replace(/\0/g, "");
-	const trimmed = cleaned.trim();
-	return trimmed.length > 0 ? trimmed : "migration";
+	const slug = slugifyMigrationName(name);
+	if (!slug) {
+		throw invalidMigrationNameError(name);
+	}
+	return slug;
+}
+
+export const MIGRATION_SLUG_MAX_LENGTH = 50;
+
+/** Slugify a user-supplied migration name (`Add Users` → `add_users`, capped at 50 chars). */
+export function slugifyMigrationName(name: string): string {
+	const slug = name
+		.toLowerCase()
+		.trim()
+		.replace(/[\s-]+/g, "_")
+		.replace(/[^a-z0-9_]/g, "")
+		.replace(/__+/g, "_")
+		.replace(/^_+|_+$/g, "")
+		.slice(0, MIGRATION_SLUG_MAX_LENGTH)
+		.replace(/_+$/g, "");
+	return slug;
+}
+
+function migrationTimestamp(): string {
+	return new Date()
+		.toISOString()
+		.replace(/[-:T.Z]/g, "")
+		.slice(0, 14);
+}
+
+async function resolveUniqueMigrationName(
+	migrationsDir: string,
+	base: string,
+): Promise<string> {
+	let candidate = base;
+	for (let attempt = 1; ; attempt += 1) {
+		try {
+			await readFile(
+				join(migrationsDir, candidate, "migration.sql"),
+				"utf-8",
+			);
+			candidate = `${base}_${attempt}`;
+		} catch {
+			return candidate;
+		}
+	}
 }
 
 export async function writeMigration(
@@ -290,13 +350,11 @@ export async function writeMigration(
 	const migrationsDir = join(outDir, "migrations");
 	await mkdir(migrationsDir, { recursive: true });
 
-	const timestamp = new Date()
-		.toISOString()
-		.replace(/[-:T.Z]/g, "")
-		.slice(0, 14);
-	const migrationName = options?.name
-		? sanitizeMigrationName(options.name)
+	const timestamp = migrationTimestamp();
+	const base = options?.name
+		? `${timestamp}_${sanitizeMigrationName(options.name)}`
 		: `${timestamp}_migration`;
+	const migrationName = await resolveUniqueMigrationName(migrationsDir, base);
 	const migrationDir = join(migrationsDir, migrationName);
 	await mkdir(migrationDir, { recursive: true });
 	await writeFile(
@@ -347,6 +405,7 @@ export async function writeGeneratedFiles(
 	dialect?: Dialect,
 	options?: {
 		updateSnapshot?: boolean;
+		name?: string;
 		zod?: boolean;
 		typebox?: boolean;
 		elysia?: boolean;
@@ -427,6 +486,7 @@ export async function writeGeneratedFiles(
 		prev,
 		next: manifest,
 		...(dialect ? { dialect } : {}),
+		...(options?.name ? { name: options.name } : {}),
 	});
 
 	return { migrationName };
@@ -448,6 +508,7 @@ export type GenerateOptions = {
 	provider?: DatabaseProvider;
 	schema?: string;
 	url?: string;
+	name?: string;
 	zod?: boolean;
 	typebox?: boolean;
 	elysia?: boolean;
@@ -588,6 +649,15 @@ async function generateFromSchemaInner(
 		blocked.length > 0 && !(options.acceptDataLoss ?? false);
 	const migrationSql = migrationBlocked ? [] : sql;
 
+	if (migrationSql.length > 0) {
+		const rawName = options.name?.trim();
+		if (!rawName) {
+			throw missingMigrationNameError();
+		}
+		// Validate before any files are written.
+		sanitizeMigrationName(rawName);
+	}
+
 	const { migrationName } = await writeGeneratedFiles(
 		outDir,
 		manifest,
@@ -597,6 +667,7 @@ async function generateFromSchemaInner(
 		dialect,
 		{
 			updateSnapshot: !migrationBlocked,
+			...(options.name ? { name: options.name } : {}),
 			...(options.zod === true ? { zod: true } : {}),
 			...(options.typebox === true ? { typebox: true } : {}),
 			...(options.elysia === true ? { elysia: true } : {}),
