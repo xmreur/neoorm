@@ -32,6 +32,12 @@ export type NeoOrmConfig = {
 		/** Emit Elysia `t` Select/Create/Update schemas to `out/elysia.ts`. @default false */
 		elysia?: boolean;
 	};
+	seed?: {
+		/** Default seed file (project-root relative). CLI `--file` overrides it. */
+		file?: string;
+		/** Default environment: runs `seeds/<env>.ts` next to the schema. CLI `--env` overrides it. */
+		env?: string;
+	};
 };
 
 const SUPPORTED_ENUM_MODES = ["check", "union", "native"] as const;
@@ -103,6 +109,7 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 	}
 
 	const generate = parseGenerateOptions(config.generate);
+	const seed = parseSeedOptions(config.seed);
 
 	return {
 		schema,
@@ -116,6 +123,7 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 			...(datasource.enum !== undefined ? { enum: datasource.enum } : {}),
 		},
 		...(generate ? { generate } : {}),
+		...(seed ? { seed } : {}),
 	};
 }
 
@@ -155,6 +163,43 @@ function parseGenerateFlag(
 		throw schemaError(
 			SchemaErrorCode.invalid_config,
 			`neoorm.config.ts generate.${key} must be a boolean`,
+		);
+	}
+	return value;
+}
+
+function parseSeedOptions(value: unknown): NeoOrmConfig["seed"] | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (!isRecord(value)) {
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			"neoorm.config.ts seed must be an object",
+		);
+	}
+	const file = parseSeedString(value.file, "file");
+	const env = parseSeedString(value.env, "env");
+	if (file === undefined && env === undefined) {
+		return undefined;
+	}
+	return {
+		...(file !== undefined ? { file } : {}),
+		...(env !== undefined ? { env } : {}),
+	};
+}
+
+function parseSeedString(
+	value: unknown,
+	key: "file" | "env",
+): string | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (typeof value !== "string" || value.length === 0) {
+		throw schemaError(
+			SchemaErrorCode.invalid_config,
+			`neoorm.config.ts seed.${key} must be a non-empty string`,
 		);
 	}
 	return value;

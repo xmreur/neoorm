@@ -139,3 +139,13 @@ export { decodeCursor, encodeCursor } from "./runtime/query/cursor-codec.js";
 export type { StripCapablePayload } from "./runtime/types.js";
 export type { CursorInput, ScalarPkName } from "./schema/relation-types.js";
 export type { PaginateArgs, PaginateResult } from "./schema/types.js";
+export type {
+	ResolveSeedFileOptions,
+	SeedContext,
+	SeedFunction,
+} from "./seed/runner.js";
+export {
+	loadSeedFunction,
+	resolveSeedFile,
+	runSeed,
+} from "./seed/runner.js";

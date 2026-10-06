@@ -530,4 +530,76 @@ describe("loadConfig .env", () => {
 			restoreEnv("DATABASE_URL", previous);
 		}
 	});
+
+	it("loads seed.file and seed.env", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "sqlite",
+    url: "./dev.db",
+  },
+  seed: { file: "./seeds/base.ts", env: "dev" },
+};
+`,
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.seed).toEqual({
+					file: "./seeds/base.ts",
+					env: "dev",
+				});
+			},
+		);
+	});
+
+	it("omits seed when not configured", async () => {
+		await withConfigFile(
+			configSource(`{
+    provider: "sqlite",
+    url: "./dev.db",
+  }`),
+			async (dir) => {
+				const config = await loadConfig(dir);
+				expect(config.seed).toBeUndefined();
+			},
+		);
+	});
+
+	it("rejects a non-object seed", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: { provider: "sqlite", url: "./dev.db" },
+  seed: "./seed.ts",
+};
+`,
+			async (dir) => {
+				await expect(loadConfig(dir)).rejects.toThrow(
+					/seed must be an object/,
+				);
+			},
+		);
+	});
+
+	it("rejects empty seed strings", async () => {
+		await withConfigFile(
+			`
+export default {
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: { provider: "sqlite", url: "./dev.db" },
+  seed: { env: "" },
+};
+`,
+			async (dir) => {
+				await expect(loadConfig(dir)).rejects.toThrow(
+					/seed\.env must be a non-empty string/,
+				);
+			},
+		);
+	});
 });

@@ -33,6 +33,8 @@ CLI commands load `.env` from the project directory before evaluating this file,
 | `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
 | `generate.typebox` | `boolean` | `false` | Emit Select/Create/Update TypeBox schemas to `out/typebox.ts`. See [TypeBox schemas](typebox.md). |
 | `generate.elysia` | `boolean` | `false` | Emit Select/Create/Update Elysia `t` schemas to `out/elysia.ts`. See [Elysia schemas](elysia.md). |
+| `seed.file` | `string` | unset | Default seed file, project-root relative. CLI `--file` overrides it. See [Seeding](seeding.md). |
+| `seed.env` | `string` | unset | Default environment: runs `seeds/<env>.ts` next to the schema. CLI `--env` overrides it. |
 
 ### Validation emit
 
