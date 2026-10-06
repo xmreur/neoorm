@@ -240,29 +240,42 @@ function generateOptionsFromConfig(
 }
 
 /**
- * Resolve `--name` for `generate` / `migrate dev`.
+ * Validate an explicit `--name` flag value.
  *
- * Flag → interactive prompt (TTY) → `undefined` in non-interactive runs.
- * `undefined` is passed through: `generateFromSchema` throws
- * `migration_guard` only when a migration would actually be written, so
- * no-change runs (like CI client regeneration) succeed without `--name`.
+ * Returns `undefined` when no flag was passed — no prompt, no error. The
+ * caller passes `undefined` through so `generateFromSchema` only throws
+ * `migration_guard` when a migration would actually be written. This keeps
+ * no-change runs (client regeneration, pending-apply-only `dev`) working
+ * without `--name` on both TTY and CI.
  */
-async function resolveMigrationNameOption(
+async function validateExplicitMigrationName(
 	raw: string | undefined,
-	interactive: boolean,
 ): Promise<string | undefined> {
 	const trimmed = raw?.trim();
-	if (trimmed) {
-		const { invalidMigrationNameError, slugifyMigrationName } =
-			await import("../codegen/generate.js");
-		if (!slugifyMigrationName(trimmed)) {
-			throw invalidMigrationNameError(raw ?? trimmed);
-		}
-		return trimmed;
-	}
-	if (!interactive) {
+	if (!trimmed) {
 		return undefined;
 	}
+	const { invalidMigrationNameError, slugifyMigrationName } = await import(
+		"../codegen/generate.js"
+	);
+	if (!slugifyMigrationName(trimmed)) {
+		throw invalidMigrationNameError(raw ?? trimmed);
+	}
+	return trimmed;
+}
+
+function isMissingMigrationNameError(err: unknown): boolean {
+	if (!isNeoOrmError(err)) {
+		return false;
+	}
+	return (
+		err.code === "migration_guard" &&
+		err.message.includes("Missing migration name")
+	);
+}
+
+/** Prompt for a migration name. Only call when a migration will be written. */
+async function promptMigrationName(): Promise<string> {
 	const { isCancel, text } = await import("@clack/prompts");
 	const answer = await text({
 		message: "Migration name",
@@ -447,21 +460,31 @@ program
 	)
 	.option(
 		"-n, --name <name>",
-		"Migration name (e.g. --name add_users). Required when a migration is created; prompts on a TTY when omitted.",
+		"Migration name (e.g. --name add_users). Only needed when a migration is created; prompts on a TTY at that point, errors in CI.",
 	)
 	.action(async (options: { acceptDataLoss?: boolean; name?: string }) => {
 		try {
 			const interactive = Boolean(
 				process.stdin.isTTY && process.stdout.isTTY,
 			);
-			const name = await resolveMigrationNameOption(
-				options.name,
-				interactive,
-			);
-			await runGenerateCommand({
-				...options,
-				...(name ? { name } : {}),
-			});
+			const explicit = await validateExplicitMigrationName(options.name);
+			try {
+				await runGenerateCommand({
+					...options,
+					...(explicit ? { name: explicit } : {}),
+				});
+			} catch (err) {
+				if (
+					!explicit &&
+					interactive &&
+					isMissingMigrationNameError(err)
+				) {
+					const name = await promptMigrationName();
+					await runGenerateCommand({ ...options, name });
+					return;
+				}
+				throw err;
+			}
 		} catch (err) {
 			printCliError(err);
 			process.exit(1);
@@ -499,7 +522,7 @@ program
 	.option("--steps <n>", "Number of migrations to roll back (down)", "1")
 	.option(
 		"-n, --name <name>",
-		"Migration name for dev (e.g. --name add_users). Required when dev creates a migration; prompts on a TTY when omitted.",
+		"Migration name for dev (e.g. --name add_users). Only needed when dev creates a migration; prompts on a TTY at that point.",
 	)
 	.action(
 		async (
@@ -518,9 +541,12 @@ program
 			let devMigrationName: string | undefined;
 			if (subcommand === "dev") {
 				try {
-					devMigrationName = await resolveMigrationNameOption(
+					// Validate an explicit flag now (fail fast on invalid),
+					// but never prompt here: pending migrations must apply
+					// first, and no-change runs need no name at all. The
+					// prompt happens lazily around generateFromSchema below.
+					devMigrationName = await validateExplicitMigrationName(
 						options.name,
-						interactive,
 					);
 				} catch (err) {
 					printCliError(err);
@@ -687,26 +713,57 @@ program
 						}
 
 						if (subcommand === "dev") {
+							const buildDevGenerateOptions = (
+								name: string | undefined,
+							) =>
+								generateOptionsFromConfig(
+									config,
+									{
+										...options,
+										...(name ? { name } : {}),
+									},
+									dbSchema,
+								);
+							let genResult: Awaited<
+								ReturnType<typeof generateFromSchema>
+							>;
+							try {
+								genResult = await generateFromSchema(
+									schemaPath,
+									outDir,
+									buildDevGenerateOptions(devMigrationName),
+								);
+							} catch (err) {
+								if (
+									!devMigrationName &&
+									interactive &&
+									isMissingMigrationNameError(err)
+								) {
+									// A migration is actually needed and we're
+									// on a TTY: prompt now (pending migrations
+									// were already applied above) and retry
+									// once. generateFromSchema writes nothing
+									// before the name check, so retry is safe.
+									devMigrationName =
+										await promptMigrationName();
+									genResult = await generateFromSchema(
+										schemaPath,
+										outDir,
+										buildDevGenerateOptions(
+											devMigrationName,
+										),
+									);
+								} else {
+									throw err;
+								}
+							}
 							const {
 								warnings,
 								summary,
 								migrationName,
 								manifest,
 								destructiveBlocked,
-							} = await generateFromSchema(
-								schemaPath,
-								outDir,
-								generateOptionsFromConfig(
-									config,
-									{
-										...options,
-										...(devMigrationName
-											? { name: devMigrationName }
-											: {}),
-									},
-									dbSchema,
-								),
-							);
+							} = genResult;
 							for (const line of formatGenerateSummary(
 								summary,
 								outDir,

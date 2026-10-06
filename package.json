@@ -60,7 +60,10 @@
 		"dist",
 		"docs",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"llms.txt",
+		"llms-full.txt",
+		"AGENTS.md"
 	],
 	"keywords": [
 		"orm",

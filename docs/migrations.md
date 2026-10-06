@@ -5,8 +5,8 @@
 | Command | Description |
 |---------|-------------|
 | `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
-| `neoorm generate --name <name>` | Emit manifest, typed client, models, includes, and migrations |
-| `neoorm migrate dev --name <name>` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed |
+| `neoorm generate [--name <name>]` | Emit manifest, typed client, models, includes, and migrations (`--name` only when a migration is created) |
+| `neoorm migrate dev [--name <name>]` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed (`--name` only when a new migration is created) |
 | `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
 | `neoorm migrate status` | List applied vs pending migrations |
 | `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
@@ -25,7 +25,7 @@
 | Migration created | New `migrations/<timestamp>_<name>/migration.sql` written |
 | Migration blocked | Destructive or manual changes prevented writing SQL |
 
-Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is required when a migration is created: the CLI prompts on a TTY and errors in non-interactive runs. Runs with no schema changes (client regeneration only) succeed without `--name`. Older `*_migration` folders still apply in order.
+Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is only needed when a migration is created: the CLI prompts on a TTY at that point (after pending migrations are applied in `dev`) and errors in non-interactive runs. Runs with no schema changes (client regeneration only) and pending-apply-only `dev` runs succeed without `--name` and never prompt. Older `*_migration` folders still apply in order.
 
 When migration is blocked, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL:
 
