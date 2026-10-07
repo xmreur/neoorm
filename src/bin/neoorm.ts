@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { cancel, isCancel, text } from "@clack/prompts";
 import { Command } from "commander";
 import { Pool } from "pg";
 import packageJson from "../../package.json" with { type: "json" };
@@ -8,6 +9,11 @@ import {
 	compileSchemaToManifest,
 	formatGenerateSummary,
 	generateFromSchema,
+	invalidMigrationNameError,
+	isMissingMigrationNameError,
+	missingMigrationNameError,
+	readSnapshot,
+	slugifyMigrationName,
 } from "../codegen/generate.js";
 import { loadConfig } from "../config.js";
 import {
@@ -29,7 +35,7 @@ import {
 	introspectPostgres,
 	introspectSqlite,
 } from "../introspect/pull.js";
-import { withMigrateDevLock } from "../migrate/dev-lock.js";
+import { runMigrateDev } from "../migrate/dev-workflow.js";
 import {
 	dbPushWarnings,
 	formatMigrateStatus,
@@ -38,7 +44,6 @@ import {
 	migrateReset,
 	migrateStatus,
 	pushCurrentSchema,
-	reconcilePendingCreates,
 } from "../migrate/runner.js";
 import type { DatabaseClient } from "../runtime/driver.js";
 import { pgClient, sqliteClient } from "../runtime/driver.js";
@@ -248,35 +253,21 @@ function generateOptionsFromConfig(
  * no-change runs (client regeneration, pending-apply-only `dev`) working
  * without `--name` on both TTY and CI.
  */
-async function validateExplicitMigrationName(
+function validateExplicitMigrationName(
 	raw: string | undefined,
-): Promise<string | undefined> {
+): string | undefined {
 	const trimmed = raw?.trim();
 	if (!trimmed) {
 		return undefined;
 	}
-	const { invalidMigrationNameError, slugifyMigrationName } = await import(
-		"../codegen/generate.js"
-	);
 	if (!slugifyMigrationName(trimmed)) {
 		throw invalidMigrationNameError(raw ?? trimmed);
 	}
 	return trimmed;
 }
 
-function isMissingMigrationNameError(err: unknown): boolean {
-	if (!isNeoOrmError(err)) {
-		return false;
-	}
-	return (
-		err.code === "migration_guard" &&
-		err.message.includes("Missing migration name")
-	);
-}
-
 /** Prompt for a migration name. Only call when a migration will be written. */
 async function promptMigrationName(): Promise<string> {
-	const { isCancel, text } = await import("@clack/prompts");
 	const answer = await text({
 		message: "Migration name",
 		placeholder: "add_users",
@@ -287,20 +278,13 @@ async function promptMigrationName(): Promise<string> {
 		},
 	});
 	if (isCancel(answer)) {
-		const { cancel } = await import("@clack/prompts");
 		cancel("Migration cancelled.");
 		process.exit(0);
 	}
 	const resolved = String(answer ?? "").trim();
 	if (!resolved) {
-		const { missingMigrationNameError } = await import(
-			"../codegen/generate.js"
-		);
 		throw missingMigrationNameError();
 	}
-	const { invalidMigrationNameError, slugifyMigrationName } = await import(
-		"../codegen/generate.js"
-	);
 	if (!slugifyMigrationName(resolved)) {
 		throw invalidMigrationNameError(resolved);
 	}
@@ -467,7 +451,7 @@ program
 			const interactive = Boolean(
 				process.stdin.isTTY && process.stdout.isTTY,
 			);
-			const explicit = await validateExplicitMigrationName(options.name);
+			const explicit = validateExplicitMigrationName(options.name);
 			try {
 				await runGenerateCommand({
 					...options,
@@ -550,7 +534,7 @@ program
 					// but never prompt here: pending migrations must apply
 					// first, and no-change runs need no name at all. The
 					// prompt happens lazily around generateFromSchema below.
-					devMigrationName = await validateExplicitMigrationName(
+					devMigrationName = validateExplicitMigrationName(
 						options.name,
 					);
 				} catch (err) {
@@ -711,200 +695,109 @@ program
 					return;
 				}
 
-				if (subcommand === "deploy" || subcommand === "dev") {
-					const runMigrate = async () => {
-						const schemaPath = resolve(cwd, config.schema);
-						const { readSnapshot } = await import(
-							"../codegen/generate.js"
-						);
-						const snapshotManifest = await readSnapshot(outDir);
-						let recordedExisting = false;
-						if (subcommand === "dev") {
-							const compiled = await compileSchemaToManifest(
-								schemaPath,
-								generateOptionsFromConfig(
-									config,
-									{
-										...options,
-										...(devMigrationName
-											? { name: devMigrationName }
-											: {}),
-									},
-									dbSchema,
-								),
-							);
-							const reconciled = await reconcilePendingCreates(
-								client,
-								dialect,
-								migrationsDir,
-								{
-									target: compiled.manifest,
-									outDir,
-									schemaPath,
-									...(options.acceptDataLoss
-										? { acceptDataLoss: true }
-										: {}),
-									...(dbSchema ? { schema: dbSchema } : {}),
-								},
-							);
-							if (reconciled.length > 0) {
-								recordedExisting = true;
-								console.log(
-									`Recorded ${reconciled.length} pending migration(s) against existing tables:`,
-								);
-								for (const name of reconciled) {
-									console.log(`  - ${name}`);
-								}
-							}
-						}
-						const applied = await migrateDeploy(
-							client,
-							dialect,
-							migrationsDir,
+				if (subcommand === "dev") {
+					const schemaPath = resolve(cwd, config.schema);
+					const result = await runMigrateDev({
+						client,
+						dialect,
+						schemaPath,
+						outDir,
+						generateOptions: generateOptionsFromConfig(
+							config,
 							{
-								...(dbSchema ? { schema: dbSchema } : {}),
-								schemaPath,
-								...(snapshotManifest
-									? { manifest: snapshotManifest }
+								...options,
+								...(devMigrationName
+									? { name: devMigrationName }
 									: {}),
 							},
-						);
-						if (applied.length === 0) {
-							if (!recordedExisting) {
-								console.log("No pending migrations");
-							}
-						} else {
-							console.log(
-								`Applied ${applied.length} migration(s):`,
-							);
-							for (const name of applied) {
-								console.log(`  - ${name}`);
-							}
-						}
-
-						if (subcommand === "dev") {
-							const buildDevGenerateOptions = (
-								name: string | undefined,
-							) =>
-								generateOptionsFromConfig(
-									config,
-									{
-										...options,
-										...(name ? { name } : {}),
-									},
-									dbSchema,
-								);
-							let genResult: Awaited<
-								ReturnType<typeof generateFromSchema>
-							>;
-							try {
-								genResult = await generateFromSchema(
-									schemaPath,
-									outDir,
-									buildDevGenerateOptions(devMigrationName),
-								);
-							} catch (err) {
-								if (
-									!devMigrationName &&
-									interactive &&
-									isMissingMigrationNameError(err)
-								) {
-									// A migration is actually needed and we're
-									// on a TTY: prompt now (pending migrations
-									// were already applied above) and retry
-									// once. generateFromSchema writes nothing
-									// before the name check, so retry is safe.
-									devMigrationName =
-										await promptMigrationName();
-									genResult = await generateFromSchema(
-										schemaPath,
-										outDir,
-										buildDevGenerateOptions(
-											devMigrationName,
-										),
-									);
-								} else {
-									throw err;
-								}
-							}
-							const {
-								warnings,
-								summary,
-								migrationName,
-								manifest,
-								destructiveBlocked,
-							} = genResult;
-							for (const line of formatGenerateSummary(
-								summary,
-								outDir,
-								{
-									...(config.generate?.zod === true
-										? { zod: true }
-										: {}),
-									...(config.generate?.typebox === true
-										? { typebox: true }
-										: {}),
-									...(config.generate?.elysia === true
-										? { elysia: true }
-										: {}),
-								},
-							)) {
-								console.log(line);
-							}
-							for (const warning of warnings) {
-								console.warn(`Warning: ${warning}`);
-							}
-							if (migrationName) {
-								const newlyRecorded =
-									await reconcilePendingCreates(
-										client,
-										dialect,
-										join(outDir, "migrations"),
-										{
-											target: manifest,
-											outDir,
-											schemaPath,
-											...(options.acceptDataLoss
-												? { acceptDataLoss: true }
-												: {}),
-											...(dbSchema
-												? { schema: dbSchema }
-												: {}),
-										},
-									);
-								if (newlyRecorded.length > 0) {
+							dbSchema,
+						),
+						...(interactive ? { promptMigrationName } : {}),
+						onProgress: (event) => {
+							switch (event.type) {
+								case "pending-reconciled":
 									console.log(
-										`Recorded new migration against existing tables: ${newlyRecorded.join(", ")}`,
+										`Recorded ${event.names.length} pending migration(s) against existing tables:`,
 									);
-								} else {
-									const newlyApplied = await migrateDeploy(
-										client,
-										dialect,
-										join(outDir, "migrations"),
-										{
-											...(dbSchema
-												? { schema: dbSchema }
-												: {}),
-											manifest,
-											schemaPath,
-										},
-									);
-									if (newlyApplied.length > 0) {
-										console.log(
-											`Applied new migration: ${newlyApplied.join(", ")}`,
-										);
+									for (const name of event.names) {
+										console.log(`  - ${name}`);
 									}
-								}
+									break;
+								case "pending-applied":
+									console.log(
+										`Applied ${event.names.length} migration(s):`,
+									);
+									for (const name of event.names) {
+										console.log(`  - ${name}`);
+									}
+									break;
+								case "no-pending":
+									console.log("No pending migrations");
+									break;
+								case "generated":
+									for (const line of formatGenerateSummary(
+										event.summary,
+										outDir,
+										{
+											...(config.generate?.zod === true
+												? { zod: true }
+												: {}),
+											...(config.generate?.typebox ===
+											true
+												? { typebox: true }
+												: {}),
+											...(config.generate?.elysia === true
+												? { elysia: true }
+												: {}),
+										},
+									)) {
+										console.log(line);
+									}
+									for (const warning of event.warnings) {
+										console.warn(`Warning: ${warning}`);
+									}
+									break;
+								case "new-migration-reconciled":
+									console.log(
+										`Recorded new migration against existing tables: ${event.names.join(", ")}`,
+									);
+									break;
+								case "new-migration-applied":
+									console.log(
+										`Applied new migration: ${event.names.join(", ")}`,
+									);
+									break;
 							}
-							if (destructiveBlocked) {
-								process.exitCode = 1;
-							}
-						}
-					};
-					if (subcommand === "dev") {
-						await withMigrateDevLock(outDir, runMigrate);
+						},
+					});
+					if (result.destructiveBlocked) {
+						process.exitCode = 1;
+					}
+					return;
+				}
+
+				if (subcommand === "deploy") {
+					const schemaPath = resolve(cwd, config.schema);
+					const snapshotManifest = await readSnapshot(outDir);
+					const applied = await migrateDeploy(
+						client,
+						dialect,
+						migrationsDir,
+						{
+							...(dbSchema ? { schema: dbSchema } : {}),
+							schemaPath,
+							...(snapshotManifest
+								? { manifest: snapshotManifest }
+								: {}),
+						},
+					);
+					if (applied.length === 0) {
+						console.log("No pending migrations");
 					} else {
-						await runMigrate();
+						console.log(`Applied ${applied.length} migration(s):`);
+						for (const name of applied) {
+							console.log(`  - ${name}`);
+						}
 					}
 					return;
 				}
