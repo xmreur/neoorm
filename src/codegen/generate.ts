@@ -9,7 +9,7 @@ import { dialectForProvider } from "../dialect/resolve.js";
 import type { DestructiveChange, Dialect, Manifest } from "../dialect/types.js";
 import type { NeoOrmPlugin } from "../plugins/types.js";
 import { schemaError } from "../runtime/error-builders.js";
-import { NeoOrmSchemaError } from "../runtime/errors.js";
+import { isNeoOrmError, NeoOrmSchemaError } from "../runtime/errors.js";
 import { schemaCompileError } from "../runtime/schema-error.js";
 import type { SchemaDef } from "../schema/define-schema.js";
 import type { ColumnDef, ColumnNaming, TableDef } from "../schema/table.js";
@@ -272,6 +272,16 @@ export function missingMigrationNameError(): ReturnType<typeof schemaError> {
 		"Missing migration name. Re-run with --name <name> (e.g. neoorm generate --name add_users).",
 		undefined,
 		["Use --name add_users to name the migration"],
+	);
+}
+
+export function isMissingMigrationNameError(err: unknown): boolean {
+	if (!isNeoOrmError(err)) {
+		return false;
+	}
+	return (
+		err.code === "migration_guard" &&
+		err.message.includes("Missing migration name")
 	);
 }
 
