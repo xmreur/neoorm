@@ -148,4 +148,46 @@ describe("runMigrateDev", () => {
 		expect(await readdir(migrationsDir)).toEqual(migrationsBefore);
 		expect(db.prepare('SELECT id FROM "users"').all()).toEqual([]);
 	});
+
+	it("propagates reconciliation errors and releases the migrate-dev lock", async () => {
+		const { schemaPath, outDir } = await writeSchema(USERS_SCHEMA);
+		const { client: dbClient, db } = openDatabase();
+		db.exec('CREATE TABLE "users" ("id" INTEGER PRIMARY KEY)');
+		const failure = new Error("reconciliation failed");
+		let shouldThrow = true;
+
+		function wrapClient(realClient: DatabaseClient): DatabaseClient {
+			return {
+				query: async (text, params) => {
+					if (
+						shouldThrow &&
+						/INSERT INTO ["`]?_neoorm_migrations["`]?/i.test(text)
+					) {
+						shouldThrow = false;
+						throw failure;
+					}
+					return realClient.query(text, params);
+				},
+				transaction: (fn, options) =>
+					realClient.transaction((tx) => fn(wrapClient(tx)), options),
+				close: () => realClient.close(),
+			};
+		}
+
+		const run = () =>
+			runMigrateDev({
+				client: wrapClient(dbClient),
+				dialect: sqliteDialect,
+				schemaPath,
+				outDir,
+				generateOptions: { provider: "sqlite", name: "initial" },
+				onProgress: () => {},
+			});
+
+		await expect(run()).rejects.toBe(failure);
+		await expect(
+			stat(join(outDir, MIGRATE_DEV_LOCK_FILENAME)),
+		).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(run()).resolves.toEqual({ destructiveBlocked: false });
+	});
 });
