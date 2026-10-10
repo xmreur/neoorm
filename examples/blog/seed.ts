@@ -1,5 +1,5 @@
 import type { TransactionClient } from "neoorm";
-import { schema } from "./schema.js";
+import type { schema } from "./schema.js";
 
 export async function seed(db: TransactionClient<typeof schema._tables>) {
 	await db.users.upsert({

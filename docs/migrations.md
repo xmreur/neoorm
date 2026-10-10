@@ -28,6 +28,9 @@
 
 Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is only needed when a migration is created: the CLI prompts on a TTY at that point (after pending migrations are applied in `dev`) and errors in non-interactive runs. Runs with no schema changes (client regeneration only) and pending-apply-only `dev` runs succeed without `--name` and never prompt. Older `*_migration` folders still apply in order.
 
+`migrate dev` holds its lock from before pending reconciliation through the optional name prompt, generation, and post-generation reconciliation/application.
+For the implementation ordering and regression coverage, see [the workflow guide](migrate-dev-workflow.md).
+
 When migration is blocked, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL:
 
 ```bash
