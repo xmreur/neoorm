@@ -4,6 +4,7 @@ import type {
 	ManifestColumn,
 	ManifestTable,
 } from "../dialect/types.js";
+import { schemaError } from "../runtime/error-builders.js";
 import {
 	buildEnumRegistry,
 	columnNonNullTsType,
@@ -468,10 +469,53 @@ function emitRepositoryType(table: ManifestTable): string {
 		`}`,
 	].join("\n");
 }
+/**
+ * The emitters below place scalar entries (keyed by `column.tsName`) and
+ * relation entries (keyed by `relation.name`) into the same emitted
+ * interfaces — `*Where` plus create/update input types. Two entries under the
+ * same identifier produce duplicate TypeScript declarations, so refuse to emit
+ * such a manifest instead of shipping types the consumer cannot compile.
+ */
+function assertUniqueEmittedNames(
+	manifest: Manifest,
+	tables: readonly ManifestTable[],
+): void {
+	for (const table of tables) {
+		const seen = new Map<string, string>();
+		for (const col of table.columns) {
+			seen.set(col.tsName, `column "${table.accessor}.${col.tsName}"`);
+		}
+		for (const rel of effectiveRelations(manifest, table)) {
+			const existing = seen.get(rel.name);
+			if (existing) {
+				let detail = `Relation "${rel.name}" on table "${table.accessor}" collides with the ${existing} — generated query types would emit two properties with the same name`;
+				if (existing.startsWith("relation")) {
+					detail = `Relation "${rel.name}" on table "${table.accessor}" is declared twice — generated query types would emit two properties with the same name`;
+				}
+				throw schemaError(
+					"duplicate_relation",
+					detail,
+					{
+						tableAccessor: table.accessor,
+						tableSqlName: table.sqlName,
+					},
+					[
+						existing.startsWith("relation")
+							? 'Give each fk() a unique relation name via .as("uniqueRelationName")'
+							: `Rename the foreign key to end in "Id" (e.g. "${rel.name}Id"), or set an explicit relation name on the fk: fk("<target>").as("someRelation")`,
+					],
+				);
+			}
+			seen.set(rel.name, `relation "${rel.name}"`);
+		}
+	}
+}
+
 export function emitQueryTypesTs(manifest: Manifest): string {
 	const tables = Object.values(manifest.tables).sort((a, b) =>
 		a.accessor.localeCompare(b.accessor),
 	);
+	assertUniqueEmittedNames(manifest, tables);
 	const enums = buildEnumRegistry(manifest);
 	const hasPostgis = (manifest.extensions ?? []).includes("postgis");
 

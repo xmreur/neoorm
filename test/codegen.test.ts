@@ -1,13 +1,28 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
 	elysiaPeerWarning,
 	generateFromSchema,
 	typeboxPeerWarning,
 	zodPeerWarning,
 } from "../src/codegen/generate.js";
+import type { SchemaValidationIssue } from "../src/codegen/schema-to-manifest.js";
+import {
+	schemaToManifest,
+	validateManifest,
+} from "../src/codegen/schema-to-manifest.js";
+import type { SchemaDef } from "../src/schema/define-schema.js";
+import { defineSchema, fk, table, text, uuid } from "../src/schema/index.js";
+import type { TableDef } from "../src/schema/table.js";
 import { atIndex } from "./helpers/manifest.js";
 
 describe("codegen", () => {
@@ -392,5 +407,168 @@ describe("elysiaPeerWarning", () => {
 		} finally {
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("relation name collision validation", () => {
+	function issuesFrom<T extends Record<string, TableDef>>(
+		schema: SchemaDef<T>,
+	): SchemaValidationIssue[] {
+		return validateManifest(schemaToManifest(schema)).filter(
+			(issue) => issue.code === "duplicate_relation",
+		);
+	}
+
+	it("reports an fk whose relation name collides with its own column", () => {
+		const schema = defineSchema({
+			// mirrors locadrink: an Id-less fk name makes the inferred relation
+			// name equal the fk column itself
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+				statusChangedBy: fk("users"),
+			}),
+		});
+		const issues = issuesFrom(schema);
+
+		expect(issues).toHaveLength(1);
+		expect(atIndex(issues, 0).message).toBe(
+			'Relation "statusChangedBy" on table "users" collides with the column "users.statusChangedBy" — the generated query types emit both under the same property name',
+		);
+		expect(atIndex(issues, 0).suggestions).toContain(
+			'Rename the foreign key to end in "Id" (e.g. "statusChangedById") so the relation gets the bare name',
+		);
+		expect(atIndex(issues, 0).suggestions).toContain(
+			'Or set an explicit relation name on the fk: fk("<target>").as("someRelation")',
+		);
+	});
+
+	it("reports duplicate forward relation names instead of silently dropping one", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+				statusChangedById: fk("users")
+					.as("changedBy")
+					.inverse("statusChanges"),
+				reviewedById: fk("users")
+					.as("changedBy")
+					.inverse("reviewChanges"),
+			}),
+		});
+		const issues = issuesFrom(schema);
+
+		expect(issues).toHaveLength(1);
+		expect(atIndex(issues, 0).message).toBe(
+			'Relation "changedBy" on table "users" is declared for both "statusChangedById" and "reviewedById"',
+		);
+	});
+
+	it("accepts Id-suffixed fk columns without collisions", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+				statusChangedById: fk("users"),
+			}),
+		});
+		expect(issuesFrom(schema)).toHaveLength(0);
+	});
+
+	it("reports an fk whose inferred relation name collides with a sibling scalar column", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+			}),
+			audit: table({
+				id: uuid().primary(),
+				// the relation inferred from this fk ("statusChangedBy") collides
+				// with the separate scalar column below, not with the fk itself
+				statusChangedById: fk("users"),
+				statusChangedBy: text(),
+			}),
+		});
+		const issues = issuesFrom(schema);
+
+		expect(issues).toHaveLength(1);
+		expect(atIndex(issues, 0).message).toBe(
+			'Relation "statusChangedBy" on table "audit" collides with the column "audit.statusChangedBy" — the generated query types emit both under the same property name',
+		);
+	});
+
+	it("does not reject the same relation name used by other tables", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+			}),
+			// both relation names "user" live in per-table namespaces
+			posts: table({
+				id: uuid().primary(),
+				title: text(),
+				authorId: fk("users"),
+			}),
+			drinks: table({
+				id: uuid().primary(),
+				title: text(),
+				creatorId: fk("users"),
+			}),
+		});
+		expect(issuesFrom(schema)).toHaveLength(0);
+	});
+
+	const workBaseDir = join(
+		import.meta.dirname,
+		"fixtures",
+		"collision-generation-work",
+	);
+
+	afterAll(async () => {
+		await rm(workBaseDir, { recursive: true, force: true });
+	});
+
+	async function writeSchemaAndOutDir(content: string): Promise<{
+		schemaPath: string;
+		outDir: string;
+	}> {
+		// Schemas must live inside the repo so `neoorm/schema` self-resolves
+		// (same pattern as write-migration.test.ts).
+		await mkdir(workBaseDir, { recursive: true });
+		const dir = await mkdtemp(join(workBaseDir, "run-"));
+		const schemaPath = join(dir, "schema.ts");
+		await writeFile(schemaPath, content, "utf-8");
+		return { schemaPath, outDir: join(dir, "neoorm") };
+	}
+
+	const collidingSchema = `import { defineSchema, table, text, uuid, fk } from "neoorm/schema";
+
+export const schema = defineSchema({
+	users: table({
+		id: uuid().primary(),
+		name: text(),
+		statusChangedBy: fk("users"),
+	}),
+});
+`;
+
+	it("fails generate with an actionable error for a colliding relation", async () => {
+		const { schemaPath, outDir } =
+			await writeSchemaAndOutDir(collidingSchema);
+
+		const error = await generateFromSchema(schemaPath, outDir, {
+			provider: "sqlite",
+			url: "./dev.db",
+			name: "init",
+		}).catch((err: unknown) => err);
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toContain(
+			'Relation "statusChangedBy" on table "users" collides with the column "users.statusChangedBy"',
+		);
+		expect((error as Error).message).toContain(
+			'Rename the foreign key to end in "Id"',
+		);
+		// the collision is caught before any client code is generated
+		await expect(readdir(outDir)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });

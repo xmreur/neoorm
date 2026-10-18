@@ -41,6 +41,7 @@ export const SchemaErrorCode = {
 	junction_collision: "junction_collision",
 	unknown_junction_column: "unknown_junction_column",
 	duplicate_inverse: "duplicate_inverse",
+	duplicate_relation: "duplicate_relation",
 	schema_compile_error: "schema_compile_error",
 	duplicate_table_sql_name: "duplicate_table_sql_name",
 	unknown_fk_target: "unknown_fk_target",

@@ -1999,6 +1999,55 @@ export function validateManifest(manifest: Manifest): SchemaValidationIssue[] {
 				});
 			}
 		}
+
+		for (const issue of checkRelationNames(table)) {
+			errors.push(issue);
+		}
+	}
+
+	return errors;
+}
+
+/**
+ * Relation names must be unique per table and must not collide with a column
+ * name: the emitted query types place scalar filters (keyed by `column.tsName`)
+ * and relation filters (keyed by `relation.name`) in the same interfaces
+ * (`*Where`, create/update input types), so a duplicate identifier does not
+ * compile. Duplicate relation names today are silently masked elsewhere —
+ * only the first relation with a name wins — which is equally broken.
+ */
+function checkRelationNames(table: ManifestTable): SchemaValidationIssue[] {
+	const errors: SchemaValidationIssue[] = [];
+	const columnTsNames = new Set(table.columns.map((c) => c.tsName));
+
+	const seenRelations = new Map<string, ManifestRelation>();
+	for (const rel of table.relations) {
+		if (columnTsNames.has(rel.name)) {
+			errors.push({
+				code: "duplicate_relation",
+				message: `Relation "${rel.name}" on table "${table.accessor}" collides with the column "${table.accessor}.${rel.name}" — the generated query types emit both under the same property name`,
+				suggestions: [
+					`Rename the foreign key to end in "Id" (e.g. "${rel.name}Id") so the relation gets the bare name`,
+					`Or set an explicit relation name on the fk: fk("<target>").as("someRelation")`,
+				],
+			});
+		}
+
+		const existing = seenRelations.get(rel.name);
+		if (existing) {
+			const existingFrom = existing.fkColumn || existing.name;
+			const relFrom = rel.fkColumn || rel.name;
+			errors.push({
+				code: "duplicate_relation",
+				message: `Relation "${rel.name}" on table "${table.accessor}" is declared for both "${existingFrom}" and "${relFrom}"`,
+				suggestions: [
+					`Give each fk() a unique relation name via .as("uniqueRelationName")`,
+					"Every relation name must be unique on the table",
+				],
+			});
+			continue;
+		}
+		seenRelations.set(rel.name, rel);
 	}
 
 	return errors;
