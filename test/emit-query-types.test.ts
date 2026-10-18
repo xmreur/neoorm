@@ -137,6 +137,35 @@ describe("emitQueryTypesTs", () => {
 		expect(source).toContain("searchTs?: string | SearchTsQuery;");
 		expect(source).toContain("export interface SearchTsQuery {");
 	});
+
+	it("rejects a manifest whose relation name collides with a column", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+				statusChangedBy: fk("users"),
+			}),
+		});
+
+		expect(() => emitQueryTypesTs(schemaToManifest(schema))).toThrow(
+			'Relation "statusChangedBy" on table "users" collides with the column "users.statusChangedBy"',
+		);
+	});
+
+	it("emits separate scalar and relation entries for an Id-suffixed self-fk", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+				statusChangedById: fk("users"),
+			}),
+		});
+		const source = emitQueryTypesTs(schemaToManifest(schema));
+
+		expect(source).toMatch(/ {2}statusChangedById\?: .+;/);
+		expect(source).toContain("statusChangedBy?: UserWhere;");
+		expect(source).not.toMatch(/statusChangedById\?: UserWhere/);
+	});
 });
 
 describe("repository signatures", () => {
