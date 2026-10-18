@@ -20,6 +20,80 @@ function inferFkAs(tsName: string): string {
 	return tsName.replace(/_(Id|id)$/, "").replace(/Id$/, "");
 }
 
+/**
+ * Relation names that are taken on a table: every column tsName (generated
+ * query types emit scalar filters under those names) plus every existing
+ * relation and inverse name, and FK relation names already assigned while
+ * pulling the schema.
+ */
+function usedRelationNameTargets(
+	table: ManifestTable,
+	assigned: Map<string, Set<string>>,
+): Set<string> {
+	const used = new Set(table.columns.map((c) => c.tsName));
+	for (const rel of table.relations) {
+		used.add(rel.name);
+		if (rel.inverse) {
+			used.add(rel.inverse);
+		}
+	}
+	const extra = assigned.get(table.accessor);
+	if (extra) {
+		for (const name of extra) {
+			used.add(name);
+		}
+	}
+	return used;
+}
+
+/**
+ * Relation name an FK column is emitted with in a pulled schema. Defaults to
+ * the stored/inferred name, but a name that equals the FK column's own tsName
+ * would collide with that scalar in generated query types ("Relation "x" …
+ * collides with the column …"), so it falls back to `singularize(targetTable)`
+ * suffixed `2`, `3`, … when the fallback name is taken.
+ */
+function pulledFkRelationName(
+	col: ManifestColumn,
+	table: ManifestTable,
+	manifest: Manifest,
+	assigned: Map<string, Set<string>>,
+): string {
+	const inferred = inferFkAs(col.tsName);
+	let name = col.fkAs !== undefined && col.fkAs !== "" ? col.fkAs : inferred;
+	if (name === col.tsName) {
+		const targetRef = resolveFkAccessorTarget(col, manifest);
+		const targetAccessor = targetRef.includes(".")
+			? targetRef.slice(0, targetRef.indexOf("."))
+			: targetRef;
+		const base = targetAccessor ? singularize(targetAccessor) : "";
+		const used = usedRelationNameTargets(table, assigned);
+		if (base && !used.has(base)) {
+			name = base;
+		} else if (base) {
+			let index = 2;
+			while (used.has(`${base}${index}`)) {
+				index += 1;
+			}
+			name = `${base}${index}`;
+		} else {
+			let index = 2;
+			name = `${inferred}Relation`;
+			while (used.has(name)) {
+				name = `${inferred}Relation${index}`;
+				index += 1;
+			}
+		}
+	}
+	let extra = assigned.get(table.accessor);
+	if (!extra) {
+		extra = new Set<string>();
+		assigned.set(table.accessor, extra);
+	}
+	extra.add(name);
+	return name;
+}
+
 function tableHeader(accessor: string, sqlName: string): string {
 	if (sqlName === accessor) {
 		return `  ${accessor}: table({`;
@@ -81,10 +155,12 @@ export async function introspectPostgres(
 	return emitPostgresSchema(manifest);
 }
 
-function emitPostgresSchema(manifest: Manifest): string {
+/** Emit a `neoorm/schema` TS source from an introspected manifest. Exported for tests. */
+export function emitPostgresSchema(manifest: Manifest): string {
 	const usedBuilders = new Set<string>(["defineSchema", "table"]);
 	const pluginColumnImports = new Set<string>();
 	let needsPostgisSideEffect = false;
+	const assignedFkAs = new Map<string, Set<string>>();
 	const tableBlocks: string[] = [];
 
 	for (const table of Object.values(manifest.tables)) {
@@ -104,7 +180,7 @@ function emitPostgresSchema(manifest: Manifest): string {
 				pluginColumnImports.add(col.kind);
 			}
 			blockLines.push(
-				`    ${emitPostgresColumn(col, table, manifest, columnNaming, usedBuilders)},`,
+				`    ${emitPostgresColumn(col, table, manifest, columnNaming, usedBuilders, assignedFkAs)},`,
 			);
 		}
 
@@ -150,10 +226,11 @@ function emitPostgresColumn(
 	manifest: Manifest,
 	columnNaming: ColumnNaming,
 	usedBuilders: Set<string>,
+	assignedFkAs: Map<string, Set<string>>,
 ): string {
 	if (col.kind === "fk") {
 		usedBuilders.add("fk");
-		let def = `${col.tsName}: ${emitFkBuilder(col, table, manifest)}`;
+		let def = `${col.tsName}: ${emitFkBuilder(col, table, manifest, assignedFkAs)}`;
 		def += emitColumnModifiers(col, table, { skipNotNullIfPrimary: true });
 		return appendMapModifier(def, col.tsName, col.sqlName, columnNaming);
 	}
@@ -246,12 +323,19 @@ function emitFkBuilder(
 	col: ManifestColumn,
 	table: ManifestTable,
 	manifest: Manifest,
+	assignedFkAs: Map<string, Set<string>>,
 ): string {
 	const targetRef = resolveFkAccessorTarget(col, manifest);
 	const relName = inferFkAs(col.tsName);
+	const relationName = pulledFkRelationName(
+		col,
+		table,
+		manifest,
+		assignedFkAs,
+	);
 	let def = `fk("${escapeTsString(targetRef)}")`;
-	if (col.fkAs && col.fkAs !== relName) {
-		def += `.as("${escapeTsString(col.fkAs)}")`;
+	if (relationName !== relName) {
+		def += `.as("${escapeTsString(relationName)}")`;
 	}
 	const defaultInverse = col.unique
 		? singularize(table.accessor)
@@ -1137,13 +1221,20 @@ function sqliteColumnDef(
 	col: ManifestColumn,
 	table: ManifestTable,
 	manifest: Manifest,
+	assignedFkAs: Map<string, Set<string>>,
 ): string {
 	if (col.kind === "fk" && col.fkTarget) {
 		const targetRef = resolveFkAccessorTarget(col, manifest);
 		const relName = inferFkAs(col.tsName);
+		const relationName = pulledFkRelationName(
+			col,
+			table,
+			manifest,
+			assignedFkAs,
+		);
 		let def = `fk("${targetRef}")`;
-		if (col.fkAs && col.fkAs !== relName) {
-			def += `.as("${col.fkAs}")`;
+		if (relationName !== relName) {
+			def += `.as("${escapeTsString(relationName)}")`;
 		}
 		const defaultInverse = col.unique
 			? singularize(table.accessor)
@@ -1194,6 +1285,7 @@ export async function introspectSqlite(
 ): Promise<string> {
 	const manifest = await introspectSqliteToManifest(client);
 
+	const assignedFkAs = new Map<string, Set<string>>();
 	const tableBlocks: string[] = [];
 	for (const table of Object.values(manifest.tables)) {
 		const tsNameBySql = new Map(
@@ -1201,7 +1293,9 @@ export async function introspectSqlite(
 		);
 		const lines: string[] = [tableHeader(table.accessor, table.sqlName)];
 		for (const col of table.columns) {
-			lines.push(`    ${sqliteColumnDef(col, table, manifest)}`);
+			lines.push(
+				`    ${sqliteColumnDef(col, table, manifest, assignedFkAs)}`,
+			);
 		}
 
 		const extras = emitTableExtras(table, tsNameBySql, undefined, manifest);
