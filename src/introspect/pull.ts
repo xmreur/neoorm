@@ -21,23 +21,44 @@ function inferFkAs(tsName: string): string {
 }
 
 /**
- * Relation names that are taken on a table: every column tsName (generated
- * query types emit scalar filters under those names) plus every existing
- * relation and inverse name, and FK relation names already assigned while
- * pulling the schema.
+ * Per-emission naming state for a pulled schema. A relation name must be
+ * unique per table and must not collide with a column name (the generated
+ * query types place scalar filters keyed by `column.tsName` and relation
+ * filters keyed by `relation.name` into the same interfaces), so every name
+ * picked while emitting is reserved immediately.
+ *
+ * Forward relation names are reserved on the source table, inverse relation
+ * names on the target table: a table's property names form a single
+ * namespace, whatever direction the relation points in.
  */
-function usedRelationNameTargets(
-	table: ManifestTable,
-	assigned: Map<string, Set<string>>,
-): Set<string> {
-	const used = new Set(table.columns.map((c) => c.tsName));
-	for (const rel of table.relations) {
-		used.add(rel.name);
-		if (rel.inverse) {
-			used.add(rel.inverse);
-		}
+type PullNameTracker = {
+	/** Relation names picked so far, keyed by the table they will appear on. */
+	assigned: Map<string, Set<string>>;
+	/** Static property names per table: its column tsNames. */
+	columnNames: Map<string, Set<string>>;
+};
+
+function pullNameTracker(manifest: Manifest): PullNameTracker {
+	const columnNames = new Map<string, Set<string>>();
+	for (const table of Object.values(manifest.tables)) {
+		columnNames.set(
+			table.accessor,
+			new Set(table.columns.map((c) => c.tsName)),
+		);
 	}
-	const extra = assigned.get(table.accessor);
+	return { assigned: new Map(), columnNames };
+}
+
+/**
+ * Names the emitted schema already defines on a table: its column tsNames
+ * plus every relation name (forward, inverse) picked so far.
+ */
+function reservedNamesOnTable(
+	tracker: PullNameTracker,
+	accessor: string,
+): Set<string> {
+	const used = new Set(tracker.columnNames.get(accessor) ?? []);
+	const extra = tracker.assigned.get(accessor);
 	if (extra) {
 		for (const name of extra) {
 			used.add(name);
@@ -46,51 +67,95 @@ function usedRelationNameTargets(
 	return used;
 }
 
+/** Reserve a relation name so later picks (and their suffixes) cannot reuse it. */
+function reserveRelationName(
+	tracker: PullNameTracker,
+	accessor: string,
+	name: string,
+): void {
+	let extra = tracker.assigned.get(accessor);
+	if (!extra) {
+		extra = new Set<string>();
+		tracker.assigned.set(accessor, extra);
+	}
+	extra.add(name);
+}
+
+/** Deterministic unused variant of `base` in `used`: base, base2, base3, … */
+function withSuffix(base: string, used: Set<string>): string {
+	if (!used.has(base)) {
+		return base;
+	}
+	let index = 2;
+	while (used.has(`${base}${index}`)) {
+		index += 1;
+	}
+	return `${base}${index}`;
+}
+
+/** Accessor of an fk column's target table ("" when unresolved). */
+function fkTargetAccessor(col: ManifestColumn, manifest: Manifest): string {
+	const targetRef = resolveFkAccessorTarget(col, manifest);
+	return targetRef.includes(".")
+		? targetRef.slice(0, targetRef.indexOf("."))
+		: targetRef;
+}
+
 /**
- * Relation name an FK column is emitted with in a pulled schema. Defaults to
- * the stored/inferred name, but a name that equals the FK column's own tsName
- * would collide with that scalar in generated query types ("Relation "x" …
- * collides with the column …"), so it falls back to `singularize(targetTable)`
- * suffixed `2`, `3`, … when the fallback name is taken.
+ * Forward relation name an FK column is emitted with in a pulled schema:
+ * the stored/inferred name when it is free on the table. When the name is
+ * already defined — as the fk's own column, a sibling column, or a relation
+ * picked for an earlier fk — the fallback prefers the singular target table
+ * name (the `userId → user` convention) for an Id-less fk column, then
+ * suffixes the preferred name: `statusChangedBy2`, `statusChangedBy3`, …
  */
 function pulledFkRelationName(
 	col: ManifestColumn,
 	table: ManifestTable,
 	manifest: Manifest,
-	assigned: Map<string, Set<string>>,
+	tracker: PullNameTracker,
 ): string {
 	const inferred = inferFkAs(col.tsName);
-	let name = col.fkAs !== undefined && col.fkAs !== "" ? col.fkAs : inferred;
-	if (name === col.tsName) {
-		const targetRef = resolveFkAccessorTarget(col, manifest);
-		const targetAccessor = targetRef.includes(".")
-			? targetRef.slice(0, targetRef.indexOf("."))
-			: targetRef;
-		const base = targetAccessor ? singularize(targetAccessor) : "";
-		const used = usedRelationNameTargets(table, assigned);
-		if (base && !used.has(base)) {
-			name = base;
-		} else if (base) {
-			let index = 2;
-			while (used.has(`${base}${index}`)) {
-				index += 1;
-			}
-			name = `${base}${index}`;
-		} else {
-			let index = 2;
-			name = `${inferred}Relation`;
-			while (used.has(name)) {
-				name = `${inferred}Relation${index}`;
-				index += 1;
-			}
+	const stored =
+		col.fkAs !== undefined && col.fkAs !== "" ? col.fkAs : inferred;
+	const used = reservedNamesOnTable(tracker, table.accessor);
+	let name = stored;
+	if (used.has(name)) {
+		let base = stored;
+		if (stored === col.tsName) {
+			const targetAccessor = fkTargetAccessor(col, manifest);
+			base =
+				targetAccessor !== ""
+					? singularize(targetAccessor)
+					: `${inferred}Relation`;
 		}
+		name = withSuffix(base, used);
 	}
-	let extra = assigned.get(table.accessor);
-	if (!extra) {
-		extra = new Set<string>();
-		assigned.set(table.accessor, extra);
-	}
-	extra.add(name);
+	reserveRelationName(tracker, table.accessor, name);
+	return name;
+}
+
+/**
+ * Inverse relation name for an fk into `targetAccessor`: the source table
+ * accessor (singularized for unique/one-to-one fks). The default name is
+ * always reserved on the target table — without reserving it, a second fk
+ * to the same target would emit a second relation under the same default
+ * inverse name, which generate rejects with `duplicate_inverse`.
+ */
+function pulledFkInverseName(
+	col: ManifestColumn,
+	sourceAccessor: string,
+	targetAccessor: string,
+	tracker: PullNameTracker,
+): string {
+	const defaultInverse = col.unique
+		? singularize(sourceAccessor)
+		: sourceAccessor;
+	const name = withSuffix(
+		defaultInverse,
+		reservedNamesOnTable(tracker, targetAccessor),
+	);
+	reserveRelationName(tracker, targetAccessor, name);
 	return name;
 }
 
@@ -160,7 +225,7 @@ export function emitPostgresSchema(manifest: Manifest): string {
 	const usedBuilders = new Set<string>(["defineSchema", "table"]);
 	const pluginColumnImports = new Set<string>();
 	let needsPostgisSideEffect = false;
-	const assignedFkAs = new Map<string, Set<string>>();
+	const tracker = pullNameTracker(manifest);
 	const tableBlocks: string[] = [];
 
 	for (const table of Object.values(manifest.tables)) {
@@ -180,7 +245,7 @@ export function emitPostgresSchema(manifest: Manifest): string {
 				pluginColumnImports.add(col.kind);
 			}
 			blockLines.push(
-				`    ${emitPostgresColumn(col, table, manifest, columnNaming, usedBuilders, assignedFkAs)},`,
+				`    ${emitPostgresColumn(col, table, manifest, columnNaming, usedBuilders, tracker)},`,
 			);
 		}
 
@@ -189,6 +254,7 @@ export function emitPostgresSchema(manifest: Manifest): string {
 			tsNameBySql,
 			usedBuilders,
 			manifest,
+			tracker,
 		);
 		blockLines.push(tableClose(columnNaming, extras));
 		tableBlocks.push(blockLines.join("\n"));
@@ -226,11 +292,11 @@ function emitPostgresColumn(
 	manifest: Manifest,
 	columnNaming: ColumnNaming,
 	usedBuilders: Set<string>,
-	assignedFkAs: Map<string, Set<string>>,
+	tracker: PullNameTracker,
 ): string {
 	if (col.kind === "fk") {
 		usedBuilders.add("fk");
-		let def = `${col.tsName}: ${emitFkBuilder(col, table, manifest, assignedFkAs)}`;
+		let def = `${col.tsName}: ${emitFkBuilder(col, table, manifest, tracker)}`;
 		def += emitColumnModifiers(col, table, { skipNotNullIfPrimary: true });
 		return appendMapModifier(def, col.tsName, col.sqlName, columnNaming);
 	}
@@ -323,16 +389,11 @@ function emitFkBuilder(
 	col: ManifestColumn,
 	table: ManifestTable,
 	manifest: Manifest,
-	assignedFkAs: Map<string, Set<string>>,
+	tracker: PullNameTracker,
 ): string {
 	const targetRef = resolveFkAccessorTarget(col, manifest);
 	const relName = inferFkAs(col.tsName);
-	const relationName = pulledFkRelationName(
-		col,
-		table,
-		manifest,
-		assignedFkAs,
-	);
+	const relationName = pulledFkRelationName(col, table, manifest, tracker);
 	let def = `fk("${escapeTsString(targetRef)}")`;
 	if (relationName !== relName) {
 		def += `.as("${escapeTsString(relationName)}")`;
@@ -342,6 +403,22 @@ function emitFkBuilder(
 		: table.accessor;
 	if (col.fkInverse && col.fkInverse !== defaultInverse) {
 		def += `.inverse("${escapeTsString(col.fkInverse)}")`;
+		return def;
+	}
+	const targetAccessor = fkTargetAccessor(col, manifest);
+	if (manifest.tables[targetAccessor]) {
+		// Reserve the default inverse name on the target table and emit an
+		// explicit `.inverse()` when the default is taken there (e.g. a second
+		// fk to the same target, or a column carrying the accessor's name)
+		const inverseName = pulledFkInverseName(
+			col,
+			table.accessor,
+			targetAccessor,
+			tracker,
+		);
+		if (inverseName !== defaultInverse) {
+			def += `.inverse("${escapeTsString(inverseName)}")`;
+		}
 	}
 	return def;
 }
@@ -1029,6 +1106,7 @@ function emitTableExtras(
 	tsNameBySql: Map<string, string>,
 	usedBuilders?: Set<string>,
 	manifest?: Manifest,
+	tracker?: PullNameTracker,
 ): string[] {
 	const extras: string[] = [];
 	for (const index of table.indexes) {
@@ -1098,8 +1176,34 @@ function emitTableExtras(
 			.join(", ");
 		const accessor = target?.accessor ?? fk.targetTable;
 		const firstLocal = tsNameBySql.get(fk.columns[0] ?? "") ?? "ref";
-		const asName = inferFkAs(firstLocal);
-		let extra = `foreignKey(${localCols}).references("${escapeTsString(accessor)}", ${targetCols}).as("${escapeTsString(asName)}").inverse("${escapeTsString(table.accessor)}")`;
+		// Composite FK constraints are emitted as a `foreignKey()` extra whose
+		// relation name and inverse compete with column names and other picked
+		// relations on both tables — same resolver as column-level fks.
+		let asName = inferFkAs(firstLocal);
+		let inverseName = table.accessor;
+		if (tracker && manifest) {
+			const usedOnSource = reservedNamesOnTable(tracker, table.accessor);
+			if (usedOnSource.has(asName)) {
+				const fallbackBase =
+					asName === firstLocal && target?.accessor
+						? singularize(target.accessor)
+						: "";
+				asName = withSuffix(
+					fallbackBase !== "" ? fallbackBase : asName,
+					usedOnSource,
+				);
+			}
+			reserveRelationName(tracker, table.accessor, asName);
+			const targetKey = target?.accessor ?? fk.targetTable;
+			if (targetKey) {
+				inverseName = withSuffix(
+					table.accessor,
+					reservedNamesOnTable(tracker, targetKey),
+				);
+				reserveRelationName(tracker, targetKey, inverseName);
+			}
+		}
+		let extra = `foreignKey(${localCols}).references("${escapeTsString(accessor)}", ${targetCols}).as("${escapeTsString(asName)}").inverse("${escapeTsString(inverseName)}")`;
 		if (fk.onDelete && fk.onDelete !== "no action") {
 			extra += `.onDelete("${escapeTsString(fk.onDelete)}")`;
 		}
@@ -1221,7 +1325,7 @@ function sqliteColumnDef(
 	col: ManifestColumn,
 	table: ManifestTable,
 	manifest: Manifest,
-	assignedFkAs: Map<string, Set<string>>,
+	tracker: PullNameTracker,
 ): string {
 	if (col.kind === "fk" && col.fkTarget) {
 		const targetRef = resolveFkAccessorTarget(col, manifest);
@@ -1230,7 +1334,7 @@ function sqliteColumnDef(
 			col,
 			table,
 			manifest,
-			assignedFkAs,
+			tracker,
 		);
 		let def = `fk("${targetRef}")`;
 		if (relationName !== relName) {
@@ -1241,6 +1345,19 @@ function sqliteColumnDef(
 			: table.accessor;
 		if (col.fkInverse && col.fkInverse !== defaultInverse) {
 			def += `.inverse("${col.fkInverse}")`;
+		} else {
+			const targetAccessor = fkTargetAccessor(col, manifest);
+			if (manifest.tables[targetAccessor]) {
+				const inverseName = pulledFkInverseName(
+					col,
+					table.accessor,
+					targetAccessor,
+					tracker,
+				);
+				if (inverseName !== defaultInverse) {
+					def += `.inverse("${escapeTsString(inverseName)}")`;
+				}
+			}
 		}
 		if (col.onDelete) {
 			def += `.onDelete("${col.onDelete}")`;
@@ -1280,12 +1397,9 @@ export async function introspectMysql(client: DatabaseClient): Promise<string> {
 	return emitPostgresSchema(manifest);
 }
 
-export async function introspectSqlite(
-	client: DatabaseClient,
-): Promise<string> {
-	const manifest = await introspectSqliteToManifest(client);
-
-	const assignedFkAs = new Map<string, Set<string>>();
+/** Emit a `neoorm/schema` TS source from a SQLite-introspected manifest. Exported for tests. */
+export function emitSqliteSchema(manifest: Manifest): string {
+	const tracker = pullNameTracker(manifest);
 	const tableBlocks: string[] = [];
 	for (const table of Object.values(manifest.tables)) {
 		const tsNameBySql = new Map(
@@ -1293,12 +1407,16 @@ export async function introspectSqlite(
 		);
 		const lines: string[] = [tableHeader(table.accessor, table.sqlName)];
 		for (const col of table.columns) {
-			lines.push(
-				`    ${sqliteColumnDef(col, table, manifest, assignedFkAs)}`,
-			);
+			lines.push(`    ${sqliteColumnDef(col, table, manifest, tracker)}`);
 		}
 
-		const extras = emitTableExtras(table, tsNameBySql, undefined, manifest);
+		const extras = emitTableExtras(
+			table,
+			tsNameBySql,
+			undefined,
+			manifest,
+			tracker,
+		);
 
 		if (extras.length > 0) {
 			lines.push(
@@ -1337,6 +1455,13 @@ ${extras.join("\n")}
 		`});`,
 		``,
 	].join("\n");
+}
+
+export async function introspectSqlite(
+	client: DatabaseClient,
+): Promise<string> {
+	const manifest = await introspectSqliteToManifest(client);
+	return emitSqliteSchema(manifest);
 }
 
 function inferColumnNaming(columnNames: string[]): ColumnNaming {

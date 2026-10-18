@@ -475,6 +475,49 @@ describe("relation name collision validation", () => {
 		expect(issuesFrom(schema)).toHaveLength(0);
 	});
 
+	it("reports an fk whose inferred relation name collides with a sibling scalar column", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+			}),
+			audit: table({
+				id: uuid().primary(),
+				// the relation inferred from this fk ("statusChangedBy") collides
+				// with the separate scalar column below, not with the fk itself
+				statusChangedById: fk("users"),
+				statusChangedBy: text(),
+			}),
+		});
+		const issues = issuesFrom(schema);
+
+		expect(issues).toHaveLength(1);
+		expect(atIndex(issues, 0).message).toBe(
+			'Relation "statusChangedBy" on table "audit" collides with the column "audit.statusChangedBy" — the generated query types emit both under the same property name',
+		);
+	});
+
+	it("does not reject the same relation name used by other tables", () => {
+		const schema = defineSchema({
+			users: table({
+				id: uuid().primary(),
+				name: text(),
+			}),
+			// both relation names "user" live in per-table namespaces
+			posts: table({
+				id: uuid().primary(),
+				title: text(),
+				authorId: fk("users"),
+			}),
+			drinks: table({
+				id: uuid().primary(),
+				title: text(),
+				creatorId: fk("users"),
+			}),
+		});
+		expect(issuesFrom(schema)).toHaveLength(0);
+	});
+
 	const workBaseDir = join(
 		import.meta.dirname,
 		"fixtures",
