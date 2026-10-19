@@ -91,13 +91,6 @@ export async function upsertRecord(
 		);
 		result = mapRowToTs(tableIndex, table, row);
 	} else {
-		await runExecute(
-			executor,
-			runtime,
-			{ operation: "upsert", tableAccessor },
-			upsertSql,
-			upsertParams,
-		);
 		const lookups = Object.entries(uniqueWhere);
 		const lookupParams: unknown[] = [];
 		const whereParts = lookups.map(([tsName, value], i) => {
@@ -110,18 +103,43 @@ export async function upsertRecord(
 		if (constraint.whereSql) {
 			whereParts.push(`(${constraint.whereSql})`);
 		}
+		const whereSql =
+			whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
+		// Pre-write row: under contention the post-write re-read can miss
+		// (concurrent delete or unique-key mutation). Capture the real row
+		// before writing so the fallback below can return actual database
+		// state instead of fabricating a row from the request payload —
+		// which would omit DB-computed fields (updatedAt, defaults,
+		// generated columns, the serial PK). Mirrors updateRecord's
+		// `reloaded[0] ?? preRows[0]` fallback.
+		const preRows = await fetchRowsByWhere(
+			executor,
+			runtime,
+			table,
+			tableAccessor,
+			whereSql,
+			lookupParams,
+			"select",
+		);
+		await runExecute(
+			executor,
+			runtime,
+			{ operation: "upsert", tableAccessor },
+			upsertSql,
+			upsertParams,
+		);
 		const rows = await fetchRowsByWhere(
 			executor,
 			runtime,
 			table,
 			tableAccessor,
-			whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "",
+			whereSql,
 			lookupParams,
 			"upsert",
 		);
 		const reloaded = rows[0];
 		if (!reloaded) {
-			result = { ...createData, ...updateData };
+			result = preRows[0] ?? { ...createData, ...updateData };
 		} else {
 			result = reloaded;
 		}

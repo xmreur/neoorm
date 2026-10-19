@@ -95,6 +95,31 @@ describe("findOrCreateSqlite", () => {
 		expect(result.record).toEqual(existing);
 	});
 
+	it("returns the winner's committed row, not the stale create payload", async () => {
+		const winner = {
+			id: "user_1",
+			email: "a@b.com",
+			name: "Grace",
+		};
+		const result = await findOrCreateRecord(
+			sequenceExecutor({
+				insertError: queryError(QueryErrorCode.unique_violation),
+				retryRows: [winner],
+			}),
+			sqliteRuntime(),
+			"users",
+			{
+				where: { email: "a@b.com" },
+				create: { name: "Ada" },
+			},
+		);
+		expect(result.created).toBe(false);
+		// The retry re-reads the database: the record reflects the row the
+		// concurrent writer actually committed, not our create payload.
+		expect(result.record).toEqual(winner);
+		expect(result.record.name).toBe("Grace");
+	});
+
 	it("rethrows not-null errors instead of returning a later find", async () => {
 		const planted = {
 			id: "user_1",
