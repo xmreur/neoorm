@@ -5,6 +5,7 @@ import type {
 	ManifestTable,
 } from "../dialect/types.js";
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import { sanitizeTsIdentifier } from "../utils/case.js";
 import { modelTypeName, pascalCase } from "./manifest-relations.js";
 import type { ValidationType } from "./validation/types.js";
 
@@ -79,10 +80,12 @@ function enumValuesOf(col: ManifestColumn): readonly string[] | null {
 
 function enumAliasSeed(col: ManifestColumn, modelName: string): string {
 	const explicit = col.typeOptions?.name as string | undefined;
+	// DB enum type names are not TS identifiers — pascalCase is not a
+	// sanitizer and the alias is emitted bare as `export type <name> = ...`.
 	if (explicit !== undefined && explicit.length > 0) {
-		return pascalCase(explicit);
+		return sanitizeTsIdentifier(pascalCase(explicit));
 	}
-	return `${modelName}${pascalCase(col.tsName)}`;
+	return sanitizeTsIdentifier(`${modelName}${pascalCase(col.tsName)}`);
 }
 
 /** Collect hoisted `export type X = ...` enum aliases for enum/enumArray columns. */

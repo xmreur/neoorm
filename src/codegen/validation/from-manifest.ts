@@ -5,6 +5,7 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import { getColumnType } from "../../plugins/registry.js";
+import { sanitizeTsIdentifier } from "../../utils/case.js";
 import {
 	modelTypeName,
 	pascalCase,
@@ -342,9 +343,20 @@ function hoistEnums(tables: TableValidation[]): {
 			explicitName !== undefined && explicitName.length > 0
 				? explicitName
 				: fallbackName;
-		let name = pascalCase(seed.length > 0 ? seed : "Enum");
+		// Enum names can come from DB enum type names (attacker-controlled if
+		// they can CREATE TYPE) — pascalCase alone is not a sanitizer, so run
+		// the result through sanitizeTsIdentifier before it is emitted as a
+		// bare identifier in generated validators.
+		let name = sanitizeTsIdentifier(
+			pascalCase(seed.length > 0 ? seed : "Enum"),
+		);
 		if (usedExportNames.has(`${name}Schema`)) {
-			name = `${name}Enum`;
+			let unique = `${name}Enum`;
+			let n = 2;
+			while (usedExportNames.has(`${unique}Schema`)) {
+				unique = `${name}Enum${n++}`;
+			}
+			name = unique;
 		}
 		usedExportNames.add(`${name}Schema`);
 		const entry: ValidationEnum = { name, values };
