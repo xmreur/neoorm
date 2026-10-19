@@ -342,3 +342,71 @@ describe("sqlite placeholder conversion $-quoting", () => {
 		expect(lastNonPragma(prepared)).toBe("SELECT $$ open ?1, id = ?1");
 	});
 });
+
+describe("sqlite REGEXP catastrophic-backtracking guard", () => {
+	// Long enough that an exponential pattern would take far longer than the
+	// test timeout if it ever reached the regex engine.
+	const evilValue = `${"a".repeat(30)}!`;
+
+	it("rejects nested-quantifier patterns on the regexp operator", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await expect(
+			client.query("SELECT ? REGEXP ? AS m", [evilValue, "(a+)+$"]),
+		).rejects.toThrow(/unsafeAllowRegex/);
+		db.close();
+	});
+
+	it("keeps the connection usable and benign patterns matching", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await expect(
+			client.query("SELECT ? REGEXP ? AS m", [evilValue, "(a+)+$"]),
+		).rejects.toThrow();
+		const ok = await client.query("SELECT 1 AS ok");
+		expect(ok.rows[0]?.ok).toBe(1);
+		const benign = await client.query("SELECT ? REGEXP ? AS m", [
+			"hello",
+			"^h",
+		]);
+		expect(benign.rows[0]?.m).toBe(1);
+		db.close();
+	});
+
+	it("guards regexp_i as well as regexp", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await expect(
+			client.query("SELECT regexp_i(?, ?) AS m", ["(a+)+$", evilValue]),
+		).rejects.toThrow(/unsafeAllowRegex/);
+		db.close();
+	});
+
+	it("allows catastrophic patterns when unsafeAllowRegex is set", async () => {
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db, { unsafeAllowRegex: true });
+		// Short non-matching value so the allowed pattern finishes instantly.
+		const result = await client.query("SELECT ? REGEXP ? AS m", [
+			"b",
+			"(a+)+$",
+		]);
+		expect(result.rows[0]?.m).toBe(0);
+		db.close();
+	});
+
+	it("re-registers the guard when the option changes on a shared handle", async () => {
+		const db = new DatabaseSync(":memory:");
+		const guarded = sqliteClient(db);
+		await expect(
+			guarded.query("SELECT ? REGEXP ? AS m", [evilValue, "(a+)+$"]),
+		).rejects.toThrow();
+		const unsafe = sqliteClient(db, { unsafeAllowRegex: true });
+		expect(unsafe).toBe(guarded);
+		const allowed = await unsafe.query("SELECT ? REGEXP ? AS m", [
+			"b",
+			"(a+)+$",
+		]);
+		expect(allowed.rows[0]?.m).toBe(0);
+		db.close();
+	});
+});

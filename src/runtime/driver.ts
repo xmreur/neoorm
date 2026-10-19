@@ -3,6 +3,10 @@ import { splitStatements } from "../sql/split-statements.js";
 import { scanDollarQuoted } from "../sql/template.js";
 import { NeoOrmDriverError } from "./errors.js";
 import {
+	catastrophicRegexMessage,
+	hasCatastrophicBacktracking,
+} from "./regex-guard.js";
+import {
 	assertNoSavepointOptions,
 	buildBeginSql,
 	buildSqliteBeginSql,
@@ -58,6 +62,14 @@ export type SqliteClientOptions = {
 	 * @default true
 	 */
 	wal?: boolean;
+	/**
+	 * Allow `search`/REGEXP patterns that nest unbounded quantifiers
+	 * (e.g. `(a+)+`), which can backtrack exponentially and freeze the
+	 * process because SQLite runs them in-process. The guard rejects such
+	 * patterns by default.
+	 * @default false
+	 */
+	unsafeAllowRegex?: boolean;
 };
 
 const SQLITE_DEFAULT_BUSY_TIMEOUT_MS = 5000;
@@ -211,6 +223,7 @@ function sqliteOptionsKey(options?: SqliteClientOptions): string {
 	return JSON.stringify([
 		options?.busyTimeout ?? SQLITE_DEFAULT_BUSY_TIMEOUT_MS,
 		options?.wal ?? true,
+		options?.unsafeAllowRegex ?? false,
 	]);
 }
 
@@ -239,18 +252,30 @@ function sqliteRegexpMatch(
 	pattern: unknown,
 	value: unknown,
 	flags: string,
+	unsafeAllowRegex: boolean,
 ): number {
 	if (pattern == null || value == null) return 0;
-	return new RegExp(String(pattern), flags).test(String(value)) ? 1 : 0;
+	const source = String(pattern);
+	// SQLite calls this per row on the shared connection's thread; an
+	// exponential-backtracking pattern would freeze the whole process, so
+	// reject the nested-quantifier shape before compiling.
+	if (!unsafeAllowRegex && hasCatastrophicBacktracking(source)) {
+		throw new Error(catastrophicRegexMessage(source));
+	}
+	return new RegExp(source, flags).test(String(value)) ? 1 : 0;
 }
 
-function registerSqliteRegexpFunctions(db: SqliteDatabaseLike): void {
+function registerSqliteRegexpFunctions(
+	db: SqliteDatabaseLike,
+	options?: SqliteClientOptions,
+): void {
 	if (typeof db.function !== "function") return;
+	const unsafeAllowRegex = options?.unsafeAllowRegex === true;
 	db.function("regexp", (pattern: unknown, value: unknown) =>
-		sqliteRegexpMatch(pattern, value, ""),
+		sqliteRegexpMatch(pattern, value, "", unsafeAllowRegex),
 	);
 	db.function("regexp_i", (pattern: unknown, value: unknown) =>
-		sqliteRegexpMatch(pattern, value, "i"),
+		sqliteRegexpMatch(pattern, value, "i", unsafeAllowRegex),
 	);
 }
 
@@ -259,7 +284,7 @@ function applySqlitePragmas(
 	options?: SqliteClientOptions,
 ): void {
 	db.exec("PRAGMA foreign_keys = ON");
-	registerSqliteRegexpFunctions(db);
+	registerSqliteRegexpFunctions(db, options);
 	// Always set busy_timeout (false → 0, the engine default) rather than
 	// skipping, so re-applying options to an already-wrapped connection is
 	// faithful instead of leaving a stale value from a prior wrap.

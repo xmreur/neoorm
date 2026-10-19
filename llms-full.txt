@@ -2923,6 +2923,8 @@ const db = createNeoOrmClient(manifest, {
 
 `busyTimeout` can also be a millisecond wait (`sqlite: { busyTimeout: 10_000 }`).
 
+SQLite runs `search`/`REGEXP` patterns in-process as JavaScript `RegExp`, so a catastrophic-backtracking pattern (e.g. `(a+)+$`) could freeze the whole process. neoorm rejects patterns that nest unbounded quantifiers; pass `sqlite: { unsafeAllowRegex: true }` to allow them anyway.
+
 ### Custom driver
 
 Pass any object implementing `prepare(sql)`, `exec(sql)`, and `close()` — the `node:sqlite` and `bun:sqlite` APIs both match. Useful for sandboxed runtimes or existing database handles:
