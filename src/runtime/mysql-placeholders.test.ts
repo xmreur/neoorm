@@ -25,6 +25,35 @@ describe("convertNumberedToPositional", () => {
 		expect(result.params).toEqual([7]);
 	});
 
+	it("does not rewrite $n inside $-quoted regions", () => {
+		const result = convertNumberedToPositional(
+			"SELECT $$ tmpl $2 $$ AS t WHERE id = $1",
+			["user-id", "must-not-bind"],
+		);
+		expect(result.sql).toBe("SELECT $$ tmpl $2 $$ AS t WHERE id = ?");
+		expect(result.params).toEqual(["user-id"]);
+	});
+
+	it("does not rewrite $n inside tagged $-quoted regions", () => {
+		const result = convertNumberedToPositional(
+			"SELECT $body$ a $1 b $body$ AS t WHERE id = $2",
+			["user-id", "must-not-bind"],
+		);
+		expect(result.sql).toBe(
+			"SELECT $body$ a $1 b $body$ AS t WHERE id = ?",
+		);
+		expect(result.params).toEqual(["must-not-bind"]);
+	});
+
+	it("still converts $n when a $$ region is never closed", () => {
+		const result = convertNumberedToPositional(
+			"SELECT $$ open $1, id = $1",
+			["a"],
+		);
+		expect(result.sql).toBe("SELECT $$ open ?, id = ?");
+		expect(result.params).toEqual(["a", "a"]);
+	});
+
 	it("skips the scanner when SQL has no $N binds", () => {
 		expect(planNumberedToPositional("SELECT * FROM t WHERE a = ?")).toBe(
 			null,

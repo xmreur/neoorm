@@ -1,3 +1,4 @@
+import { scanDollarQuoted } from "../sql/template.js";
 import { compileError } from "./compile-error.js";
 import { QueryErrorCode } from "./error-codes.js";
 import { CappedMap } from "./query/table-index.js";
@@ -105,6 +106,17 @@ export function planNumberedToPositional(sql: string): PositionalPlan | null {
 			inBacktick = true;
 			out += ch;
 			continue;
+		}
+		if (ch === "$") {
+			// Copy $-quoted ($$ … $$ / $tag$ … $tag$) regions verbatim so
+			// `$N`-looking text inside them does not consume a param slot or
+			// corrupt the literal.
+			const dollarEnd = scanDollarQuoted(sql, i);
+			if (dollarEnd !== -1) {
+				out += sql.slice(i, dollarEnd);
+				i = dollarEnd - 1;
+				continue;
+			}
 		}
 		if (ch === "$" && next !== undefined && /\d/.test(next)) {
 			let j = i + 1;
