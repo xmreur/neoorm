@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { mariadbClient } from "./mariadb-driver.js";
-import { type MysqlQueryResult, mysqlClient } from "./mysql-driver.js";
+import {
+	createMysqlPoolFromUrl,
+	MYSQL2_PEER_MISSING,
+	type MysqlQueryResult,
+	mysqlClient,
+} from "./mysql-driver.js";
 import {
 	MARIADB_PREPARE_CACHE_LENGTH,
 	toMariadbPoolConfig,
@@ -69,6 +74,29 @@ describe("toMariadbPoolConfig", () => {
 		expect(config.idleTimeout).toBe(30);
 		expect(config.acquireTimeout).toBe(2_000);
 		expect(config.keepAliveDelay).toBeUndefined();
+	});
+});
+
+describe("createMysqlPoolFromUrl error reporting", () => {
+	it("surfaces a real URL error instead of misreporting it as peer-missing", () => {
+		// mysql2 parses `uri` inside createPool. A malformed URL must throw its
+		// own error, not be swallowed and re-reported as "mysql2 is not
+		// installed" (mysql2 IS installed here — it's a devDependency).
+		expect(() => createMysqlPoolFromUrl("not-a-url")).toThrowError(
+			/Invalid URL/,
+		);
+		expect(() => createMysqlPoolFromUrl("not-a-url")).not.toThrowError(
+			MYSQL2_PEER_MISSING,
+		);
+	});
+
+	it("does not misreport a bad port as peer-missing", () => {
+		expect(() =>
+			createMysqlPoolFromUrl("mysql://localhost:notaport/db"),
+		).toThrowError(/Invalid URL/);
+		expect(() =>
+			createMysqlPoolFromUrl("mysql://localhost:notaport/db"),
+		).not.toThrowError(MYSQL2_PEER_MISSING);
 	});
 });
 
