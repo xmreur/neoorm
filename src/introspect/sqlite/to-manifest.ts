@@ -13,6 +13,7 @@ import {
 	tableAccessorFromSqlName,
 } from "../../utils/case.js";
 import { groupForeignKeyRows, mapReferentialAction } from "../group-fks.js";
+import { setIntrospectedTable } from "../table-map.js";
 
 interface TableInfoRow {
 	cid: number;
@@ -239,7 +240,7 @@ export async function introspectSqliteToManifest(
 	const tables: Manifest["tables"] = {};
 	for (const { name } of tableResult.rows) {
 		const table = await introspectSqliteTable(client, name);
-		tables[table.accessor] = table;
+		setIntrospectedTable(tables, table);
 	}
 
 	return { version: 1, tables, manyToMany: [] };

@@ -13,6 +13,7 @@ import {
 	tableAccessorFromSqlName,
 } from "../../utils/case.js";
 import { groupForeignKeyRows, mapReferentialAction } from "../group-fks.js";
+import { setIntrospectedTable } from "../table-map.js";
 
 type TableRow = { table_name: string };
 
@@ -196,7 +197,7 @@ export async function introspectMysqlToManifest(
 	const tables: Manifest["tables"] = {};
 	for (const { table_name } of tableResult.rows) {
 		const table = await introspectMysqlTable(client, table_name);
-		tables[table.accessor] = table;
+		setIntrospectedTable(tables, table);
 	}
 
 	return { version: 1, tables, manyToMany: [] };

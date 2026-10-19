@@ -94,6 +94,21 @@ describe("sqlite timestamp column type", () => {
 		expect(cols.find((c) => c.sqlName === "amount")?.kind).toBe("decimal");
 		db.close();
 	});
+
+	it("fails fast when two table names map to the same accessor", async () => {
+		const db = new DatabaseSync(":memory:");
+		// my_table and my_tables both pluralize+camelize to accessor "myTables";
+		// without the guard the second table silently replaced the first.
+		db.exec(`CREATE TABLE my_table (id INTEGER PRIMARY KEY, a TEXT)`);
+		db.exec(`CREATE TABLE my_tables (id INTEGER PRIMARY KEY, b TEXT)`);
+
+		await expect(
+			introspectSqliteToManifest(sqliteClient(db)),
+		).rejects.toThrow(
+			/Tables "my_table" and "my_tables" both map to accessor "myTables"/,
+		);
+		db.close();
+	});
 });
 
 describe("sqlite indexes", () => {
