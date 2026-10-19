@@ -1344,7 +1344,7 @@ function sqliteColumnDef(
 			? singularize(table.accessor)
 			: table.accessor;
 		if (col.fkInverse && col.fkInverse !== defaultInverse) {
-			def += `.inverse("${col.fkInverse}")`;
+			def += `.inverse("${escapeTsString(col.fkInverse)}")`;
 		} else {
 			const targetAccessor = fkTargetAccessor(col, manifest);
 			if (manifest.tables[targetAccessor]) {
@@ -1360,13 +1360,13 @@ function sqliteColumnDef(
 			}
 		}
 		if (col.onDelete) {
-			def += `.onDelete("${col.onDelete}")`;
+			def += `.onDelete("${escapeTsString(col.onDelete)}")`;
 		}
 		if (col.onUpdate) {
-			def += `.onUpdate("${col.onUpdate}")`;
+			def += `.onUpdate("${escapeTsString(col.onUpdate)}")`;
 		}
 		if (col.deferrable) {
-			def += `.deferrable("${col.deferrable}")`;
+			def += `.deferrable("${escapeTsString(col.deferrable)}")`;
 		}
 		if (col.primary) {
 			def += ".primary()";
