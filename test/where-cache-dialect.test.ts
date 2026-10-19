@@ -1,4 +1,4 @@
-import { defineSchema, id, table, text } from "neoorm/schema";
+import { defineSchema, id, int, table, text } from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
@@ -105,5 +105,42 @@ describe("where clause cache is dialect-scoped", () => {
 		);
 
 		expect(tableIndex.whereClauseByShape.size).toBe(2);
+	});
+
+	it("does not cross-bind params when operator keys are permuted", () => {
+		const schema = defineSchema({
+			items: table({
+				id: id(),
+				views: int().notNull().default(0),
+			}),
+		});
+		const manifest = schemaToManifest(schema);
+		const tableIndex = buildManifestIndex(manifest, postgresDialect);
+		const items = manifestTable(manifest, "items");
+
+		const first = getCachedWhereClause(
+			manifest,
+			items,
+			{ views: { gte: 10, lte: 5 } },
+			postgresDialect,
+			1,
+			tableIndex,
+		);
+		expect(first.sql).toBe('WHERE "views" >= $1 AND "views" <= $2');
+		expect(first.params).toEqual([10, 5]);
+
+		// Permuted operator order must not hit the first query's shell cache:
+		// the shape key previously sorted operator names while SQL and params
+		// were produced in insertion order, binding [5, 10] to >= $1 AND <= $2.
+		const second = getCachedWhereClause(
+			manifest,
+			items,
+			{ views: { lte: 5, gte: 10 } },
+			postgresDialect,
+			1,
+			tableIndex,
+		);
+		expect(second.sql).toBe('WHERE "views" <= $1 AND "views" >= $2');
+		expect(second.params).toEqual([5, 10]);
 	});
 });
