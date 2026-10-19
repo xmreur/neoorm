@@ -1163,7 +1163,11 @@ export function whereShapeKey(where: Record<string, unknown>): string {
 			continue;
 		}
 		if (isOperatorObject(value) && !(value instanceof Date)) {
-			const ops = Object.keys(value).sort();
+			// Operator keys must follow insertion order: the compiled SQL and
+			// collected params are produced in insertion order too, so the
+			// shape key has to match or permuted operator objects would hit
+			// a cached shell whose placeholders bind the wrong values.
+			const ops = Object.keys(value);
 			if (
 				ops.some(
 					(op) => op === "some" || op === "every" || op === "none",
