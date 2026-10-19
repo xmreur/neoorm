@@ -187,6 +187,32 @@ describe("sqlite production pragmas", () => {
 		expect(await pragmaValue(client, "busy_timeout")).toBe(2500);
 		await client.close();
 	});
+
+	it("re-applies changed pragmas instead of ignoring later options", async () => {
+		// The WeakMap caches one wrapper per db handle. A second call with
+		// different options must honor them (not silently keep the first
+		// wrap's pragmas) while still returning the same wrapper/mutex.
+		const db = new DatabaseSync(":memory:");
+		const first = sqliteClient(db, { busyTimeout: 2500 });
+		const second = sqliteClient(db, { busyTimeout: 100 });
+		expect(second).toBe(first);
+		expect(await pragmaValue(second, "busy_timeout")).toBe(100);
+
+		// busyTimeout: false must reset to the engine default (0), not leave
+		// the prior 100 in place.
+		const third = sqliteClient(db, { busyTimeout: false });
+		expect(third).toBe(first);
+		expect(await pragmaValue(third, "busy_timeout")).toBe(0);
+		await first.close();
+	});
+
+	it("keeps one wrapper for identical options", async () => {
+		const db = new DatabaseSync(":memory:");
+		const a = sqliteClient(db, { busyTimeout: 1234 });
+		const b = sqliteClient(db, { busyTimeout: 1234 });
+		expect(b).toBe(a);
+		await a.close();
+	});
 });
 
 describe("sqlite placeholders", () => {
