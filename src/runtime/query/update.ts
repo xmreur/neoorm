@@ -165,9 +165,17 @@ function compileUpdateManyWhere(
 		1,
 		runtime.tableIndex,
 	);
+	// On MySQL/MariaDB the SQL is `UPDATE t JOIN ... ON ... SET ... WHERE
+	// <join conditions> AND <rest>` and `?` placeholders bind positionally,
+	// so params must follow SQL text order: join params first. On numbered
+	// placeholder dialects ($N) rest placeholders are $1..N and join
+	// placeholders start at N+1, so rest must come first.
+	const updateWhereParams = isMysqlFamilyDialect(dialect)
+		? [...plan.params, ...rest.params]
+		: [...rest.params, ...plan.params];
 	return {
 		updateWhereSql: parts.length > 0 ? `WHERE ${parts.join(" AND ")}` : "",
-		updateWhereParams: [...rest.params, ...plan.params],
+		updateWhereParams,
 		selectWhereSql: select.sql,
 		selectWhereParams: select.params,
 		joins: plan.joins.map((j) => ({

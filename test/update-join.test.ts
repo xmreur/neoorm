@@ -43,6 +43,62 @@ describe("updateMany JOIN updates", () => {
 		expect(update?.params).toEqual(["Hi", "a@b.com"]);
 	});
 
+	it("orders join params before rest params on mysql (positional ?)", async () => {
+		const runtime = runtimeFor(mysqlDialect);
+		const executor = createMockExecutor();
+
+		await updateManyRecords(executor, runtime, "posts", {
+			where: {
+				author: { email: "AUTHOR_MATCH" },
+				views: { gte: 100 },
+			},
+			data: { title: "SET_VALUE" },
+		});
+
+		const update = executor.queries.find((q) => q.sql.startsWith("UPDATE"));
+		// SQL text order is: SET placeholder, then JOIN condition, then rest
+		// condition — `?` binds positionally, so params must follow suit.
+		expect(update?.sql).toBe(
+			"UPDATE `posts` INNER JOIN `users` AS `_uj` ON `_uj`.`id` = `posts`.`author_id` SET `posts`.`title` = ?, `updated_at` = CURRENT_TIMESTAMP(6) WHERE `_uj`.`email` = ? AND `views` >= ?",
+		);
+		expect(update?.params).toEqual(["SET_VALUE", "AUTHOR_MATCH", 100]);
+	});
+
+	it("orders join params before rest params on mariadb (positional ?)", async () => {
+		const runtime = runtimeFor(mariadbDialect);
+		const executor = createMockExecutor();
+
+		await updateManyRecords(executor, runtime, "posts", {
+			where: {
+				author: { email: "AUTHOR_MATCH" },
+				views: { gte: 100 },
+			},
+			data: { title: "SET_VALUE" },
+		});
+
+		const update = executor.queries.find((q) => q.sql.startsWith("UPDATE"));
+		expect(update?.params).toEqual(["SET_VALUE", "AUTHOR_MATCH", 100]);
+	});
+
+	it("keeps rest-then-join params on postgres $N join updates", async () => {
+		const runtime = runtimeFor(postgresDialect);
+		const executor = createMockExecutor();
+
+		await updateManyRecords(executor, runtime, "posts", {
+			where: {
+				author: { email: "AUTHOR_MATCH" },
+				views: { gte: 100 },
+			},
+			data: { title: "SET_VALUE" },
+			useJoin: true,
+		});
+
+		const update = executor.queries.find((q) => q.sql.startsWith("UPDATE"));
+		expect(update?.sql).toContain('"_uj"."email" = $3');
+		expect(update?.sql).toContain('"views" >= $2');
+		expect(update?.params).toEqual(["SET_VALUE", 100, "AUTHOR_MATCH"]);
+	});
+
 	it("uses EXISTS on mysql when useJoin is false", async () => {
 		const runtime = runtimeFor(mysqlDialect);
 		const executor = createMockExecutor();
