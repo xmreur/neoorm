@@ -5,11 +5,18 @@ import { SchemaErrorCode } from "./error-codes.js";
 
 const require = createRequire(import.meta.url);
 
-const POSTGRES_URL = /^(postgres(ql)?:)/i;
+// A `scheme://` prefix marks a connection URL. Only `file:`/`sqlite:` are
+// valid SQLite URIs; every other scheme (postgres://, mysql://, mariadb://, …)
+// is another engine's connection URL and must never become a literal file path.
+const URL_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
+const SQLITE_URI_SCHEMES = new Set(["file", "sqlite"]);
 
 function usableSqlitePath(path: string | undefined): string | undefined {
 	if (!path) return undefined;
-	if (POSTGRES_URL.test(path)) return undefined;
+	const scheme = URL_SCHEME.exec(path)?.[1]?.toLowerCase();
+	if (scheme !== undefined && !SQLITE_URI_SCHEMES.has(scheme)) {
+		return undefined;
+	}
 	return path;
 }
 
@@ -30,25 +37,38 @@ export function openSqliteDatabase(databasePath: string): SqliteDatabaseLike {
 	const bunRuntime =
 		typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
 	if (bunRuntime) {
+		let Database: (new (path: string) => SqliteDatabaseLike) | undefined;
 		try {
-			const { Database } = require("bun:sqlite") as {
-				Database: new (path: string) => SqliteDatabaseLike;
-			};
-			return new Database(databasePath);
+			Database = (
+				require("bun:sqlite") as {
+					Database: new (path: string) => SqliteDatabaseLike;
+				}
+			).Database;
 		} catch {
-			// fall through to node:sqlite
+			// bun:sqlite unavailable — fall through to node:sqlite
+		}
+		if (Database) {
+			// Open outside the require try: a real open failure (bad path,
+			// permissions, is-a-directory) must surface as itself, not be
+			// conflated with a missing driver.
+			return new Database(databasePath);
 		}
 	}
 
+	let DatabaseSync: (new (path: string) => SqliteDatabaseLike) | undefined;
 	try {
-		const { DatabaseSync } = require("node:sqlite") as {
-			DatabaseSync: new (path: string) => SqliteDatabaseLike;
-		};
-		return new DatabaseSync(databasePath);
+		DatabaseSync = (
+			require("node:sqlite") as {
+				DatabaseSync: new (path: string) => SqliteDatabaseLike;
+			}
+		).DatabaseSync;
 	} catch {
 		throw schemaError(
 			SchemaErrorCode.invalid_config,
 			"No SQLite driver available. Provide a `db` instance, or run on Bun or Node.js 22.5+ so `databasePath` can be opened automatically.",
 		);
 	}
+	// Open outside the require try: a real open failure must surface as itself,
+	// not be reported as "No SQLite driver available".
+	return new DatabaseSync(databasePath);
 }
