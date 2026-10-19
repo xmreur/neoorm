@@ -1,5 +1,6 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
 import { splitStatements } from "../sql/split-statements.js";
+import { scanDollarQuoted } from "../sql/template.js";
 import { NeoOrmDriverError } from "./errors.js";
 import {
 	assertNoSavepointOptions,
@@ -129,6 +130,16 @@ function convertPlaceholders(sql: string): string {
 			inDouble = true;
 			out += ch;
 			continue;
+		}
+		if (ch === "$") {
+			// Copy $-quoted ($$ … $$ / $tag$ … $tag$) regions verbatim so
+			// `$N`-looking text inside them is not rewritten to a placeholder.
+			const dollarEnd = scanDollarQuoted(sql, i);
+			if (dollarEnd !== -1) {
+				out += sql.slice(i, dollarEnd);
+				i = dollarEnd - 1;
+				continue;
+			}
 		}
 		if (ch === "$" && next !== undefined && /\d/.test(next)) {
 			out += "?";

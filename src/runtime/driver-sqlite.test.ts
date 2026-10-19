@@ -266,3 +266,53 @@ describe("sqlite readOnly transactions", () => {
 		await client.close();
 	});
 });
+
+describe("sqlite placeholder conversion $-quoting", () => {
+	function recordingClient(): {
+		client: ReturnType<typeof sqliteClient>;
+		prepared: string[];
+	} {
+		const prepared: string[] = [];
+		const fake = {
+			prepare(sql: string) {
+				prepared.push(sql);
+				return {
+					all: () => [] as Record<string, unknown>[],
+					get: () => undefined,
+					run: () => ({ changes: 0, lastInsertRowid: 0 }),
+				};
+			},
+			exec(sql: string) {
+				prepared.push(sql);
+			},
+			close() {},
+		};
+		return { client: sqliteClient(fake), prepared };
+	}
+
+	function lastNonPragma(prepared: string[]): string {
+		return prepared.find((sql) => !sql.startsWith("PRAGMA")) ?? "";
+	}
+
+	it("copies $-quoted regions verbatim while converting real placeholders", async () => {
+		const { client, prepared } = recordingClient();
+		await client.query("SELECT $1, $$ body with $2 $$ AS b", ["a", "b"]);
+		expect(lastNonPragma(prepared)).toBe(
+			"SELECT ?1, $$ body with $2 $$ AS b",
+		);
+	});
+
+	it("copies tagged $-quoted regions verbatim", async () => {
+		const { client, prepared } = recordingClient();
+		await client.query("SELECT $1, $body$ keep $2 $body$ AS b", ["a", "b"]);
+		expect(lastNonPragma(prepared)).toBe(
+			"SELECT ?1, $body$ keep $2 $body$ AS b",
+		);
+	});
+
+	it("still converts $n when a $$ region is never closed", async () => {
+		const { client, prepared } = recordingClient();
+		await client.query("SELECT $$ open $1, id = $1", ["a"]);
+		expect(lastNonPragma(prepared)).toBe("SELECT $$ open ?1, id = ?1");
+	});
+});
