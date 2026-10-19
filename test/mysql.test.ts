@@ -1,9 +1,17 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
 import type { Manifest } from "../src/dialect/types.js";
 import { introspectMysqlToManifest } from "../src/introspect/mysql/to-manifest.js";
-import { dbPush, migrateReset } from "../src/migrate/runner.js";
+import {
+	applyMigration,
+	dbPush,
+	ensureMigrationsTable,
+	migrateReset,
+} from "../src/migrate/runner.js";
 import {
 	createNeoOrmClient,
 	createNeoOrmClientFromMysql,
@@ -211,6 +219,58 @@ describeMysql("mysql runtime", () => {
 			await db.$connect();
 		} finally {
 			await db.$disconnect();
+		}
+	});
+
+	it("creates the migrations ledger (reserved-word alias regression)", async () => {
+		const { client } = await setup();
+		try {
+			// pre-fix: `SELECT COUNT(*) AS exists` was ER 1064 on MySQL
+			await ensureMigrationsTable(client, mysqlDialect);
+			// second run takes the probe-with-column-present path
+			await ensureMigrationsTable(client, mysqlDialect);
+		} finally {
+			await client.close();
+		}
+	});
+
+	it("applies a multi-statement migration file (ER_PARSE_ERROR regression)", async () => {
+		const { client } = await setup();
+		const root = await mkdtemp(join(tmpdir(), "neoorm-mysql-mig-"));
+		const name = "20200101_split";
+		const migrationsDir = join(root, "migrations");
+		await mkdir(join(migrationsDir, name), { recursive: true });
+		await writeFile(
+			join(migrationsDir, name, "migration.sql"),
+			"CREATE TABLE `mig_a` (id INT PRIMARY KEY);\n\nCREATE TABLE `mig_b` (id INT PRIMARY KEY, note VARCHAR(50) DEFAULT 'a;b');",
+			"utf-8",
+		);
+		try {
+			await ensureMigrationsTable(client, mysqlDialect);
+			// pre-fix: whole file in one query was ER_PARSE_ERROR
+			await applyMigration(client, mysqlDialect, migrationsDir, name);
+
+			const tables = await client.query(
+				"SELECT COUNT(*) AS mig_tables FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('mig_a', 'mig_b')",
+			);
+			expect(Number(Object.values(tables.rows[0] ?? {})[0] ?? 0)).toBe(2);
+
+			const applied = await client.query(
+				"SELECT COUNT(*) AS mig_rows FROM `_neoorm_migrations` WHERE name = $1",
+				[name],
+			);
+			expect(Number(Object.values(applied.rows[0] ?? {})[0] ?? 0)).toBe(
+				1,
+			);
+		} finally {
+			await client.query("DROP TABLE IF EXISTS `mig_b`");
+			await client.query("DROP TABLE IF EXISTS `mig_a`");
+			await client.query(
+				"DELETE FROM `_neoorm_migrations` WHERE name = $1",
+				[name],
+			);
+			await rm(root, { recursive: true, force: true });
+			await client.close();
 		}
 	});
 });
