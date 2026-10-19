@@ -202,18 +202,36 @@ async function executeWriteStatements(
 	return { rows: [], rowCount: changes };
 }
 
-const sqliteClients = new WeakMap<SqliteDatabaseLike, DatabaseClient>();
+const sqliteClients = new WeakMap<
+	SqliteDatabaseLike,
+	{ client: DatabaseClient; optionsKey: string }
+>();
+
+function sqliteOptionsKey(options?: SqliteClientOptions): string {
+	return JSON.stringify([
+		options?.busyTimeout ?? SQLITE_DEFAULT_BUSY_TIMEOUT_MS,
+		options?.wal ?? true,
+	]);
+}
 
 export function sqliteClient(
 	db: SqliteDatabaseLike,
 	options?: SqliteClientOptions,
 ): DatabaseClient {
+	const optionsKey = sqliteOptionsKey(options);
 	const cached = sqliteClients.get(db);
 	if (cached) {
-		return cached;
+		// Keep the single wrapper per handle (one FIFO mutex serializes the
+		// shared connection), but honor changed PRAGMA options by re-applying
+		// them instead of silently ignoring them.
+		if (cached.optionsKey !== optionsKey) {
+			applySqlitePragmas(db, options);
+			cached.optionsKey = optionsKey;
+		}
+		return cached.client;
 	}
 	const client = createSqliteClient(db, options);
-	sqliteClients.set(db, client);
+	sqliteClients.set(db, { client, optionsKey });
 	return client;
 }
 
@@ -242,13 +260,16 @@ function applySqlitePragmas(
 ): void {
 	db.exec("PRAGMA foreign_keys = ON");
 	registerSqliteRegexpFunctions(db);
-	if (options?.busyTimeout !== false) {
-		const ms =
-			typeof options?.busyTimeout === "number"
+	// Always set busy_timeout (false → 0, the engine default) rather than
+	// skipping, so re-applying options to an already-wrapped connection is
+	// faithful instead of leaving a stale value from a prior wrap.
+	const busyTimeoutMs =
+		options?.busyTimeout === false
+			? 0
+			: typeof options?.busyTimeout === "number"
 				? Math.max(0, Math.trunc(options.busyTimeout))
 				: SQLITE_DEFAULT_BUSY_TIMEOUT_MS;
-		db.exec(`PRAGMA busy_timeout = ${ms}`);
-	}
+	db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
 	if (options?.wal !== false) {
 		try {
 			db.exec("PRAGMA journal_mode = WAL");
