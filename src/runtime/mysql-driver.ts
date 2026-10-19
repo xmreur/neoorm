@@ -46,16 +46,22 @@ export function createMysqlPoolFromUrl(
 	url: string,
 	pool?: MysqlFamilyPoolOptions,
 ): MysqlPoolLike {
+	let createPool: (
+		config: ReturnType<typeof toMysql2PoolConfig>,
+	) => MysqlPoolLike;
 	try {
 		const mysql = createRequire(import.meta.url)("mysql2/promise") as {
 			createPool: (
 				config: ReturnType<typeof toMysql2PoolConfig>,
 			) => MysqlPoolLike;
 		};
-		return mysql.createPool(toMysql2PoolConfig(url, pool));
+		createPool = mysql.createPool;
 	} catch {
 		throw new Error(MYSQL2_PEER_MISSING);
 	}
+	// Outside the peer-missing try: a bad URL/config thrown by mysql2 must
+	// surface as itself, not be misreported as "mysql2 is not installed".
+	return createPool(toMysql2PoolConfig(url, pool));
 }
 
 function toDriverResult<T>(payload: MysqlQueryResult): DriverResult<T> {
