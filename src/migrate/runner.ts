@@ -14,6 +14,7 @@ import {
 	quoteQualifiedIdentifier,
 	resolvePgSchemaName,
 } from "../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../dialect/resolve.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import { introspectMysqlToManifest } from "../introspect/mysql/to-manifest.js";
 import { introspectSqliteToManifest } from "../introspect/sqlite/to-manifest.js";
@@ -28,8 +29,22 @@ import {
 	type MigrateContext,
 	resolveMigrateContext,
 } from "../runtime/schema-error.js";
+import { splitStatements } from "../sql/split-statements.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
+
+/**
+ * MySQL/MariaDB connections run a single statement per query
+ * (`multipleStatements` is off), so a whole migration file would come back
+ * as ER_PARSE_ERROR — split it into statements first. Other dialects accept
+ * multi-statement payloads and keep their existing error reporting.
+ */
+function migrationFileStatements(dialect: Dialect, sql: string): string[] {
+	const statements = isMysqlFamilyDialect(dialect)
+		? splitStatements(sql, { backslashEscapes: true })
+		: [sql];
+	return statements.filter((statement) => statement.trim().length > 0);
+}
 
 /** int4 classid for `pg_advisory_xact_lock` — distinct from table OIDs. */
 const PG_MIGRATE_LOCK_CLASSID = 872014;
@@ -78,15 +93,19 @@ async function migrationsLedgerHasChecksumColumn(
 		}
 		case "mysql":
 		case "mariadb": {
-			const result = await client.query<{ exists: number | string }>(
-				`SELECT COUNT(*) AS exists
+			// `exists` is a reserved word on MySQL/MariaDB — an unquoted alias
+			// is a ER 1064 syntax error, unlike on PostgreSQL.
+			const result = await client.query<{
+				checksum_count: number | string;
+			}>(
+				`SELECT COUNT(*) AS checksum_count
 				 FROM information_schema.COLUMNS
 				 WHERE TABLE_SCHEMA = DATABASE()
 				   AND TABLE_NAME = $1
 				   AND COLUMN_NAME = 'checksum'`,
 				[MIGRATIONS_TABLE],
 			);
-			return Number(result.rows[0]?.exists ?? 0) > 0;
+			return Number(result.rows[0]?.checksum_count ?? 0) > 0;
 		}
 		case "postgresql": {
 			const schemaName = resolvePgSchemaName(schema);
@@ -776,7 +795,9 @@ export async function applyMigration(
 				if (schemaSql) {
 					await tx.query(schemaSql);
 				}
-				await tx.query(sql);
+				for (const statement of migrationFileStatements(dialect, sql)) {
+					await tx.query(statement);
+				}
 				await tx.query(
 					`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum) VALUES ($1, $2)`,
 					[name, hashMigrationSql(sql)],
@@ -900,8 +921,8 @@ export async function revertMigration(
 	const sql = await readDownSql(migrationsDir, name);
 
 	await client.transaction(async (tx) => {
-		if (sql.trim().length > 0) {
-			await tx.query(sql);
+		for (const statement of migrationFileStatements(dialect, sql)) {
+			await tx.query(statement);
 		}
 		await tx.query(
 			`DELETE FROM ${migrationsTableRef(dialect, schema)} WHERE name = $1`,

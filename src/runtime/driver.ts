@@ -1,4 +1,5 @@
 import type { Pool, PoolClient, QueryResult } from "pg";
+import { splitStatements } from "../sql/split-statements.js";
 import { NeoOrmDriverError } from "./errors.js";
 import {
 	assertNoSavepointOptions,
@@ -165,93 +166,6 @@ function serializeParam(value: unknown): unknown {
 
 function sqliteRows(result: Record<string, unknown>[]): DriverResult {
 	return { rows: result, rowCount: result.length };
-}
-
-function splitStatements(sql: string): string[] {
-	const statements: string[] = [];
-	let current = "";
-	let inSingle = false;
-	let inDouble = false;
-	let inLineComment = false;
-	let inBlockComment = false;
-
-	for (let i = 0; i < sql.length; i++) {
-		const ch = sql[i];
-		const next = sql[i + 1];
-
-		if (inLineComment) {
-			current += ch;
-			if (ch === "\n") inLineComment = false;
-			continue;
-		}
-		if (inBlockComment) {
-			current += ch;
-			if (ch === "*" && next === "/") {
-				current += next;
-				i++;
-				inBlockComment = false;
-			}
-			continue;
-		}
-		if (inSingle) {
-			current += ch;
-			if (ch === "'") {
-				if (next === "'") {
-					current += next;
-					i++;
-				} else {
-					inSingle = false;
-				}
-			}
-			continue;
-		}
-		if (inDouble) {
-			current += ch;
-			if (ch === '"') {
-				if (next === '"') {
-					current += next;
-					i++;
-				} else {
-					inDouble = false;
-				}
-			}
-			continue;
-		}
-		if (ch === "-" && next === "-") {
-			inLineComment = true;
-			current += ch;
-			continue;
-		}
-		if (ch === "/" && next === "*") {
-			inBlockComment = true;
-			current += ch;
-			continue;
-		}
-		if (ch === "'") {
-			inSingle = true;
-			current += ch;
-			continue;
-		}
-		if (ch === '"') {
-			inDouble = true;
-			current += ch;
-			continue;
-		}
-		if (ch === ";") {
-			if (current.trim().length > 0) {
-				statements.push(current.trim());
-			}
-			current = "";
-			continue;
-		}
-		current += ch;
-	}
-
-	if (current.trim().length > 0) {
-		statements.push(current.trim());
-	}
-
-	return statements.length > 0 ? statements : [sql];
 }
 
 async function executeWriteStatements(
