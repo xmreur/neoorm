@@ -44,6 +44,8 @@ export const SchemaErrorCode = {
 	duplicate_relation: "duplicate_relation",
 	schema_compile_error: "schema_compile_error",
 	duplicate_table_sql_name: "duplicate_table_sql_name",
+	duplicate_table_accessor: "duplicate_table_accessor",
+	duplicate_model_name: "duplicate_model_name",
 	unknown_fk_target: "unknown_fk_target",
 	unknown_fk_column: "unknown_fk_column",
 	unknown_column_kind: "unknown_column_kind",

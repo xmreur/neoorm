@@ -64,6 +64,7 @@ import {
 } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import { singularize } from "../utils/inflect.js";
+import { modelTypeName } from "./manifest-relations.js";
 
 export type SchemaValidationIssue = {
 	code: string;
@@ -2003,6 +2004,27 @@ export function validateManifest(manifest: Manifest): SchemaValidationIssue[] {
 		for (const issue of checkRelationNames(table)) {
 			errors.push(issue);
 		}
+	}
+
+	// Model names are the PascalCase singular of the accessor and become bare
+	// `export const <Model>Schema` identifiers. Two distinct accessors can
+	// collapse to one model name (my_tables & myTable → MyTable), which emits
+	// duplicate exports that do not compile. Fail fast with the colliding pair.
+	const accessorsByModelName = new Map<string, string>();
+	for (const table of Object.values(manifest.tables)) {
+		const modelName = modelTypeName(table.accessor);
+		const prior = accessorsByModelName.get(modelName);
+		if (prior !== undefined && prior !== table.accessor) {
+			errors.push({
+				code: "duplicate_model_name",
+				message: `Tables "${prior}" and "${table.accessor}" both map to model name "${modelName}"`,
+				suggestions: [
+					"Model names are the PascalCase singular of the accessor, so accessors differing only by case or pluralization collide",
+					"Rename one of the tables so their singular model names differ",
+				],
+			});
+		}
+		accessorsByModelName.set(modelName, table.accessor);
 	}
 
 	return errors;

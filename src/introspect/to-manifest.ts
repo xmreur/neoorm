@@ -35,6 +35,7 @@ import {
 	queryTables,
 	queryUniqueConstraints,
 } from "./queries.js";
+import { setIntrospectedTable } from "./table-map.js";
 
 function isSerialColumn(
 	dataType: string,
@@ -640,7 +641,7 @@ export async function introspectToManifest(
 			enumTypes,
 			schema,
 		);
-		manifestTables[table.accessor] = table;
+		setIntrospectedTable(manifestTables, table);
 	}
 
 	const knownExtensions = new Set(collectExtensions(getPluginRegistry()));

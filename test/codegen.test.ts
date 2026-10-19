@@ -572,3 +572,74 @@ export const schema = defineSchema({
 		await expect(readdir(outDir)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });
+
+describe("model name collision validation", () => {
+	function modelNameIssues(
+		manifest: Parameters<typeof validateManifest>[0],
+	): SchemaValidationIssue[] {
+		return validateManifest(manifest).filter(
+			(issue) => issue.code === "duplicate_model_name",
+		);
+	}
+
+	function bareManifest(
+		tables: Record<string, { accessor: string; sqlName: string }>,
+	): Parameters<typeof validateManifest>[0] {
+		return {
+			version: 1,
+			defaults: {},
+			enumTypes: {},
+			manyToMany: [],
+			tables: Object.fromEntries(
+				Object.entries(tables).map(([key, t]) => [
+					key,
+					{
+						accessor: t.accessor,
+						sqlName: t.sqlName,
+						columns: [
+							{
+								tsName: "id",
+								sqlName: "id",
+								kind: "text",
+								nullable: false,
+								unique: false,
+								primary: true,
+								defaultNow: false,
+								storageSqlType: "TEXT",
+							},
+						],
+						relations: [],
+						indexes: [],
+						primaryKey: ["id"],
+					},
+				]),
+			),
+		} as Parameters<typeof validateManifest>[0];
+	}
+
+	it("reports two accessors that collapse to one model name", () => {
+		// my_tables → singularize → my_table → MyTable; myTables → MyTable.
+		// Without this, codegen emits `export const MyTableSchema` twice.
+		const issues = modelNameIssues(
+			bareManifest({
+				a: { accessor: "my_tables", sqlName: "my_tables" },
+				b: { accessor: "myTables", sqlName: "myTables" },
+			}),
+		);
+
+		expect(issues).toHaveLength(1);
+		expect(atIndex(issues, 0).message).toBe(
+			'Tables "my_tables" and "myTables" both map to model name "MyTable"',
+		);
+	});
+
+	it("accepts accessors with distinct model names", () => {
+		const issues = modelNameIssues(
+			bareManifest({
+				a: { accessor: "posts", sqlName: "posts" },
+				b: { accessor: "users", sqlName: "users" },
+			}),
+		);
+		expect(issues).toHaveLength(0);
+	});
+});
