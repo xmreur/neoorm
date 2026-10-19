@@ -285,11 +285,39 @@ function pluginWhereOperators(
 	return getColumnType(col.kind)?.whereOperators ?? {};
 }
 
+/**
+ * SQLite binds NaN as NULL — silently corrupting writes — and `= NaN`
+ * becomes `= NULL`, which matches nothing. The MySQL family turns NaN
+ * binds into the same silent no-match. PostgreSQL stores NaN as a
+ * legitimate float value (`= NaN` matches NaN rows there), so only
+ * dialects that cannot round-trip it reject the value up front.
+ */
+function assertBindableNumber(
+	col: ManifestColumn,
+	value: unknown,
+	dialect: Dialect,
+): void {
+	if (typeof value !== "number" || !Number.isNaN(value)) return;
+	if (dialect.name === "postgresql") return;
+	const reason =
+		dialect.name === "sqlite"
+			? "SQLite binds NaN as NULL, silently corrupting writes, and `= NaN` matches nothing"
+			: "MySQL/MariaDB cannot store NaN and `= NaN` matches nothing";
+	compileError(
+		`NaN is not a bindable value for column "${col.tsName}": ${reason}`,
+		{
+			code: QueryErrorCode.invalid_args,
+			columnTsName: col.tsName,
+		},
+	);
+}
+
 export function serializeColumnValue(
 	col: ManifestColumn,
 	value: unknown,
 	dialect: Dialect = postgresDialect,
 ): unknown {
+	assertBindableNumber(col, value, dialect);
 	if (col.kind === "fk") return value;
 	const plugin = getColumnType(col.kind);
 	if (plugin?.serializeValue) {
