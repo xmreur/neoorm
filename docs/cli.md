@@ -16,7 +16,7 @@ On a TTY, `neoorm init` opens a Clack wizard (provider, database URL, schema pat
 
 Options:
 - `--provider <provider>` — `postgresql` (default), `sqlite`, `mysql`, or `mariadb`. `postgres` and `pg` are aliases of `postgresql`. If omitted on a TTY, prompts to choose.
-- `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite, `mysql://root@localhost:3306/myapp` for mysql, `mariadb://root@localhost:3306/myapp` for mariadb). Control characters are rejected. Quotes, whitespace, and backslashes are escaped in `neoorm.config.ts` and `.env.example`.
+- `--database-url <url>` — override database URL / file path (default: `postgresql://postgres:postgres@localhost:5432/myapp` for postgres, `./dev.db` for sqlite, `mysql://root@localhost:3306/myapp` for mysql, `mariadb://root@localhost:3306/myapp` for mariadb). Control characters are rejected. Quotes, whitespace, and backslashes are escaped in `neoorm.config.ts` and `.env.example`. When the provider is sqlite, a non-SQLite `scheme://` URL is rejected.
 - `--schema <path>` — schema file path (default: `./schema.ts`). Must end in `.ts`, `.mts`, or `.cts`, stay inside the project directory, and must not be `neoorm.config.ts`.
 - `--out <dir>` — generated output directory (default: `./neoorm`). Must stay inside the project directory, and cannot be the project directory, the schema file, or `neoorm.config.ts`.
 - `--force` — overwrite existing scaffold files without confirming

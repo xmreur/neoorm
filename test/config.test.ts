@@ -567,6 +567,20 @@ export default {
 		);
 	});
 
+	it("rejects a SQLite config whose url is another engine's connection URL", async () => {
+		await withConfigFile(
+			configSource(`{
+    provider: "sqlite",
+    url: "mysql://root@localhost:3306/myapp",
+  }`),
+			async (dir) => {
+				await expect(loadConfig(dir)).rejects.toThrow(
+					/datasource\.url is a mysql connection URL, not a SQLite database path/,
+				);
+			},
+		);
+	});
+
 	it("rejects a non-object seed", async () => {
 		await withConfigFile(
 			`

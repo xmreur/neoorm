@@ -11,12 +11,20 @@ const require = createRequire(import.meta.url);
 const URL_SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
 const SQLITE_URI_SCHEMES = new Set(["file", "sqlite"]);
 
+/**
+ * Scheme of another engine's connection URL (`mysql`, `postgresql`, …).
+ * `file` and `sqlite` are SQLite URIs. Paths and `:memory:` have no scheme.
+ */
+export function foreignDatabaseScheme(value: string): string | undefined {
+	const scheme = URL_SCHEME.exec(value.trim())?.[1]?.toLowerCase();
+	if (scheme === undefined || SQLITE_URI_SCHEMES.has(scheme))
+		return undefined;
+	return scheme;
+}
+
 function usableSqlitePath(path: string | undefined): string | undefined {
 	if (!path) return undefined;
-	const scheme = URL_SCHEME.exec(path)?.[1]?.toLowerCase();
-	if (scheme !== undefined && !SQLITE_URI_SCHEMES.has(scheme)) {
-		return undefined;
-	}
+	if (foreignDatabaseScheme(path) !== undefined) return undefined;
 	return path;
 }
 
