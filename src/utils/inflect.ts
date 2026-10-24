@@ -15,6 +15,7 @@ const UNCOUNTABLE = new Set([
 	"trout",
 ]);
 
+/** Keep in sync with `IrregularSingular` in `src/schema/relation-types.ts`. */
 const IRREGULAR_SINGULAR: Record<string, string> = {
 	people: "person",
 	children: "child",
@@ -24,6 +25,16 @@ const IRREGULAR_SINGULAR: Record<string, string> = {
 	geese: "goose",
 	teeth: "tooth",
 	feet: "foot",
+	// -ie nouns add -s; reversing consonant+ies → y would emit cooky/movy.
+	cookies: "cookie",
+	movies: "movie",
+	zombies: "zombie",
+	hoodies: "hoodie",
+	calories: "calorie",
+	selfies: "selfie",
+	rookies: "rookie",
+	brownies: "brownie",
+	smoothies: "smoothie",
 };
 
 const CONSONANT = "bcdfghjklmnpqrstvwxz";
@@ -59,6 +70,7 @@ export function singularize(word: string): string {
 	const irregular = IRREGULAR_SINGULAR[lower];
 	if (irregular !== undefined) return applyCasing(word, irregular);
 
+	// cities → city (consonant + y). Not cookie/movie — those are irregular.
 	if (
 		word.length > 4 &&
 		isConsonant(word.charAt(word.length - 4)) &&
