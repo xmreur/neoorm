@@ -18,7 +18,7 @@ import {
 	suggestRelation,
 	suggestTsColumn,
 } from "../error-hints.js";
-import type { QueryOperation } from "../errors.js";
+import { type QueryOperation, sanitizeErrorText } from "../errors.js";
 import {
 	buildCountAllQuery,
 	buildDeleteByPkQuery,
@@ -496,7 +496,7 @@ export function requireTable(
 	const suggestions = [
 		"Table accessors use camelCase keys from defineSchema({ ... })",
 		...didYouMean(accessor, accessors).map(
-			(match) => `Did you mean "${match}"?`,
+			(match) => `Did you mean "${sanitizeErrorText(match)}"?`,
 		),
 		`Valid table accessors: ${formatCandidateList(accessors)}`,
 	];
