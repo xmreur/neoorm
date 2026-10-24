@@ -1,3 +1,4 @@
+import { tsMemberAccess, tsPropertyKey } from "../codegen/ts-syntax.js";
 import { manifestIndexKeys } from "../dialect/shared.js";
 import type {
 	Manifest,
@@ -160,10 +161,20 @@ function pulledFkInverseName(
 }
 
 function tableHeader(accessor: string, sqlName: string): string {
+	const key = tsPropertyKey(accessor);
 	if (sqlName === accessor) {
-		return `  ${accessor}: table({`;
+		return `  ${key}: table({`;
 	}
-	return `  ${accessor}: table("${escapeTsString(sqlName)}", {`;
+	return `  ${key}: table("${escapeTsString(sqlName)}", {`;
+}
+
+/** `t.col` or `t["raw sql"]` when the tsName lookup falls back to a SQL name. */
+function tColumnRef(tsNameBySql: Map<string, string>, sqlName: string): string {
+	return tsMemberAccess("t", tsNameBySql.get(sqlName) ?? sqlName);
+}
+
+function whereField(ts: string, expr: string): string {
+	return `${tsPropertyKey(ts)}: ${expr}`;
 }
 
 const POSTGIS_KINDS = new Set(["geometry", "geography", "point"]);
@@ -296,14 +307,14 @@ function emitPostgresColumn(
 ): string {
 	if (col.kind === "fk") {
 		usedBuilders.add("fk");
-		let def = `${col.tsName}: ${emitFkBuilder(col, table, manifest, tracker)}`;
+		let def = `${tsPropertyKey(col.tsName)}: ${emitFkBuilder(col, table, manifest, tracker)}`;
 		def += emitColumnModifiers(col, table, { skipNotNullIfPrimary: true });
 		return appendMapModifier(def, col.tsName, col.sqlName, columnNaming);
 	}
 
 	if (col.kind === "id") {
 		usedBuilders.add("id");
-		let def = `${col.tsName}: id()`;
+		let def = `${tsPropertyKey(col.tsName)}: id()`;
 		def += emitColumnModifiers(col, table, {
 			skipPrimary: true,
 			skipNotNull: true,
@@ -312,7 +323,7 @@ function emitPostgresColumn(
 	}
 
 	const call = emitScalarBuilder(col, usedBuilders);
-	let def = `${col.tsName}: ${call}`;
+	let def = `${tsPropertyKey(col.tsName)}: ${call}`;
 	def += emitColumnModifiers(col, table, {
 		skipNotNullIfPrimary: true,
 		skipNotNull: col.kind === "serial",
@@ -1016,7 +1027,11 @@ function renderIndexPredicate(node: ParsedIndexPredicate): string | undefined {
 			return `NOT: { ${inner} }`;
 		}
 		case "col":
-			return `${node.ts}: ${node.expr}`;
+			return whereField(node.ts, node.expr);
+		default: {
+			const exhaustive: never = node;
+			return exhaustive;
+		}
 	}
 }
 
@@ -1032,7 +1047,7 @@ function conjunctBodies(items: ParsedIndexPredicate[]): string[] | undefined {
 		if (order.length === 0) return;
 		bodies.push(
 			order
-				.map((ts) => `${ts}: ${pending.get(ts)?.expr ?? ""}`)
+				.map((ts) => whereField(ts, pending.get(ts)?.expr ?? ""))
 				.join(", "),
 		);
 		pending.clear();
@@ -1086,7 +1101,7 @@ export function parseIndexWhere(
 	const parsed = parseIndexConjunction(whereSql, tsNameBySql);
 	if (!parsed) return undefined;
 	if (parsed.kind === "col") {
-		return `.where({ ${parsed.ts}: ${parsed.expr} })`;
+		return `.where({ ${whereField(parsed.ts, parsed.expr)} })`;
 	}
 	if (parsed.kind === "and") {
 		const bodies = conjunctBodies(parsed.items);
@@ -1120,7 +1135,7 @@ function emitTableExtras(
 					return `expr("${escapeTsString(key.expr)}")`;
 				}
 				const sqlName = key.sqlName ?? "";
-				return `t.${tsNameBySql.get(sqlName) ?? sqlName}`;
+				return tColumnRef(tsNameBySql, sqlName);
 			})
 			.join(", ");
 		let extra = `${builder}(${cols})`;
@@ -1152,7 +1167,7 @@ function emitTableExtras(
 		usedBuilders?.add("primaryKey");
 		extras.push(
 			`    primaryKey(${table.primaryKey
-				.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+				.map((sqlName) => tColumnRef(tsNameBySql, sqlName))
 				.join(", ")}),`,
 		);
 	}
@@ -1164,7 +1179,7 @@ function emitTableExtras(
 				)
 			: undefined;
 		const localCols = fk.columns
-			.map((sqlName) => `t.${tsNameBySql.get(sqlName) ?? sqlName}`)
+			.map((sqlName) => tColumnRef(tsNameBySql, sqlName))
 			.join(", ");
 		const targetCols = fk.targetColumns
 			.map((sqlName) => {
@@ -1336,7 +1351,7 @@ function sqliteColumnDef(
 			manifest,
 			tracker,
 		);
-		let def = `fk("${targetRef}")`;
+		let def = `fk("${escapeTsString(targetRef)}")`;
 		if (relationName !== relName) {
 			def += `.as("${escapeTsString(relationName)}")`;
 		}
@@ -1373,10 +1388,10 @@ function sqliteColumnDef(
 		} else if (!col.nullable) {
 			def += ".notNull()";
 		}
-		return `${col.tsName}: ${def},`;
+		return `${tsPropertyKey(col.tsName)}: ${def},`;
 	}
 
-	let def = `${col.tsName}: ${sqliteColumnBuilder(col)}()`;
+	let def = `${tsPropertyKey(col.tsName)}: ${sqliteColumnBuilder(col)}()`;
 	if (col.kind !== "id" && col.primary && table.primaryKey.length === 1) {
 		def += ".primary()";
 	}

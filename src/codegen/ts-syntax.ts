@@ -15,6 +15,13 @@ export function tsStringLiteral(value: string): string {
 	return JSON.stringify(value);
 }
 
+/** Member access: `.foo` when `name` is a valid identifier, otherwise `["…"]`. */
+export function tsMemberAccess(object: string, name: string): string {
+	return TS_IDENTIFIER.test(name)
+		? `${object}.${name}`
+		: `${object}[${JSON.stringify(name)}]`;
+}
+
 /** Identifier safe to use as a generated type or value name. */
 export function tsTypeName(name: string): string {
 	return sanitizeTsIdentifier(name);

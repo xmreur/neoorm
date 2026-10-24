@@ -13,7 +13,7 @@ export function toCamelCase(str: string): string {
 
 /** Escape a value for embedding inside a double-quoted TypeScript string literal. */
 export function escapeTsString(str: string): string {
-	return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+	return JSON.stringify(str).slice(1, -1);
 }
 
 /** Coerce an arbitrary string into a valid TypeScript identifier. */
