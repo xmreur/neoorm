@@ -3,6 +3,7 @@ import {
 	schemaToManifest,
 	validateManifest,
 } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import {
@@ -260,6 +261,32 @@ describe("schema DSL 0.6", () => {
 		expect(postgresDialect.emitCreateIndex(posts, composite)).toBe(
 			`CREATE UNIQUE INDEX "posts_author_id_title_key" ON "posts" ("author_id", "title");`,
 		);
+	});
+
+	it("drops unique extras that duplicate the primary key", () => {
+		const schema = defineSchema({
+			vets: table({ id: uuid().primary() }),
+			specializations: table({ id: uuid().primary() }),
+			vetSpecializations: table(
+				{
+					vetId: fk("vets").notNull(),
+					specializationId: fk("specializations").notNull(),
+				},
+				(t) => [
+					primaryKey(t.vetId, t.specializationId),
+					unique(t.vetId, t.specializationId),
+				],
+			),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const junction = manifestTable(manifest, "vetSpecializations");
+		expect(junction.primaryKey).toEqual(["vet_id", "specialization_id"]);
+		expect(junction.indexes).toEqual([]);
+		const sql = mysqlDialect.emitCreateTable(junction, { manifest });
+		expect(sql).toContain("PRIMARY KEY (`vet_id`, `specialization_id`)");
+		expect(sql).not.toMatch(/CREATE UNIQUE INDEX/i);
 	});
 
 	it("rejects unknown FK target columns when building the manifest", () => {

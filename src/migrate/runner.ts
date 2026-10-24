@@ -144,6 +144,24 @@ async function ensureMigrationsChecksumColumn(
 const SQLITE_FOREIGN_KEYS_PRAGMA = /^\s*PRAGMA\s+foreign_keys\s*=/i;
 const SQLITE_FOREIGN_KEYS_OFF = /^\s*PRAGMA\s+foreign_keys\s*=\s*OFF\b/i;
 
+/**
+ * InnoDB DDL implicit-commits and drops SAVEPOINTs opened by a nested
+ * `transaction()` (`1305 SAVEPOINT neoorm_sp_1 does not exist`). Run
+ * migration SQL on the already-pinned client instead. `GET_LOCK` is
+ * session-scoped; `withMysqlDeployLock` still holds one connection.
+ */
+async function withMigrationTransaction(
+	client: DatabaseClient,
+	dialect: Dialect | undefined,
+	fn: (tx: DatabaseClient) => Promise<void>,
+): Promise<void> {
+	if (dialect && isMysqlFamilyDialect(dialect)) {
+		await fn(client);
+		return;
+	}
+	await client.transaction(fn);
+}
+
 async function withSqliteForeignKeysOff<T>(
 	client: DatabaseClient,
 	fn: () => Promise<T>,
@@ -715,11 +733,16 @@ export async function reconcilePendingCreates(
 		);
 	}
 
-	await applySql(client, sql, {
-		...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
-		manifest: qualifiedTarget,
-		...(options.schema ? { schema: options.schema } : {}),
-	});
+	await applySql(
+		client,
+		sql,
+		{
+			...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
+			manifest: qualifiedTarget,
+			...(options.schema ? { schema: options.schema } : {}),
+		},
+		dialect,
+	);
 
 	const tableRef = migrationsTableRef(dialect, options.schema);
 	await client.transaction(async (tx) => {
@@ -743,6 +766,7 @@ export async function applySql(
 	client: DatabaseClient,
 	sql: string[],
 	context: MigrateContext = {},
+	dialect?: Dialect,
 ): Promise<void> {
 	if (sql.length === 0) {
 		return;
@@ -756,7 +780,7 @@ export async function applySql(
 			(statement) => !SQLITE_FOREIGN_KEYS_PRAGMA.test(statement),
 		);
 		const run = () =>
-			client.transaction(async (tx) => {
+			withMigrationTransaction(client, dialect, async (tx) => {
 				for (const statement of statements) {
 					await tx.query(statement);
 				}
@@ -790,7 +814,7 @@ export async function applyMigration(
 
 	try {
 		const apply = () =>
-			client.transaction(async (tx) => {
+			withMigrationTransaction(client, dialect, async (tx) => {
 				const schemaSql = dialect.emitCreateSchema(context.schema);
 				if (schemaSql) {
 					await tx.query(schemaSql);
@@ -920,7 +944,7 @@ export async function revertMigration(
 ): Promise<void> {
 	const sql = await readDownSql(migrationsDir, name);
 
-	await client.transaction(async (tx) => {
+	await withMigrationTransaction(client, dialect, async (tx) => {
 		for (const statement of migrationFileStatements(dialect, sql)) {
 			await tx.query(statement);
 		}
@@ -1041,10 +1065,15 @@ export async function dbPush(
 		dialect,
 	);
 
-	await applySql(client, sql, {
-		...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
-		manifest: qualifiedTarget,
-	});
+	await applySql(
+		client,
+		sql,
+		{
+			...(options.schemaPath ? { schemaPath: options.schemaPath } : {}),
+			manifest: qualifiedTarget,
+		},
+		dialect,
+	);
 
 	return {
 		appliedStatements: sql.length,

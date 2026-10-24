@@ -10,6 +10,7 @@ import {
 	applyMigration,
 	dbPush,
 	ensureMigrationsTable,
+	migrateDeploy,
 	migrateReset,
 } from "../src/migrate/runner.js";
 import {
@@ -265,6 +266,39 @@ describeMysql("mysql runtime", () => {
 		} finally {
 			await client.query("DROP TABLE IF EXISTS `mig_b`");
 			await client.query("DROP TABLE IF EXISTS `mig_a`");
+			await client.query(
+				"DELETE FROM `_neoorm_migrations` WHERE name = $1",
+				[name],
+			);
+			await rm(root, { recursive: true, force: true });
+			await client.close();
+		}
+	});
+
+	it("applies pending files through migrateDeploy without a savepoint", async () => {
+		const { client } = await setup();
+		const root = await mkdtemp(join(tmpdir(), "neoorm-mysql-deploy-"));
+		const name = "20200101_deploy";
+		const migrationsDir = join(root, "migrations");
+		await mkdir(join(migrationsDir, name), { recursive: true });
+		await writeFile(
+			join(migrationsDir, name, "migration.sql"),
+			"CREATE TABLE `mig_deploy` (id INT PRIMARY KEY);\n",
+			"utf-8",
+		);
+		try {
+			const applied = await migrateDeploy(
+				client,
+				mysqlDialect,
+				migrationsDir,
+			);
+			expect(applied).toEqual([name]);
+			const tables = await client.query(
+				"SELECT COUNT(*) AS mig_tables FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mig_deploy'",
+			);
+			expect(Number(Object.values(tables.rows[0] ?? {})[0] ?? 0)).toBe(1);
+		} finally {
+			await client.query("DROP TABLE IF EXISTS `mig_deploy`");
 			await client.query(
 				"DELETE FROM `_neoorm_migrations` WHERE name = $1",
 				[name],

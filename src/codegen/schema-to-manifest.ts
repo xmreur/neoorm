@@ -1317,6 +1317,27 @@ function resolveCompositeForeignKeys(args: {
 	return result;
 }
 
+function uniqueIndexMatchesPrimaryKey(
+	index: ManifestIndex,
+	primaryKey: readonly string[],
+): boolean {
+	if (!index.unique || index.whereSql) return false;
+	if (index.keys?.some((key) => key.expr)) return false;
+	if (primaryKey.length === 0 || index.columns.length !== primaryKey.length) {
+		return false;
+	}
+	return index.columns.every((name) => primaryKey.includes(name));
+}
+
+function dropUniqueIndexesMatchingPrimaryKey(
+	indexes: readonly ManifestIndex[],
+	primaryKey: readonly string[],
+): ManifestIndex[] {
+	return indexes.filter(
+		(index) => !uniqueIndexMatchesPrimaryKey(index, primaryKey),
+	);
+}
+
 function columnSetIsUnique(
 	table: ManifestTable,
 	sqlNames: readonly string[],
@@ -1582,7 +1603,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			columnNaming,
 			columns,
 			relations: [],
-			indexes,
+			indexes: dropUniqueIndexesMatchingPrimaryKey(indexes, pk),
 			primaryKey: pk,
 			...(compositeFks.length > 0
 				? {

@@ -269,7 +269,11 @@ export type Dialect = {
 	): string[];
 	emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
 	emitDropTable(table: ManifestTable): string;
-	emitCreateIndex(table: ManifestTable, index: ManifestIndex): string;
+	emitCreateIndex(
+		table: ManifestTable,
+		index: ManifestIndex,
+		manifest?: Manifest,
+	): string;
 	emitDropIndex(indexName: string, tableSqlName?: string): string;
 	emitDropConstraint(tableSqlName: string, constraintName: string): string;
 	emitAlterTable(table: ManifestTable, diff: TableDiff): string[];

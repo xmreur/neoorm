@@ -21,6 +21,8 @@ import {
 	table,
 	text,
 	timestamps,
+	unique,
+	uuid,
 } from "../schema/index.js";
 import { mysqlColumnType, mysqlDialect } from "./mysql.js";
 import { MYSQL_IN_PLACEHOLDER_LIMIT } from "./mysql-family.js";
@@ -218,6 +220,52 @@ describe("mysql dialect", () => {
 		const sql = mysqlDialect.emitCreateIndex(posts, titleIdx);
 		expect(sql).toBe(
 			"CREATE INDEX `posts_title_idx` ON `posts` (`title`(191));",
+		);
+	});
+
+	it("does not prefix unique or non-unique indexes on UUID foreign keys", () => {
+		const schema = defineSchema({
+			visits: table({
+				id: uuid().primary(),
+			}),
+			appointments: table(
+				{
+					id: uuid().primary(),
+					visitId: fk("visits").notNull().inverse("appointments"),
+					noteId: fk("visits").notNull().inverse("notes"),
+				},
+				(t) => [unique(t.visitId), index(t.noteId)],
+			),
+		});
+		const manifest = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const appointments = manifest.tables.appointments;
+		expect(appointments).toBeDefined();
+		if (!appointments) return;
+		const createSql = mysqlDialect.emitCreateTable(appointments, {
+			manifest,
+		});
+		expect(createSql).toContain("`visit_id` CHAR(36) NOT NULL");
+		expect(createSql).toContain("`note_id` CHAR(36) NOT NULL");
+		const visitIdx = appointments.indexes.find((i) =>
+			i.columns.includes("visit_id"),
+		);
+		const noteIdx = appointments.indexes.find((i) =>
+			i.columns.includes("note_id"),
+		);
+		expect(visitIdx).toBeDefined();
+		expect(noteIdx).toBeDefined();
+		if (!visitIdx || !noteIdx) return;
+		expect(
+			mysqlDialect.emitCreateIndex(appointments, visitIdx, manifest),
+		).toBe(
+			"CREATE UNIQUE INDEX `appointments_visit_id_key` ON `appointments` (`visit_id`);",
+		);
+		expect(
+			mysqlDialect.emitCreateIndex(appointments, noteIdx, manifest),
+		).toBe(
+			"CREATE INDEX `appointments_note_id_idx` ON `appointments` (`note_id`);",
 		);
 	});
 
