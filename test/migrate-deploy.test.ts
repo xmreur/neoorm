@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readSnapshot } from "../src/codegen/generate.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mariadbDialect } from "../src/dialect/mariadb.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { introspectSqliteToManifest } from "../src/introspect/sqlite/to-manifest.js";
@@ -245,6 +246,70 @@ describe("migrateDeploy checksums and locking", () => {
 		expect(
 			queries.some((sql) => sql.includes("pg_advisory_xact_lock")),
 		).toBe(true);
+	});
+
+	it("does not nest a savepoint around MySQL family migration DDL", async () => {
+		const root = await tempDir("neoorm-mysql-savepoint-");
+		const migrationsDir = join(root, "migrations");
+		await writeMigration(
+			migrationsDir,
+			"20200101_init",
+			"CREATE TABLE `t` (id INT PRIMARY KEY);\n",
+		);
+
+		for (const dialect of [mysqlDialect, mariadbDialect]) {
+			const queries: string[] = [];
+			let transactionCalls = 0;
+			const mock: DatabaseClient = {
+				query: async <T = Record<string, unknown>>(text: string) => {
+					queries.push(text);
+					if (/SELECT DATABASE\(\)/i.test(text)) {
+						return {
+							rows: [{ db: "neoorm" }],
+							rowCount: 1,
+						} as DriverResult<T>;
+					}
+					if (/information_schema\.COLUMNS/i.test(text)) {
+						return {
+							rows: [{ checksum_count: 1 }],
+							rowCount: 1,
+						} as DriverResult<T>;
+					}
+					if (/information_schema\.TABLES/i.test(text)) {
+						return { rows: [], rowCount: 0 } as DriverResult<T>;
+					}
+					if (
+						/_neoorm_migrations/i.test(text) &&
+						/SELECT/i.test(text)
+					) {
+						return { rows: [], rowCount: 0 } as DriverResult<T>;
+					}
+					return { rows: [], rowCount: 0 } as DriverResult<T>;
+				},
+				transaction: async (fn) => {
+					transactionCalls += 1;
+					return fn(mock);
+				},
+				close: async () => {},
+			};
+
+			const applied = await migrateDeploy(mock, dialect, migrationsDir);
+			expect(applied, dialect.name).toEqual(["20200101_init"]);
+			expect(transactionCalls, dialect.name).toBe(1);
+			expect(
+				queries.some((sql) => /SAVEPOINT/i.test(sql)),
+				dialect.name,
+			).toBe(false);
+			expect(
+				queries.some((sql) => /CREATE TABLE/i.test(sql)),
+				dialect.name,
+			).toBe(true);
+			expect(
+				queries.some((sql) => /GET_LOCK/i.test(sql)),
+				dialect.name,
+			).toBe(true);
+			queries.length = 0;
+		}
 	});
 });
 

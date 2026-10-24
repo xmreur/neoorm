@@ -2411,7 +2411,9 @@ neoorm migrate diff --json
 | MySQL | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
 | MariaDB | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
 
-The ledger table `_neoorm_migrations` stores `name` and `checksum`. Editing an already-applied `migration.sql` is rejected (`migration_guard`) — restore the original file or add a new migration. Pending migrations in one deploy run apply in that locked transaction; if a later statement fails, none of that run's new ledger rows remain.
+The ledger table `_neoorm_migrations` stores `name` and `checksum`. Editing an already-applied `migration.sql` is rejected (`migration_guard`) — restore the original file or add a new migration.
+
+PostgreSQL and SQLite apply pending files inside the deploy lock transaction: if a later statement fails, none of that run's new ledger rows remain. MySQL and MariaDB cannot roll back InnoDB DDL (`CREATE TABLE`, `ALTER`, `CREATE INDEX`) — each statement autocommits. A failed file can leave tables without a matching `_neoorm_migrations` row. Recover locally with `neoorm migrate reset --force`, or in development with `neoorm migrate dev` catch-up. `GET_LOCK` is session-scoped and still serializes concurrent deploys; migration SQL does not run under a savepoint.
 
 ## Status
 
@@ -3076,7 +3078,8 @@ bunx neoorm migrate status
 bunx neoorm migrate reset --force
 ```
 
-- Deploy lock is `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy transaction.
+- Deploy lock is `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection.
+- InnoDB DDL autocommits. A failed `migrate deploy` can leave tables without a ledger row — use `migrate reset --force` locally or `migrate dev` catch-up. See [Migrations](migrations.md).
 - `migrate reset` sets `FOREIGN_KEY_CHECKS=0`, drops all tables in the current database, then re-enables checks and re-applies migrations.
 - `db pull` introspects `information_schema` back into a schema file.
 
@@ -3213,7 +3216,8 @@ bunx neoorm migrate status
 bunx neoorm migrate reset --force
 ```
 
-- Deploy lock is `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy transaction.
+- Deploy lock is `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection.
+- InnoDB DDL autocommits. A failed `migrate deploy` can leave tables without a ledger row — use `migrate reset --force` locally or `migrate dev` catch-up. See [Migrations](migrations.md).
 - `migrate reset` sets `FOREIGN_KEY_CHECKS=0`, drops all tables in the current database, then re-enables checks and re-applies migrations.
 - `db pull` introspects `information_schema`. MariaDB `JSON` columns are often `LONGTEXT` plus a `json_valid()` CHECK; NeoOrm maps those back to `jsonb()`.
 

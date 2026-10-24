@@ -339,8 +339,8 @@ export function createMysqlFamilyDialect(
 		emitDropTable(table) {
 			return `DROP TABLE ${tableRef(table)};`;
 		},
-		emitCreateIndex(table, index) {
-			return emitCreateIndex(table, index, options);
+		emitCreateIndex(table, index, manifest) {
+			return emitCreateIndex(table, index, options, manifest);
 		},
 		emitDropIndex(indexName, tableSqlName) {
 			if (tableSqlName) {
@@ -457,6 +457,7 @@ function emitCreateIndex(
 	table: ManifestTable,
 	index: ManifestIndex,
 	options: MysqlFamilyDialectOptions,
+	manifest?: Manifest,
 ): string {
 	if (index.whereSql) {
 		compileError(
@@ -477,7 +478,7 @@ function emitCreateIndex(
 	const indexName = resolveIndexSqlName(table.sqlName, index);
 	const cols = formatIndexKeyList(index, q, {
 		formatIdent: (sqlName) =>
-			mysqlIndexColumnExpr(table, sqlName, undefined, options),
+			mysqlIndexColumnExpr(table, sqlName, manifest, options),
 		wrapExpr: (expression) => `(${expression})`,
 	});
 	const unique = index.unique ? "UNIQUE " : "";
@@ -661,7 +662,7 @@ function emitAlterTable(
 
 	if (diff.addIndexes) {
 		for (const index of diff.addIndexes) {
-			stmts.push(emitCreateIndex(table, index, options));
+			stmts.push(emitCreateIndex(table, index, options, manifest));
 		}
 	}
 

@@ -179,7 +179,7 @@ function emitCreatedTablesSql(
 			}),
 		);
 		for (const index of table.indexes) {
-			sql.push(dialect.emitCreateIndex(table, index));
+			sql.push(dialect.emitCreateIndex(table, index, manifest));
 		}
 	}
 
