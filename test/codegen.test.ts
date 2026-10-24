@@ -574,31 +574,39 @@ export const schema = defineSchema({
 });
 
 describe("SQL identifier collisions", () => {
+	function messages(
+		schema: Parameters<typeof schemaToManifest>[0],
+	): string[] {
+		return validateManifest(schemaToManifest(schema)).map(
+			(issue) => issue.message,
+		);
+	}
+
 	it("rejects a second table with the same SQL name", () => {
-		expect(() =>
-			schemaToManifest(
+		expect(
+			messages(
 				defineSchema({
 					a: table("users", { id: uuid().primary() }),
 					b: table("users", { id: uuid().primary() }),
 				}),
 			),
-		).toThrow(/Duplicate table SQL name: users/);
+		).toContain("Duplicate table SQL name: users");
 	});
 
 	it("rejects table SQL names that differ only by case", () => {
-		expect(() =>
-			schemaToManifest(
+		expect(
+			messages(
 				defineSchema({
 					a: table("Users", { id: uuid().primary() }),
 					b: table("users", { id: uuid().primary() }),
 				}),
 			),
-		).toThrow(/Table SQL names "Users" and "users" differ only by case/);
+		).toContain('Table SQL names "Users" and "users" differ only by case');
 	});
 
 	it("rejects column SQL names that differ only by case", () => {
-		expect(() =>
-			schemaToManifest(
+		expect(
+			messages(
 				defineSchema({
 					users: table({
 						id: uuid().primary(),
@@ -607,14 +615,14 @@ describe("SQL identifier collisions", () => {
 					}),
 				}),
 			),
-		).toThrow(
-			/Column SQL names "Email" and "email" on table "users" differ only by case/,
+		).toContain(
+			'Column SQL names "Email" and "email" on table "users" differ only by case',
 		);
 	});
 
 	it("rejects columns that collapse to one SQL name", () => {
-		expect(() =>
-			schemaToManifest(
+		expect(
+			messages(
 				defineSchema({
 					users: table({
 						id: uuid().primary(),
@@ -623,7 +631,7 @@ describe("SQL identifier collisions", () => {
 					}),
 				}),
 			),
-		).toThrow(/Duplicate column SQL name "user_id" on table "users"/);
+		).toContain('Duplicate column SQL name "user_id" on table "users"');
 	});
 });
 

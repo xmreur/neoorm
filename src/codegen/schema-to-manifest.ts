@@ -145,26 +145,6 @@ function duplicateColumnSqlMessage(
 	}
 }
 
-function assertDistinctColumnSqlNames(
-	tableAccessor: string,
-	columns: readonly ManifestColumn[],
-): void {
-	const seen = new Map<string, string>();
-	for (const col of columns) {
-		const collision = noteSqlName(seen, col.sqlName);
-		if (!collision) continue;
-		throw schemaError(
-			"invalid_column",
-			duplicateColumnSqlMessage(tableAccessor, col.sqlName, collision),
-			{ tableAccessor },
-			[
-				"Each column on a table must have a distinct SQL name",
-				"`.map()` names and snake_case conversion can collapse two fields onto one SQL name",
-			],
-		);
-	}
-}
-
 function resolveEnumTypeName(
 	tableSqlName: string,
 	columnSqlName: string,
@@ -255,41 +235,13 @@ function finalizeEnumColumns(
 					nativeTypeName: enumName,
 				};
 				const collision = noteSqlName(enumNames, enumName);
-				if (collision?.kind === "case") {
-					throw schemaError(
-						"invalid_column",
-						`Native enum names "${collision.prior}" and "${enumName}" differ only by case`,
-						{
-							tableAccessor: table.accessor,
-							tableSqlName: table.sqlName,
-						},
-						[
-							"Pick one spelling for the shared enum type",
-							"Names that differ only by case still collide",
-						],
-					);
-				}
 				const existing = enumTypes[enumName];
-				if (
-					existing &&
-					JSON.stringify(existing.values) !== JSON.stringify(values)
-				) {
-					throw schemaError(
-						"invalid_column",
-						`Native enum "${enumName}" is declared with different values`,
-						{
-							tableAccessor: table.accessor,
-							tableSqlName: table.sqlName,
-						},
-						[
-							"Give each distinct value list its own enum name",
-							"Or reuse the same values for every column that shares the name",
-						],
-					);
+				// Keep the first definition. validateManifest reports the clash
+				// so `neoorm validate` still says "Schema validation failed".
+				if (collision?.kind === "case" || existing) {
+					continue;
 				}
-				if (!existing) {
-					enumTypes[enumName] = { values };
-				}
+				enumTypes[enumName] = { values };
 			}
 		}
 	}
@@ -1628,18 +1580,9 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	const tableSqlNames = new Map<string, string>();
 
 	const claimTableSqlName = (sqlName: string, accessor: string): void => {
-		const collision = noteSqlName(tableSqlNames, sqlName);
-		if (collision) {
-			throw schemaError(
-				"duplicate_table_sql_name",
-				duplicateTableSqlMessage(sqlName, collision),
-				{ tableAccessor: accessor, tableSqlName: sqlName },
-				[
-					"Each table must have a unique SQL name",
-					"Names that differ only by case still collide",
-				],
-			);
-		}
+		// Keep the first mapping. A later case-only or exact duplicate is
+		// reported by validateManifest instead of replacing this entry.
+		if (noteSqlName(tableSqlNames, sqlName)) return;
 		sqlNameToAccessor[sqlName] = accessor;
 	};
 
@@ -1668,7 +1611,6 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 					provider,
 				),
 			);
-		assertDistinctColumnSqlNames(accessor, columns);
 
 		const { indexes, primaryKey, compositeFks } = extrasToManifest(
 			tableDef._extras,
@@ -1785,7 +1727,6 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				`M2M junction "${accessor}" must have exactly two FK columns`,
 			);
 		}
-		assertDistinctColumnSqlNames(accessor, columns);
 		const table: ManifestTable = {
 			accessor,
 			sqlName,

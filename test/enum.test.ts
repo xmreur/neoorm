@@ -115,12 +115,16 @@ describe("enumType column", () => {
 				status: enumType(["x", "y"] as const, { name: "mood" }),
 			}),
 		});
-		expect(() =>
-			schemaToManifest(next, undefined, {
-				enumMode: "native",
-				provider: "postgres",
-			}),
-		).toThrow(/Native enum "mood" is declared with different values/);
+		const manifest = schemaToManifest(next, undefined, {
+			enumMode: "native",
+			provider: "postgres",
+		});
+		expect(manifest.enumTypes).toEqual({
+			mood: { values: ["a", "b"] },
+		});
+		expect(
+			validateManifest(manifest).map((issue) => issue.message),
+		).toContain('Native enum "mood" is declared with different values');
 	});
 
 	it("rejects native enum names that differ only by case", () => {
@@ -134,12 +138,16 @@ describe("enumType column", () => {
 				status: enumType(["a", "b"] as const, { name: "Mood" }),
 			}),
 		});
-		expect(() =>
-			schemaToManifest(next, undefined, {
-				enumMode: "native",
-				provider: "postgres",
-			}),
-		).toThrow(/Native enum names "mood" and "Mood" differ only by case/);
+		const manifest = schemaToManifest(next, undefined, {
+			enumMode: "native",
+			provider: "postgres",
+		});
+		expect(manifest.enumTypes).toEqual({
+			mood: { values: ["a", "b"] },
+		});
+		expect(
+			validateManifest(manifest).map((issue) => issue.message),
+		).toContain('Native enum names "mood" and "Mood" differ only by case');
 	});
 
 	it("reuses one native enum when the name and values match", () => {
