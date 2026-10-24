@@ -37,5 +37,23 @@ INVALID
 		expect(parseDotEnv('PATH="C:\\\\neoorm\\\\dev.db"\n')).toEqual({
 			PATH: "C:\\neoorm\\dev.db",
 		});
+		expect(parseDotEnv('A="\\\\n"\nB="\\\\t"\nC="\\\\\\\\"\n')).toEqual({
+			A: "\\n",
+			B: "\\t",
+			C: "\\\\",
+		});
+	});
+
+	it("accepts export separated by a tab", () => {
+		expect(parseDotEnv("export\tKEY=value\n")).toEqual({ KEY: "value" });
+		expect(parseDotEnv("export=kept\n")).toEqual({ export: "kept" });
+	});
+
+	it("strips an inline comment glued to a closing quote", () => {
+		expect(parseDotEnv("A='abc'#c\nB=\"abc\"#c\nD='abc' #c\n")).toEqual({
+			A: "abc",
+			B: "abc",
+			D: "abc",
+		});
 	});
 });
