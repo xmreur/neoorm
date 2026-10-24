@@ -1,4 +1,9 @@
 import type { Manifest, ManifestTable } from "../dialect/types.js";
+import { sanitizeErrorText } from "./errors.js";
+
+function quoteErrorId(value: string): string {
+	return `"${sanitizeErrorText(value)}"`;
+}
 
 export function levenshtein(a: string, b: string): number {
 	if (a === b) return 0;
@@ -99,7 +104,7 @@ export function formatCandidateList(
 	if (candidates.length === 0) return "";
 	const shown = candidates.slice(0, max);
 	const rest = candidates.length - shown.length;
-	const list = shown.map((c) => `"${c}"`).join(", ");
+	const list = shown.map((c) => quoteErrorId(c)).join(", ");
 	if (rest > 0) {
 		return `${list}, …and ${rest} more`;
 	}
@@ -150,7 +155,7 @@ export function suggestTableAccessor(
 		const fromSql = accessorFromSqlName(manifest, input);
 		if (fromSql) {
 			suggestions.push(
-				`"${input}" is a SQL table name — use the schema accessor "${fromSql}" instead`,
+				`${quoteErrorId(input)} is a SQL table name — use the schema accessor ${quoteErrorId(fromSql)} instead`,
 			);
 		}
 	}
@@ -161,7 +166,7 @@ export function suggestTableAccessor(
 
 	const matches = didYouMean(input, accessors);
 	for (const match of matches) {
-		suggestions.push(`Did you mean "${match}"?`);
+		suggestions.push(`Did you mean ${quoteErrorId(match)}?`);
 	}
 
 	if (accessors.length > 0) {
@@ -184,24 +189,24 @@ export function suggestTsColumn(
 
 	if (sqlMatch) {
 		suggestions.push(
-			`Query APIs use TypeScript column names — "${input}" is the SQL name for "${sqlMatch}"`,
+			`Query APIs use TypeScript column names — ${quoteErrorId(input)} is the SQL name for ${quoteErrorId(sqlMatch)}`,
 		);
-		suggestions.push(`Did you mean "${sqlMatch}"?`);
+		suggestions.push(`Did you mean ${quoteErrorId(sqlMatch)}?`);
 	} else {
 		if (label) {
 			suggestions.push(
-				`Use TypeScript column names in ${label}, not SQL column names`,
+				`Use TypeScript column names in ${sanitizeErrorText(label)}, not SQL column names`,
 			);
 		}
 		const matches = didYouMean(input, columns);
 		for (const match of matches) {
-			suggestions.push(`Did you mean "${match}"?`);
+			suggestions.push(`Did you mean ${quoteErrorId(match)}?`);
 		}
 	}
 
 	if (columns.length > 0) {
 		suggestions.push(
-			`Valid columns on "${table.accessor}": ${formatCandidateList(columns)}`,
+			`Valid columns on ${quoteErrorId(table.accessor)}: ${formatCandidateList(columns)}`,
 		);
 	}
 
@@ -215,7 +220,7 @@ export function suggestWhereOperator(
 	const suggestions: string[] = [];
 	const matches = didYouMean(input, operators);
 	for (const match of matches) {
-		suggestions.push(`Did you mean "${match}"?`);
+		suggestions.push(`Did you mean ${quoteErrorId(match)}?`);
 	}
 	if (operators.length > 0) {
 		suggestions.push(`Valid operators: ${formatCandidateList(operators)}`);
@@ -245,7 +250,7 @@ export function suggestSchemaTableAccessor(
 	const fromSql = accessorFromSchemaSqlName(tables, input);
 	if (fromSql) {
 		suggestions.push(
-			`"${input}" is a SQL table name — use the schema accessor "${fromSql}" instead`,
+			`${quoteErrorId(input)} is a SQL table name — use the schema accessor ${quoteErrorId(fromSql)} instead`,
 		);
 	}
 
@@ -255,7 +260,7 @@ export function suggestSchemaTableAccessor(
 
 	const matches = didYouMean(input, accessors);
 	for (const match of matches) {
-		suggestions.push(`Did you mean "${match}"?`);
+		suggestions.push(`Did you mean ${quoteErrorId(match)}?`);
 	}
 
 	if (accessors.length > 0) {
@@ -277,11 +282,11 @@ export function suggestSchemaColumn(
 
 	const matches = didYouMean(input, columnNames);
 	for (const match of matches) {
-		suggestions.push(`Did you mean "${match}"?`);
+		suggestions.push(`Did you mean ${quoteErrorId(match)}?`);
 	}
 
 	if (columnNames.length > 0) {
-		const prefix = tableAccessor ? `on "${tableAccessor}"` : "";
+		const prefix = tableAccessor ? `on ${quoteErrorId(tableAccessor)}` : "";
 		suggestions.push(
 			`Valid columns ${prefix}: ${formatCandidateList(columnNames)}`,
 		);
@@ -301,12 +306,12 @@ export function suggestRelation(
 
 	const matches = didYouMean(input, relationNames);
 	for (const match of matches) {
-		suggestions.push(`Did you mean "${match}"?`);
+		suggestions.push(`Did you mean ${quoteErrorId(match)}?`);
 	}
 
 	if (relationNames.length > 0) {
 		suggestions.push(
-			`Valid relations on "${table.accessor}": ${formatCandidateList(relationNames)}`,
+			`Valid relations on ${quoteErrorId(table.accessor)}: ${formatCandidateList(relationNames)}`,
 		);
 	}
 

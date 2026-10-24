@@ -54,12 +54,51 @@ const OPERATION_LABEL: Record<QueryOperation, string> = {
 	raw: "Query",
 };
 
+/**
+ * Keep a value on one structured error line. Raw newlines (and other
+ * controls) would otherwise open fake fields such as `SQL:` or
+ * `PostgreSQL code:`.
+ */
+export function sanitizeErrorText(value: string): string {
+	let out = "";
+	for (const ch of value) {
+		const code = ch.codePointAt(0);
+		if (code === undefined) continue;
+		if (code === 0x0a) {
+			out += "\\n";
+			continue;
+		}
+		if (code === 0x0d) {
+			out += "\\r";
+			continue;
+		}
+		if (code === 0x09) {
+			out += "\\t";
+			continue;
+		}
+		if (code === 0x2028) {
+			out += "\\u2028";
+			continue;
+		}
+		if (code === 0x2029) {
+			out += "\\u2029";
+			continue;
+		}
+		if (code < 0x20 || code === 0x7f) {
+			out += `\\u${code.toString(16).padStart(4, "0")}`;
+			continue;
+		}
+		out += ch;
+	}
+	return out;
+}
+
 function operationTarget(context: QueryErrorContext): string {
 	if (context.tableAccessor) {
-		return `"${context.tableAccessor}"`;
+		return `"${sanitizeErrorText(context.tableAccessor)}"`;
 	}
 	if (context.tableSqlName) {
-		return `"${context.tableSqlName}"`;
+		return `"${sanitizeErrorText(context.tableSqlName)}"`;
 	}
 	return "query";
 }
@@ -69,14 +108,14 @@ function appendSuggestions(lines: string[], suggestions?: string[]): void {
 	lines.push("");
 	lines.push("  Suggestions:");
 	for (const suggestion of suggestions) {
-		lines.push(`  - ${suggestion}`);
+		lines.push(`  - ${sanitizeErrorText(suggestion)}`);
 	}
 }
 
 /** Format a query error context into a multi-line message. */
 export function formatQueryError(context: QueryErrorContext): string {
 	const target = operationTarget(context);
-	const reason = context.detail ?? "database error";
+	const reason = sanitizeErrorText(context.detail ?? "database error");
 	const lines: string[] = [];
 
 	if (context.phase === "compile") {
@@ -89,8 +128,9 @@ export function formatQueryError(context: QueryErrorContext): string {
 	if (context.tableAccessor || context.tableSqlName) {
 		const parts: string[] = [];
 		if (context.tableAccessor)
-			parts.push(`accessor: ${context.tableAccessor}`);
-		if (context.tableSqlName) parts.push(`SQL: "${context.tableSqlName}"`);
+			parts.push(`accessor: ${sanitizeErrorText(context.tableAccessor)}`);
+		if (context.tableSqlName)
+			parts.push(`SQL: "${sanitizeErrorText(context.tableSqlName)}"`);
 		lines.push(`  Table: ${parts.join(", ")}`);
 	}
 
@@ -101,29 +141,31 @@ export function formatQueryError(context: QueryErrorContext): string {
 			context.columnTsName !== context.columnSqlName
 		) {
 			lines.push(
-				`  Column: ${context.columnTsName} (SQL: "${context.columnSqlName}")`,
+				`  Column: ${sanitizeErrorText(context.columnTsName)} (SQL: "${sanitizeErrorText(context.columnSqlName)}")`,
 			);
 		} else if (context.columnTsName) {
-			lines.push(`  Column: ${context.columnTsName}`);
+			lines.push(`  Column: ${sanitizeErrorText(context.columnTsName)}`);
 		} else if (context.columnSqlName) {
-			lines.push(`  Column: SQL: "${context.columnSqlName}"`);
+			lines.push(
+				`  Column: SQL: "${sanitizeErrorText(context.columnSqlName)}"`,
+			);
 		}
 	}
 
 	if (context.constraint) {
-		lines.push(`  Constraint: ${context.constraint}`);
+		lines.push(`  Constraint: ${sanitizeErrorText(context.constraint)}`);
 	}
 
 	if (context.pgCode) {
-		lines.push(`  PostgreSQL code: ${context.pgCode}`);
+		lines.push(`  PostgreSQL code: ${sanitizeErrorText(context.pgCode)}`);
 	}
 
 	if (context.sql) {
-		lines.push(`  SQL: ${context.sql}`);
+		lines.push(`  SQL: ${sanitizeErrorText(context.sql)}`);
 	}
 
 	if (context.migrationHint) {
-		lines.push(`  Migration: ${context.migrationHint}`);
+		lines.push(`  Migration: ${sanitizeErrorText(context.migrationHint)}`);
 	}
 
 	appendSuggestions(lines, context.suggestions);
@@ -138,7 +180,7 @@ export function formatSchemaError(context: SchemaErrorContext): string {
 	if (context.migrationName) {
 		lines.push("Migration error");
 	} else if (context.schemaPath) {
-		lines.push(`Schema error in ${context.schemaPath}`);
+		lines.push(`Schema error in ${sanitizeErrorText(context.schemaPath)}`);
 	} else {
 		lines.push("Schema error");
 	}
@@ -147,36 +189,38 @@ export function formatSchemaError(context: SchemaErrorContext): string {
 	if (context.tableAccessor || context.tableSqlName) {
 		const parts: string[] = [];
 		if (context.tableAccessor) {
-			parts.push(context.tableAccessor);
+			parts.push(sanitizeErrorText(context.tableAccessor));
 		}
 		if (context.tableSqlName) {
-			parts.push(`SQL: "${context.tableSqlName}"`);
+			parts.push(`SQL: "${sanitizeErrorText(context.tableSqlName)}"`);
 		}
 		let tableLine = `  Table: ${parts.join(", ")}`;
 		if (context.manyToManyHint) {
-			tableLine += ` (${context.manyToManyHint})`;
+			tableLine += ` (${sanitizeErrorText(context.manyToManyHint)})`;
 		}
 		lines.push(tableLine);
 		lines.push("");
 	}
 
 	if (context.migrationName) {
-		lines.push(`  Migration "${context.migrationName}" failed`);
+		lines.push(
+			`  Migration "${sanitizeErrorText(context.migrationName)}" failed`,
+		);
 		if (context.sqlPath) {
-			lines.push(`  File: ${context.sqlPath}`);
+			lines.push(`  File: ${sanitizeErrorText(context.sqlPath)}`);
 		}
 		lines.push("");
 	}
 
 	if (context.detail) {
-		lines.push(`  ${context.detail}`);
+		lines.push(`  ${sanitizeErrorText(context.detail)}`);
 		lines.push("");
 	}
 
 	if (context.statement) {
 		lines.push("  SQL:");
 		for (const line of context.statement.split("\n")) {
-			lines.push(`  ${line}`);
+			lines.push(`  ${sanitizeErrorText(line)}`);
 		}
 	}
 

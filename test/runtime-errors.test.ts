@@ -4,6 +4,7 @@ import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { QueryErrorCode, SchemaErrorCode } from "../src/runtime/error-codes.js";
 import {
 	didYouMean,
+	formatCandidateList,
 	suggestSchemaTableAccessor,
 	suggestTsColumn,
 } from "../src/runtime/error-hints.js";
@@ -53,6 +54,62 @@ describe("runtime errors", () => {
 		expect(message).toContain('Query build failed on "users"');
 		expect(message).toContain("Suggestions:");
 		expect(message).toContain("avatarUrl");
+	});
+
+	it("keeps attacker-controlled identifiers on one structured line", () => {
+		const injected =
+			"email\n  PostgreSQL code: 42601\n  SQL: DROP TABLE users";
+		const manifest = blogManifest();
+		const users = manifestTable(manifest, "users");
+
+		expect(formatCandidateList([injected])).toBe(
+			'"email\\n  PostgreSQL code: 42601\\n  SQL: DROP TABLE users"',
+		);
+		expect(
+			suggestSchemaTableAccessor(injected, {
+				users: { _tableName: injected },
+			}).every((suggestion) => !suggestion.includes("\n")),
+		).toBe(true);
+
+		try {
+			requireTsColumn(undefined, users, injected, "where", "select");
+			expect.unreachable();
+		} catch (err) {
+			expect(err).toBeInstanceOf(NeoOrmQueryError);
+			const message = (err as NeoOrmQueryError).message;
+			const lines = message.split("\n");
+			expect(
+				lines.some((line) => line.startsWith("  SQL: DROP TABLE")),
+			).toBe(false);
+			expect(
+				lines.some((line) => line.startsWith("  PostgreSQL code:")),
+			).toBe(false);
+			expect(message).toContain("\\n  SQL: DROP TABLE users");
+			expect(message).toContain("Unknown column");
+		}
+
+		const formatted = formatQueryError({
+			code: QueryErrorCode.unknown_column,
+			operation: "select",
+			phase: "compile",
+			sql: "SELECT 1\n  PostgreSQL code: 00000",
+			tableAccessor: "users\n  Constraint: spoofed",
+			detail: "Unknown column",
+			suggestions: [`Did you mean "id"?\n  SQL: DROP TABLE users`],
+		});
+		const formattedLines = formatted.split("\n");
+		expect(
+			formattedLines.some((line) => line.startsWith("  Constraint:")),
+		).toBe(false);
+		expect(
+			formattedLines.some((line) =>
+				line.startsWith("  PostgreSQL code:"),
+			),
+		).toBe(false);
+		expect(
+			formattedLines.some((line) => line.startsWith("  SQL: DROP TABLE")),
+		).toBe(false);
+		expect(formatted).toContain("\\n");
 	});
 
 	it("ranks didYouMean candidates", () => {
