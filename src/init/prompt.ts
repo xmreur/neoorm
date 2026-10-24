@@ -114,7 +114,7 @@ export async function resolveInitOptions(
 			? await promptText(
 					"Schema file path",
 					DEFAULT_SCHEMA_PATH,
-					(value) => validateSchemaPath(value),
+					(value) => validateSchemaPath(value, flags.cwd),
 				)
 			: DEFAULT_SCHEMA_PATH;
 

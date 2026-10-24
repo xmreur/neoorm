@@ -32,4 +32,10 @@ INVALID
 			TAB: "a\tb",
 		});
 	});
+
+	it("keeps an escaped backslash before n as a backslash", () => {
+		expect(parseDotEnv('PATH="C:\\\\neoorm\\\\dev.db"\n')).toEqual({
+			PATH: "C:\\neoorm\\dev.db",
+		});
+	});
 });

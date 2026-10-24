@@ -36,6 +36,37 @@ describe("init validators", () => {
 		).toBeUndefined();
 	});
 
+	it("rejects out dirs that are the project, an ancestor, or the config file", () => {
+		expect(validateOutDir(".", "./schema.ts", "/tmp/app")).toBe(
+			"Output directory cannot be the project directory",
+		);
+		expect(validateOutDir("./", "./schema.ts", "/tmp/app")).toBe(
+			"Output directory cannot be the project directory",
+		);
+		expect(validateOutDir("..", "./schema.ts", "/tmp/app")).toBe(
+			"Output directory must stay inside the project directory",
+		);
+		expect(validateOutDir("../generated", "./schema.ts", "/tmp/app")).toBe(
+			"Output directory must stay inside the project directory",
+		);
+		expect(
+			validateOutDir("neoorm.config.ts", "./schema.ts", "/tmp/app"),
+		).toBe("Output directory cannot be neoorm.config.ts");
+	});
+
+	it("rejects schema paths that escape the project or replace the config", () => {
+		expect(validateSchemaPath("../schema.ts", "/tmp/app")).toBe(
+			"Schema path must stay inside the project directory",
+		);
+		expect(validateSchemaPath("neoorm.config.ts", "/tmp/app")).toBe(
+			"Schema path cannot be neoorm.config.ts",
+		);
+		expect(validateSchemaPath("a\nb.ts", "/tmp/app")).toBe(
+			"Schema path cannot contain control characters",
+		);
+		expect(validateSchemaPath("./schema.ts", "/tmp/app")).toBeUndefined();
+	});
+
 	it("requires a URL scheme for server databases and allows sqlite file paths", () => {
 		expect(validateDatabaseUrl("", "postgresql")).toBe(
 			"Database URL is required",
@@ -50,6 +81,12 @@ describe("init validators", () => {
 			),
 		).toBeUndefined();
 		expect(validateDatabaseUrl("./dev.db", "sqlite")).toBeUndefined();
+		expect(
+			validateDatabaseUrl(
+				"postgresql://localhost/db\nEVIL=1",
+				"postgresql",
+			),
+		).toBe("Database URL cannot contain control characters");
 		expect(validateDatabaseUrl("file:./dev.db", "sqlite")).toBeUndefined();
 		expect(
 			validateDatabaseUrl("mysql://root@localhost:3306/myapp", "mysql"),
