@@ -660,7 +660,7 @@ export const postgresDialect: Dialect = {
 	excludedRef: (quotedCol) => `excluded.${quotedCol}`,
 	defaultNowExpression,
 	emitCreateMigrationsTable: (ref) =>
-		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE IF NOT EXISTS ${ref} (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, down_checksum TEXT, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	castToInt: (expr) => `${expr}::int`,
 	castToNumeric: (expr) => `${expr}::numeric`,
 	rowToJsonObject(_columns, _refs, aliasExpr) {

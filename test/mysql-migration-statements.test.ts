@@ -8,12 +8,16 @@ import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	applyMigration,
 	ensureMigrationsTable,
+	hashMigrationSql,
 	revertMigration,
 } from "../src/migrate/runner.js";
 import type { DatabaseClient, DriverResult } from "../src/runtime/driver.js";
 import { splitStatements } from "../src/sql/split-statements.js";
 
-function recordingClient(probeRow?: Record<string, unknown>): {
+function recordingClient(
+	probeRow?: Record<string, unknown>,
+	ledger: Record<string, unknown>[] = [],
+): {
 	client: DatabaseClient;
 	queries: string[];
 } {
@@ -23,6 +27,12 @@ function recordingClient(probeRow?: Record<string, unknown>): {
 			queries.push(text);
 			if (probeRow && /information_schema\.COLUMNS/i.test(text)) {
 				return { rows: [probeRow], rowCount: 1 } as DriverResult<T>;
+			}
+			if (text.includes("down_checksum") && /^\s*SELECT/i.test(text)) {
+				return {
+					rows: ledger,
+					rowCount: ledger.length,
+				} as DriverResult<T>;
 			}
 			return { rows: [], rowCount: 0 } as DriverResult<T>;
 		},
@@ -157,13 +167,21 @@ describe("mysql/mariadb migration file handling", () => {
 		});
 
 		it(`reverts a multi-statement down.sql statement by statement on ${dialect.name}`, async () => {
+			const downSql = "DROP TABLE `tb`;\n\nDROP TABLE `ta`;";
 			const migrationsDir = await writeMigrationFile(
 				"neoorm-mysql-down-",
 				"down.sql",
-				"DROP TABLE `tb`;\n\nDROP TABLE `ta`;",
+				downSql,
 			);
 
-			const { client, queries } = recordingClient();
+			const { client, queries } = recordingClient(undefined, [
+				{
+					name: "20200101_init",
+					checksum: "unused",
+					down_checksum: hashMigrationSql(downSql),
+					applied_at: "2020-01-01T00:00:00.000Z",
+				},
+			]);
 			await revertMigration(
 				client,
 				dialect,
@@ -171,7 +189,13 @@ describe("mysql/mariadb migration file handling", () => {
 				"20200101_init",
 			);
 
-			expect(queries).toEqual([
+			expect(
+				queries.filter(
+					(sql) =>
+						sql.startsWith("DROP TABLE") ||
+						sql.includes("DELETE FROM"),
+				),
+			).toEqual([
 				"DROP TABLE `tb`",
 				"DROP TABLE `ta`",
 				expect.stringContaining("DELETE FROM"),

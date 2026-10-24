@@ -79,17 +79,34 @@ function migrationsTableRef(dialect: Dialect, schema?: string): string {
 	}
 }
 
-async function migrationsLedgerHasChecksumColumn(
+type LedgerColumn = "checksum" | "down_checksum";
+
+function ledgerColumnName(column: LedgerColumn): string {
+	switch (column) {
+		case "checksum":
+			return "checksum";
+		case "down_checksum":
+			return "down_checksum";
+		default: {
+			const _never: never = column;
+			return _never;
+		}
+	}
+}
+
+async function migrationsLedgerHasColumn(
 	client: DatabaseClient,
 	dialect: Dialect,
-	schema?: string,
+	schema: string | undefined,
+	column: LedgerColumn,
 ): Promise<boolean> {
+	const columnName = ledgerColumnName(column);
 	switch (dialect.name) {
 		case "sqlite": {
 			const result = await client.query<{ name: string }>(
 				`PRAGMA table_info(${dialect.quoteIdentifier(MIGRATIONS_TABLE)})`,
 			);
-			return result.rows.some((row) => row.name === "checksum");
+			return result.rows.some((row) => row.name === columnName);
 		}
 		case "mysql":
 		case "mariadb": {
@@ -102,8 +119,8 @@ async function migrationsLedgerHasChecksumColumn(
 				 FROM information_schema.COLUMNS
 				 WHERE TABLE_SCHEMA = DATABASE()
 				   AND TABLE_NAME = $1
-				   AND COLUMN_NAME = 'checksum'`,
-				[MIGRATIONS_TABLE],
+				   AND COLUMN_NAME = $2`,
+				[MIGRATIONS_TABLE, columnName],
 			);
 			return Number(result.rows[0]?.checksum_count ?? 0) > 0;
 		}
@@ -115,9 +132,9 @@ async function migrationsLedgerHasChecksumColumn(
 					FROM information_schema.columns
 					WHERE table_schema = $1
 						AND table_name = $2
-						AND column_name = 'checksum'
+						AND column_name = $3
 				) AS exists`,
-				[schemaName, MIGRATIONS_TABLE],
+				[schemaName, MIGRATIONS_TABLE, columnName],
 			);
 			return result.rows[0]?.exists === true;
 		}
@@ -128,16 +145,17 @@ async function migrationsLedgerHasChecksumColumn(
 	}
 }
 
-async function ensureMigrationsChecksumColumn(
+async function ensureMigrationsLedgerColumn(
 	client: DatabaseClient,
 	dialect: Dialect,
-	schema?: string,
+	schema: string | undefined,
+	column: LedgerColumn,
 ): Promise<void> {
-	if (await migrationsLedgerHasChecksumColumn(client, dialect, schema)) {
+	if (await migrationsLedgerHasColumn(client, dialect, schema, column)) {
 		return;
 	}
 	await client.query(
-		`ALTER TABLE ${migrationsTableRef(dialect, schema)} ADD COLUMN checksum TEXT`,
+		`ALTER TABLE ${migrationsTableRef(dialect, schema)} ADD COLUMN ${ledgerColumnName(column)} TEXT`,
 	);
 }
 
@@ -229,30 +247,37 @@ async function withMysqlDeployLock<T>(
 }
 
 async function verifyAppliedMigrationChecksums(
-	client: DatabaseClient,
-	dialect: Dialect,
 	migrationsDir: string,
-	schema: string | undefined,
 	applied: MigrationRecord[],
 ): Promise<void> {
-	const tableRef = migrationsTableRef(dialect, schema);
-
 	for (const record of applied) {
 		const sqlPath = join(migrationsDir, record.name, "migration.sql");
 		let sql: string;
 		try {
 			sql = await readFile(sqlPath, "utf-8");
 		} catch {
-			continue;
+			throw schemaError(
+				SchemaErrorCode.migration_guard,
+				`Applied migration "${record.name}" is missing migration.sql on disk.`,
+				{ migrationName: record.name, sqlPath },
+				[
+					"Restore the migration folder, including the original migration.sql.",
+					"neoorm migrate status lists applied migrations that are missing on disk.",
+				],
+			);
 		}
 
 		const hash = hashMigrationSql(sql);
 		if (record.checksum == null || record.checksum === "") {
-			await client.query(
-				`UPDATE ${tableRef} SET checksum = $1 WHERE name = $2 AND (checksum IS NULL OR checksum = '')`,
-				[hash, record.name],
+			throw schemaError(
+				SchemaErrorCode.migration_guard,
+				`Applied migration "${record.name}" has no checksum, so migration.sql cannot be verified.`,
+				{ migrationName: record.name, sqlPath },
+				[
+					"A missing checksum is not treated as a match and is not filled from the current file.",
+					"If migration.sql is unchanged from when it was applied, set that ledger checksum yourself, or recreate the database with neoorm migrate reset --force.",
+				],
 			);
-			continue;
 		}
 
 		if (record.checksum !== hash) {
@@ -269,10 +294,52 @@ async function verifyAppliedMigrationChecksums(
 	}
 }
 
+/** Pending folders that sort before an already-applied migration. */
+export function outOfOrderPendingMigrations(
+	appliedNames: readonly string[],
+	pending: readonly string[],
+): string[] {
+	if (appliedNames.length === 0 || pending.length === 0) {
+		return [];
+	}
+	const latestApplied = [...appliedNames].sort().at(-1);
+	if (latestApplied === undefined) {
+		return [];
+	}
+	return pending.filter((name) => name < latestApplied);
+}
+
+function assertMigrationsInOrder(
+	appliedNames: readonly string[],
+	pending: readonly string[],
+): void {
+	const early = outOfOrderPendingMigrations(appliedNames, pending);
+	const latestApplied = [...appliedNames].sort().at(-1);
+	const first = early[0];
+	if (
+		early.length === 0 ||
+		latestApplied === undefined ||
+		first === undefined
+	) {
+		return;
+	}
+	const listed = early.map((name) => `"${name}"`).join(", ");
+	throw schemaError(
+		SchemaErrorCode.migration_guard,
+		`Pending migration(s) ${listed} sort before applied migration "${latestApplied}". Refusing to apply them out of order.`,
+		{ migrationName: first },
+		[
+			"Migrations apply in filename order. A later migration is already recorded.",
+			"Restore the skipped migration before later ones are applied, or repair the ledger.",
+		],
+	);
+}
+
 export type MigrationRecord = {
 	name: string;
 	appliedAt: Date;
 	checksum: string | null;
+	downChecksum: string | null;
 };
 
 export type MigrationStatus = {
@@ -293,7 +360,13 @@ export async function ensureMigrationsTable(
 	await client.query(
 		dialect.emitCreateMigrationsTable(migrationsTableRef(dialect, schema)),
 	);
-	await ensureMigrationsChecksumColumn(client, dialect, schema);
+	await ensureMigrationsLedgerColumn(client, dialect, schema, "checksum");
+	await ensureMigrationsLedgerColumn(
+		client,
+		dialect,
+		schema,
+		"down_checksum",
+	);
 }
 
 export async function listAppliedMigrations(
@@ -305,14 +378,16 @@ export async function listAppliedMigrations(
 	const result = await client.query<{
 		name: string;
 		checksum: string | null;
+		down_checksum: string | null;
 		applied_at: string;
 	}>(
-		`SELECT name, checksum, applied_at FROM ${migrationsTableRef(dialect, schema)} ORDER BY id`,
+		`SELECT name, checksum, down_checksum, applied_at FROM ${migrationsTableRef(dialect, schema)} ORDER BY id`,
 	);
 	return result.rows.map((row) => ({
 		name: row.name,
 		appliedAt: new Date(row.applied_at),
 		checksum: row.checksum ?? null,
+		downChecksum: row.down_checksum ?? null,
 	}));
 }
 
@@ -693,8 +768,13 @@ export async function reconcilePendingCreates(
 		dialect,
 		options.schema,
 	);
+	await verifyAppliedMigrationChecksums(migrationsDir, records);
 	const applied = new Set(records.map((record) => record.name));
 	const pending = await listPendingMigrations(migrationsDir, applied);
+	assertMigrationsInOrder(
+		records.map((record) => record.name),
+		pending,
+	);
 	const collision = await readPendingCreateCollisions(
 		client,
 		dialect,
@@ -751,9 +831,13 @@ export async function reconcilePendingCreates(
 				join(migrationsDir, name, "migration.sql"),
 				"utf-8",
 			);
+			const downChecksum = await hashDownSqlIfPresent(
+				migrationsDir,
+				name,
+			);
 			await tx.query(
-				`INSERT INTO ${tableRef} (name, checksum) VALUES ($1, $2)`,
-				[name, hashMigrationSql(fileSql)],
+				`INSERT INTO ${tableRef} (name, checksum, down_checksum) VALUES ($1, $2, $3)`,
+				[name, hashMigrationSql(fileSql), downChecksum],
 			);
 		}
 	});
@@ -822,9 +906,13 @@ export async function applyMigration(
 				for (const statement of migrationFileStatements(dialect, sql)) {
 					await tx.query(statement);
 				}
+				const downChecksum = await hashDownSqlIfPresent(
+					migrationsDir,
+					name,
+				);
 				await tx.query(
-					`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum) VALUES ($1, $2)`,
-					[name, hashMigrationSql(sql)],
+					`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum, down_checksum) VALUES ($1, $2, $3)`,
+					[name, hashMigrationSql(sql), downChecksum],
 				);
 			});
 		if (dialect.name === "sqlite") {
@@ -860,15 +948,13 @@ export async function migrateDeploy(
 				dialect,
 				context.schema,
 			);
-			await verifyAppliedMigrationChecksums(
-				locked,
-				dialect,
-				migrationsDir,
-				context.schema,
-				records,
-			);
+			await verifyAppliedMigrationChecksums(migrationsDir, records);
 			const applied = new Set(records.map((record) => record.name));
 			const pending = await listPendingMigrations(migrationsDir, applied);
+			assertMigrationsInOrder(
+				records.map((record) => record.name),
+				pending,
+			);
 			const collision = await readPendingCreateCollisions(
 				locked,
 				dialect,
@@ -902,6 +988,51 @@ export async function migrateDeploy(
 			return pending;
 		},
 	);
+}
+
+async function hashDownSqlIfPresent(
+	migrationsDir: string,
+	name: string,
+): Promise<string | null> {
+	try {
+		const sql = await readFile(
+			join(migrationsDir, name, "down.sql"),
+			"utf-8",
+		);
+		return hashMigrationSql(sql);
+	} catch {
+		return null;
+	}
+}
+
+function assertDownChecksum(
+	record: MigrationRecord,
+	sql: string,
+	name: string,
+): void {
+	const hash = hashMigrationSql(sql);
+	if (record.downChecksum == null || record.downChecksum === "") {
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			`Migration "${name}" has no recorded down.sql checksum. Refusing to run down.sql.`,
+			{ migrationName: name },
+			[
+				"down.sql is only run when it matches the checksum stored at apply time.",
+				"Restore the original down.sql, or recreate the database with neoorm migrate reset --force.",
+			],
+		);
+	}
+	if (record.downChecksum !== hash) {
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			`down.sql for migration "${name}" does not match the checksum recorded when it was applied.`,
+			{ migrationName: name },
+			[
+				"Restore the original down.sql.",
+				"Do not edit applied down.sql; add a new migration for the change.",
+			],
+		);
+	}
 }
 
 async function readDownSql(
@@ -943,6 +1074,16 @@ export async function revertMigration(
 	schema?: string,
 ): Promise<void> {
 	const sql = await readDownSql(migrationsDir, name);
+	const records = await listAppliedMigrations(client, dialect, schema);
+	const record = records.find((item) => item.name === name);
+	if (!record) {
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			`Migration "${name}" is not applied.`,
+			{ migrationName: name },
+		);
+	}
+	assertDownChecksum(record, sql, name);
 
 	await withMigrationTransaction(client, dialect, async (tx) => {
 		for (const statement of migrationFileStatements(dialect, sql)) {

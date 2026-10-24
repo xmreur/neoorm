@@ -61,7 +61,7 @@ neoorm migrate diff --json
 | MySQL | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
 | MariaDB | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
 
-The ledger table `_neoorm_migrations` stores `name` and `checksum`. Editing an already-applied `migration.sql` is rejected (`migration_guard`) — restore the original file or add a new migration.
+The ledger table `_neoorm_migrations` stores `name`, a SHA-256 `checksum` of `migration.sql`, and `down_checksum` for `down.sql`. Deploy refuses a missing `migration.sql`, a null checksum, or a checksum that does not match the file. It also refuses a pending migration that sorts before one already applied, so an earlier file cannot run after a later one. `migrate down` runs `down.sql` only when its checksum matches the value stored at apply time.
 
 PostgreSQL and SQLite apply pending files inside the deploy lock transaction: if a later statement fails, none of that run's new ledger rows remain. MySQL and MariaDB cannot roll back InnoDB DDL (`CREATE TABLE`, `ALTER`, `CREATE INDEX`) — each statement autocommits. A failed file can leave tables without a matching `_neoorm_migrations` row. Recover locally with `neoorm migrate reset --force`, or in development with `neoorm migrate dev` catch-up. `GET_LOCK` is session-scoped and still serializes concurrent deploys; migration SQL does not run under a savepoint.
 

@@ -400,7 +400,7 @@ export const sqliteDialect: Dialect = {
 	excludedRef: (quotedCol) => `excluded.${quotedCol}`,
 	defaultNowExpression: () => "CURRENT_TIMESTAMP",
 	emitCreateMigrationsTable: (ref) =>
-		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE IF NOT EXISTS ${ref} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, down_checksum TEXT, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 	castToInt: (expr) => expr,
 	castToNumeric: (expr) => `CAST(${expr} AS NUMERIC)`,
 	rowToJsonObject(columns, refs, _aliasExpr) {

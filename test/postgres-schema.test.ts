@@ -151,11 +151,17 @@ describe("postgres schema namespaces", () => {
 		expect(pool.queries[2]?.params).toEqual([
 			"tenant_a",
 			"_neoorm_migrations",
+			"checksum",
 		]);
-		expect(pool.queries[3]?.sql).toContain(
+		expect(pool.queries[3]?.params).toEqual([
+			"tenant_a",
+			"_neoorm_migrations",
+			"down_checksum",
+		]);
+		expect(pool.queries[4]?.sql).toContain(
 			'DROP SCHEMA "tenant_a" CASCADE',
 		);
-		expect(pool.queries[3]?.sql).toContain('CREATE SCHEMA "tenant_a"');
+		expect(pool.queries[4]?.sql).toContain('CREATE SCHEMA "tenant_a"');
 	});
 
 	it("qualifies raw db.sql, db.execute, and db.sqlId for tenant schema", async () => {
