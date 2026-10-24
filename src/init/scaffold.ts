@@ -8,6 +8,12 @@ import {
 	neoormConfigTemplate,
 	schemaTemplate,
 } from "./templates.js";
+import {
+	isInsideProject,
+	validateDatabaseUrl,
+	validateOutDir,
+	validateSchemaPath,
+} from "./validate.js";
 
 export type InitOptions = {
 	cwd?: string;
@@ -48,12 +54,48 @@ export function resolveScaffoldTargets(
 	cwd: string,
 	schemaRel: string,
 ): Array<{ path: string; label: string }> {
-	const schemaPath = resolve(cwd, schemaRel);
+	const root = resolve(cwd);
+	const schemaPath = resolve(root, schemaRel);
 	return [
-		{ path: join(cwd, CONFIG_FILE), label: CONFIG_FILE },
-		{ path: schemaPath, label: toDisplayPath(cwd, schemaPath) },
-		{ path: join(cwd, ENV_EXAMPLE_FILE), label: ENV_EXAMPLE_FILE },
+		{ path: join(root, CONFIG_FILE), label: CONFIG_FILE },
+		{ path: schemaPath, label: toDisplayPath(root, schemaPath) },
+		{ path: join(root, ENV_EXAMPLE_FILE), label: ENV_EXAMPLE_FILE },
 	];
+}
+
+function assertScaffoldTargets(
+	cwd: string,
+	schemaRel: string,
+	outRel: string,
+	provider: InitOptions["provider"],
+	databaseUrl: string | undefined,
+): void {
+	const schemaErrorMessage = validateSchemaPath(schemaRel, cwd);
+	if (schemaErrorMessage) throw new Error(schemaErrorMessage);
+	const outErrorMessage = validateOutDir(outRel, schemaRel, cwd);
+	if (outErrorMessage) throw new Error(outErrorMessage);
+	if (databaseUrl !== undefined) {
+		const urlErrorMessage = validateDatabaseUrl(
+			databaseUrl,
+			provider ?? "postgresql",
+		);
+		if (urlErrorMessage) throw new Error(urlErrorMessage);
+	}
+	const seen = new Map<string, string>();
+	for (const target of resolveScaffoldTargets(cwd, schemaRel)) {
+		if (!isInsideProject(cwd, target.path)) {
+			throw new Error(
+				"Scaffold path must stay inside the project directory",
+			);
+		}
+		const previous = seen.get(target.path);
+		if (previous !== undefined) {
+			throw new Error(
+				`Scaffold paths collide: ${previous} and ${target.label}`,
+			);
+		}
+		seen.set(target.path, target.label);
+	}
 }
 
 export async function listExistingScaffoldFiles(
@@ -73,6 +115,13 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
 	const cwd = resolve(options.cwd ?? process.cwd());
 	const schemaRel = options.schemaPath ?? DEFAULT_SCHEMA_PATH;
 	const outRel = options.outDir ?? DEFAULT_OUT_DIR;
+	assertScaffoldTargets(
+		cwd,
+		schemaRel,
+		outRel,
+		options.provider,
+		options.databaseUrl,
+	);
 	const schemaPath = resolve(cwd, schemaRel);
 	const outDir = resolve(cwd, outRel);
 	const configPath = join(cwd, CONFIG_FILE);

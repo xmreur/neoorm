@@ -1,15 +1,43 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+function unescapeDoubleQuoted(value: string): string {
+	let out = "";
+	for (let i = 0; i < value.length; i++) {
+		const ch = value[i];
+		if (ch !== "\\" || i + 1 >= value.length) {
+			out += ch ?? "";
+			continue;
+		}
+		const next = value[i + 1] ?? "";
+		i += 1;
+		switch (next) {
+			case "n":
+				out += "\n";
+				break;
+			case "r":
+				out += "\r";
+				break;
+			case "t":
+				out += "\t";
+				break;
+			case '"':
+				out += '"';
+				break;
+			case "\\":
+				out += "\\";
+				break;
+			default:
+				out += `\\${next}`;
+				break;
+		}
+	}
+	return out;
+}
+
 function unquoteDotEnvValue(value: string): string {
 	if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-		return value
-			.slice(1, -1)
-			.replace(/\\n/g, "\n")
-			.replace(/\\r/g, "\r")
-			.replace(/\\t/g, "\t")
-			.replace(/\\"/g, '"')
-			.replace(/\\\\/g, "\\");
+		return unescapeDoubleQuoted(value.slice(1, -1));
 	}
 	if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
 		return value.slice(1, -1);

@@ -1,4 +1,5 @@
 import type { InitProvider } from "../datasource-provider.js";
+import { escapeTsString } from "../utils/case.js";
 
 export function defaultDatabaseUrl(provider: InitProvider): string {
 	switch (provider) {
@@ -26,15 +27,15 @@ export function neoormConfigTemplate(
 	const url = databaseUrl ?? defaultDatabaseUrl(provider);
 	const urlLiteral =
 		provider === "sqlite" && !databaseUrl
-			? `"${url}"`
-			: `process.env.DATABASE_URL ?? "${url}"`;
+			? `"${escapeTsString(url)}"`
+			: `process.env.DATABASE_URL ?? "${escapeTsString(url)}"`;
 	return `import { defineConfig } from "neoorm";
 
 export default defineConfig({
-  schema: "${schemaPath}",
-  out: "${outDir}",
+  schema: "${escapeTsString(schemaPath)}",
+  out: "${escapeTsString(outDir)}",
   datasource: {
-    provider: "${provider}",
+    provider: "${escapeTsString(provider)}",
     url: ${urlLiteral},
     enum: "check",
   },
@@ -77,10 +78,35 @@ export const schema = defineSchema({
 `;
 }
 
+function needsEnvQuotes(value: string): boolean {
+	if (/[\s#"'\\]/.test(value)) return true;
+	for (let i = 0; i < value.length; i++) {
+		const code = value.charCodeAt(i);
+		if (code <= 0x1f || code === 0x7f) return true;
+	}
+	return false;
+}
+
+/**
+ * One dotenv value. Values that would break a raw line (quotes,
+ * whitespace, comments, backslashes, controls) are double-quoted.
+ */
+export function formatEnvValue(value: string): string {
+	if (!needsEnvQuotes(value)) return value;
+	const escaped = value
+		.replace(/\\/g, "\\\\")
+		.replace(/\n/g, "\\n")
+		.replace(/\r/g, "\\r")
+		.replace(/\t/g, "\\t")
+		.replace(/"/g, '\\"');
+	return `"${escaped}"`;
+}
+
 export function envExampleTemplate(
 	provider: InitProvider = "postgresql",
 	databaseUrl?: string,
 ): string {
-	return `DATABASE_URL=${databaseUrl ?? defaultDatabaseUrl(provider)}
+	const url = databaseUrl ?? defaultDatabaseUrl(provider);
+	return `DATABASE_URL=${formatEnvValue(url)}
 `;
 }
