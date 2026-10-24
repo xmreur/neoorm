@@ -82,10 +82,20 @@ async function promptText(
 		message,
 		defaultValue,
 		placeholder: defaultValue,
-		validate: (input) => validate((input ?? "").trim() || defaultValue),
+		validate: (input) => {
+			// Enter on an empty field accepts the placeholder. Clack applies
+			// defaultValue only after validate(), so check the default here.
+			// Whitespace is input, not an empty submit, and must not become
+			// the default.
+			if (input === undefined || input === "") {
+				return validate(defaultValue);
+			}
+			return validate(input.trim());
+		},
 	});
 	const resolved = exitIfCancelled(value);
-	return (resolved ?? "").trim() || defaultValue;
+	if (resolved === undefined || resolved === "") return defaultValue;
+	return resolved.trim();
 }
 
 export async function resolveInitOptions(
