@@ -104,6 +104,76 @@ describe("enumType column", () => {
 		);
 	});
 
+	it("rejects a shared native enum name with different values", () => {
+		const next = defineSchema({
+			posts: table({
+				id: text().notNull().primary(),
+				status: enumType(["a", "b"] as const, { name: "mood" }),
+			}),
+			comments: table({
+				id: text().notNull().primary(),
+				status: enumType(["x", "y"] as const, { name: "mood" }),
+			}),
+		});
+		const manifest = schemaToManifest(next, undefined, {
+			enumMode: "native",
+			provider: "postgres",
+		});
+		expect(manifest.enumTypes).toEqual({
+			mood: { values: ["a", "b"] },
+		});
+		expect(
+			validateManifest(manifest).map((issue) => issue.message),
+		).toContain('Native enum "mood" is declared with different values');
+	});
+
+	it("rejects native enum names that differ only by case", () => {
+		const next = defineSchema({
+			posts: table({
+				id: text().notNull().primary(),
+				status: enumType(["a", "b"] as const, { name: "mood" }),
+			}),
+			comments: table({
+				id: text().notNull().primary(),
+				status: enumType(["a", "b"] as const, { name: "Mood" }),
+			}),
+		});
+		const manifest = schemaToManifest(next, undefined, {
+			enumMode: "native",
+			provider: "postgres",
+		});
+		expect(manifest.enumTypes).toEqual({
+			mood: { values: ["a", "b"] },
+		});
+		expect(
+			validateManifest(manifest).map((issue) => issue.message),
+		).toContain('Native enum names "mood" and "Mood" differ only by case');
+	});
+
+	it("reuses one native enum when the name and values match", () => {
+		const shared = defineSchema({
+			posts: table({
+				id: text().notNull().primary(),
+				status: enumType(["draft", "published"] as const, {
+					name: "mood",
+				}),
+			}),
+			comments: table({
+				id: text().notNull().primary(),
+				status: enumType(["draft", "published"] as const, {
+					name: "mood",
+				}),
+			}),
+		});
+		const manifest = schemaToManifest(shared, undefined, {
+			enumMode: "native",
+			provider: "postgres",
+		});
+		expect(manifest.enumTypes).toEqual({
+			mood: { values: ["draft", "published"] },
+		});
+	});
+
 	it("flags enum value changes as manual migrations", () => {
 		const prev = schemaToManifest(schema, undefined, {
 			enumMode: "native",

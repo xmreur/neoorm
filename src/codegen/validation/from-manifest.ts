@@ -319,21 +319,39 @@ function hoistEnums(tables: TableValidation[]): {
 } {
 	const usedExportNames = new Set<string>();
 	for (const table of tables) {
-		usedExportNames.add(`${table.modelName}Schema`);
-		usedExportNames.add(`${table.modelName}CreateSchema`);
-		usedExportNames.add(`${table.modelName}UpdateSchema`);
+		const model = table.modelName;
+		// Validators emit both `export const <Model>Schema` and
+		// `export type <Model>Select` / `Create` / `Update`.
+		usedExportNames.add(`${model}Schema`);
+		usedExportNames.add(`${model}CreateSchema`);
+		usedExportNames.add(`${model}UpdateSchema`);
+		usedExportNames.add(`${model}Select`);
+		usedExportNames.add(`${model}Create`);
+		usedExportNames.add(`${model}Update`);
 		if (table.junction !== undefined) {
-			usedExportNames.add(`${table.modelName}LinkCreateSchema`);
+			usedExportNames.add(`${model}LinkCreateSchema`);
+			usedExportNames.add(`${model}LinkCreate`);
 		}
 	}
 
 	const byKey = new Map<string, ValidationEnum>();
 
+	const enumExports = (name: string): readonly string[] => [
+		name,
+		`${name}Schema`,
+	];
+
+	const exportTaken = (name: string): boolean =>
+		enumExports(name).some((exportName) => usedExportNames.has(exportName));
+
 	const intern: InternEnum = (values, explicitName, fallbackName) => {
+		const identity = JSON.stringify(values);
+		// pascalCase("foo_bar") and pascalCase("fooBar") are both "FooBar".
+		// The value list stays in the key so those still become two enums.
 		const key =
 			explicitName !== undefined && explicitName.length > 0
-				? `name:${pascalCase(explicitName)}`
-				: `values:${JSON.stringify(values)}`;
+				? `name:${pascalCase(explicitName)}:${identity}`
+				: `values:${identity}`;
 		const existing = byKey.get(key);
 		if (existing) {
 			return existing.name;
@@ -350,15 +368,17 @@ function hoistEnums(tables: TableValidation[]): {
 		let name = sanitizeTsIdentifier(
 			pascalCase(seed.length > 0 ? seed : "Enum"),
 		);
-		if (usedExportNames.has(`${name}Schema`)) {
+		if (exportTaken(name)) {
 			let unique = `${name}Enum`;
 			let n = 2;
-			while (usedExportNames.has(`${unique}Schema`)) {
+			while (exportTaken(unique)) {
 				unique = `${name}Enum${n++}`;
 			}
 			name = unique;
 		}
-		usedExportNames.add(`${name}Schema`);
+		for (const exportName of enumExports(name)) {
+			usedExportNames.add(exportName);
+		}
 		const entry: ValidationEnum = { name, values };
 		byKey.set(key, entry);
 		return name;
