@@ -42,7 +42,7 @@ Set `generate.zod` to write `out/zod.ts`, `generate.typebox` to write `out/typeb
 
 ### SQLite
 
-Set `provider: "sqlite"` and `url` to a file path or `":memory:"`:
+Set `provider: "sqlite"` and `url` to a file path, a `file:` or `sqlite:` URI, or `":memory:"`. A `postgresql://`, `mysql://`, or other connection URL is rejected so it is not opened as a filename or silently dropped:
 
 ```ts
 datasource: {

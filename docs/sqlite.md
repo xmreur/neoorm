@@ -16,7 +16,7 @@ If none is available, creating a client throws: `No SQLite driver available. Pro
 
 ## Configuration
 
-Set `provider: "sqlite"` and point `url` at a file path or `:memory:`:
+Set `provider: "sqlite"` and point `url` at a file path, a `file:` or `sqlite:` URI, or `:memory:`. A `postgresql://`, `mysql://`, or other connection URL is rejected:
 
 ```ts
 // neoorm.config.ts

@@ -81,13 +81,16 @@ describe("init validators", () => {
 			),
 		).toBeUndefined();
 		expect(validateDatabaseUrl("./dev.db", "sqlite")).toBeUndefined();
+		expect(validateDatabaseUrl("file:./dev.db", "sqlite")).toBeUndefined();
+		expect(
+			validateDatabaseUrl("mysql://root@localhost:3306/myapp", "sqlite"),
+		).toBe("Database URL is a mysql connection URL, not a SQLite path");
 		expect(
 			validateDatabaseUrl(
 				"postgresql://localhost/db\nEVIL=1",
 				"postgresql",
 			),
 		).toBe("Database URL cannot contain control characters");
-		expect(validateDatabaseUrl("file:./dev.db", "sqlite")).toBeUndefined();
 		expect(
 			validateDatabaseUrl("mysql://root@localhost:3306/myapp", "mysql"),
 		).toBeUndefined();

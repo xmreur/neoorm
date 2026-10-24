@@ -3,9 +3,11 @@ import {
 	DATABASE_PROVIDERS,
 	type DatabaseProvider,
 	isDatabaseProvider,
+	isSqliteProvider,
 } from "./datasource-provider.js";
 import { schemaError } from "./runtime/error-builders.js";
 import { SchemaErrorCode } from "./runtime/error-codes.js";
+import { foreignDatabaseScheme } from "./runtime/sqlite-open.js";
 import { loadDotEnv } from "./utils/dotenv.js";
 import { importTsModule } from "./utils/load-ts.js";
 
@@ -86,6 +88,16 @@ export function validateConfig(config: unknown): NeoOrmConfig {
 			SchemaErrorCode.invalid_config,
 			`neoorm.config.ts datasource.provider must be one of: ${DATABASE_PROVIDERS.join(", ")}`,
 		);
+	}
+
+	if (isSqliteProvider(datasource.provider)) {
+		const scheme = foreignDatabaseScheme(datasource.url);
+		if (scheme !== undefined) {
+			throw schemaError(
+				SchemaErrorCode.invalid_config,
+				`neoorm.config.ts datasource.url is a ${scheme} connection URL, not a SQLite database path`,
+			);
+		}
 	}
 
 	if (

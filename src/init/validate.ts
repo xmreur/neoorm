@@ -1,5 +1,6 @@
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { InitProvider } from "../datasource-provider.js";
+import { foreignDatabaseScheme } from "../runtime/sqlite-open.js";
 
 const CONFIG_FILE = "neoorm.config.ts";
 const ENV_EXAMPLE_FILE = ".env.example";
@@ -93,6 +94,10 @@ export function validateDatabaseUrl(
 		return "Database URL cannot contain control characters";
 	}
 	if (provider === "sqlite") {
+		const scheme = foreignDatabaseScheme(trimmed);
+		if (scheme !== undefined) {
+			return `Database URL is a ${scheme} connection URL, not a SQLite path`;
+		}
 		return undefined;
 	}
 	if (!trimmed.includes("://")) {
