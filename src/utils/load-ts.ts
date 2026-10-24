@@ -10,9 +10,10 @@ export function resolveModuleExport(
 	}
 	const nested = mod.default;
 	if (nested !== null && typeof nested === "object") {
-		const record = nested as Record<string, unknown>;
-		const fromDefault = record[exportName];
-		return fromDefault !== undefined ? fromDefault : nested;
+		const fromDefault = (nested as Record<string, unknown>)[exportName];
+		if (fromDefault !== undefined) {
+			return fromDefault;
+		}
 	}
 	return undefined;
 }
