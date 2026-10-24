@@ -92,6 +92,79 @@ function buildEnumCheckExpression(
 	return `${quoteSqlColumn(sqlName, provider)} IN (${quoted})`;
 }
 
+type SqlNameCollision = {
+	kind: "exact" | "case";
+	prior: string;
+};
+
+/** Fold SQL names so `Users` and `users` cannot both be stored. */
+function noteSqlName(
+	seen: Map<string, string>,
+	sqlName: string,
+): SqlNameCollision | undefined {
+	const fold = sqlName.toLowerCase();
+	const prior = seen.get(fold);
+	if (prior === undefined) {
+		seen.set(fold, sqlName);
+		return undefined;
+	}
+	if (prior === sqlName) return { kind: "exact", prior };
+	return { kind: "case", prior };
+}
+
+function duplicateTableSqlMessage(
+	sqlName: string,
+	collision: SqlNameCollision,
+): string {
+	switch (collision.kind) {
+		case "exact":
+			return `Duplicate table SQL name: ${sqlName}`;
+		case "case":
+			return `Table SQL names "${collision.prior}" and "${sqlName}" differ only by case`;
+		default: {
+			const _exhaustive: never = collision.kind;
+			return _exhaustive;
+		}
+	}
+}
+
+function duplicateColumnSqlMessage(
+	tableAccessor: string,
+	sqlName: string,
+	collision: SqlNameCollision,
+): string {
+	switch (collision.kind) {
+		case "exact":
+			return `Duplicate column SQL name "${sqlName}" on table "${tableAccessor}"`;
+		case "case":
+			return `Column SQL names "${collision.prior}" and "${sqlName}" on table "${tableAccessor}" differ only by case`;
+		default: {
+			const _exhaustive: never = collision.kind;
+			return _exhaustive;
+		}
+	}
+}
+
+function assertDistinctColumnSqlNames(
+	tableAccessor: string,
+	columns: readonly ManifestColumn[],
+): void {
+	const seen = new Map<string, string>();
+	for (const col of columns) {
+		const collision = noteSqlName(seen, col.sqlName);
+		if (!collision) continue;
+		throw schemaError(
+			"invalid_column",
+			duplicateColumnSqlMessage(tableAccessor, col.sqlName, collision),
+			{ tableAccessor },
+			[
+				"Each column on a table must have a distinct SQL name",
+				"`.map()` names and snake_case conversion can collapse two fields onto one SQL name",
+			],
+		);
+	}
+}
+
 function resolveEnumTypeName(
 	tableSqlName: string,
 	columnSqlName: string,
@@ -141,6 +214,7 @@ function finalizeEnumColumns(
 	provider?: DatabaseProvider,
 ): Record<string, { values: readonly string[] }> | undefined {
 	const enumTypes: Record<string, { values: readonly string[] }> = {};
+	const enumNames = new Map<string, string>();
 
 	for (const table of Object.values(manifestTables)) {
 		for (const col of table.columns) {
@@ -180,7 +254,42 @@ function finalizeEnumColumns(
 					...col.typeOptions,
 					nativeTypeName: enumName,
 				};
-				enumTypes[enumName] = { values };
+				const collision = noteSqlName(enumNames, enumName);
+				if (collision?.kind === "case") {
+					throw schemaError(
+						"invalid_column",
+						`Native enum names "${collision.prior}" and "${enumName}" differ only by case`,
+						{
+							tableAccessor: table.accessor,
+							tableSqlName: table.sqlName,
+						},
+						[
+							"Pick one spelling for the shared enum type",
+							"Names that differ only by case still collide",
+						],
+					);
+				}
+				const existing = enumTypes[enumName];
+				if (
+					existing &&
+					JSON.stringify(existing.values) !== JSON.stringify(values)
+				) {
+					throw schemaError(
+						"invalid_column",
+						`Native enum "${enumName}" is declared with different values`,
+						{
+							tableAccessor: table.accessor,
+							tableSqlName: table.sqlName,
+						},
+						[
+							"Give each distinct value list its own enum name",
+							"Or reuse the same values for every column that shares the name",
+						],
+					);
+				}
+				if (!existing) {
+					enumTypes[enumName] = { values };
+				}
 			}
 		}
 	}
@@ -1516,9 +1625,26 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 	const defaultColumnNaming = schema._columnNaming ?? "snakeCase";
 	const tables = schema._tables;
 	const sqlNameToAccessor: Record<string, string> = {};
+	const tableSqlNames = new Map<string, string>();
+
+	const claimTableSqlName = (sqlName: string, accessor: string): void => {
+		const collision = noteSqlName(tableSqlNames, sqlName);
+		if (collision) {
+			throw schemaError(
+				"duplicate_table_sql_name",
+				duplicateTableSqlMessage(sqlName, collision),
+				{ tableAccessor: accessor, tableSqlName: sqlName },
+				[
+					"Each table must have a unique SQL name",
+					"Names that differ only by case still collide",
+				],
+			);
+		}
+		sqlNameToAccessor[sqlName] = accessor;
+	};
 
 	for (const [accessor, table] of Object.entries(tables)) {
-		sqlNameToAccessor[table._tableName] = accessor;
+		claimTableSqlName(table._tableName, accessor);
 	}
 
 	const manifestTables: Record<string, ManifestTable> = {};
@@ -1542,6 +1668,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 					provider,
 				),
 			);
+		assertDistinctColumnSqlNames(accessor, columns);
 
 		const { indexes, primaryKey, compositeFks } = extrasToManifest(
 			tableDef._extras,
@@ -1658,6 +1785,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 				`M2M junction "${accessor}" must have exactly two FK columns`,
 			);
 		}
+		assertDistinctColumnSqlNames(accessor, columns);
 		const table: ManifestTable = {
 			accessor,
 			sqlName,
@@ -1668,7 +1796,7 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 			primaryKey: [leftCol.sqlName, rightCol.sqlName],
 		};
 		manifestTables[accessor] = table;
-		sqlNameToAccessor[sqlName] = accessor;
+		claimTableSqlName(sqlName, accessor);
 		autoJunctionAccessors.add(accessor);
 		return table;
 	};
@@ -1949,22 +2077,69 @@ export function schemaToManifest<T extends Record<string, TableDef>>(
 /** Validate a manifest and return structured issues (empty when valid). */
 export function validateManifest(manifest: Manifest): SchemaValidationIssue[] {
 	const errors: SchemaValidationIssue[] = [];
-	const sqlNames = new Set<string>();
+	const tableSqlNames = new Map<string, string>();
+	const nativeEnums = new Map<string, { name: string; values: string }>();
 
 	for (const table of Object.values(manifest.tables)) {
-		if (sqlNames.has(table.sqlName)) {
+		const tableCollision = noteSqlName(tableSqlNames, table.sqlName);
+		if (tableCollision) {
 			errors.push({
 				code: "duplicate_table_sql_name",
-				message: `Duplicate table SQL name: ${table.sqlName}`,
+				message: duplicateTableSqlMessage(
+					table.sqlName,
+					tableCollision,
+				),
 				suggestions: [
 					"Each table must have a unique SQL name",
-					"Check for duplicate table() SQL name arguments or colliding accessors",
+					"Names that differ only by case still collide",
 				],
 			});
 		}
-		sqlNames.add(table.sqlName);
 
+		const columnSqlNames = new Map<string, string>();
 		for (const col of table.columns) {
+			const columnCollision = noteSqlName(columnSqlNames, col.sqlName);
+			if (columnCollision) {
+				errors.push({
+					code: "invalid_column",
+					message: duplicateColumnSqlMessage(
+						table.accessor,
+						col.sqlName,
+						columnCollision,
+					),
+					suggestions: [
+						"Each column on a table must have a distinct SQL name",
+						"`.map()` names and snake_case conversion can collapse two fields onto one SQL name",
+					],
+				});
+			}
+
+			const nativeName = col.typeOptions?.nativeTypeName;
+			if (typeof nativeName === "string" && nativeName.length > 0) {
+				const values = JSON.stringify(col.typeOptions?.values ?? []);
+				const fold = nativeName.toLowerCase();
+				const prior = nativeEnums.get(fold);
+				if (!prior) {
+					nativeEnums.set(fold, { name: nativeName, values });
+				} else if (
+					prior.name !== nativeName ||
+					prior.values !== values
+				) {
+					const message =
+						prior.name === nativeName
+							? `Native enum "${nativeName}" is declared with different values`
+							: `Native enum names "${prior.name}" and "${nativeName}" differ only by case`;
+					errors.push({
+						code: "invalid_column",
+						message,
+						suggestions: [
+							"Give each distinct value list its own enum name",
+							"Names that differ only by case still collide",
+						],
+					});
+				}
+			}
+
 			if (col.kind === "fk" && col.fkTarget) {
 				const { tableSql: targetTable, columnSql: targetColumn } =
 					parseFkTarget(col.fkTarget);

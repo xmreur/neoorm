@@ -116,6 +116,50 @@ describe("generated enum identifiers are sanitized", () => {
 		expect(zod).toContain('z.enum(["published"])');
 	});
 
+	it("keeps both enums when pascalCase names collide but values differ", () => {
+		const schema = defineSchema({
+			posts: table({
+				id: id(),
+				a: enumType(["draft"], { name: "foo_bar" }),
+				b: enumType(["published"], { name: "fooBar" }),
+			}),
+		});
+		const ir = validationFromManifest(schemaToManifest(schema));
+		expect(ir.enums.map((entry) => entry.values)).toEqual([
+			["draft"],
+			["published"],
+		]);
+
+		const zod = emitZodTs(ir);
+		expect(zod).toContain('z.enum(["draft"])');
+		expect(zod).toContain('z.enum(["published"])');
+		expect(zod).toContain("a: FooBarSchema");
+		expect(zod).toContain("b: FooBarEnumSchema");
+	});
+
+	it("renames an enum that would duplicate a model type export", () => {
+		const schema = defineSchema({
+			posts: table({
+				id: id(),
+				status: enumType(["a", "b"], { name: "PostSelect" }),
+			}),
+		});
+		const ir = validationFromManifest(schemaToManifest(schema));
+		expect(ir.enums.map((entry) => entry.name)).toEqual(["PostSelectEnum"]);
+
+		const zod = emitZodTs(ir);
+		const typeExports = [...zod.matchAll(/export type (\w+)/g)].flatMap(
+			(match) => {
+				const name = match[1];
+				return name !== undefined ? [name] : [];
+			},
+		);
+		expect(typeExports.filter((name) => name === "PostSelect")).toEqual([
+			"PostSelect",
+		]);
+		expect(zod).toContain("export type PostSelectEnum =");
+	});
+
 	it("leaves well-formed enum names untouched", () => {
 		const { zod } = emittedFor("PostStatus");
 		expect(exportedEnumSchemaNames(zod)).toContain("PostStatus");

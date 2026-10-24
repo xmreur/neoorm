@@ -573,6 +573,60 @@ export const schema = defineSchema({
 	});
 });
 
+describe("SQL identifier collisions", () => {
+	it("rejects a second table with the same SQL name", () => {
+		expect(() =>
+			schemaToManifest(
+				defineSchema({
+					a: table("users", { id: uuid().primary() }),
+					b: table("users", { id: uuid().primary() }),
+				}),
+			),
+		).toThrow(/Duplicate table SQL name: users/);
+	});
+
+	it("rejects table SQL names that differ only by case", () => {
+		expect(() =>
+			schemaToManifest(
+				defineSchema({
+					a: table("Users", { id: uuid().primary() }),
+					b: table("users", { id: uuid().primary() }),
+				}),
+			),
+		).toThrow(/Table SQL names "Users" and "users" differ only by case/);
+	});
+
+	it("rejects column SQL names that differ only by case", () => {
+		expect(() =>
+			schemaToManifest(
+				defineSchema({
+					users: table({
+						id: uuid().primary(),
+						Email: text().map("Email"),
+						email: text().map("email"),
+					}),
+				}),
+			),
+		).toThrow(
+			/Column SQL names "Email" and "email" on table "users" differ only by case/,
+		);
+	});
+
+	it("rejects columns that collapse to one SQL name", () => {
+		expect(() =>
+			schemaToManifest(
+				defineSchema({
+					users: table({
+						id: uuid().primary(),
+						userId: text(),
+						user_id: text(),
+					}),
+				}),
+			),
+		).toThrow(/Duplicate column SQL name "user_id" on table "users"/);
+	});
+});
+
 describe("model name collision validation", () => {
 	function modelNameIssues(
 		manifest: Parameters<typeof validateManifest>[0],
@@ -630,6 +684,20 @@ describe("model name collision validation", () => {
 		expect(issues).toHaveLength(1);
 		expect(atIndex(issues, 0).message).toBe(
 			'Tables "my_tables" and "myTables" both map to model name "MyTable"',
+		);
+	});
+
+	it("reports table SQL names that differ only by case", () => {
+		const issues = validateManifest(
+			bareManifest({
+				a: { accessor: "people", sqlName: "Users" },
+				b: { accessor: "accounts", sqlName: "users" },
+			}),
+		).filter((issue) => issue.code === "duplicate_table_sql_name");
+
+		expect(issues).toHaveLength(1);
+		expect(atIndex(issues, 0).message).toBe(
+			'Table SQL names "Users" and "users" differ only by case',
 		);
 	});
 
