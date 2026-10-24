@@ -8,9 +8,11 @@ import {
 import { convertNumberedToPositional } from "./mysql-placeholders.js";
 import {
 	assertNoSavepointOptions,
+	assertSavepointStackOpen,
 	buildMysqlBeginStatements,
 	buildSavepointName,
 	rollbackIgnoringFailure,
+	runInSavepoint,
 } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -154,6 +156,7 @@ async function runMariadbQuery<T>(
 type MariadbTxState = {
 	connection: MariadbConnectionLike;
 	savepointCounter: number;
+	poisoned: boolean;
 	txClient?: DatabaseClient;
 };
 
@@ -164,6 +167,7 @@ function getMariadbTxClient(state: MariadbTxState): DatabaseClient {
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
+			assertSavepointStackOpen(state.poisoned);
 			return runMariadbQuery(state.connection, text, params);
 		},
 		async transaction<T>(
@@ -171,22 +175,17 @@ function getMariadbTxClient(state: MariadbTxState): DatabaseClient {
 			options?: TransactionOptions,
 		): Promise<T> {
 			assertNoSavepointOptions(options);
+			assertSavepointStackOpen(state.poisoned);
 			const savepointId = ++state.savepointCounter;
 			const name = buildSavepointName(savepointId);
-			await state.connection.query(`SAVEPOINT ${name}`);
-			try {
-				const result = await fn(txClient);
-				await state.connection.query(`RELEASE SAVEPOINT ${name}`);
-				return result;
-			} catch (err) {
-				await rollbackIgnoringFailure(async () => {
-					await state.connection.query(
-						`ROLLBACK TO SAVEPOINT ${name}`,
-					);
-					await state.connection.query(`RELEASE SAVEPOINT ${name}`);
-				});
-				throw err;
-			}
+			return runInSavepoint(
+				(sql) => state.connection.query(sql),
+				name,
+				() => fn(txClient),
+				() => {
+					state.poisoned = true;
+				},
+			);
 		},
 		async close(): Promise<void> {},
 	};
@@ -210,12 +209,17 @@ export function mariadbClient(
 			options?: TransactionOptions,
 		): Promise<T> {
 			const connection = await pool.getConnection();
-			const state: MariadbTxState = { connection, savepointCounter: 0 };
+			const state: MariadbTxState = {
+				connection,
+				savepointCounter: 0,
+				poisoned: false,
+			};
 			try {
 				for (const stmt of buildMysqlBeginStatements(options)) {
 					await connection.query(stmt);
 				}
 				const result = await fn(getMariadbTxClient(state));
+				assertSavepointStackOpen(state.poisoned);
 				await connection.query("COMMIT");
 				return result;
 			} catch (err) {

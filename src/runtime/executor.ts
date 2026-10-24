@@ -10,9 +10,11 @@ import {
 import { CappedMap } from "./query/table-index.js";
 import {
 	assertNoSavepointOptions,
+	assertSavepointStackOpen,
 	buildBeginSql,
 	buildSavepointName,
 	rollbackIgnoringFailure,
+	runInSavepoint,
 } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -196,6 +198,7 @@ async function runQuery(
 type TransactionState = {
 	client: PoolClient;
 	savepointCounter: number;
+	poisoned: boolean;
 };
 
 function createQueryMethods(
@@ -203,6 +206,7 @@ function createQueryMethods(
 	usePrepared: boolean,
 	hooks: QueryHooks | undefined,
 	inTransaction: boolean,
+	assertOpen?: () => void,
 ): Pick<Executor, "query" | "queryOne" | "execute"> {
 	return wrapQueryMethods(
 		{
@@ -210,6 +214,7 @@ function createQueryMethods(
 				text: string,
 				params: unknown[] = [],
 			): Promise<T[]> {
+				assertOpen?.();
 				const result = await runQuery(
 					client,
 					text,
@@ -223,6 +228,7 @@ function createQueryMethods(
 				text: string,
 				params: unknown[] = [],
 			): Promise<T | null> {
+				assertOpen?.();
 				const result = await runQuery(
 					client,
 					text,
@@ -237,6 +243,7 @@ function createQueryMethods(
 				text: string,
 				params: unknown[] = [],
 			): Promise<ExecuteResult<T>> {
+				assertOpen?.();
 				const result = await runQuery(
 					client,
 					text,
@@ -269,9 +276,14 @@ export function createExecutor(
 			const client = await pool.connect();
 			try {
 				await client.query(buildBeginSql(options));
-				const state: TransactionState = { client, savepointCounter: 0 };
+				const state: TransactionState = {
+					client,
+					savepointCounter: 0,
+					poisoned: false,
+				};
 				const tx = createClientExecutor(state, usePrepared, hooks);
 				const result = await fn(tx);
+				assertSavepointStackOpen(state.poisoned);
 				await client.query("COMMIT");
 				return result;
 			} catch (err) {
@@ -290,7 +302,13 @@ function createClientExecutor(
 	hooks: QueryHooks | undefined,
 ): Executor {
 	const { client } = state;
-	const queryMethods = createQueryMethods(client, usePrepared, hooks, true);
+	const queryMethods = createQueryMethods(
+		client,
+		usePrepared,
+		hooks,
+		true,
+		() => assertSavepointStackOpen(state.poisoned),
+	);
 
 	const executor: Executor = {
 		inTransaction: true,
@@ -301,24 +319,19 @@ function createClientExecutor(
 			options?: TransactionOptions,
 		): Promise<T> {
 			assertNoSavepointOptions(options);
+			assertSavepointStackOpen(state.poisoned);
 
 			const savepointId = ++state.savepointCounter;
 			const savepointName = buildSavepointName(savepointId);
 
-			await client.query(`SAVEPOINT ${savepointName}`);
-			try {
-				const result = await fn(executor);
-				await client.query(`RELEASE SAVEPOINT ${savepointName}`);
-				return result;
-			} catch (err) {
-				await rollbackIgnoringFailure(async () => {
-					await client.query(
-						`ROLLBACK TO SAVEPOINT ${savepointName}`,
-					);
-					await client.query(`RELEASE SAVEPOINT ${savepointName}`);
-				});
-				throw err;
-			}
+			return runInSavepoint(
+				(sql) => client.query(sql),
+				savepointName,
+				() => fn(executor),
+				() => {
+					state.poisoned = true;
+				},
+			);
 		},
 	};
 	return executor;

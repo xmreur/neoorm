@@ -8,9 +8,11 @@ import {
 } from "./regex-guard.js";
 import {
 	assertNoSavepointOptions,
+	assertSavepointStackOpen,
 	buildBeginSql,
 	buildSqliteBeginSql,
 	rollbackIgnoringFailure,
+	runInSavepoint,
 } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -309,7 +311,7 @@ function createSqliteClient(
 	options?: SqliteClientOptions,
 ): DatabaseClient {
 	applySqlitePragmas(db, options);
-	const state = { savepointCounter: 0 };
+	const state = { savepointCounter: 0, poisoned: false };
 
 	// One SQLite connection is shared by every query and transaction.
 	// A FIFO mutex serializes all outer access so a concurrent findMany/create
@@ -371,23 +373,27 @@ function createSqliteClient(
 	function getTxClient(): DatabaseClient {
 		if (txClient) return txClient;
 		txClient = {
-			query: runQuery,
+			query: (text, params) => {
+				assertSavepointStackOpen(state.poisoned);
+				return runQuery(text, params);
+			},
 			async transaction<T>(
 				fn: (client: DatabaseClient) => Promise<T>,
 				options?: TransactionOptions,
 			): Promise<T> {
 				assertNoSavepointOptions(options);
+				assertSavepointStackOpen(state.poisoned);
 				const name = `neoorm_sp_${++state.savepointCounter}`;
-				db.exec(`SAVEPOINT ${name}`);
-				try {
-					const result = await fn(getTxClient());
-					db.exec(`RELEASE SAVEPOINT ${name}`);
-					return result;
-				} catch (err) {
-					db.exec(`ROLLBACK TO SAVEPOINT ${name}`);
-					db.exec(`RELEASE SAVEPOINT ${name}`);
-					throw err;
-				}
+				return runInSavepoint(
+					(sql) => {
+						db.exec(sql);
+					},
+					name,
+					() => fn(getTxClient()),
+					() => {
+						state.poisoned = true;
+					},
+				);
 			},
 			async close(): Promise<void> {},
 		};
@@ -398,6 +404,7 @@ function createSqliteClient(
 		query: (text, params = []) => enqueue(() => runQuery(text, params)),
 		transaction: (fn, options) =>
 			enqueue(async () => {
+				state.poisoned = false;
 				db.exec(buildSqliteBeginSql(options));
 				let queryOnly = false;
 				try {
@@ -406,6 +413,7 @@ function createSqliteClient(
 						queryOnly = true;
 					}
 					const result = await fn(getTxClient());
+					assertSavepointStackOpen(state.poisoned);
 					db.exec("COMMIT");
 					return result;
 				} catch (err) {
@@ -434,6 +442,7 @@ function createSqliteClient(
 type PgTxState = {
 	client: PoolClient;
 	savepointCounter: number;
+	poisoned: boolean;
 	txClient?: DatabaseClient;
 };
 
@@ -444,6 +453,7 @@ function getPgTxClient(state: PgTxState): DatabaseClient {
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
+			assertSavepointStackOpen(state.poisoned);
 			try {
 				const result: QueryResult = await state.client.query(
 					text,
@@ -462,20 +472,17 @@ function getPgTxClient(state: PgTxState): DatabaseClient {
 			options?: TransactionOptions,
 		): Promise<T> {
 			assertNoSavepointOptions(options);
+			assertSavepointStackOpen(state.poisoned);
 			const savepointId = ++state.savepointCounter;
 			const name = `neoorm_sp_${savepointId}`;
-			await state.client.query(`SAVEPOINT ${name}`);
-			try {
-				const result = await fn(txClient);
-				await state.client.query(`RELEASE SAVEPOINT ${name}`);
-				return result;
-			} catch (err) {
-				await rollbackIgnoringFailure(async () => {
-					await state.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
-					await state.client.query(`RELEASE SAVEPOINT ${name}`);
-				});
-				throw err;
-			}
+			return runInSavepoint(
+				(sql) => state.client.query(sql),
+				name,
+				() => fn(txClient),
+				() => {
+					state.poisoned = true;
+				},
+			);
 		},
 		async close(): Promise<void> {},
 	};
@@ -504,10 +511,15 @@ export function pgClient(pool: Pool): DatabaseClient {
 			options?: TransactionOptions,
 		): Promise<T> {
 			const client = await pool.connect();
-			const state: PgTxState = { client, savepointCounter: 0 };
+			const state: PgTxState = {
+				client,
+				savepointCounter: 0,
+				poisoned: false,
+			};
 			try {
 				await client.query(buildBeginSql(options));
 				const result = await fn(getPgTxClient(state));
+				assertSavepointStackOpen(state.poisoned);
 				await client.query("COMMIT");
 				return result;
 			} catch (err) {

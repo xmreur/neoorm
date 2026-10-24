@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { sqliteClient } from "./driver.js";
 import { createSqliteExecutor } from "./executor.js";
+import { SavepointStackError } from "./transaction.js";
 
 describe("sqliteClient connection sharing", () => {
 	it("returns one wrapper per database handle", () => {
@@ -119,6 +120,94 @@ describe("sqliteClient connection sharing", () => {
 			"SELECT v FROM t ORDER BY id",
 		);
 		expect(rows.rows.map((row) => row.v)).toEqual(["keep", "also"]);
+		await client.close();
+	});
+
+	it("aborts the outer transaction when RELEASE fails after ROLLBACK TO", async () => {
+		const raw = new DatabaseSync(":memory:");
+		const log: string[] = [];
+		const db = {
+			prepare(sql: string) {
+				return raw.prepare(sql);
+			},
+			exec(sql: string) {
+				log.push(sql);
+				const previous = log.at(-2);
+				if (
+					sql.startsWith("RELEASE SAVEPOINT") &&
+					previous?.startsWith("ROLLBACK TO SAVEPOINT")
+				) {
+					throw new Error("release failed");
+				}
+				raw.exec(sql);
+			},
+			close() {
+				raw.close();
+			},
+		};
+		const client = sqliteClient(db);
+		await client.query(
+			"CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT)",
+		);
+
+		await expect(
+			client.transaction(async (tx) => {
+				await tx.query("INSERT INTO t (v) VALUES ($1)", ["keep"]);
+				await tx.transaction(async (inner) => {
+					await inner.query("INSERT INTO t (v) VALUES ($1)", [
+						"drop",
+					]);
+					throw new Error("inner boom");
+				});
+			}),
+		).rejects.toThrow("inner boom");
+
+		const control = log.filter((sql) => !sql.startsWith("PRAGMA"));
+		expect(control).toEqual([
+			"BEGIN",
+			"SAVEPOINT neoorm_sp_1",
+			"ROLLBACK TO SAVEPOINT neoorm_sp_1",
+			"RELEASE SAVEPOINT neoorm_sp_1",
+			"ROLLBACK",
+		]);
+		expect(
+			raw
+				.prepare("SELECT v FROM t")
+				.all()
+				.map((row) => row.v),
+		).toEqual([]);
+
+		let nestedMessage = "";
+		await expect(
+			client.transaction(async (tx) => {
+				try {
+					await tx.transaction(async () => {
+						throw new Error("inner boom");
+					});
+				} catch (err) {
+					nestedMessage = err instanceof Error ? err.message : "";
+					await tx.query("INSERT INTO t (v) VALUES ($1)", ["after"]);
+				}
+			}),
+		).rejects.toBeInstanceOf(SavepointStackError);
+		expect(nestedMessage).toBe("inner boom");
+		expect(log).not.toContain("COMMIT");
+		expect(
+			raw
+				.prepare("SELECT v FROM t")
+				.all()
+				.map((row) => row.v),
+		).toEqual([]);
+
+		await client.transaction(async (tx) => {
+			await tx.query("INSERT INTO t (v) VALUES ($1)", ["later"]);
+		});
+		expect(
+			raw
+				.prepare("SELECT v FROM t")
+				.all()
+				.map((row) => row.v),
+		).toEqual(["later"]);
 		await client.close();
 	});
 

@@ -33,7 +33,7 @@ await db.$transaction(fn, {
 
 ## Nested transactions
 
-Uses database savepoints on the same connection. A nested failure rolls back only that block; the outer transaction can continue.
+Uses database savepoints on the same connection. A nested failure rolls back only that block; the outer transaction can continue. If that rollback succeeds but `RELEASE SAVEPOINT` fails, the savepoint is still open, so the outer transaction is aborted instead of committing. The nested block's original error is preserved.
 
 ```ts
 await db.$transaction(async (tx) => {
