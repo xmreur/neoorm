@@ -16,6 +16,7 @@ import {
 	hashMigrationSql,
 	listAppliedMigrations,
 	migrateDeploy,
+	migrateDown,
 	reconcilePendingCreates,
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
@@ -151,7 +152,7 @@ describe("migrateDeploy checksums and locking", () => {
 		await client.close();
 	});
 
-	it("backfills checksums on a legacy ledger without a checksum column", async () => {
+	it("refuses a legacy ledger row with a null checksum", async () => {
 		const root = await tempDir("neoorm-migrate-legacy-");
 		const migrationsDir = join(root, "migrations");
 		await writeMigration(migrationsDir, "20200101_init", INIT_SQL);
@@ -169,16 +170,85 @@ describe("migrateDeploy checksums and locking", () => {
 		);
 
 		const client = sqliteClient(db);
-		const applied = await migrateDeploy(
-			client,
-			sqliteDialect,
-			migrationsDir,
-		);
-		expect(applied).toEqual([]);
+		await expect(
+			migrateDeploy(client, sqliteDialect, migrationsDir),
+		).rejects.toThrow(/has no checksum/);
 
 		const records = await listAppliedMigrations(client, sqliteDialect);
-		expect(records).toHaveLength(1);
-		expect(records[0]?.checksum).toBe(hashMigrationSql(INIT_SQL));
+		expect(records[0]?.checksum).toBeNull();
+		await client.close();
+	});
+
+	it("refuses a pending migration that sorts before an applied one", async () => {
+		const root = await tempDir("neoorm-migrate-order-");
+		const migrationsDir = join(root, "migrations");
+		await writeMigration(
+			migrationsDir,
+			"20200102_child",
+			"CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));\n",
+		);
+
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await migrateDeploy(client, sqliteDialect, migrationsDir);
+		await writeMigration(
+			migrationsDir,
+			"20200101_parent",
+			"CREATE TABLE parent (id INTEGER PRIMARY KEY);\n",
+		);
+
+		await expect(
+			migrateDeploy(client, sqliteDialect, migrationsDir),
+		).rejects.toThrow(/out of order/);
+
+		const tables = await client.query<{ name: string }>(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'parent'",
+		);
+		expect(tables.rows).toEqual([]);
+		await client.close();
+	});
+
+	it("refuses deploy when an applied migration.sql is missing", async () => {
+		const root = await tempDir("neoorm-migrate-missing-");
+		const migrationsDir = join(root, "migrations");
+		const sqlPath = await writeMigration(
+			migrationsDir,
+			"20200101_init",
+			INIT_SQL,
+		);
+
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await migrateDeploy(client, sqliteDialect, migrationsDir);
+		await rm(sqlPath);
+
+		await expect(
+			migrateDeploy(client, sqliteDialect, migrationsDir),
+		).rejects.toThrow(/missing migration.sql/);
+		await client.close();
+	});
+
+	it("refuses down.sql that does not match the recorded checksum", async () => {
+		const root = await tempDir("neoorm-migrate-down-");
+		const migrationsDir = join(root, "migrations");
+		const name = "20200101_init";
+		await writeMigration(migrationsDir, name, INIT_SQL);
+		const downPath = join(migrationsDir, name, "down.sql");
+		await writeFile(downPath, "DROP TABLE t;\n");
+
+		const db = new DatabaseSync(":memory:");
+		const client = sqliteClient(db);
+		await migrateDeploy(client, sqliteDialect, migrationsDir);
+		await writeFile(downPath, "DROP TABLE other;\n");
+
+		await expect(
+			migrateDown(client, sqliteDialect, migrationsDir, { steps: 1 }),
+		).rejects.toThrow(/down.sql/);
+
+		const tables = await client.query<{ name: string }>(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 't'",
+		);
+		expect(tables.rows).toHaveLength(1);
 		await client.close();
 	});
 

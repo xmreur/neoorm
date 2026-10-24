@@ -1097,6 +1097,7 @@ async function readMigrateStatus(ctx: StudioContext): Promise<unknown> {
 			name: a.name,
 			appliedAt: new Date(a.appliedAt),
 			checksum: a.checksum,
+			downChecksum: null,
 		})),
 	);
 	return {
