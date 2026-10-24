@@ -5,6 +5,7 @@ import {
 	buildBeginSql,
 	buildMysqlBeginStatements,
 	buildSqliteBeginSql,
+	runInSavepoint,
 } from "./transaction.js";
 
 describe("buildBeginSql", () => {
@@ -89,5 +90,78 @@ describe("assertNoSavepointOptions", () => {
 				code: QueryErrorCode.invalid_args,
 			});
 		}
+	});
+});
+
+describe("runInSavepoint", () => {
+	it("releases a successful savepoint without rolling back", async () => {
+		const sqls: string[] = [];
+		const result = await runInSavepoint(
+			(sql) => {
+				sqls.push(sql);
+			},
+			"sp",
+			async () => "ok",
+			() => {
+				throw new Error("should not poison");
+			},
+		);
+		expect(result).toBe("ok");
+		expect(sqls).toEqual(["SAVEPOINT sp", "RELEASE SAVEPOINT sp"]);
+	});
+
+	it("keeps the original error when RELEASE fails after ROLLBACK TO", async () => {
+		const sqls: string[] = [];
+		let poisoned = false;
+		await expect(
+			runInSavepoint(
+				(sql) => {
+					sqls.push(sql);
+					if (
+						sql.startsWith("RELEASE") &&
+						sqls.some((entry) => entry.startsWith("ROLLBACK TO"))
+					) {
+						throw new Error("release failed");
+					}
+				},
+				"sp",
+				async () => {
+					throw new Error("inner boom");
+				},
+				() => {
+					poisoned = true;
+				},
+			),
+		).rejects.toThrow("inner boom");
+		expect(poisoned).toBe(true);
+		expect(sqls).toEqual([
+			"SAVEPOINT sp",
+			"ROLLBACK TO SAVEPOINT sp",
+			"RELEASE SAVEPOINT sp",
+		]);
+	});
+
+	it("does not RELEASE when ROLLBACK TO fails", async () => {
+		const sqls: string[] = [];
+		let poisoned = false;
+		await expect(
+			runInSavepoint(
+				(sql) => {
+					sqls.push(sql);
+					if (sql.startsWith("ROLLBACK TO")) {
+						throw new Error("rollback failed");
+					}
+				},
+				"sp",
+				async () => {
+					throw new Error("inner boom");
+				},
+				() => {
+					poisoned = true;
+				},
+			),
+		).rejects.toThrow("inner boom");
+		expect(poisoned).toBe(true);
+		expect(sqls).toEqual(["SAVEPOINT sp", "ROLLBACK TO SAVEPOINT sp"]);
 	});
 });

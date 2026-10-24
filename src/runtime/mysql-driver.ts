@@ -8,9 +8,11 @@ import {
 import { convertNumberedToPositional } from "./mysql-placeholders.js";
 import {
 	assertNoSavepointOptions,
+	assertSavepointStackOpen,
 	buildMysqlBeginStatements,
 	buildSavepointName,
 	rollbackIgnoringFailure,
+	runInSavepoint,
 } from "./transaction.js";
 import type { TransactionOptions } from "./types.js";
 
@@ -104,6 +106,7 @@ async function runMysqlQuery<T>(
 type MysqlTxState = {
 	connection: MysqlConnectionLike;
 	savepointCounter: number;
+	poisoned: boolean;
 	txClient?: DatabaseClient;
 };
 
@@ -114,6 +117,7 @@ function getMysqlTxClient(state: MysqlTxState): DatabaseClient {
 			text: string,
 			params: unknown[] = [],
 		): Promise<DriverResult<T>> {
+			assertSavepointStackOpen(state.poisoned);
 			return runMysqlQuery(
 				mysqlDataQuery(state.connection),
 				text,
@@ -125,22 +129,17 @@ function getMysqlTxClient(state: MysqlTxState): DatabaseClient {
 			options?: TransactionOptions,
 		): Promise<T> {
 			assertNoSavepointOptions(options);
+			assertSavepointStackOpen(state.poisoned);
 			const savepointId = ++state.savepointCounter;
 			const name = buildSavepointName(savepointId);
-			await state.connection.query(`SAVEPOINT ${name}`);
-			try {
-				const result = await fn(txClient);
-				await state.connection.query(`RELEASE SAVEPOINT ${name}`);
-				return result;
-			} catch (err) {
-				await rollbackIgnoringFailure(async () => {
-					await state.connection.query(
-						`ROLLBACK TO SAVEPOINT ${name}`,
-					);
-					await state.connection.query(`RELEASE SAVEPOINT ${name}`);
-				});
-				throw err;
-			}
+			return runInSavepoint(
+				(sql) => state.connection.query(sql),
+				name,
+				() => fn(txClient),
+				() => {
+					state.poisoned = true;
+				},
+			);
 		},
 		async close(): Promise<void> {},
 	};
@@ -164,12 +163,17 @@ export function mysqlClient(
 			options?: TransactionOptions,
 		): Promise<T> {
 			const connection = await pool.getConnection();
-			const state: MysqlTxState = { connection, savepointCounter: 0 };
+			const state: MysqlTxState = {
+				connection,
+				savepointCounter: 0,
+				poisoned: false,
+			};
 			try {
 				for (const stmt of buildMysqlBeginStatements(options)) {
 					await connection.query(stmt);
 				}
 				const result = await fn(getMysqlTxClient(state));
+				assertSavepointStackOpen(state.poisoned);
 				await connection.query("COMMIT");
 				return result;
 			} catch (err) {

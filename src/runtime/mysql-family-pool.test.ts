@@ -11,6 +11,7 @@ import {
 	toMariadbPoolConfig,
 	toMysql2PoolConfig,
 } from "./mysql-family-pool.js";
+import { SavepointStackError } from "./transaction.js";
 
 describe("toMysql2PoolConfig", () => {
 	it("defaults to connectionLimit 10, keep-alive, and waitForConnections", () => {
@@ -221,6 +222,60 @@ describe("mysqlClient execute vs query", () => {
 		]);
 	});
 
+	it("aborts the outer transaction when RELEASE fails after ROLLBACK TO", async () => {
+		const sqls: string[] = [];
+		const connection = {
+			async query(sql: string): Promise<[MysqlQueryResult, unknown]> {
+				sqls.push(sql);
+				if (
+					sql.startsWith("RELEASE SAVEPOINT") &&
+					sqls.some((entry) => entry.startsWith("ROLLBACK TO"))
+				) {
+					throw new Error("release failed");
+				}
+				return [{ affectedRows: 0 }, undefined];
+			},
+			async execute(sql: string): Promise<[MysqlQueryResult, unknown]> {
+				sqls.push(sql);
+				return [[{ id: 1 }], undefined];
+			},
+			release() {},
+		};
+		const pool = {
+			async query(): Promise<[MysqlQueryResult, unknown]> {
+				return [[{ id: 1 }], undefined];
+			},
+			async getConnection() {
+				return connection;
+			},
+			async end() {},
+		};
+
+		const client = mysqlClient(pool);
+		let nestedMessage = "";
+		await expect(
+			client.transaction(async (tx) => {
+				try {
+					await tx.transaction(async () => {
+						throw new Error("inner boom");
+					});
+				} catch (err) {
+					nestedMessage = err instanceof Error ? err.message : "";
+					await tx.query("SELECT 1");
+				}
+			}),
+		).rejects.toBeInstanceOf(SavepointStackError);
+
+		expect(nestedMessage).toBe("inner boom");
+		expect(sqls).toEqual([
+			"START TRANSACTION",
+			"SAVEPOINT neoorm_sp_1",
+			"ROLLBACK TO SAVEPOINT neoorm_sp_1",
+			"RELEASE SAVEPOINT neoorm_sp_1",
+			"ROLLBACK",
+		]);
+	});
+
 	it("falls back to query when execute is missing", async () => {
 		const sqls: string[] = [];
 		const pool = {
@@ -328,6 +383,56 @@ describe("mariadbClient execute vs query", () => {
 			"COMMIT",
 		]);
 		expect(sqls.some((sql) => sql.includes("SET TRANSACTION"))).toBe(false);
+	});
+
+	it("aborts the outer transaction when RELEASE fails after ROLLBACK TO", async () => {
+		const sqls: string[] = [];
+		const connection = {
+			async query(sql: string) {
+				sqls.push(sql);
+				if (
+					sql.startsWith("RELEASE SAVEPOINT") &&
+					sqls.some((entry) => entry.startsWith("ROLLBACK TO"))
+				) {
+					throw new Error("release failed");
+				}
+				return { affectedRows: 0 };
+			},
+			release() {},
+		};
+		const pool = {
+			async query() {
+				return [{ id: 1 }];
+			},
+			async getConnection() {
+				return connection;
+			},
+			async end() {},
+		};
+
+		const client = mariadbClient(pool);
+		let nestedMessage = "";
+		await expect(
+			client.transaction(async (tx) => {
+				try {
+					await tx.transaction(async () => {
+						throw new Error("inner boom");
+					});
+				} catch (err) {
+					nestedMessage = err instanceof Error ? err.message : "";
+					await tx.query("SELECT 1");
+				}
+			}),
+		).rejects.toBeInstanceOf(SavepointStackError);
+
+		expect(nestedMessage).toBe("inner boom");
+		expect(sqls).toEqual([
+			"START TRANSACTION",
+			"SAVEPOINT neoorm_sp_1",
+			"ROLLBACK TO SAVEPOINT neoorm_sp_1",
+			"RELEASE SAVEPOINT neoorm_sp_1",
+			"ROLLBACK",
+		]);
 	});
 
 	it("uses query for RETURNING because prepare rejects UPDATE RETURNING", async () => {

@@ -4,6 +4,7 @@ import { createExecutor } from "../src/runtime/executor.js";
 import {
 	buildBeginSql,
 	buildSavepointName,
+	SavepointStackError,
 } from "../src/runtime/transaction.js";
 
 function mockQueryResult(rows: Record<string, unknown>[] = []): QueryResult {
@@ -234,6 +235,66 @@ describe("executor.transaction", () => {
 			"INSERT INTO tags DEFAULT VALUES",
 			"COMMIT",
 		]);
+	});
+
+	it("aborts the outer transaction when RELEASE fails after ROLLBACK TO", async () => {
+		const queries: string[] = [];
+		const client: PoolClient = {
+			query: vi.fn(async (input: PgQueryInput, params?: unknown[]) => {
+				const { text } = resolveQuery(input, params);
+				queries.push(text);
+				if (
+					text.startsWith("RELEASE SAVEPOINT") &&
+					queries.some((sql) => sql.startsWith("ROLLBACK TO"))
+				) {
+					throw new Error("release failed");
+				}
+				return mockQueryResult();
+			}),
+			release: vi.fn(),
+		} as unknown as PoolClient;
+		const pool = {
+			query: vi.fn(async () => mockQueryResult()),
+			connect: vi.fn(async () => client),
+		} as unknown as Pool;
+		const executor = createExecutor(pool);
+
+		await expect(
+			executor.transaction(async (tx) => {
+				await tx.transaction(async () => {
+					throw new Error("inner boom");
+				});
+			}),
+		).rejects.toThrow("inner boom");
+
+		let nestedMessage = "";
+		await expect(
+			executor.transaction(async (tx) => {
+				try {
+					await tx.transaction(async () => {
+						throw new Error("inner boom");
+					});
+				} catch (err) {
+					nestedMessage = err instanceof Error ? err.message : "";
+					await tx.query("SELECT 1");
+				}
+			}),
+		).rejects.toBeInstanceOf(SavepointStackError);
+
+		expect(nestedMessage).toBe("inner boom");
+		expect(queries).toEqual([
+			"BEGIN",
+			`SAVEPOINT ${buildSavepointName(1)}`,
+			`ROLLBACK TO SAVEPOINT ${buildSavepointName(1)}`,
+			`RELEASE SAVEPOINT ${buildSavepointName(1)}`,
+			"ROLLBACK",
+			"BEGIN",
+			`SAVEPOINT ${buildSavepointName(1)}`,
+			`ROLLBACK TO SAVEPOINT ${buildSavepointName(1)}`,
+			`RELEASE SAVEPOINT ${buildSavepointName(1)}`,
+			"ROLLBACK",
+		]);
+		expect(client.release).toHaveBeenCalledTimes(2);
 	});
 
 	it("supports deep savepoint nesting", async () => {

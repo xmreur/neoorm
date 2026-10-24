@@ -90,3 +90,63 @@ export async function rollbackIgnoringFailure(
 		// Connection may already be dead; never mask the original error.
 	}
 }
+
+/**
+ * Thrown when a savepoint could not be popped. The outer transaction must
+ * roll back; committing would leave that savepoint on the session stack.
+ */
+export class SavepointStackError extends Error {
+	constructor() {
+		super(
+			"Transaction aborted because a savepoint could not be released after rollback",
+		);
+		this.name = "SavepointStackError";
+	}
+}
+
+export function assertSavepointStackOpen(poisoned: boolean): void {
+	if (poisoned) throw new SavepointStackError();
+}
+
+/**
+ * Run `body` inside a savepoint.
+ * `ROLLBACK TO` and `RELEASE` are separate steps: a failed `RELEASE` after a
+ * successful `ROLLBACK TO` must not replace the original error, and must not
+ * be ignored, because the savepoint is still allocated. `markPoisoned` tells
+ * the outer transaction to roll back instead of committing.
+ */
+export async function runInSavepoint<T>(
+	exec: (sql: string) => unknown,
+	name: string,
+	body: () => Promise<T>,
+	markPoisoned: () => void,
+): Promise<T> {
+	await exec(`SAVEPOINT ${name}`);
+	try {
+		const result = await body();
+		await exec(`RELEASE SAVEPOINT ${name}`);
+		return result;
+	} catch (err) {
+		if ((await rollbackAndReleaseSavepoint(exec, name)) === "poison") {
+			markPoisoned();
+		}
+		throw err;
+	}
+}
+
+async function rollbackAndReleaseSavepoint(
+	exec: (sql: string) => unknown,
+	name: string,
+): Promise<"clean" | "poison"> {
+	try {
+		await exec(`ROLLBACK TO SAVEPOINT ${name}`);
+	} catch {
+		return "poison";
+	}
+	try {
+		await exec(`RELEASE SAVEPOINT ${name}`);
+		return "clean";
+	} catch {
+		return "poison";
+	}
+}
