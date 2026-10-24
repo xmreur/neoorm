@@ -18,7 +18,7 @@ export default defineConfig({
 });
 ```
 
-CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. Variables already present in the environment are not overwritten. The generated client does not load `.env` at query time — use your runtime or a loader such as `node --env-file=.env`.
+CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. `createNeoOrmClient` (including the generated `db`) does the same from `process.cwd()` before it picks a connection URL, so a later `.env` edit is used without regenerating. Variables already present in the environment are not overwritten. The URL stored on the manifest / `snapshot.json` is only the fallback when `DATABASE_URL` is unset.
 
 ## Options
 

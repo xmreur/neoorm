@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -96,6 +97,24 @@ export function parseDotEnv(contents: string): Record<string, string> {
 	return result;
 }
 
+function isMissingFile(err: unknown): boolean {
+	return (
+		err !== null &&
+		typeof err === "object" &&
+		"code" in err &&
+		err.code === "ENOENT"
+	);
+}
+
+function applyDotEnv(contents: string): void {
+	const parsed = parseDotEnv(contents);
+	for (const [key, value] of Object.entries(parsed)) {
+		if (process.env[key] === undefined) {
+			process.env[key] = value;
+		}
+	}
+}
+
 /**
  * Load `cwd/.env` into `process.env`. Existing variables are not overwritten.
  * Missing files are ignored.
@@ -105,21 +124,23 @@ export async function loadDotEnv(cwd: string): Promise<void> {
 	try {
 		contents = await readFile(join(cwd, ".env"), "utf-8");
 	} catch (err) {
-		if (
-			err &&
-			typeof err === "object" &&
-			"code" in err &&
-			err.code === "ENOENT"
-		) {
-			return;
-		}
+		if (isMissingFile(err)) return;
 		throw err;
 	}
+	applyDotEnv(contents);
+}
 
-	const parsed = parseDotEnv(contents);
-	for (const [key, value] of Object.entries(parsed)) {
-		if (process.env[key] === undefined) {
-			process.env[key] = value;
-		}
+/**
+ * Sync counterpart of {@link loadDotEnv} for client construction.
+ * Existing variables are not overwritten. Missing files are ignored.
+ */
+export function loadDotEnvSync(cwd: string): void {
+	let contents: string;
+	try {
+		contents = readFileSync(join(cwd, ".env"), "utf-8");
+	} catch (err) {
+		if (isMissingFile(err)) return;
+		throw err;
 	}
+	applyDotEnv(contents);
 }

@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { parseDotEnv } from "./dotenv.js";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { loadDotEnvSync, parseDotEnv } from "./dotenv.js";
 
 describe("parseDotEnv", () => {
 	it("parses KEY=VALUE, comments, export, and quotes", () => {
@@ -55,5 +57,61 @@ INVALID
 			B: "abc",
 			D: "abc",
 		});
+	});
+});
+
+describe("loadDotEnvSync", () => {
+	const tmpRoot = join(process.cwd(), "test", ".tmp");
+	let tmpDir: string;
+
+	beforeEach(async () => {
+		await mkdir(tmpRoot, { recursive: true });
+		tmpDir = await mkdtemp(join(tmpRoot, "neoorm-dotenv-"));
+	});
+
+	afterEach(async () => {
+		await rm(tmpDir, { recursive: true, force: true });
+	});
+
+	it("loads unset variables from cwd/.env", async () => {
+		const previous = process.env.NEOORM_DOTENV_SYNC_TEST;
+		delete process.env.NEOORM_DOTENV_SYNC_TEST;
+		await writeFile(
+			join(tmpDir, ".env"),
+			"NEOORM_DOTENV_SYNC_TEST=from-file\n",
+		);
+		try {
+			loadDotEnvSync(tmpDir);
+			expect(process.env.NEOORM_DOTENV_SYNC_TEST).toBe("from-file");
+		} finally {
+			if (previous === undefined) {
+				delete process.env.NEOORM_DOTENV_SYNC_TEST;
+			} else {
+				process.env.NEOORM_DOTENV_SYNC_TEST = previous;
+			}
+		}
+	});
+
+	it("does not overwrite variables already set in the environment", async () => {
+		const previous = process.env.NEOORM_DOTENV_SYNC_TEST;
+		process.env.NEOORM_DOTENV_SYNC_TEST = "from-shell";
+		await writeFile(
+			join(tmpDir, ".env"),
+			"NEOORM_DOTENV_SYNC_TEST=from-file\n",
+		);
+		try {
+			loadDotEnvSync(tmpDir);
+			expect(process.env.NEOORM_DOTENV_SYNC_TEST).toBe("from-shell");
+		} finally {
+			if (previous === undefined) {
+				delete process.env.NEOORM_DOTENV_SYNC_TEST;
+			} else {
+				process.env.NEOORM_DOTENV_SYNC_TEST = previous;
+			}
+		}
+	});
+
+	it("ignores a missing .env file", () => {
+		expect(() => loadDotEnvSync(tmpDir)).not.toThrow();
 	});
 });

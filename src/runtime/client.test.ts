@@ -1,3 +1,5 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
@@ -129,6 +131,48 @@ describe("createNeoOrmClient sqlite path", () => {
 			} else {
 				process.env.DATABASE_URL = previous;
 			}
+		}
+	});
+
+	it("prefers DATABASE_URL from .env over the snapshotted manifest url", async () => {
+		const previous = process.env.DATABASE_URL;
+		const previousCwd = process.cwd();
+		const tmpRoot = join(previousCwd, "test", ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		const tmpDir = await mkdtemp(join(tmpRoot, "neoorm-client-env-"));
+		const envDb = join(tmpDir, "from-env.db");
+		try {
+			delete process.env.DATABASE_URL;
+			await writeFile(join(tmpDir, ".env"), `DATABASE_URL=${envDb}\n`);
+			process.chdir(tmpDir);
+			const client = createNeoOrmClient({
+				version: 1,
+				provider: "sqlite",
+				url: ":memory:",
+				tables: {},
+				manyToMany: [],
+			});
+			await client.execute({
+				text: "CREATE TABLE t (id TEXT PRIMARY KEY)",
+				params: [],
+			});
+			await client.$disconnect();
+			const disk = new DatabaseSync(envDb);
+			const tables = disk
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 't'",
+				)
+				.all() as Array<{ name: string }>;
+			disk.close();
+			expect(tables).toEqual([{ name: "t" }]);
+		} finally {
+			process.chdir(previousCwd);
+			if (previous === undefined) {
+				delete process.env.DATABASE_URL;
+			} else {
+				process.env.DATABASE_URL = previous;
+			}
+			await rm(tmpDir, { recursive: true, force: true });
 		}
 	});
 });

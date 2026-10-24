@@ -20,6 +20,7 @@ import { ensurePlugins } from "../plugins/ensure-plugins.js";
 import type { TableDef } from "../schema/table.js";
 import { qualifyTableIdentifiers } from "../sql/qualify-tables.js";
 import { sqlFragment } from "../sql/template.js";
+import { loadDotEnvSync } from "../utils/dotenv.js";
 import type { SqliteClientOptions, SqliteDatabaseLike } from "./driver.js";
 import { pgClient, sqliteClient } from "./driver.js";
 import { queryError, schemaError } from "./error-builders.js";
@@ -594,6 +595,7 @@ export function createNeoOrmClient<
 	manifest: Manifest,
 	connectionStringOrOptions?: string | NeoOrmClientOptions,
 ): TypedNeoOrmClient<TTables, TIncludes, TRowPayloads> {
+	loadDotEnvSync(process.cwd());
 	ensurePlugins(manifest);
 
 	const options =

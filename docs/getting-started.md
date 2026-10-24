@@ -14,7 +14,7 @@ cp .env.example .env
 bunx neoorm migrate dev
 ```
 
-The CLI loads `.env` automatically. You do not need to export `DATABASE_URL` in the shell first.
+The CLI and the generated client both load `.env` automatically. You do not need to export `DATABASE_URL` in the shell first. Editing `.env` is enough for the next process that creates a client; you do not need to regenerate.
 
 Browse and edit data with Studio:
 
