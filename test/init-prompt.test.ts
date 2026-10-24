@@ -107,6 +107,43 @@ describe("init prompt", () => {
 		expect(resolved.databaseUrl).toBe("mysql://root@localhost:3306/app");
 	});
 
+	it("validates an empty submit against the default and rejects whitespace", async () => {
+		select.mockResolvedValue("postgresql");
+		text.mockImplementation(
+			async (opts: {
+				message: string;
+				defaultValue: string;
+				validate?: (input: string | undefined) => string | undefined;
+			}) => {
+				const validate = opts.validate;
+				expect(validate).toBeTypeOf("function");
+				if (!validate) return opts.defaultValue;
+				expect(validate("")).toBeUndefined();
+				expect(validate(undefined)).toBeUndefined();
+				expect(validate("   ")).toMatch(/required/);
+				return opts.defaultValue;
+			},
+		);
+
+		const resolved = await resolveInitOptions({
+			cwd: tmpDir,
+			interactive: true,
+		});
+
+		expect(resolved.schemaPath).toBe("./schema.ts");
+		expect(resolved.outDir).toBe("./neoorm");
+		expect(resolved.databaseUrl).toBeUndefined();
+	});
+
+	it("does not treat a whitespace-only answer as the default", async () => {
+		select.mockResolvedValue("postgresql");
+		text.mockResolvedValueOnce("   ");
+
+		await expect(
+			resolveInitOptions({ cwd: tmpDir, interactive: true }),
+		).rejects.toThrow(/Database URL is required/);
+	});
+
 	it("omits databaseUrl when the prompted value is the provider default", async () => {
 		select.mockResolvedValue("sqlite");
 		text.mockResolvedValueOnce("./dev.db")
