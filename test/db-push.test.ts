@@ -30,7 +30,9 @@ describe.skipIf(!databaseUrl)("db push integration", () => {
 	});
 
 	afterAll(async () => {
-		await pool.query('DROP TABLE IF EXISTS "push_test_users"');
+		await pool.query(
+			'DROP TABLE IF EXISTS "pushTestUsers", "push_test_users"',
+		);
 		await pool.end();
 	});
 
@@ -43,7 +45,13 @@ describe.skipIf(!databaseUrl)("db push integration", () => {
 		});
 
 		const manifestV1 = schemaToManifest(schemaV1);
-		await pool.query('DROP TABLE IF EXISTS "push_test_users"');
+		const tableSqlName = manifestTableFromRecord(
+			manifestV1.tables,
+			"pushTestUsers",
+		).sqlName;
+		await pool.query(
+			`DROP TABLE IF EXISTS "${tableSqlName}", "push_test_users"`,
+		);
 
 		const first = await dbPush(pgClient(pool), postgresDialect, manifestV1);
 		expect(first.appliedStatements).toBeGreaterThan(0);
