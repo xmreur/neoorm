@@ -19,6 +19,7 @@ import {
 	updateScalarTsType,
 } from "./column-ts.js";
 import { effectiveRelations, modelTypeName } from "./manifest-relations.js";
+import { tsPropertyKey } from "./ts-syntax.js";
 
 const STRING_FILTER_KINDS = new Set([
 	"id",
@@ -105,17 +106,17 @@ function emitWhereType(
 	lines.push(`  NOT?: ${name};`);
 	for (const col of table.columns) {
 		lines.push(
-			`  ${col.tsName}?: ${whereFieldType(col, manifest, enums, table.accessor)};`,
+			`  ${tsPropertyKey(col.tsName)}?: ${whereFieldType(col, manifest, enums, table.accessor)};`,
 		);
 	}
 	for (const rel of effectiveRelations(manifest, table)) {
 		const targetWhere = `${modelTypeName(rel.targetAccessor)}Where`;
 		if (rel.cardinality === "many") {
 			lines.push(
-				`  ${rel.name}?: { some?: ${targetWhere}; every?: ${targetWhere}; none?: ${targetWhere} };`,
+				`  ${tsPropertyKey(rel.name)}?: { some?: ${targetWhere}; every?: ${targetWhere}; none?: ${targetWhere} };`,
 			);
 		} else {
-			lines.push(`  ${rel.name}?: ${targetWhere};`);
+			lines.push(`  ${tsPropertyKey(rel.name)}?: ${targetWhere};`);
 		}
 	}
 	lines.push(`}`);
@@ -144,7 +145,7 @@ function emitWhereUniqueType(
 			const ts = col
 				? columnTsType(col, manifest, enums, table.accessor)
 				: "string";
-			return `${tsName}: UniqueEq<${ts}>`;
+			return `${tsPropertyKey(tsName)}: UniqueEq<${ts}>`;
 		});
 		return `{ ${fields.join("; ")} }`;
 	});
@@ -153,7 +154,9 @@ function emitWhereUniqueType(
 
 function emitOrderByType(table: ManifestTable): string {
 	const name = `${modelTypeName(table.accessor)}OrderBy`;
-	const fields = table.columns.map((c) => `  ${c.tsName}?: OrderDirection;`);
+	const fields = table.columns.map(
+		(c) => `  ${tsPropertyKey(c.tsName)}?: OrderDirection;`,
+	);
 	return `export interface ${name} {\n${fields.join("\n")}\n}`;
 }
 
@@ -166,7 +169,7 @@ function emitSelectOmitTypes(table: ManifestTable): string {
 	const model = modelTypeName(table.accessor);
 	const union = columnKeyUnion(table);
 	const objectFields = table.columns
-		.map((c) => `${c.tsName}?: true`)
+		.map((c) => `${tsPropertyKey(c.tsName)}?: true`)
 		.join("; ");
 	return [
 		`export type ${model}Select = readonly (${union})[] | { ${objectFields} };`,
@@ -188,7 +191,7 @@ function emitConnectType(table: ManifestTable, manifest: Manifest): string {
 		const ts = col
 			? columnNonNullTsType(col, manifest, null, table.accessor)
 			: "string";
-		return `${tsName}: ${ts}`;
+		return `${tsPropertyKey(tsName)}: ${ts}`;
 	});
 	return `export type ${model}Connect = { ${fields.join("; ")} };`;
 }
@@ -206,8 +209,9 @@ function relationWriteField(
 	const uniqueName = targetTable
 		? `${targetModel}WhereUnique`
 		: "Record<string, unknown>";
+	const name = tsPropertyKey(relation.name);
 	if (relation.cardinality === "many") {
-		return `  ${relation.name}?: {
+		return `  ${name}?: {
     connect?: ${targetModel}Connect | ${targetModel}Connect[];
     create?: Create${targetModel}Input | Create${targetModel}Input[];
     connectOrCreate?: { where: ${uniqueName}; create: Create${targetModel}Input } | { where: ${uniqueName}; create: Create${targetModel}Input }[];
@@ -216,7 +220,7 @@ function relationWriteField(
     set?: Record<string, unknown>[];
   };`;
 	}
-	return `  ${relation.name}?: {
+	return `  ${name}?: {
     connect?: ${targetModel}Connect;
     create?: Create${targetModel}Input;
     connectOrCreate?: { where: ${uniqueName}; create: Create${targetModel}Input };
@@ -239,7 +243,7 @@ function emitCreateInputType(
 		const required = isCreateRequired(col, table, isJunction);
 		const optional = required ? "" : "?";
 		lines.push(
-			`  ${col.tsName}${optional}: ${columnTsType(col, manifest, enums, table.accessor)};`,
+			`  ${tsPropertyKey(col.tsName)}${optional}: ${columnTsType(col, manifest, enums, table.accessor)};`,
 		);
 	}
 	for (const rel of effectiveRelations(manifest, table)) {
@@ -261,7 +265,7 @@ function emitUpdateInputType(
 	for (const col of table.columns) {
 		if (isOmittedOnUpdate(col, table, isJunction)) continue;
 		lines.push(
-			`  ${col.tsName}?: ${updateScalarTsType(col, manifest, enums, table.accessor)};`,
+			`  ${tsPropertyKey(col.tsName)}?: ${updateScalarTsType(col, manifest, enums, table.accessor)};`,
 		);
 	}
 	for (const rel of effectiveRelations(manifest, table)) {
@@ -353,10 +357,14 @@ function emitArgsTypes(table: ManifestTable): string {
 		`}`,
 		`export interface ${model}GroupByCountHaving {`,
 		`  _all?: number | NumericHaving;`,
-		...table.columns.map((c) => `  ${c.tsName}?: number | NumericHaving;`),
+		...table.columns.map(
+			(c) => `  ${tsPropertyKey(c.tsName)}?: number | NumericHaving;`,
+		),
 		`}`,
 		`export interface ${model}NumericHavingFields {`,
-		...table.columns.map((c) => `  ${c.tsName}?: number | NumericHaving;`),
+		...table.columns.map(
+			(c) => `  ${tsPropertyKey(c.tsName)}?: number | NumericHaving;`,
+		),
 		`}`,
 		`export interface GroupBy${model}Having {`,
 		`  _count?: number | NumericHaving | ${model}GroupByCountHaving;`,
@@ -367,10 +375,14 @@ function emitArgsTypes(table: ManifestTable): string {
 		`}`,
 		`export interface ${model}GroupByCountOrderBy {`,
 		`  _all?: OrderDirection;`,
-		...table.columns.map((c) => `  ${c.tsName}?: OrderDirection;`),
+		...table.columns.map(
+			(c) => `  ${tsPropertyKey(c.tsName)}?: OrderDirection;`,
+		),
 		`}`,
 		`export interface ${model}FieldOrderBy {`,
-		...table.columns.map((c) => `  ${c.tsName}?: OrderDirection;`),
+		...table.columns.map(
+			(c) => `  ${tsPropertyKey(c.tsName)}?: OrderDirection;`,
+		),
 		`}`,
 		`export interface GroupBy${model}OrderBy extends ${model}OrderBy {`,
 		`  _count?: OrderDirection | ${model}GroupByCountOrderBy;`,
@@ -674,7 +686,10 @@ export function emitQueryTypesTs(manifest: Manifest): string {
 	}
 
 	const repoEntries = tables
-		.map((t) => `  ${t.accessor}: ${modelTypeName(t.accessor)}Repository;`)
+		.map(
+			(t) =>
+				`  ${tsPropertyKey(t.accessor)}: ${modelTypeName(t.accessor)}Repository;`,
+		)
 		.join("\n");
 
 	lines.push(`export type TransactionIsolationLevel =`);

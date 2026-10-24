@@ -9,6 +9,7 @@ import {
 	type EnumRegistry,
 } from "./column-ts.js";
 import { effectiveRelations, modelTypeName } from "./manifest-relations.js";
+import { tsPropertyKey, tsStringLiteral } from "./ts-syntax.js";
 
 function emitGeoJsonTypes(manifest: Manifest): string[] {
 	const hasPostgis = (manifest.extensions ?? []).includes("postgis");
@@ -39,7 +40,7 @@ function emitBaseModel(
 	const fields = table.columns
 		.map(
 			(col) =>
-				`  ${col.tsName}: ${columnTsType(col, manifest, enums, table.accessor)};`,
+				`  ${tsPropertyKey(col.tsName)}: ${columnTsType(col, manifest, enums, table.accessor)};`,
 		)
 		.join("\n");
 	return `export interface ${name} {\n${fields}\n}`;
@@ -60,9 +61,9 @@ function relationFieldType(
 	targetModelName: string,
 ): string {
 	if (rel.cardinality === "many") {
-		return `  ${rel.name}?: ${targetModelName}Payload[];`;
+		return `  ${tsPropertyKey(rel.name)}?: ${targetModelName}Payload[];`;
 	}
-	return `  ${rel.name}?: ${targetModelName}Payload | null;`;
+	return `  ${tsPropertyKey(rel.name)}?: ${targetModelName}Payload | null;`;
 }
 
 function emitPayloadType(manifest: Manifest, table: ManifestTable): string {
@@ -107,12 +108,12 @@ function emitRelationLookup(manifest: Manifest, table: ManifestTable): string {
 			const targetName = target
 				? modelTypeName(target.accessor)
 				: modelTypeName(rel.targetAccessor);
-			return `  ${rel.name}: ${targetName};`;
+			return `  ${tsPropertyKey(rel.name)}: ${targetName};`;
 		})
 		.join("\n");
 	const manyFields = relations
 		.filter((rel) => rel.cardinality === "many")
-		.map((rel) => `  ${rel.name}: true;`)
+		.map((rel) => `  ${tsPropertyKey(rel.name)}: true;`)
 		.join("\n");
 	return [
 		`interface ${baseName}RelationRow {`,
@@ -334,18 +335,24 @@ export function emitModelsTs(
 	}
 
 	const modelEntries = tables
-		.map((t) => `  ${t.accessor}: ${modelTypeName(t.accessor)};`)
+		.map(
+			(t) =>
+				`  ${tsPropertyKey(t.accessor)}: ${modelTypeName(t.accessor)};`,
+		)
 		.join("\n");
 
 	const payloadEntries = tables
-		.map((t) => `  ${t.accessor}: ${modelTypeName(t.accessor)}Payload;`)
+		.map(
+			(t) =>
+				`  ${tsPropertyKey(t.accessor)}: ${modelTypeName(t.accessor)}Payload;`,
+		)
 		.join("\n");
 
 	const resultAtCases = tables
 		.map((t) => {
 			const withName = `${modelTypeName(t.accessor)}With`;
 			const includesName = `${modelTypeName(t.accessor)}WithIncludes`;
-			return `  K extends "${t.accessor}" ? ${includesName}<\n    W extends ${withName} | undefined ? W : undefined\n  >`;
+			return `  K extends ${tsStringLiteral(t.accessor)} ? ${includesName}<\n    W extends ${withName} | undefined ? W : undefined\n  >`;
 		})
 		.join("\n  : ");
 
