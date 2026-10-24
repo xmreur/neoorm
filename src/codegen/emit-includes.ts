@@ -9,22 +9,25 @@ import {
 	modelTypeName,
 	pascalCase,
 } from "./manifest-relations.js";
+import { tsPropertyKey, tsStringLiteral, tsTypeName } from "./ts-syntax.js";
 
 function columnUnion(columns: ManifestColumn[]): string {
 	if (columns.length === 0) return "never";
-	return columns.map((c) => `"${c.tsName}"`).join(" | ");
+	return columns.map((c) => tsStringLiteral(c.tsName)).join(" | ");
 }
 
 function selectType(columns: ManifestColumn[]): string {
 	const union = columnUnion(columns);
-	const objectFields = columns.map((c) => `${c.tsName}?: true`).join("; ");
+	const objectFields = columns
+		.map((c) => `${tsPropertyKey(c.tsName)}?: true`)
+		.join("; ");
 	return `readonly (${union})[] | { ${objectFields} }`;
 }
 
 function orderByType(columns: ManifestColumn[]): string {
 	if (columns.length === 0) return "Record<string, never>";
 	const fields = columns
-		.map((c) => `${c.tsName}?: OrderDirection`)
+		.map((c) => `${tsPropertyKey(c.tsName)}?: OrderDirection`)
 		.join("; ");
 	return `{ ${fields} }`;
 }
@@ -34,7 +37,9 @@ function emitRelationIncludeType(
 	tableAccessor: string,
 	relation: ManifestRelation,
 ): string {
-	const typeName = `${modelTypeName(tableAccessor)}${pascalCase(relation.name)}Include`;
+	const typeName = tsTypeName(
+		`${modelTypeName(tableAccessor)}${pascalCase(relation.name)}Include`,
+	);
 	const target = manifest.tables[relation.targetAccessor];
 	const columns = target?.columns ?? [];
 	const nestedWith = `${modelTypeName(relation.targetAccessor)}With`;
@@ -64,8 +69,10 @@ function emitTableWithType(manifest: Manifest, table: ManifestTable): string {
 
 	const fields = relations
 		.map((rel) => {
-			const includeType = `${modelTypeName(table.accessor)}${pascalCase(rel.name)}Include`;
-			return `  ${rel.name}?: ${includeType};`;
+			const includeType = tsTypeName(
+				`${modelTypeName(table.accessor)}${pascalCase(rel.name)}Include`,
+			);
+			return `  ${tsPropertyKey(rel.name)}?: ${includeType};`;
 		})
 		.join("\n");
 
@@ -74,7 +81,7 @@ function emitTableWithType(manifest: Manifest, table: ManifestTable): string {
 			? `\n  _count?: {\n${manyRelations
 					.map((rel) => {
 						const targetWhere = `${modelTypeName(rel.targetAccessor)}Where`;
-						return `    ${rel.name}?: true | { where?: ${targetWhere} };`;
+						return `    ${tsPropertyKey(rel.name)}?: true | { where?: ${targetWhere} };`;
 					})
 					.join("\n")}\n  };`
 			: "";
@@ -109,7 +116,10 @@ export function emitIncludesTs(manifest: Manifest): string {
 	}
 
 	const includeMapEntries = tables
-		.map((t) => `  ${t.accessor}: ${modelTypeName(t.accessor)}With;`)
+		.map(
+			(t) =>
+				`  ${tsPropertyKey(t.accessor)}: ${modelTypeName(t.accessor)}With;`,
+		)
 		.join("\n");
 
 	lines.push(`export type NeoOrmIncludes = {`);

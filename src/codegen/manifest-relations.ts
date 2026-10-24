@@ -4,6 +4,7 @@ import type {
 	ManifestTable,
 } from "../dialect/types.js";
 import { primaryKeySqlName } from "../runtime/query/primary-key.js";
+import { sanitizeTsIdentifier } from "../utils/case.js";
 import { singularize } from "../utils/inflect.js";
 
 export function pascalCase(str: string): string {
@@ -14,7 +15,7 @@ export function pascalCase(str: string): string {
 
 /** Generated model type name: PascalCase singular of the table accessor. */
 export function modelTypeName(accessor: string): string {
-	return pascalCase(singularize(accessor));
+	return sanitizeTsIdentifier(pascalCase(singularize(accessor)));
 }
 
 function uniqueRelations(table: ManifestTable): ManifestRelation[] {

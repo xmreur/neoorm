@@ -1,3 +1,4 @@
+import { tsPropertyKey } from "../ts-syntax.js";
 import type {
 	TableValidation,
 	ValidationConstraints,
@@ -186,7 +187,7 @@ function emitFieldExpr(field: ValidationField): string {
 }
 
 function emitFieldInline(field: ValidationField): string {
-	return `${field.name}: ${emitFieldExpr(field)}`;
+	return `${tsPropertyKey(field.name)}: ${emitFieldExpr(field)}`;
 }
 
 function emitObjectFields(fields: ValidationField[]): string {
@@ -194,7 +195,10 @@ function emitObjectFields(fields: ValidationField[]): string {
 		return "Type.Object({})";
 	}
 	const body = fields
-		.map((field) => `  ${field.name}: ${emitFieldExpr(field)},`)
+		.map(
+			(field) =>
+				`  ${tsPropertyKey(field.name)}: ${emitFieldExpr(field)},`,
+		)
 		.join("\n");
 	return `Type.Object({\n${body}\n})`;
 }
@@ -407,9 +411,9 @@ function emitTableTypebox(table: TableValidation, lines: string[]): string {
 	lines.push("");
 
 	if (emitUpdate) {
-		return `  ${table.accessor}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema, update: ${table.modelName}UpdateSchema },`;
+		return `  ${tsPropertyKey(table.accessor)}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema, update: ${table.modelName}UpdateSchema },`;
 	}
-	return `  ${table.accessor}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema },`;
+	return `  ${tsPropertyKey(table.accessor)}: { select: ${table.modelName}Schema, create: ${table.modelName}CreateSchema },`;
 }
 
 /** Print validation IR as a TypeBox 1.x module. Does not read ManifestColumn kinds. */
