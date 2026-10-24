@@ -574,8 +574,8 @@ export const schema = defineSchema({
 });
 
 describe("SQL identifier collisions", () => {
-	function messages(
-		schema: Parameters<typeof schemaToManifest>[0],
+	function messages<T extends Record<string, TableDef>>(
+		schema: SchemaDef<T>,
 	): string[] {
 		return validateManifest(schemaToManifest(schema)).map(
 			(issue) => issue.message,
