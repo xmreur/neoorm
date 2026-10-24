@@ -13,6 +13,10 @@ describe("singularize", () => {
 		expect(singularize("statuses")).toBe("status");
 		expect(singularize("buses")).toBe("bus");
 		expect(singularize("houses")).toBe("house");
+		expect(singularize("cookies")).toBe("cookie");
+		expect(singularize("movies")).toBe("movie");
+		expect(singularize("Cookies")).toBe("Cookie");
+		expect(singularize("MOVIES")).toBe("MOVIE");
 	});
 
 	it("keeps already-singular words ending in s", () => {
@@ -37,5 +41,7 @@ describe("modelTypeName", () => {
 		expect(modelTypeName("profile")).toBe("Profile");
 		expect(modelTypeName("categories")).toBe("Category");
 		expect(modelTypeName("blog_posts")).toBe("BlogPost");
+		expect(modelTypeName("cookies")).toBe("Cookie");
+		expect(modelTypeName("movies")).toBe("Movie");
 	});
 });

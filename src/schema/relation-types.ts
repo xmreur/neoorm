@@ -202,26 +202,58 @@ type Uncountable =
 	| "salmon"
 	| "trout";
 
+/** Keep in sync with `IRREGULAR_SINGULAR` in `src/utils/inflect.ts`. */
+type IrregularSingular = {
+	people: "person";
+	children: "child";
+	men: "man";
+	women: "woman";
+	mice: "mouse";
+	geese: "goose";
+	teeth: "tooth";
+	feet: "foot";
+	cookies: "cookie";
+	movies: "movie";
+	zombies: "zombie";
+	hoodies: "hoodie";
+	calories: "calorie";
+	selfies: "selfie";
+	rookies: "rookie";
+	brownies: "brownie";
+	smoothies: "smoothie";
+};
+
+type ApplyCasing<S extends string, R extends string> =
+	S extends Uppercase<S>
+		? Uppercase<R>
+		: S extends Capitalize<S>
+			? Capitalize<R>
+			: R;
+
 type Singularize<S extends string> =
-	Lowercase<S> extends Uncountable
-		? S
-		: S extends `${infer B}sses`
-			? `${B}ss`
-			: S extends `${infer B}xes`
-				? `${B}x`
-				: S extends `${infer B}zes`
-					? `${B}z`
-					: S extends `${infer B}ches`
-						? `${B}ch`
-						: S extends `${infer B}shes`
-							? `${B}sh`
-							: S extends `${infer B}ies`
-								? `${B}y`
-								: S extends `${string}${"ss" | "us" | "is"}`
-									? S
-									: S extends `${infer B}s`
-										? B
-										: S;
+	Lowercase<S> extends infer L
+		? L extends Uncountable
+			? S
+			: L extends keyof IrregularSingular
+				? ApplyCasing<S, IrregularSingular[L]>
+				: S extends `${infer B}sses`
+					? `${B}ss`
+					: S extends `${infer B}xes`
+						? `${B}x`
+						: S extends `${infer B}zes`
+							? `${B}z`
+							: S extends `${infer B}ches`
+								? `${B}ch`
+								: S extends `${infer B}shes`
+									? `${B}sh`
+									: S extends `${infer B}ies`
+										? `${B}y`
+										: S extends `${string}${"ss" | "us" | "is"}`
+											? S
+											: S extends `${infer B}s`
+												? B
+												: S
+		: S;
 
 export type FkRelationName<
 	As extends string,
