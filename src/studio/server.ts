@@ -1016,18 +1016,52 @@ async function handleSql(
 
 type ImportRow = Record<string, unknown>;
 
-function coerceImportValue(raw: string): unknown {
-	if (raw === "") return null;
-	const lowered = raw.toLowerCase();
-	if (lowered === "true") return true;
-	if (lowered === "false") return false;
-	if (lowered === "null") return null;
-	if (/^-?\d+$/.test(raw)) {
-		const n = Number(raw);
-		if (Number.isSafeInteger(n)) return n;
-		return { __neoorm: "bigint", value: raw };
+const IMPORT_INTEGER_KINDS = new Set(["int", "serial"]);
+const IMPORT_FLOAT_KINDS = new Set(["real", "double"]);
+
+function importColumnKind(
+	table: { columns: { tsName: string; sqlName: string; kind: string }[] },
+	name: string,
+): string | undefined {
+	return table.columns.find(
+		(column) => column.tsName === name || column.sqlName === name,
+	)?.kind;
+}
+
+function isTextualImportKind(kind: string): boolean {
+	return (
+		kind === "text" ||
+		kind === "citext" ||
+		kind === "id" ||
+		kind === "uuid" ||
+		kind === "enum" ||
+		kind === "xml" ||
+		kind === "inet" ||
+		kind === "cidr" ||
+		kind === "tsvector" ||
+		kind === "fk"
+	);
+}
+
+/** Coerce a CSV cell using the column kind. Text stays text, including "" and "0123". */
+function coerceImportValue(kind: string | undefined, raw: string): unknown {
+	if (kind === undefined || isTextualImportKind(kind)) return raw;
+	if (raw.trim() === "" || raw.toLowerCase() === "null") return null;
+	if (kind === "bool") {
+		const lowered = raw.toLowerCase();
+		if (lowered === "true" || lowered === "1") return true;
+		if (lowered === "false" || lowered === "0") return false;
+		return raw;
 	}
-	if (/^-?\d+\.\d+$/.test(raw)) return Number(raw);
+	if (IMPORT_INTEGER_KINDS.has(kind)) {
+		if (!/^-?\d+$/.test(raw)) return raw;
+		const n = Number(raw);
+		return Number.isSafeInteger(n) ? n : raw;
+	}
+	if (IMPORT_FLOAT_KINDS.has(kind)) {
+		const n = Number(raw);
+		return Number.isFinite(n) ? n : raw;
+	}
 	return raw;
 }
 
@@ -1055,8 +1089,10 @@ async function handleImport(
 		const parsed = parseCsv(body.csv);
 		rows = parsed.rows.map((row) => {
 			const out: ImportRow = {};
-			for (const [k, v] of Object.entries(row))
-				out[k] = coerceImportValue(v);
+			for (const [k, v] of Object.entries(row)) {
+				if (isUnsafeOwnKey(k)) continue;
+				out[k] = coerceImportValue(importColumnKind(table, k), v);
+			}
 			return out;
 		});
 	} else if (Array.isArray(body.rows)) {
