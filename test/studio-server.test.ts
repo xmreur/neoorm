@@ -543,6 +543,39 @@ describe("studio import and token", () => {
 		expect((imported.body as { count: number }).count).toBe(1);
 	});
 
+	it("keeps text csv cells and still parses numeric columns", async () => {
+		const imported = await api(
+			"/api/import",
+			post({
+				accessor: "users",
+				csv: "email,name,age\n0123,true,\nblank@x.c,null,0123\n",
+			}),
+		);
+		expect(imported.status).toBe(201);
+		const textRow = await api(
+			`/api/tables/users/rows?where=${encodeURIComponent(JSON.stringify({ email: "0123" }))}`,
+		);
+		const textUser = (
+			textRow.body as {
+				rows: { email: string; name: string; age: number | null }[];
+			}
+		).rows[0];
+		expect(textUser?.email).toBe("0123");
+		expect(textUser?.name).toBe("true");
+		expect(textUser?.age).toBeNull();
+
+		const numberRow = await api(
+			`/api/tables/users/rows?where=${encodeURIComponent(JSON.stringify({ email: "blank@x.c" }))}`,
+		);
+		const numberUser = (
+			numberRow.body as {
+				rows: { name: string; age: number | null }[];
+			}
+		).rows[0];
+		expect(numberUser?.name).toBe("null");
+		expect(numberUser?.age).toBe(123);
+	});
+
 	it("rejects missing tokens and accepts a valid header", async () => {
 		const denied = await api("/api/meta", undefined, tokenServer);
 		expect(denied.status).toBe(401);
