@@ -1,7 +1,13 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hydratePageTitles, loadDocsPages } from "../src/docs/pages.js";
-import { resolveDocsDir } from "../src/docs/resolve-docs-dir.js";
+import { renderDocsPage } from "../src/docs/render.js";
+import {
+	resolveDocsDir,
+	resolveDocsDirFrom,
+} from "../src/docs/resolve-docs-dir.js";
 import {
 	buildSearchIndex,
 	plainTextFromMarkdown,
@@ -14,6 +20,49 @@ describe("docs server", () => {
 	it("finds the bundled docs directory", async () => {
 		const docsDir = await resolveDocsDir();
 		expect(docsDir.endsWith("/docs")).toBe(true);
+	});
+
+	it("ignores a project docs directory and requires the packaged marker", async () => {
+		const root = await mkdtemp(join(tmpdir(), "neoorm-docs-"));
+		const projectDocs = join(root, "project", "docs");
+		await mkdir(projectDocs, { recursive: true });
+		await writeFile(
+			join(projectDocs, "readme.md"),
+			"# Project\n\n<script>alert(1)</script>\n",
+		);
+		const moduleDir = join(root, "pkg", "dist", "docs");
+		await mkdir(moduleDir, { recursive: true });
+		await expect(resolveDocsDirFrom(moduleDir)).rejects.toThrow(
+			/Could not find NeoOrm documentation/,
+		);
+
+		const packaged = join(root, "pkg", "docs");
+		await mkdir(packaged, { recursive: true });
+		await writeFile(join(packaged, "getting-started.md"), "# Start\n");
+		await expect(resolveDocsDirFrom(moduleDir)).resolves.toBe(packaged);
+	});
+
+	it("escapes raw HTML in markdown pages", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "neoorm-docs-page-"));
+		const sourcePath = join(dir, "xss.md");
+		await writeFile(
+			sourcePath,
+			"# Hello\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n",
+		);
+		const html = await renderDocsPage(
+			{
+				slug: "xss",
+				title: "Hello",
+				fileName: "xss.md",
+				sourcePath,
+			},
+			[],
+			"test",
+		);
+		expect(html).not.toContain("<script>alert");
+		expect(html).not.toContain("<img src=x");
+		expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+		expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
 	});
 
 	it("loads markdown pages in a stable order", async () => {

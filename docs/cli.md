@@ -116,7 +116,7 @@ Resolution order: `--file` → config `seed.file` → `seeds/<env>.ts` → `seed
 
 ## `neoorm docs`
 
-Serve the NeoOrm documentation locally in your browser.
+Serve the NeoOrm documentation that ships with this package. A project's own `docs/` directory is not used. Raw HTML in the markdown is escaped.
 
 ```
 neoorm docs [options]
