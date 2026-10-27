@@ -11,6 +11,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type StudioMetaResponse } from "../api";
+import { loadSqlHistory, SQL_HISTORY_KEY } from "../sql-history";
 import { useStudio } from "../state";
 import { ResultTable } from "./ResultTable";
 import {
@@ -25,16 +26,8 @@ import {
 	Textarea,
 } from "./ui";
 
-const HISTORY_KEY = "neoorm-studio-sql-history";
-
 function loadHistory(): string[] {
-	try {
-		return JSON.parse(
-			localStorage.getItem(HISTORY_KEY) ?? "[]",
-		) as string[];
-	} catch {
-		return [];
-	}
+	return loadSqlHistory(localStorage);
 }
 
 function dialectFor(
@@ -182,7 +175,7 @@ export function SqlConsole({
 					0,
 					20,
 				);
-				localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+				localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(next));
 				return next;
 			});
 		} catch (err) {
