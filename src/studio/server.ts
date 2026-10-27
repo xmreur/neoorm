@@ -270,6 +270,16 @@ function requireWritable(ctx: StudioContext): void {
 	}
 }
 
+function isScopedWhere(
+	where: Record<string, unknown> | undefined,
+): where is Record<string, unknown> {
+	return (
+		where !== undefined &&
+		!Array.isArray(where) &&
+		Object.keys(where).length > 0
+	);
+}
+
 /** Build a table-wide search predicate: OR of `contains` over text-like columns. */
 function buildSearchWhere(
 	ctx: StudioContext,
@@ -629,8 +639,17 @@ async function handleUpdateRows(
 	}
 	if (body.many === true) {
 		const where = decodeStudioWhere(body.where);
+		if (!isScopedWhere(where)) {
+			sendJson(res, 400, {
+				error: {
+					code: "where_required",
+					message: "Bulk update requires a non-empty `where`",
+				},
+			});
+			return;
+		}
 		const count = await repo.updateMany({
-			...(where ? { where } : {}),
+			where,
 			data: decodeStudioData(table, data as Record<string, unknown>),
 		});
 		sendJson(res, 200, { count });
@@ -681,7 +700,16 @@ async function handleDeleteRows(
 			: parseJsonParam(whereParam, "where"),
 	);
 	if (body.many === true || url.searchParams.get("many") === "true") {
-		const count = await repo.deleteMany(where ? { where } : undefined);
+		if (!isScopedWhere(where)) {
+			sendJson(res, 400, {
+				error: {
+					code: "where_required",
+					message: "Bulk delete requires a non-empty `where`",
+				},
+			});
+			return;
+		}
+		const count = await repo.deleteMany({ where });
 		sendJson(res, 200, { count });
 		return;
 	}

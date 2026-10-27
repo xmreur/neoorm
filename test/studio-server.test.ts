@@ -248,6 +248,45 @@ describe("studio rows CRUD", () => {
 		expect((after.body as { total: number }).total).toBe(0);
 	});
 
+	it("refuses a bulk delete or update with no where", async () => {
+		const created = await api(
+			"/api/tables/users/rows",
+			post({ data: { email: "keep@x.c", name: "keep" } }),
+		);
+		const id = (created.body as { row: { id: number } }).row.id;
+
+		const missing = await api("/api/tables/users/rows?many=true", del({}));
+		expect(missing.status).toBe(400);
+		expect((missing.body as { error: { code: string } }).error.code).toBe(
+			"where_required",
+		);
+
+		const empty = await api(
+			"/api/tables/users/rows",
+			del({ many: true, where: {} }),
+		);
+		expect(empty.status).toBe(400);
+
+		const unscopedUpdate = await api(
+			"/api/tables/users/rows",
+			patch({ many: true, data: { name: "wiped" } }),
+		);
+		expect(unscopedUpdate.status).toBe(400);
+
+		const still = await api(
+			`/api/tables/users/rows?where=${encodeURIComponent(JSON.stringify({ id }))}`,
+		);
+		const kept = (still.body as { rows: { name: string }[] }).rows[0];
+		expect(kept?.name).toBe("keep");
+
+		const scoped = await api(
+			"/api/tables/users/rows",
+			del({ many: true, where: { id } }),
+		);
+		expect(scoped.status).toBe(200);
+		expect((scoped.body as { count: number }).count).toBe(1);
+	});
+
 	it("maps constraint violations to 400 with codes", async () => {
 		await api(
 			"/api/tables/users/rows",
