@@ -2723,7 +2723,7 @@ Options:
 - `-p, --port <port>` — port to listen on (default: `7584`)
 - `-H, --host <host>` — host to bind (default: `127.0.0.1`)
 - `--open` — open Studio in your default browser
-- `--read-only` — block row mutations and non-read SQL
+- `--read-only` — block row mutations and SQL that writes, including `EXPLAIN` of a write and data-modifying CTEs
 - `--verbose` — log SQL statements executed by Studio
 - `--token <token>` — require this token for API access (generated automatically when binding a non-loopback host). Loopback still checks `Host` / `Origin` / `Content-Type` so other websites cannot call the API.
 - `--er-layout <path>` — enable team-shared ER layout stored at `<path>` (e.g. `./neoorm.er-layout.json`); `PUT` is blocked under `--read-only`
@@ -2798,7 +2798,7 @@ Views are deep-linkable: `#/tables/users?where=…&orderBy=…&q=…`, `#/sql`, 
 
 - Studio binds `127.0.0.1` by default with no auth token, like `neoorm docs`. Binding a non-loopback host generates a token (printed in the terminal) that every API call must send.
 - Every request must use a `Host` of loopback, the bind address, or (when listening on `0.0.0.0`/`::`) a literal IP on the listen port. API calls with an `Origin` must match the same allowlist. JSON bodies require `Content-Type: application/json`. Together this blocks website CSRF and DNS rebinding; a browser on another origin cannot run SQL or read rows.
-- `--read-only` blocks row mutations, imports, nested writes, and non-read SQL (`SELECT`, `EXPLAIN`, `PRAGMA`, and friends still work).
+- `--read-only` blocks row mutations, imports, nested writes, and SQL that writes. `SELECT`, `EXPLAIN` of a read query, `PRAGMA`, `SHOW`, and `DESCRIBE` still work. `EXPLAIN` / `EXPLAIN ANALYZE` of a write, data-modifying `WITH` clauses, and `SELECT INTO` are rejected.
 - The browser never receives your datasource URL, and hidden columns stay masked until revealed.
 
 ## Configuration

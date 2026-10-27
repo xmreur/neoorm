@@ -141,7 +141,7 @@ Options:
 - `-p, --port <port>` — port to listen on (default: `7584`)
 - `-H, --host <host>` — host to bind (default: `127.0.0.1`)
 - `--open` — open Studio in your default browser
-- `--read-only` — block row mutations and non-read SQL
+- `--read-only` — block row mutations and SQL that writes, including `EXPLAIN` of a write and data-modifying CTEs
 - `--verbose` — log SQL statements executed by Studio
 - `--token <token>` — require this token for API access (generated automatically when binding a non-loopback host). Loopback still checks `Host` / `Origin` / `Content-Type` so other websites cannot call the API.
 - `--er-layout <path>` — enable team-shared ER layout stored at `<path>` (e.g. `./neoorm.er-layout.json`); `PUT` is blocked under `--read-only`

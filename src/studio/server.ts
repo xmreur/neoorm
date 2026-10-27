@@ -37,6 +37,7 @@ import { toStudioError } from "./errors.js";
 import { toStudioGraph } from "./graph.js";
 import { type StudioMeta, toStudioMeta } from "./meta.js";
 import { openBrowser } from "./open-browser.js";
+import { isReadOnlySql } from "./read-sql.js";
 import {
 	isAllowedStudioHostHeader,
 	isAllowedStudioOrigin,
@@ -297,13 +298,6 @@ function mergeWhere(
 	if (!base) return extra;
 	if (!extra) return base;
 	return { AND: [base, extra] };
-}
-
-const READ_SQL =
-	/^\s*(SELECT|WITH|VALUES|TABLE|EXPLAIN|PRAGMA|SHOW|DESCRIBE|DESC)\b/i;
-
-function isReadSql(text: string): boolean {
-	return READ_SQL.test(text);
 }
 
 function errorStatus(err: unknown): number {
@@ -901,10 +895,7 @@ async function handleSql(
 	const params = Array.isArray(paramsRaw)
 		? (decodeStudioValue(paramsRaw) as unknown[])
 		: [];
-	let text = body.text;
-	if (body.explain === "analyze") text = `EXPLAIN ANALYZE ${text}`;
-	else if (body.explain === true) text = `EXPLAIN ${text}`;
-	if (ctx.readOnly && !isReadSql(text)) {
+	if (ctx.readOnly && !isReadOnlySql(body.text)) {
 		sendJson(res, 403, {
 			error: {
 				code: "read_only",
@@ -913,6 +904,9 @@ async function handleSql(
 		});
 		return;
 	}
+	let text = body.text;
+	if (body.explain === "analyze") text = `EXPLAIN ANALYZE ${text}`;
+	else if (body.explain === true) text = `EXPLAIN ${text}`;
 	const rows = await ctx.client.execute({ text, params });
 	sendJson(res, 200, { rows: encodeStudioRows(rows), rowCount: rows.length });
 }

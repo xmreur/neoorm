@@ -371,6 +371,32 @@ describe("studio read-only mode", () => {
 			readOnlyServer,
 		);
 		expect(explain.status).toBe(200);
+		const explainWrite = await api(
+			"/api/sql",
+			post({ text: "delete from users", explain: true }),
+			readOnlyServer,
+		);
+		expect(explainWrite.status).toBe(403);
+		const explainAnalyzeWrite = await api(
+			"/api/sql",
+			post({ text: "delete from users", explain: "analyze" }),
+			readOnlyServer,
+		);
+		expect(explainAnalyzeWrite.status).toBe(403);
+		const modifyingCte = await api(
+			"/api/sql",
+			post({
+				text: "with d as (delete from users returning id) select * from d",
+			}),
+			readOnlyServer,
+		);
+		expect(modifyingCte.status).toBe(403);
+		const quotedWrite = await api(
+			"/api/sql",
+			post({ text: "select 'delete from users' as note" }),
+			readOnlyServer,
+		);
+		expect(quotedWrite.status).toBe(200);
 	});
 });
 
