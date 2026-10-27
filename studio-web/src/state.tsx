@@ -70,11 +70,9 @@ type StudioState = {
 	saveToken: (value: string) => void;
 };
 
-function consumeTokenFromUrl(): void {
+function stripTokenFromUrl(): void {
 	const params = new URLSearchParams(window.location.search);
-	const fromQuery = params.get("token");
-	if (!fromQuery) return;
-	setToken(fromQuery);
+	if (!params.has("token")) return;
 	params.delete("token");
 	const search = params.toString();
 	window.history.replaceState(
@@ -92,7 +90,7 @@ export function StudioProvider({
 	children: ReactNode;
 }): React.JSX.Element {
 	useState(() => {
-		consumeTokenFromUrl();
+		stripTokenFromUrl();
 		return null;
 	});
 	const [meta, setMeta] = useState<StudioMetaResponse | null>(null);

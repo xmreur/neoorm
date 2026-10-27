@@ -47,6 +47,7 @@ import {
 	type StudioBind,
 	singleHeader,
 } from "./request-guard.js";
+import { tokensMatch } from "./token.js";
 
 export type StudioServerOptions = {
 	port?: number;
@@ -432,16 +433,13 @@ async function handleApi(
 	const segments = url.pathname.split("/").filter((s) => s.length > 0);
 
 	if (ctx.token !== undefined) {
-		const header = req.headers["x-studio-token"];
-		const auth = req.headers.authorization;
-		const queryToken = url.searchParams.get("token");
-		const provided =
-			(typeof header === "string" && header) ||
-			(typeof auth === "string" && auth.startsWith("Bearer ")
-				? auth.slice(7)
-				: "") ||
-			(queryToken ?? "");
-		if (provided !== ctx.token) {
+		const header = singleHeader(req.headers["x-studio-token"]) ?? "";
+		const auth = singleHeader(req.headers.authorization) ?? "";
+		const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+		const expected = ctx.token;
+		const headerOk = tokensMatch(header, expected);
+		const bearerOk = tokensMatch(bearer, expected);
+		if (!(headerOk || bearerOk)) {
 			sendJson(res, 401, {
 				error: {
 					code: "unauthorized",
@@ -1504,11 +1502,7 @@ export async function startStudioServer(
 
 	const actualPort = bind.port;
 	const url = `http://${host}:${actualPort}`;
-	const openUrl =
-		token !== undefined
-			? `${url}/?token=${encodeURIComponent(token)}`
-			: url;
-	if (options.open) openBrowser(openUrl);
+	if (options.open) openBrowser(url);
 
 	return {
 		url,
