@@ -630,4 +630,34 @@ describe("studio codec and csv", () => {
 		expect(rows).toEqual([{ email: "a@b.c", name: "Al, the great" }]);
 		expect(toCsv(headers, rows)).toContain('"Al, the great"');
 	});
+
+	it("prefixes spreadsheet formulas and keeps numeric text", () => {
+		const csv = toCsv(
+			["=name"],
+			[
+				{ "=name": "=1+1" },
+				{ "=name": "+cmd" },
+				{ "=name": "-2+3" },
+				{ "=name": "@SUM(A1)" },
+				{ "=name": "\t=1" },
+				{ "=name": "=1,2" },
+				{ "=name": "-12.50" },
+				{ "=name": -12.5 },
+				{ "=name": "ok" },
+			],
+		);
+		const lines = csv.split("\n");
+		expect(lines[0]).toBe("'=name");
+		expect(lines[1]).toBe("'=1+1");
+		expect(lines[2]).toBe("'+cmd");
+		expect(lines[3]).toBe("'-2+3");
+		expect(lines[4]).toBe("'@SUM(A1)");
+		expect(lines[5]).toBe("'\t=1");
+		expect(lines[6]).toBe(`"'=1,2"`);
+		expect(lines[7]).toBe("-12.50");
+		expect(lines[8]).toBe("-12.5");
+		expect(lines[9]).toBe("ok");
+		const cr = String.fromCharCode(13);
+		expect(toCsv(["n"], [{ n: `${cr}=1` }])).toBe(`n\n"'${cr}=1"\n`);
+	});
 });

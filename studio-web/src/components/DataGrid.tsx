@@ -238,9 +238,60 @@ function download(filename: string, content: string, mime: string): void {
 	URL.revokeObjectURL(url);
 }
 
+function isPlainNumber(value: string): boolean {
+	let i = 0;
+	if (value.startsWith("+") || value.startsWith("-")) i++;
+	let digits = 0;
+	let dot = false;
+	for (; i < value.length; i++) {
+		const ch = value[i];
+		if (ch === undefined) return false;
+		if (ch >= "0" && ch <= "9") {
+			digits++;
+			continue;
+		}
+		if (ch === "." && !dot) {
+			dot = true;
+			continue;
+		}
+		if ((ch === "e" || ch === "E") && digits > 0) {
+			let j = i + 1;
+			if (value[j] === "+" || value[j] === "-") j++;
+			let exp = 0;
+			for (; j < value.length; j++) {
+				const expCh = value[j];
+				if (expCh === undefined || expCh < "0" || expCh > "9")
+					return false;
+				exp++;
+			}
+			return exp > 0;
+		}
+		return false;
+	}
+	return digits > 0;
+}
+
+function neutralizeSpreadsheetFormula(value: string): string {
+	if (value.length === 0 || isPlainNumber(value)) return value;
+	const first = value[0];
+	if (
+		first === "=" ||
+		first === "+" ||
+		first === "-" ||
+		first === "@" ||
+		first === "\t" ||
+		first === "\r"
+	) {
+		return `'${value}`;
+	}
+	return value;
+}
+
 function rowsToCsv(columns: string[], rows: Record<string, unknown>[]): string {
-	const esc = (v: string): string =>
-		/[",\n\r]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+	const esc = (v: string): string => {
+		const safe = neutralizeSpreadsheetFormula(v);
+		return /[",\n\r]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+	};
 	const lines = [columns.map(esc).join(",")];
 	for (const row of rows) {
 		lines.push(
