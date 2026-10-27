@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { isUnsafeOwnKey } from "./own-key.js";
 
 export type ErLayoutPosition = { x: number; y: number };
 export type ErLayoutViewport = { x: number; y: number; zoom: number };
@@ -71,7 +72,7 @@ export function parseSharedErLayout(value: unknown): SharedErLayout {
 	const positions: Record<string, ErLayoutPosition> = {};
 	for (const [accessor, raw] of entries) {
 		if (typeof accessor !== "string" || accessor.length === 0) continue;
-		if (accessor.length > 256) continue;
+		if (accessor.length > 256 || isUnsafeOwnKey(accessor)) continue;
 		const pos = sanitizePosition(raw);
 		if (pos) positions[accessor] = pos;
 	}

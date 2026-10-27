@@ -47,6 +47,20 @@ describe("shared ER layout validation", () => {
 		expect(() => parseSharedErLayout({})).toThrow();
 	});
 
+	it("drops prototype keys instead of changing the positions prototype", () => {
+		const payload = JSON.parse(
+			'{"positions":{"__proto__":{"x":1,"y":2,"polluted":true},"constructor":{"x":0,"y":0},"users":{"x":3,"y":4}}}',
+		) as unknown;
+		const layout = parseSharedErLayout(payload);
+		expect(layout.positions.users).toEqual({ x: 3, y: 4 });
+		expect(layout.positions.polluted).toBeUndefined();
+		expect(Object.hasOwn(layout.positions, "__proto__")).toBe(false);
+		expect(Object.hasOwn(layout.positions, "constructor")).toBe(false);
+		expect(
+			(Object.prototype as { polluted?: unknown }).polluted,
+		).toBeUndefined();
+	});
+
 	it("round-trips through disk", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "er-layout-"));
 		const path = join(dir, "neoorm.er-layout.json");

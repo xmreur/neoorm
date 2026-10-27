@@ -37,6 +37,7 @@ import { toStudioError } from "./errors.js";
 import { toStudioGraph } from "./graph.js";
 import { type StudioMeta, toStudioMeta } from "./meta.js";
 import { openBrowser } from "./open-browser.js";
+import { isUnsafeOwnKey } from "./own-key.js";
 import { isReadOnlySql } from "./read-sql.js";
 import {
 	isAllowedStudioHostHeader,
@@ -264,6 +265,7 @@ function clampNestedTakes(value: unknown): unknown {
 	for (const [key, child] of Object.entries(
 		value as Record<string, unknown>,
 	)) {
+		if (isUnsafeOwnKey(key)) continue;
 		if (key === "take") {
 			next[key] = clampQueryTake(child) ?? child;
 			continue;
