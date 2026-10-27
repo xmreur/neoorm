@@ -382,6 +382,61 @@ describe("studio sql and query playground", () => {
 			"number",
 		);
 	});
+
+	it("caps playground take at 500", async () => {
+		const rows = Array.from({ length: 501 }, (_, i) => ({
+			email: `cap-${i}@x.c`,
+		}));
+		const created = await api("/api/tables/users/rows", post({ rows }));
+		expect(created.status).toBe(201);
+
+		const omitted = await api(
+			"/api/query",
+			post({ accessor: "users", method: "findMany", args: {} }),
+		);
+		expect(omitted.status).toBe(200);
+		expect((omitted.body as { rows: unknown[] }).rows).toHaveLength(500);
+
+		const huge = await api(
+			"/api/query",
+			post({
+				accessor: "users",
+				method: "findMany",
+				args: { take: 100_000 },
+			}),
+		);
+		expect((huge.body as { rows: unknown[] }).rows).toHaveLength(500);
+
+		const small = await api(
+			"/api/query",
+			post({
+				accessor: "users",
+				method: "findMany",
+				args: { take: 3 },
+			}),
+		);
+		expect((small.body as { rows: unknown[] }).rows).toHaveLength(3);
+
+		const page = await api(
+			"/api/query",
+			post({
+				accessor: "users",
+				method: "paginate",
+				args: { orderBy: { id: "asc" }, take: 100_000 },
+			}),
+		);
+		expect(page.status).toBe(200);
+		expect((page.body as { items: unknown[] }).items).toHaveLength(500);
+
+		const removed = await api(
+			"/api/tables/users/rows",
+			del({
+				many: true,
+				where: { email: { startsWith: "cap-" } },
+			}),
+		);
+		expect(removed.status).toBe(200);
+	});
 });
 
 describe("studio read-only mode", () => {
