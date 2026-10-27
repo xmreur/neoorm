@@ -26,5 +26,29 @@ export function openBrowser(url: string): void {
 				: "xdg-open";
 	const args =
 		platform === "win32" ? ["/c", "start", "", safeUrl] : [safeUrl];
-	spawn(command, args, { detached: true, stdio: "ignore" }).unref();
+	let child: ReturnType<typeof spawn>;
+	try {
+		child = spawn(command, args, { detached: true, stdio: "ignore" });
+	} catch (err) {
+		reportOpenError(command, err);
+		return;
+	}
+	child.once("error", (err) => {
+		reportOpenError(command, err);
+	});
+	child.unref();
+}
+
+function reportOpenError(command: string, err: unknown): void {
+	const code =
+		typeof err === "object" && err !== null && "code" in err
+			? err.code
+			: undefined;
+	const detail =
+		code === "ENOENT"
+			? `${command} was not found`
+			: err instanceof Error
+				? err.message
+				: String(err);
+	console.error(`Could not open the browser: ${detail}`);
 }
