@@ -37,6 +37,14 @@ import { toStudioError } from "./errors.js";
 import { toStudioGraph } from "./graph.js";
 import { type StudioMeta, toStudioMeta } from "./meta.js";
 import { openBrowser } from "./open-browser.js";
+import {
+	isAllowedStudioHostHeader,
+	isAllowedStudioOrigin,
+	isJsonContentType,
+	isLoopbackHostname,
+	type StudioBind,
+	singleHeader,
+} from "./request-guard.js";
 
 export type StudioServerOptions = {
 	port?: number;
@@ -126,15 +134,6 @@ const MIME_TYPES: Record<string, string> = {
 	".map": "application/json; charset=utf-8",
 	".txt": "text/plain; charset=utf-8",
 };
-
-function isLoopbackHost(host: string): boolean {
-	return (
-		host === "127.0.0.1" ||
-		host === "localhost" ||
-		host === "::1" ||
-		host === "::ffff:127.0.0.1"
-	);
-}
 
 export function resolveStudioUiDir(
 	cwd: string,
@@ -331,8 +330,31 @@ async function handleApi(
 	req: IncomingMessage,
 	res: ServerResponse,
 	url: URL,
+	bind: StudioBind,
 ): Promise<void> {
+	if (!isAllowedStudioOrigin(singleHeader(req.headers.origin), bind)) {
+		sendJson(res, 403, {
+			error: {
+				code: "forbidden_origin",
+				message: "Invalid Origin header",
+			},
+		});
+		return;
+	}
+
 	const method = (req.method ?? "GET").toUpperCase();
+	if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+		if (!isJsonContentType(singleHeader(req.headers["content-type"]))) {
+			sendJson(res, 415, {
+				error: {
+					code: "unsupported_media_type",
+					message: "Content-Type must be application/json",
+				},
+			});
+			return;
+		}
+	}
+
 	const segments = url.pathname.split("/").filter((s) => s.length > 0);
 
 	if (ctx.token !== undefined) {
@@ -1159,13 +1181,23 @@ async function handleErLayout(
 export function createStudioRequestHandler(
 	ctx: StudioContext,
 	uiDir: string | null,
+	bind: StudioBind,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
 	return async (req, res) => {
+		if (!isAllowedStudioHostHeader(singleHeader(req.headers.host), bind)) {
+			sendJson(res, 403, {
+				error: {
+					code: "forbidden_host",
+					message: "Invalid Host header",
+				},
+			});
+			return;
+		}
 		const url = new URL(req.url ?? "/", "http://localhost");
 		const { pathname } = url;
 		try {
 			if (pathname === "/api" || pathname.startsWith("/api/")) {
-				await handleApi(ctx, req, res, url);
+				await handleApi(ctx, req, res, url, bind);
 				return;
 			}
 			if (!uiDir) {
@@ -1288,7 +1320,7 @@ export async function startStudioServer(
 	const verbose = options.verbose ?? false;
 
 	let token = options.token;
-	if (!isLoopbackHost(host) && token === undefined) {
+	if (!isLoopbackHostname(host) && token === undefined) {
 		token = randomUUID();
 	}
 
@@ -1354,19 +1386,24 @@ export async function startStudioServer(
 	};
 
 	const uiDir = resolveStudioUiDir(cwd, options.uiDir);
-	const handler = createStudioRequestHandler(ctx, uiDir);
+	const bind: StudioBind = { host, port };
+	const handler = createStudioRequestHandler(ctx, uiDir, bind);
 	const server = createServer((req, res) => {
 		void handler(req, res);
 	});
 
 	await new Promise<void>((resolvePromise, reject) => {
 		server.once("error", reject);
-		server.listen(port, host, () => resolvePromise());
+		server.listen(port, host, () => {
+			const address = server.address();
+			if (typeof address === "object" && address !== null) {
+				bind.port = address.port;
+			}
+			resolvePromise();
+		});
 	});
 
-	const address = server.address();
-	const actualPort =
-		typeof address === "object" && address !== null ? address.port : port;
+	const actualPort = bind.port;
 	const url = `http://${host}:${actualPort}`;
 	const openUrl =
 		token !== undefined

@@ -1,4 +1,5 @@
 import { mkdtempSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -437,6 +438,98 @@ describe("studio import and token", () => {
 		const res = await fetch(
 			`${tokenServer.url}/api/meta?token=studio-secret`,
 		);
+		expect(res.status).toBe(200);
+	});
+});
+
+function rawStudioRequest(
+	base: StudioServer,
+	path: string,
+	options: {
+		method?: string;
+		headers?: Record<string, string>;
+		body?: string;
+	} = {},
+): Promise<{ status: number; body: string }> {
+	const url = new URL(path, base.url);
+	return new Promise((resolve, reject) => {
+		const req = http.request(
+			{
+				hostname: url.hostname,
+				port: url.port,
+				path: `${url.pathname}${url.search}`,
+				method: options.method ?? "GET",
+				headers: options.headers,
+			},
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (chunk) => {
+					chunks.push(
+						typeof chunk === "string" ? Buffer.from(chunk) : chunk,
+					);
+				});
+				res.on("end", () => {
+					resolve({
+						status: res.statusCode ?? 0,
+						body: Buffer.concat(chunks).toString("utf8"),
+					});
+				});
+			},
+		);
+		req.on("error", reject);
+		if (options.body !== undefined) req.write(options.body);
+		req.end();
+	});
+}
+
+describe("studio CSRF and DNS rebinding guards", () => {
+	it("rejects a website Origin on SQL so CSRF cannot run queries", async () => {
+		const res = await fetch(`${server.url}/api/sql`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Origin: "https://evil.example",
+			},
+			body: JSON.stringify({ text: "SELECT 1" }),
+		});
+		expect(res.status).toBe(403);
+		const body = (await res.json()) as { error: { code: string } };
+		expect(body.error.code).toBe("forbidden_origin");
+	});
+
+	it("rejects text/plain JSON bodies that skip CORS preflight", async () => {
+		const res = await fetch(`${server.url}/api/sql`, {
+			method: "POST",
+			headers: { "Content-Type": "text/plain" },
+			body: JSON.stringify({ text: "SELECT 1" }),
+		});
+		expect(res.status).toBe(415);
+	});
+
+	it("rejects a DNS-rebind Host on the SQL endpoint", async () => {
+		const port = new URL(server.url).port;
+		const res = await rawStudioRequest(server, "/api/sql", {
+			method: "POST",
+			headers: {
+				Host: `evil.example:${port}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ text: "SELECT 1" }),
+		});
+		expect(res.status).toBe(403);
+		expect(res.body).toContain("forbidden_host");
+	});
+
+	it("accepts loopback Origin and application/json on SQL", async () => {
+		const origin = new URL(server.url).origin;
+		const res = await fetch(`${server.url}/api/sql`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Origin: origin,
+			},
+			body: JSON.stringify({ text: "SELECT 1 AS ok" }),
+		});
 		expect(res.status).toBe(200);
 	});
 });

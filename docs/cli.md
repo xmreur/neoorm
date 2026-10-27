@@ -143,7 +143,7 @@ Options:
 - `--open` — open Studio in your default browser
 - `--read-only` — block row mutations and non-read SQL
 - `--verbose` — log SQL statements executed by Studio
-- `--token <token>` — require this token for API access (generated automatically when binding a non-loopback host)
+- `--token <token>` — require this token for API access (generated automatically when binding a non-loopback host). Loopback still checks `Host` / `Origin` / `Content-Type` so other websites cannot call the API.
 - `--er-layout <path>` — enable team-shared ER layout stored at `<path>` (e.g. `./neoorm.er-layout.json`); `PUT` is blocked under `--read-only`
 
 See [Studio](studio.md) for features, keyboard shortcuts, and security notes.
