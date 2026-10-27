@@ -854,3 +854,56 @@ describe("studio error responses", () => {
 		}
 	});
 });
+
+describe("studio response hygiene", () => {
+	it("answers HEAD without a body and sets nosniff", async () => {
+		const head = await fetch(`${server.url}/api/meta`, { method: "HEAD" });
+		expect(head.status).toBe(200);
+		expect(await head.text()).toBe("");
+		expect(head.headers.get("x-content-type-options")).toBe("nosniff");
+		const get = await fetch(`${server.url}/api/meta`);
+		const text = await get.text();
+		expect(get.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(head.headers.get("content-length")).toBe(
+			String(Buffer.byteLength(text)),
+		);
+	});
+
+	it("rejects a malformed request URL and keeps serving", async () => {
+		const url = new URL(server.url);
+		const bad = await new Promise<{ status: number; body: string }>(
+			(resolve, reject) => {
+				const req = http.request(
+					{
+						hostname: url.hostname,
+						port: url.port,
+						path: "//",
+						method: "GET",
+					},
+					(res) => {
+						const chunks: Buffer[] = [];
+						res.on("data", (chunk) => {
+							chunks.push(
+								typeof chunk === "string"
+									? Buffer.from(chunk)
+									: chunk,
+							);
+						});
+						res.on("end", () => {
+							resolve({
+								status: res.statusCode ?? 0,
+								body: Buffer.concat(chunks).toString("utf8"),
+							});
+						});
+					},
+				);
+				req.on("error", reject);
+				req.end();
+			},
+		);
+		expect(bad.status).toBe(400);
+		expect(bad.body).toBe("Invalid request URL");
+		const ok = await api("/api/meta");
+		expect(ok.status).toBe(200);
+	});
+});
