@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -175,5 +176,36 @@ More text.
 		const payload = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
 		expect(Array.isArray(payload)).toBe(true);
 		expect(payload.length).toBeGreaterThan(0);
+	});
+
+	it("returns 400 for a malformed request URL instead of rejecting", async () => {
+		const handler = createRequestHandler([], "0.0.0-test", []);
+		const chunks: Buffer[] = [];
+		const res = {
+			statusCode: 0,
+			headersSent: false,
+			headers: {} as Record<string, string>,
+			writeHead(status: number, headers: Record<string, string>) {
+				this.statusCode = status;
+				this.headersSent = true;
+				Object.assign(this.headers, headers);
+			},
+			end(body?: string) {
+				if (body !== undefined) chunks.push(Buffer.from(body));
+			},
+			destroy() {
+				this.headersSent = true;
+			},
+		};
+		await expect(
+			handler(
+				{ url: "//" } as IncomingMessage,
+				res as unknown as ServerResponse,
+			),
+		).resolves.toBeUndefined();
+		expect(res.statusCode).toBe(400);
+		expect(Buffer.concat(chunks).toString("utf8")).toBe(
+			"Invalid request URL",
+		);
 	});
 });

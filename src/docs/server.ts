@@ -57,10 +57,16 @@ export function createRequestHandler(
 	const bySlug = new Map(pages.map((page) => [page.slug, page]));
 
 	return async (req, res) => {
-		const url = new URL(req.url ?? "/", "http://localhost");
-		const { pathname } = url;
-
 		try {
+			let url: URL;
+			try {
+				url = new URL(req.url ?? "/", "http://localhost");
+			} catch {
+				sendText(res, 400, "Invalid request URL");
+				return;
+			}
+			const { pathname } = url;
+
 			if (pathname === "/search-index.json") {
 				sendJson(res, 200, searchIndex);
 				return;
@@ -85,6 +91,11 @@ export function createRequestHandler(
 
 			sendHtml(res, 200, await renderDocsPage(page, pages, version));
 		} catch (err) {
+			console.error(err);
+			if (res.headersSent) {
+				res.destroy();
+				return;
+			}
 			const message = err instanceof Error ? err.message : String(err);
 			sendText(res, 500, message);
 		}
@@ -107,7 +118,14 @@ export async function startDocsServer(
 	const handler = createRequestHandler(pages, options.version, searchIndex);
 
 	const server = createServer((req, res) => {
-		void handler(req, res);
+		void handler(req, res).catch((err: unknown) => {
+			console.error(err);
+			if (res.headersSent) {
+				res.destroy();
+				return;
+			}
+			sendText(res, 500, "Internal server error");
+		});
 	});
 
 	await new Promise<void>((resolve, reject) => {
