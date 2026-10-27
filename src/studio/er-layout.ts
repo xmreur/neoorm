@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isUnsafeOwnKey } from "./own-key.js";
 
@@ -128,7 +129,15 @@ export async function saveSharedErLayout(
 	layout: SharedErLayout,
 ): Promise<void> {
 	await mkdir(dirname(filePath), { recursive: true });
-	const tmp = `${filePath}.${process.pid}.tmp`;
-	await writeFile(tmp, `${JSON.stringify(layout, null, 2)}\n`, "utf-8");
-	await rename(tmp, filePath);
+	const tmp = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+	try {
+		await writeFile(tmp, `${JSON.stringify(layout, null, 2)}\n`, {
+			encoding: "utf-8",
+			flag: "wx",
+		});
+		await rename(tmp, filePath);
+	} catch (err) {
+		await rm(tmp, { force: true });
+		throw err;
+	}
 }
