@@ -1,5 +1,7 @@
 import type { ValidationType } from "../codegen/validation/types.js";
 import type { Dialect, ManifestColumn } from "../dialect/types.js";
+import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 import { parseDbJsonValue } from "../runtime/parse-db-json.js";
 import type {
 	ColumnBuilder,
@@ -76,12 +78,22 @@ function formatJsonDefault(
 	value: unknown,
 	dialect?: Dialect,
 ): string {
-	const cast = jsonCastKind(col.kind);
-	const json = JSON.stringify(value).replace(/'/g, "''");
-	if (isSqliteOrMysqlFamily(dialect)) {
-		return `'${json}'`;
+	const json = JSON.stringify(value);
+	if (json === undefined) {
+		throw schemaError(
+			SchemaErrorCode.invalid_column,
+			`JSON column "${col.tsName}" default must be a JSON value`,
+		);
 	}
-	return `'${json}'::${cast}`;
+	// MySQL and MariaDB treat "\" as an escape unless NO_BACKSLASH_ESCAPES is
+	// on. A hex literal does not depend on that mode.
+	if (dialect?.name === "mysql" || dialect?.name === "mariadb") {
+		const hex = Buffer.from(json, "utf8").toString("hex");
+		return `(CAST(X'${hex}' AS JSON))`;
+	}
+	const literal = `'${json.replaceAll("'", "''")}'`;
+	if (dialect?.name === "sqlite") return literal;
+	return `${literal}::${jsonCastKind(col.kind)}`;
 }
 
 function parseJsonValue(dbValue: unknown, col: ManifestColumn): unknown {
