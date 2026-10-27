@@ -1,5 +1,12 @@
 /** Minimal CSV parse/serialize for Studio import/export (no external deps). */
 
+function csvParseError(message: string): Error {
+	return Object.assign(new Error(message), {
+		statusCode: 400,
+		code: "invalid_args",
+	});
+}
+
 export function parseCsv(text: string): {
 	headers: string[];
 	rows: Record<string, string>[];
@@ -45,11 +52,8 @@ export function parseCsv(text: string): {
 			i++;
 			continue;
 		}
-		if (ch === "\r") {
-			i++;
-			continue;
-		}
-		if (ch === "\n") {
+		if (ch === "\n" || ch === "\r") {
+			if (ch === "\r" && text[i + 1] === "\n") i++;
 			pushRow();
 			i++;
 			continue;
@@ -66,7 +70,19 @@ export function parseCsv(text: string): {
 	}
 	if (cells.length === 0) return { headers: [], rows: [] };
 	const headers = (cells[0] ?? []).map((h) => h.trim());
-	const rows = cells.slice(1).map((values) => {
+	const seen = new Set<string>();
+	for (const header of headers) {
+		if (seen.has(header)) {
+			throw csvParseError(`Duplicate CSV header "${header}"`);
+		}
+		seen.add(header);
+	}
+	const rows = cells.slice(1).map((values, index) => {
+		if (values.length > headers.length) {
+			throw csvParseError(
+				`CSV record ${index + 2} has ${values.length} cells but the header has ${headers.length}`,
+			);
+		}
 		const record: Record<string, string> = {};
 		for (let c = 0; c < headers.length; c++) {
 			const header = headers[c];

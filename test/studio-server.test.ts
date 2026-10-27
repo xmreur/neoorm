@@ -576,6 +576,20 @@ describe("studio import and token", () => {
 		expect(numberUser?.age).toBe(123);
 	});
 
+	it("rejects a csv with a duplicate header", async () => {
+		const imported = await api(
+			"/api/import",
+			post({
+				accessor: "users",
+				csv: "email,email\na@x.c,b@x.c\n",
+			}),
+		);
+		expect(imported.status).toBe(400);
+		expect((imported.body as { error: { code: string } }).error.code).toBe(
+			"invalid_args",
+		);
+	});
+
 	it("rejects missing tokens and accepts a valid header", async () => {
 		const denied = await api("/api/meta", undefined, tokenServer);
 		expect(denied.status).toBe(401);
@@ -721,6 +735,25 @@ describe("studio codec and csv", () => {
 		expect(headers).toEqual(["email", "name"]);
 		expect(rows).toEqual([{ email: "a@b.c", name: "Al, the great" }]);
 		expect(toCsv(headers, rows)).toContain('"Al, the great"');
+	});
+
+	it("parses CR-only rows and rejects duplicate headers and extra cells", () => {
+		expect(parseCsv("email,name\r0123,true\r").rows).toEqual([
+			{ email: "0123", name: "true" },
+		]);
+		expect(parseCsv("email,name\r\na,b\r\n").rows).toEqual([
+			{ email: "a", name: "b" },
+		]);
+		expect(parseCsv('email,name\n"a\r\nb",c\n').rows).toEqual([
+			{ email: "a\r\nb", name: "c" },
+		]);
+		expect(parseCsv("email,name\na\n").rows).toEqual([
+			{ email: "a", name: "" },
+		]);
+		expect(() => parseCsv("email,email\n1,2\n")).toThrow(
+			/Duplicate CSV header "email"/,
+		);
+		expect(() => parseCsv("email,name\n1,2,3\n")).toThrow(/3 cells/);
 	});
 
 	it("prefixes spreadsheet formulas and keeps numeric text", () => {
