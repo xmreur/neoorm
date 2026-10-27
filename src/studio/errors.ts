@@ -75,24 +75,34 @@ export function toStudioError(err: unknown): {
 				...(detail !== undefined ? { detail } : {}),
 			},
 		};
-		if (UNAVAILABLE_CODES.has(err.code)) return { status: 503, body };
+		if (UNAVAILABLE_CODES.has(err.code)) {
+			return {
+				status: 503,
+				body: {
+					error: {
+						code: err.code,
+						message: "Database unavailable",
+					},
+				},
+			};
+		}
 		if (CLIENT_ERROR_CODES.has(err.code)) return { status: 400, body };
-		return { status: 500, body };
+		return internalStudioError();
 	}
 	if (err instanceof SyntaxError) {
 		return {
 			status: 400,
-			body: { error: { code: "invalid_json", message: err.message } },
+			body: { error: { code: "invalid_json", message: "Invalid JSON" } },
 		};
 	}
-	if (err instanceof Error) {
-		return {
-			status: 500,
-			body: { error: { code: "internal", message: err.message } },
-		};
-	}
+	return internalStudioError();
+}
+
+function internalStudioError(): { status: number; body: StudioErrorBody } {
 	return {
 		status: 500,
-		body: { error: { code: "internal", message: String(err) } },
+		body: {
+			error: { code: "internal", message: "Internal server error" },
+		},
 	};
 }

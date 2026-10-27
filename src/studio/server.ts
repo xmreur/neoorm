@@ -197,8 +197,13 @@ async function readBody(
 		const buf =
 			typeof chunk === "string" ? Buffer.from(chunk) : (chunk as Buffer);
 		size += buf.length;
-		if (size > limit)
-			throw new Error(`Request body exceeds ${limit} bytes`);
+		if (size > limit) {
+			throw clientError(
+				413,
+				"payload_too_large",
+				`Request body exceeds ${limit} bytes`,
+			);
+		}
 		chunks.push(buf);
 	}
 	return Buffer.concat(chunks).toString("utf-8");
@@ -216,8 +221,13 @@ function getQueryParams(url: URL): URLSearchParams {
 function parseTake(raw: string | null, max: number): number {
 	if (raw === null) return DEFAULT_TAKE;
 	const n = Number.parseInt(raw, 10);
-	if (!Number.isFinite(n) || n < 1)
-		throw new Error("`take` must be a positive integer");
+	if (!Number.isFinite(n) || n < 1) {
+		throw clientError(
+			400,
+			"invalid_args",
+			"`take` must be a positive integer",
+		);
+	}
 	return Math.min(n, max);
 }
 
@@ -266,8 +276,13 @@ function clampNestedTakes(value: unknown): unknown {
 function parseSkip(raw: string | null): number {
 	if (raw === null) return 0;
 	const n = Number.parseInt(raw, 10);
-	if (!Number.isFinite(n) || n < 0)
-		throw new Error("`skip` must be a non-negative integer");
+	if (!Number.isFinite(n) || n < 0) {
+		throw clientError(
+			400,
+			"invalid_args",
+			"`skip` must be a non-negative integer",
+		);
+	}
 	return n;
 }
 
@@ -276,7 +291,7 @@ function parseJsonParam(raw: string | null, name: string): unknown {
 	try {
 		return JSON.parse(raw) as unknown;
 	} catch {
-		throw new Error(`\`${name}\` must be JSON`);
+		throw clientError(400, "invalid_args", `\`${name}\` must be JSON`);
 	}
 }
 
@@ -352,21 +367,32 @@ function mergeWhere(
 	return { AND: [base, extra] };
 }
 
-function errorStatus(err: unknown): number {
+function clientError(statusCode: number, code: string, message: string): Error {
+	return Object.assign(new Error(message), { statusCode, code });
+}
+
+function isClientHttpError(
+	err: unknown,
+): err is Error & { statusCode: number; code: string } {
+	if (!(err instanceof Error)) return false;
 	const statusCode = (err as { statusCode?: unknown }).statusCode;
-	if (typeof statusCode === "number") return statusCode;
+	const code = (err as { code?: unknown }).code;
+	return (
+		typeof statusCode === "number" &&
+		statusCode >= 400 &&
+		statusCode < 500 &&
+		typeof code === "string"
+	);
+}
+
+function errorStatus(err: unknown): number {
+	if (isClientHttpError(err)) return err.statusCode;
 	return toStudioError(err).status;
 }
 
 function errorBody(err: unknown): unknown {
-	const code = (err as { code?: unknown }).code;
-	if (typeof code === "string") {
-		return {
-			error: {
-				code,
-				message: err instanceof Error ? err.message : String(err),
-			},
-		};
+	if (isClientHttpError(err)) {
+		return { error: { code: err.code, message: err.message } };
 	}
 	return toStudioError(err).body;
 }
@@ -562,7 +588,9 @@ async function handleApi(
 			},
 		});
 	} catch (err) {
-		sendJson(res, errorStatus(err), errorBody(err));
+		const status = errorStatus(err);
+		if (status >= 500) console.error(err);
+		sendJson(res, status, errorBody(err));
 	}
 }
 
@@ -1297,8 +1325,8 @@ export function createStudioRequestHandler(
 			const body = await readFile(filePath);
 			sendFile(res, filePath, contentType, body);
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			sendText(res, 500, message);
+			console.error(err);
+			sendText(res, 500, "Internal server error");
 		}
 	};
 }

@@ -52,3 +52,4 @@ Views are deep-linkable: `#/tables/users?where=…&orderBy=…&q=…`, `#/sql`, 
 - Every request must use a `Host` of loopback, the bind address, or (when listening on `0.0.0.0`/`::`) a literal IP on the listen port. API calls with an `Origin` must match the same allowlist. JSON bodies require `Content-Type: application/json`. Together this blocks website CSRF and DNS rebinding; a browser on another origin cannot run SQL or read rows.
 - `--read-only` blocks row mutations, imports, nested writes, and SQL that writes. `SELECT`, `EXPLAIN` of a read query, `PRAGMA`, `SHOW`, and `DESCRIBE` still work. `EXPLAIN` / `EXPLAIN ANALYZE` of a write, data-modifying `WITH` clauses, and `SELECT INTO` are rejected.
 - The browser never receives your datasource URL, and hidden columns stay masked until revealed.
+- Invalid parameters return 400 and oversized bodies return 413. Unexpected failures return a generic error, without filesystem paths or driver text.

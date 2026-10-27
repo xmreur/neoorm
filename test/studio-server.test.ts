@@ -1,9 +1,9 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import type { Manifest } from "../src/dialect/types.js";
@@ -714,5 +714,73 @@ describe("studio codec and csv", () => {
 		expect(lines[9]).toBe("ok");
 		const cr = String.fromCharCode(13);
 		expect(toCsv(["n"], [{ n: `${cr}=1` }])).toBe(`n\n"'${cr}=1"\n`);
+	});
+});
+
+describe("studio error responses", () => {
+	it("returns 400 for invalid take, skip, and JSON query params", async () => {
+		const take = await api("/api/tables/users/rows?take=0");
+		expect(take.status).toBe(400);
+		expect((take.body as { error: { code: string } }).error.code).toBe(
+			"invalid_args",
+		);
+
+		const skip = await api("/api/tables/users/rows?skip=-1");
+		expect(skip.status).toBe(400);
+
+		const where = await api("/api/tables/users/rows?where=not-json");
+		expect(where.status).toBe(400);
+		expect(
+			(where.body as { error: { message: string } }).error.message,
+		).toBe("`where` must be JSON");
+	});
+
+	it("returns 400 for invalid JSON bodies", async () => {
+		const res = await fetch(`${server.url}/api/sql`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: "{",
+		});
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as {
+			error: { code: string; message: string };
+		};
+		expect(body.error.code).toBe("invalid_json");
+		expect(body.error.message).toBe("Invalid JSON");
+	});
+
+	it("returns 413 when the body exceeds the limit", async () => {
+		const res = await fetch(`${server.url}/api/sql`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: "x".repeat(10 * 1024 * 1024 + 1),
+		});
+		expect(res.status).toBe(413);
+		const body = (await res.json()) as { error: { code: string } };
+		expect(body.error.code).toBe("payload_too_large");
+	});
+
+	it("does not echo filesystem paths when serving the UI fails", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "studio-ui-"));
+		mkdirSync(join(dir, "index.html"));
+		const ui = await startStudioServer({
+			port: 0,
+			manifest,
+			sqliteDb: db,
+			provider: "sqlite",
+			version: "test",
+			uiDir: dir,
+		});
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const res = await fetch(`${ui.url}/`);
+			const text = await res.text();
+			expect(res.status).toBe(500);
+			expect(text).toBe("Internal server error");
+			expect(text).not.toContain(dir);
+		} finally {
+			spy.mockRestore();
+			await ui.close();
+		}
 	});
 });
