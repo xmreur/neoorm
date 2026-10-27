@@ -2774,7 +2774,7 @@ Run parameterized SQL with dialect-aware highlighting and schema autocomplete (`
 
 ## Query playground
 
-Build `findMany`, `findFirst`, `findUnique`, `findById`, `count`, `exists`, `aggregate`, `groupBy`, and `paginate` calls visually — `where`, `with`, `orderBy`, `select`, cursors — run them through the same client your app uses, and copy any working query as TypeScript (`db.users.findMany({ … })`).
+Build `findMany`, `findFirst`, `findUnique`, `findById`, `count`, `exists`, `aggregate`, `groupBy`, and `paginate` calls visually — `where`, `with`, `orderBy`, `select`, cursors — run them through the same client your app uses, and copy any working query as TypeScript (`db.users.findMany({ … })`). `take` is capped at 500, the same limit as the data grid. `findMany` and `groupBy` use that cap when `take` is omitted.
 
 ## Schema, ER, migrate
 

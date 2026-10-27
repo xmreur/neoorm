@@ -221,6 +221,48 @@ function parseTake(raw: string | null, max: number): number {
 	return Math.min(n, max);
 }
 
+function clampQueryTake(take: unknown): number | undefined {
+	if (typeof take !== "number" || !Number.isFinite(take) || take < 1) {
+		return undefined;
+	}
+	return Math.min(Math.trunc(take), MAX_TAKE);
+}
+
+function withBoundedTake(
+	args: Record<string, unknown>,
+	defaultTake: boolean,
+): Record<string, unknown> {
+	const clamped = clampQueryTake(args.take);
+	const take =
+		args.take === undefined && defaultTake
+			? MAX_TAKE
+			: (clamped ?? args.take);
+	return {
+		...args,
+		...(take !== args.take ? { take } : {}),
+		...(args.with !== undefined
+			? { with: clampNestedTakes(args.with) }
+			: {}),
+	};
+}
+
+function clampNestedTakes(value: unknown): unknown {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return value;
+	}
+	const next: Record<string, unknown> = {};
+	for (const [key, child] of Object.entries(
+		value as Record<string, unknown>,
+	)) {
+		if (key === "take") {
+			next[key] = clampQueryTake(child) ?? child;
+			continue;
+		}
+		next[key] = clampNestedTakes(child);
+	}
+	return next;
+}
+
 function parseSkip(raw: string | null): number {
 	if (raw === null) return 0;
 	const n = Number.parseInt(raw, 10);
@@ -774,7 +816,7 @@ async function handleQueryPlayground(
 	switch (method) {
 		case "findMany": {
 			const rows = await repo.findMany({
-				...args,
+				...withBoundedTake(args, true),
 				...withHidden,
 			} as never);
 			sendJson(res, 200, { rows: encodeStudioRows(rows) });
@@ -782,7 +824,7 @@ async function handleQueryPlayground(
 		}
 		case "findFirst": {
 			const row = await repo.findFirst({
-				...args,
+				...withBoundedTake(args, false),
 				...withHidden,
 			} as never);
 			sendJson(res, 200, {
@@ -809,7 +851,7 @@ async function handleQueryPlayground(
 					? { omit: args.omit as never }
 					: {}),
 				...(args.with !== undefined
-					? { with: args.with as never }
+					? { with: clampNestedTakes(args.with) as never }
 					: {}),
 				...withHidden,
 			});
@@ -863,15 +905,20 @@ async function handleQueryPlayground(
 				});
 				return;
 			}
-			const result = await repo.groupBy(args as never);
+			const result = await repo.groupBy(
+				withBoundedTake(args, true) as never,
+			);
 			sendJson(res, 200, { rows: encodeStudioRows(result) });
 			return;
 		}
 		case "paginate": {
+			const bounded = withBoundedTake(args, false);
 			if (
-				typeof args.orderBy !== "object" ||
-				args.orderBy === null ||
-				typeof args.take !== "number"
+				typeof bounded.orderBy !== "object" ||
+				bounded.orderBy === null ||
+				typeof bounded.take !== "number" ||
+				!Number.isFinite(bounded.take) ||
+				bounded.take < 1
 			) {
 				sendJson(res, 400, {
 					error: {
@@ -882,7 +929,7 @@ async function handleQueryPlayground(
 				return;
 			}
 			const page = await repo.paginate({
-				...args,
+				...bounded,
 				...withHidden,
 			} as never);
 			sendJson(res, 200, {
