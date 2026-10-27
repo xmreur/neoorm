@@ -554,11 +554,15 @@ describe("studio import and token", () => {
 		expect(body.dialect).toBe("sqlite");
 	});
 
-	it("accepts the token as a query parameter", async () => {
-		const res = await fetch(
+	it("rejects a token in the query string and accepts a bearer token", async () => {
+		const query = await fetch(
 			`${tokenServer.url}/api/meta?token=studio-secret`,
 		);
-		expect(res.status).toBe(200);
+		expect(query.status).toBe(401);
+		const bearer = await fetch(`${tokenServer.url}/api/meta`, {
+			headers: { Authorization: "Bearer studio-secret" },
+		});
+		expect(bearer.status).toBe(200);
 	});
 });
 

@@ -134,13 +134,36 @@ export class StudioApiError extends Error {
 	}
 }
 
+const TOKEN_STORAGE_KEY = "neoorm-studio-token";
+
 function token(): string {
-	return localStorage.getItem("neoorm-studio-token") ?? "";
+	return localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
 }
 
 export function setToken(value: string): void {
-	if (value) localStorage.setItem("neoorm-studio-token", value);
-	else localStorage.removeItem("neoorm-studio-token");
+	if (value) localStorage.setItem(TOKEN_STORAGE_KEY, value);
+	else localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+/** Download an export with the auth header so the token stays out of the URL. */
+export async function downloadExport(
+	accessor: string,
+	format: string,
+): Promise<void> {
+	const res = await request(
+		`/api/export?accessor=${encodeURIComponent(accessor)}&format=${encodeURIComponent(format)}`,
+	);
+	if (!res.ok) {
+		await parse(res);
+		return;
+	}
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = `${accessor}.${format}`;
+	link.click();
+	URL.revokeObjectURL(url);
 }
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
@@ -259,11 +282,6 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify(body),
 		}).then((r) => parse<{ count: number }>(r)),
-	exportUrl: (accessor: string, params: Record<string, string>) => {
-		const t = token();
-		const all = { ...params, ...(t ? { token: t } : {}) };
-		return `/api/export?accessor=${encodeURIComponent(accessor)}&${new URLSearchParams(all).toString()}`;
-	},
 };
 
 /** True for `{__neoorm: ...}` markers produced by the server codec. */

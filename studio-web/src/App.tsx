@@ -17,7 +17,7 @@ export function App(): React.JSX.Element {
 	const [tokenInput, setTokenInput] = useState("");
 
 	if (metaError && !meta) {
-		const needsToken = /401|unauthorized/i.test(metaError);
+		const needsToken = /401|unauthorized|token/i.test(metaError);
 		return (
 			<div className="flex h-screen items-center justify-center p-4">
 				<div className="flex w-full max-w-md flex-col gap-2 rounded-lg border border-border bg-card p-4">

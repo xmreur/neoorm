@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	api,
+	downloadExport,
 	formatCell,
 	isTextKind,
 	navigationWhere,
@@ -869,12 +870,7 @@ export function DataGrid({
 					<Button
 						variant="outline"
 						size="sm"
-						onClick={() =>
-							window.open(
-								api.exportUrl(accessor, { format: "json" }),
-								"_blank",
-							)
-						}
+						onClick={() => void downloadExport(accessor, "json")}
 					>
 						Export
 					</Button>
