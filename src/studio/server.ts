@@ -157,12 +157,39 @@ export function resolveStudioUiDir(
 	return null;
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function isHead(res: ServerResponse): boolean {
+	return (res.req?.method ?? "GET").toUpperCase() === "HEAD";
+}
+
+function writeResponse(
+	res: ServerResponse,
+	status: number,
+	headers: Record<string, string | number>,
+	body: string | Buffer,
+): void {
+	const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
 	res.writeHead(status, {
-		"Content-Type": "application/json; charset=utf-8",
-		"Cache-Control": "no-cache",
+		...headers,
+		"X-Content-Type-Options": "nosniff",
+		"Content-Length": payload.length,
 	});
-	res.end(JSON.stringify(body));
+	if (isHead(res)) {
+		res.end();
+		return;
+	}
+	res.end(payload);
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+	writeResponse(
+		res,
+		status,
+		{
+			"Content-Type": "application/json; charset=utf-8",
+			"Cache-Control": "no-cache",
+		},
+		JSON.stringify(body),
+	);
 }
 
 function sendText(
@@ -171,8 +198,7 @@ function sendText(
 	body: string,
 	contentType = "text/plain; charset=utf-8",
 ): void {
-	res.writeHead(status, { "Content-Type": contentType });
-	res.end(body);
+	writeResponse(res, status, { "Content-Type": contentType }, body);
 }
 
 function sendFile(
@@ -181,11 +207,15 @@ function sendFile(
 	contentType: string,
 	body: string | Buffer,
 ): void {
-	res.writeHead(200, {
-		"Content-Type": contentType,
-		"Cache-Control": "no-cache",
-	});
-	res.end(body);
+	writeResponse(
+		res,
+		200,
+		{
+			"Content-Type": contentType,
+			"Cache-Control": "no-cache",
+		},
+		body,
+	);
 	void filePath;
 }
 
@@ -417,8 +447,12 @@ async function handleApi(
 		return;
 	}
 
-	const method = (req.method ?? "GET").toUpperCase();
-	if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+	const rawMethod = (req.method ?? "GET").toUpperCase();
+	if (
+		rawMethod !== "GET" &&
+		rawMethod !== "HEAD" &&
+		rawMethod !== "OPTIONS"
+	) {
 		if (!isJsonContentType(singleHeader(req.headers["content-type"]))) {
 			sendJson(res, 415, {
 				error: {
@@ -429,6 +463,7 @@ async function handleApi(
 			return;
 		}
 	}
+	const method = rawMethod === "HEAD" ? "GET" : rawMethod;
 
 	const segments = url.pathname.split("/").filter((s) => s.length > 0);
 
@@ -1317,18 +1352,26 @@ export function createStudioRequestHandler(
 	bind: StudioBind,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
 	return async (req, res) => {
-		if (!isAllowedStudioHostHeader(singleHeader(req.headers.host), bind)) {
-			sendJson(res, 403, {
-				error: {
-					code: "forbidden_host",
-					message: "Invalid Host header",
-				},
-			});
-			return;
-		}
-		const url = new URL(req.url ?? "/", "http://localhost");
-		const { pathname } = url;
 		try {
+			if (
+				!isAllowedStudioHostHeader(singleHeader(req.headers.host), bind)
+			) {
+				sendJson(res, 403, {
+					error: {
+						code: "forbidden_host",
+						message: "Invalid Host header",
+					},
+				});
+				return;
+			}
+			let url: URL;
+			try {
+				url = new URL(req.url ?? "/", "http://localhost");
+			} catch {
+				sendText(res, 400, "Invalid request URL");
+				return;
+			}
+			const { pathname } = url;
 			if (pathname === "/api" || pathname.startsWith("/api/")) {
 				await handleApi(ctx, req, res, url, bind);
 				return;
@@ -1362,6 +1405,10 @@ export function createStudioRequestHandler(
 			sendFile(res, filePath, contentType, body);
 		} catch (err) {
 			console.error(err);
+			if (res.headersSent) {
+				res.destroy();
+				return;
+			}
 			sendText(res, 500, "Internal server error");
 		}
 	};
@@ -1522,7 +1569,14 @@ export async function startStudioServer(
 	const bind: StudioBind = { host, port };
 	const handler = createStudioRequestHandler(ctx, uiDir, bind);
 	const server = createServer((req, res) => {
-		void handler(req, res);
+		void handler(req, res).catch((err: unknown) => {
+			console.error(err);
+			if (res.headersSent) {
+				res.destroy();
+				return;
+			}
+			sendText(res, 500, "Internal server error");
+		});
 	});
 
 	await new Promise<void>((resolvePromise, reject) => {
