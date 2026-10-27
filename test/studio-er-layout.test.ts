@@ -73,6 +73,33 @@ describe("shared ER layout validation", () => {
 		const loaded = await loadSharedErLayout(path);
 		expect(loaded?.positions.users).toEqual({ x: 1, y: 2 });
 	});
+
+	it("concurrent saves persist one complete layout", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "er-layout-"));
+		const path = join(dir, "neoorm.er-layout.json");
+		const layouts = Array.from({ length: 32 }, (_, i) => {
+			const positions: Record<string, { x: number; y: number }> = {};
+			for (let n = 0; n < 200; n++) {
+				positions[`t${i}_${n}`] = { x: i, y: n };
+			}
+			return parseSharedErLayout({
+				positions,
+				showJunctions: i % 2 === 0,
+			});
+		});
+		await Promise.all(
+			layouts.map((layout) => saveSharedErLayout(path, layout)),
+		);
+		const loaded = await loadSharedErLayout(path);
+		expect(loaded).not.toBeNull();
+		const match = layouts.find(
+			(layout) =>
+				JSON.stringify(layout.positions) ===
+					JSON.stringify(loaded?.positions) &&
+				layout.showJunctions === loaded?.showJunctions,
+		);
+		expect(match).toBeDefined();
+	});
 });
 
 describe("studio ER layout API", () => {
