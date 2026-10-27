@@ -77,8 +77,62 @@ export function parseCsv(text: string): {
 	return { headers, rows };
 }
 
+function isPlainNumber(value: string): boolean {
+	let i = 0;
+	if (value.startsWith("+") || value.startsWith("-")) i++;
+	let digits = 0;
+	let dot = false;
+	for (; i < value.length; i++) {
+		const ch = value[i];
+		if (ch === undefined) return false;
+		if (ch >= "0" && ch <= "9") {
+			digits++;
+			continue;
+		}
+		if (ch === "." && !dot) {
+			dot = true;
+			continue;
+		}
+		if ((ch === "e" || ch === "E") && digits > 0) {
+			return hasExponent(value, i + 1);
+		}
+		return false;
+	}
+	return digits > 0;
+}
+
+function hasExponent(value: string, start: number): boolean {
+	let i = start;
+	if (value[i] === "+" || value[i] === "-") i++;
+	let digits = 0;
+	for (; i < value.length; i++) {
+		const ch = value[i];
+		if (ch === undefined || ch < "0" || ch > "9") return false;
+		digits++;
+	}
+	return digits > 0;
+}
+
+/** Spreadsheets run cells that start with these as formulas. A leading `'` forces text. */
+function neutralizeSpreadsheetFormula(value: string): string {
+	if (value.length === 0 || isPlainNumber(value)) return value;
+	const first = value[0];
+	if (
+		first === "=" ||
+		first === "+" ||
+		first === "-" ||
+		first === "@" ||
+		first === "\t" ||
+		first === "\r"
+	) {
+		return `'${value}`;
+	}
+	return value;
+}
+
 function escapeCsvCell(value: string): string {
-	return /[",\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+	const safe = neutralizeSpreadsheetFormula(value);
+	return /[",\n\r]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
 /** Serialize JSON-safe rows to CSV. Markers become compact JSON strings. */

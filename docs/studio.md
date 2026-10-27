@@ -17,7 +17,7 @@ Studio reads `neoorm.config.ts` (after `.env`, like the other commands) and comp
 - Hidden columns (`.hidden()`) are visible in Studio but masked until you reveal them — useful for passwords and secrets, which are fetched with `includeHidden`.
 - `serial`/identity columns are omitted on create; `updatedAt` is read-only.
 - Foreign-key cells link to the referenced row. Trailing `View →` columns navigate has-many and many-to-many relations. Clicking a row opens a detail sheet with a Relations tab for nested writes (`connect`, `connectOrCreate`, `create`, `disconnect`, `set`, `delete`).
-- Select rows to copy as CSV, Markdown, JSON, or SQL `INSERT`s. Import CSV or JSON arrays (up to 5000 rows) with optional `skipDuplicates`. Export the current view in JSON, CSV, Markdown, or SQL.
+- Select rows to copy as CSV, Markdown, JSON, or SQL `INSERT`s. Import CSV or JSON arrays (up to 5000 rows) with optional `skipDuplicates`. Export the current view in JSON, CSV, Markdown, or SQL. CSV cells that start with `=`, `+`, `-`, `@`, tab, or a carriage return are prefixed with `'` so a spreadsheet does not run them as formulas. Plain numbers such as `-12.50` are left unchanged.
 - Tables without a usable unique key are browse/create-only, and Studio tells you why.
 
 ## SQL console
