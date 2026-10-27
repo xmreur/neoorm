@@ -1,7 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { marked } from "marked";
+import { Marked } from "marked";
 import type { DocsPage } from "./pages.js";
+
+const docsMarked = new Marked({
+	gfm: true,
+	breaks: false,
+});
+docsMarked.use({
+	renderer: {
+		html({ text }) {
+			return escapeHtml(text);
+		},
+	},
+});
 
 function rewriteMarkdownLinks(html: string): string {
 	return html.replace(
@@ -83,12 +95,7 @@ export async function renderDocsPage(
 	version: string,
 ): Promise<string> {
 	const markdown = await readFile(page.sourcePath, "utf-8");
-	const body = rewriteMarkdownLinks(
-		await marked.parse(markdown, {
-			gfm: true,
-			breaks: false,
-		}),
-	);
+	const body = rewriteMarkdownLinks(await docsMarked.parse(markdown));
 
 	return renderDocsShell(
 		`${page.title} · NeoOrm`,
