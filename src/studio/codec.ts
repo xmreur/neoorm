@@ -1,4 +1,5 @@
 import type { ManifestTable } from "../dialect/types.js";
+import { isUnsafeOwnKey } from "./own-key.js";
 
 /**
  * Tagged markers for values JSON cannot carry natively.
@@ -34,7 +35,7 @@ function encodeValue(value: unknown): unknown {
 	if (typeof value === "object" && value !== null) {
 		const out: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-			if (typeof v === "function") continue;
+			if (typeof v === "function" || isUnsafeOwnKey(k)) continue;
 			out[k] = encodeValue(v);
 		}
 		return out;
@@ -77,6 +78,7 @@ export function decodeStudioValue(value: unknown): unknown {
 	if (typeof value === "object" && value !== null) {
 		const out: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			if (isUnsafeOwnKey(k)) continue;
 			out[k] = decodeStudioValue(v);
 		}
 		return out;
@@ -106,6 +108,7 @@ export function decodeStudioData(
 ): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const [key, raw] of Object.entries(data)) {
+		if (isUnsafeOwnKey(key)) continue;
 		const value = decodeStudioValue(raw);
 		const kind = columnKind(table, key);
 		if (value === null || value === undefined || kind === undefined) {
@@ -142,7 +145,7 @@ export function decodeStudioData(
 				continue;
 			}
 			try {
-				out[key] = JSON.parse(value) as unknown;
+				out[key] = decodeStudioValue(JSON.parse(value) as unknown);
 			} catch {
 				out[key] = value;
 			}
