@@ -31,11 +31,13 @@ Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) 
 `migrate dev` holds its lock from before pending reconciliation through the optional name prompt, generation, and post-generation reconciliation/application.
 For the implementation ordering and regression coverage, see [the workflow guide](migrate-dev-workflow.md).
 
-When migration is blocked, the CLI explains why — for example unsupported type casts (`alter_column_type_manual`), enum value changes, or destructive drops. Re-run with `--accept-data-loss` to include destructive DDL:
+When migration is blocked, the CLI explains why. Re-run with `--accept-data-loss` to include destructive DDL such as table and column drops:
 
 ```bash
 neoorm generate --name add_users --accept-data-loss
 ```
+
+Enum value changes and unsafe column type changes stay blocked after that flag. Generate writes no SQL for them and leaves `snapshot.json` unchanged. Those edits need a manual migration.
 
 To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
 

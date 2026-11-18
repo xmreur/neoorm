@@ -1,5 +1,6 @@
 node_modules/
 dist/
+notes/
 *.tsbuildinfo
 .env
 examples/blog/neoorm/

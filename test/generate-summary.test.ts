@@ -138,6 +138,55 @@ describe("summarizeGenerateOutcome", () => {
 		expect(summary.reasons.some((r) => r.includes("Re-run:"))).toBe(true);
 	});
 
+	it("omits the re-run hint when acceptDataLoss is already set", () => {
+		const prev = baseManifest({
+			tables: {
+				users: {
+					accessor: "users",
+					sqlName: "users",
+					columns: [
+						{
+							tsName: "id",
+							sqlName: "id",
+							kind: "id",
+							nullable: false,
+							unique: false,
+							primary: true,
+							defaultNow: false,
+						},
+						{
+							tsName: "legacy",
+							sqlName: "legacy",
+							kind: "text",
+							nullable: true,
+							unique: false,
+							primary: false,
+							defaultNow: false,
+						},
+					],
+					relations: [],
+					indexes: [],
+					primaryKey: ["id"],
+				},
+			},
+		});
+		const next = baseManifest();
+		const diff = diffManifest(prev, next);
+		const summary = summarizeGenerateOutcome({
+			prev,
+			next,
+			diff,
+			sql: [],
+			blocked: diff.destructive,
+			schemaChanged: true,
+			migrationName: null,
+			acceptDataLoss: true,
+		});
+		expect(summary.status).toBe("migration_blocked");
+		expect(summary.reasons.some((r) => r.includes("Re-run:"))).toBe(false);
+		expect(summary.reasons.length).toBeGreaterThan(0);
+	});
+
 	it("classifies codegen-only changes", () => {
 		const prev = baseManifest({ enumMode: "check" });
 		const next = baseManifest({ enumMode: "native" });
@@ -179,7 +228,36 @@ describe("formatGenerateSummary", () => {
 		expect(lines[0]).toContain("No migration written");
 		expect(lines.some((line) => line.includes("Re-run:"))).toBe(true);
 		expect(
-			lines.some((line) => line.includes("Snapshot not updated")),
+			lines.some((line) =>
+				line.includes(
+					"Snapshot not updated at /tmp/out/snapshot.json — re-run with --accept-data-loss",
+				),
+			),
+		).toBe(true);
+	});
+
+	it("does not append a re-run footer when the summary has no re-run reason", () => {
+		const lines = formatGenerateSummary(
+			{
+				status: "migration_blocked",
+				schemaChanged: true,
+				migrationName: null,
+				sqlStatementCount: 0,
+				reasons: [
+					'Enum type "mood" values changed — manual migration required — enum value changes require manual migration',
+				],
+				blocked: [],
+			},
+			"/tmp/out",
+		);
+		expect(lines.some((line) => line.includes("--accept-data-loss"))).toBe(
+			false,
+		);
+		expect(
+			lines.some(
+				(line) =>
+					line === "  Snapshot not updated at /tmp/out/snapshot.json",
+			),
 		).toBe(true);
 	});
 });

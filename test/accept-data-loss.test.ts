@@ -164,6 +164,93 @@ describe("accept-data-loss generate flow", () => {
 
 		await rm(workDir, { recursive: true, force: true });
 	});
+
+	it("leaves the snapshot unchanged for an enum value change with acceptDataLoss", async () => {
+		const workDir = await createWorkDir();
+		const outDir = join(workDir, "neoorm");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			`import { defineSchema, enumType, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	posts: table({
+		id: id(),
+		status: enumType(["draft", "published"] as const).notNull(),
+	}),
+});
+`,
+			"schema-v1.ts",
+		);
+		const options = {
+			enumMode: "native" as const,
+			provider: "postgresql" as const,
+		};
+
+		await generateFromSchema(schemaV1Path, outDir, {
+			...options,
+			name: "v1_init",
+		});
+		const snapshotAfterV1 = await readSnapshot(outDir);
+		const v1Hash = hashManifest(defined(snapshotAfterV1, "v1 snapshot"));
+
+		const schemaV2Path = await writeSchema(
+			workDir,
+			`import { defineSchema, enumType, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	posts: table({
+		id: id(),
+		status: enumType(["draft", "published", "archived"] as const).notNull(),
+	}),
+});
+`,
+			"schema-v2.ts",
+		);
+		const accepted = await generateFromSchema(schemaV2Path, outDir, {
+			...options,
+			acceptDataLoss: true,
+			name: "v2_enum",
+		});
+		expect(accepted.destructiveBlocked).toBe(true);
+		expect(accepted.migrationName).toBeNull();
+		expect(accepted.summary.status).toBe("migration_blocked");
+		expect(
+			accepted.summary.reasons.some((reason) =>
+				reason.startsWith("Re-run:"),
+			),
+		).toBe(false);
+		expect(
+			accepted.warnings.some((warning) =>
+				warning.includes("--accept-data-loss"),
+			),
+		).toBe(false);
+		expect(
+			accepted.summary.blocked.some(
+				(change) => change.kind === "alter_enum_manual",
+			),
+		).toBe(true);
+
+		const snapshotAfterAccept = await readSnapshot(outDir);
+		expect(hashManifest(defined(snapshotAfterAccept, "snapshot"))).toBe(
+			v1Hash,
+		);
+
+		const migrationsDir = join(outDir, "migrations");
+		expect(await readdir(migrationsDir)).toHaveLength(1);
+
+		const again = await generateFromSchema(schemaV2Path, outDir, {
+			...options,
+			acceptDataLoss: true,
+			name: "v2_enum_again",
+		});
+		expect(again.destructiveBlocked).toBe(true);
+		expect(again.migrationName).toBeNull();
+		expect(
+			hashManifest(defined(await readSnapshot(outDir), "snapshot")),
+		).toBe(v1Hash);
+
+		await rm(workDir, { recursive: true, force: true });
+	});
 });
 
 describe("CLI --accept-data-loss parsing", () => {

@@ -31,9 +31,18 @@ export function summarizeGenerateOutcome(params: {
 	blocked: DestructiveChange[];
 	schemaChanged: boolean;
 	migrationName: string | null;
+	acceptDataLoss?: boolean;
 }): GenerateSummary {
-	const { prev, next, diff, sql, blocked, schemaChanged, migrationName } =
-		params;
+	const {
+		prev,
+		next,
+		diff,
+		sql,
+		blocked,
+		schemaChanged,
+		migrationName,
+		acceptDataLoss,
+	} = params;
 
 	if (!schemaChanged) {
 		return {
@@ -76,15 +85,18 @@ export function summarizeGenerateOutcome(params: {
 	}
 
 	if (blocked.length > 0) {
+		const reasons = [...formatDestructiveWarnings(blocked)];
+		// The flag does not emit enum edits or unsafe casts. Once it has
+		// already been passed, telling the user to pass it again is wrong.
+		if (!acceptDataLoss) {
+			reasons.push("Re-run: neoorm generate --accept-data-loss");
+		}
 		return {
 			status: "migration_blocked",
 			schemaChanged: true,
 			migrationName: null,
 			sqlStatementCount: 0,
-			reasons: [
-				...formatDestructiveWarnings(blocked),
-				"Re-run: neoorm generate --accept-data-loss",
-			],
+			reasons,
 			blocked,
 		};
 	}
@@ -152,9 +164,15 @@ export function formatGenerateSummary(
 			}
 			lines.push(`  Generated client at ${outDir}/client.ts`);
 			lines.push(`  Generated manifest at ${outDir}/manifest.ts`);
-			lines.push(
-				`  Snapshot not updated at ${outDir}/snapshot.json — re-run with --accept-data-loss to write migration SQL`,
-			);
+			if (
+				summary.reasons.some((reason) => reason.startsWith("Re-run:"))
+			) {
+				lines.push(
+					`  Snapshot not updated at ${outDir}/snapshot.json — re-run with --accept-data-loss to write migration SQL`,
+				);
+			} else {
+				lines.push(`  Snapshot not updated at ${outDir}/snapshot.json`);
+			}
 			break;
 		default: {
 			const _exhaustive: never = summary.status;
