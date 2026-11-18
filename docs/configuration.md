@@ -18,7 +18,7 @@ export default defineConfig({
 });
 ```
 
-CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. `createNeoOrmClient` (including the generated `db`) does the same from `process.cwd()` before it picks a connection URL, so a later `.env` edit is used without regenerating. Variables already present in the environment are not overwritten. The URL stored on the manifest / `snapshot.json` is only the fallback when `DATABASE_URL` is unset.
+CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. `createNeoOrmClient` (including the generated `db`) does the same from `process.cwd()` before it picks a connection URL, so a later `.env` edit is used without regenerating. Variables already present in the environment are not overwritten. Postgres, MySQL, and MariaDB require `connectionString` or `DATABASE_URL` (`MYSQL_URL` / `MARIADB_URL` for those engines). The connection URL is not written to `snapshot.json` or generated `manifest.ts`. SQLite may persist a plain file path or `:memory:` as `sqlitePath`.
 
 ## Options
 

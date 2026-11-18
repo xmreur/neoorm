@@ -632,7 +632,10 @@ export function createNeoOrmClient<
 			);
 		}
 		const db = openSqliteDatabase(
-			resolveSqliteDatabasePath(options.databasePath, manifest.url),
+			resolveSqliteDatabasePath(
+				options.databasePath,
+				manifest.sqlitePath,
+			),
 		);
 		return createNeoOrmSqliteClient(manifest, db, sqliteOptions, true);
 	}
@@ -644,8 +647,7 @@ export function createNeoOrmClient<
 		const url =
 			options.connectionString ??
 			process.env.MYSQL_URL ??
-			process.env.DATABASE_URL ??
-			manifest.url;
+			process.env.DATABASE_URL;
 		if (!url) {
 			throw schemaError(
 				SchemaErrorCode.invalid_config,
@@ -674,8 +676,7 @@ export function createNeoOrmClient<
 		const url =
 			options.connectionString ??
 			process.env.MARIADB_URL ??
-			process.env.DATABASE_URL ??
-			manifest.url;
+			process.env.DATABASE_URL;
 		if (!url) {
 			throw schemaError(
 				SchemaErrorCode.invalid_config,
@@ -697,8 +698,7 @@ export function createNeoOrmClient<
 		return createNeoOrmMariadbClient(manifest, pool, options, true);
 	}
 
-	const url =
-		options.connectionString ?? process.env.DATABASE_URL ?? manifest.url;
+	const url = options.connectionString ?? process.env.DATABASE_URL;
 	if (!url) {
 		throw schemaError(
 			SchemaErrorCode.invalid_config,

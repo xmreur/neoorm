@@ -134,7 +134,7 @@ describe("createNeoOrmClient sqlite path", () => {
 		}
 	});
 
-	it("prefers DATABASE_URL from .env over the snapshotted manifest url", async () => {
+	it("prefers DATABASE_URL from .env over the persisted sqlite path", async () => {
 		const previous = process.env.DATABASE_URL;
 		const previousCwd = process.cwd();
 		const tmpRoot = join(previousCwd, "test", ".tmp");
@@ -148,7 +148,8 @@ describe("createNeoOrmClient sqlite path", () => {
 			const client = createNeoOrmClient({
 				version: 1,
 				provider: "sqlite",
-				url: ":memory:",
+				url: "postgresql://u:secret@h/db",
+				sqlitePath: ":memory:",
 				tables: {},
 				manyToMany: [],
 			});

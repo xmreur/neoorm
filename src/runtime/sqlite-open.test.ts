@@ -106,7 +106,7 @@ describe("resolveSqliteDatabasePath URL handling", () => {
 		);
 	});
 
-	it("ignores a non-SQLite DATABASE_URL and uses the manifest url", () => {
+	it("ignores a non-SQLite DATABASE_URL and uses sqlitePath", () => {
 		process.env.DATABASE_URL = "postgres://env/db";
 		expect(resolveSqliteDatabasePath(undefined, "/tmp/m.db")).toBe(
 			"/tmp/m.db",

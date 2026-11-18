@@ -149,7 +149,10 @@ export type ManifestTable = {
 export type Manifest = {
 	version: 1;
 	provider?: DatabaseProvider;
+	/** In-memory CLI connection string. Never written to generated files. */
 	url?: string;
+	/** SQLite file path or `:memory:`. Not a connection URL. */
+	sqlitePath?: string;
 	tables: Record<string, ManifestTable>;
 	manyToMany: ManifestManyToMany[];
 	extensions?: string[];

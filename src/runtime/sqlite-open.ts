@@ -31,12 +31,12 @@ function usableSqlitePath(path: string | undefined): string | undefined {
 /** File path or `:memory:` for SQLite. Ignores PostgreSQL `DATABASE_URL` values. */
 export function resolveSqliteDatabasePath(
 	databasePath: string | undefined,
-	manifestUrl: string | undefined,
+	sqlitePath: string | undefined,
 ): string {
 	return (
 		usableSqlitePath(databasePath) ??
 		usableSqlitePath(process.env.DATABASE_URL) ??
-		usableSqlitePath(manifestUrl) ??
+		usableSqlitePath(sqlitePath) ??
 		":memory:"
 	);
 }
