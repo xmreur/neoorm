@@ -52,7 +52,15 @@ describe("codegen", () => {
 			"utf-8",
 		);
 		expect(manifestContent).toContain('"provider": "sqlite"');
-		expect(manifestContent).toContain('"url": "./dev.db"');
+		expect(manifestContent).toContain('"sqlitePath": "./dev.db"');
+		expect(manifestContent).not.toContain('"url"');
+
+		const snapshotContent = await readFile(
+			join(outDir, "snapshot.json"),
+			"utf-8",
+		);
+		expect(snapshotContent).toContain('"sqlitePath": "./dev.db"');
+		expect(snapshotContent).not.toContain('"url"');
 
 		await rm(outDir, { recursive: true, force: true });
 	});

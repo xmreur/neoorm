@@ -7,7 +7,11 @@ import {
 	resolveMigrationSql,
 } from "../codegen/diff-manifest.js";
 import type { CompileSchemaOptions } from "../codegen/generate.js";
-import { compileSchemaToManifest, writeSnapshot } from "../codegen/generate.js";
+import {
+	compileSchemaToManifest,
+	manifestFromSnapshotJson,
+	writeSnapshot,
+} from "../codegen/generate.js";
 import {
 	applySchemaToManifest,
 	DEFAULT_PG_SCHEMA,
@@ -1057,7 +1061,7 @@ async function readSnapshotBefore(
 	const snapshotPath = join(migrationsDir, name, "snapshot.before.json");
 	try {
 		const content = await readFile(snapshotPath, "utf-8");
-		return JSON.parse(content) as Manifest;
+		return manifestFromSnapshotJson(content);
 	} catch {
 		throw schemaError(
 			SchemaErrorCode.migration_guard,
