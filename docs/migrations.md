@@ -37,7 +37,7 @@ When migration is blocked, the CLI explains why. Re-run with `--accept-data-loss
 neoorm generate --name add_users --accept-data-loss
 ```
 
-Enum value changes, unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL` stay blocked after that flag. Generate writes no SQL for them and leaves `snapshot.json` unchanged. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first. Renaming a table's SQL name while keeping its accessor emits `ALTER TABLE … RENAME TO` and keeps the rows. It is not a drop.
+Appending a native enum value is ordinary DDL: `ALTER TYPE … ADD VALUE` on PostgreSQL, and `MODIFY … ENUM(...)` on MySQL and MariaDB. Removing or reordering values stays blocked after `--accept-data-loss`, and so do unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL`. Generate writes no SQL for those and leaves `snapshot.json` unchanged. Dropping the last use of a PostgreSQL enum emits `DROP TYPE` after the column or table that used it is dropped. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first. Renaming a table's SQL name while keeping its accessor emits `ALTER TABLE … RENAME TO` and keeps the rows. It is not a drop.
 
 To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
 

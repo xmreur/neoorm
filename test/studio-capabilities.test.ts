@@ -3,7 +3,7 @@ import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import { explainSql, migrationsLedgerTable } from "../src/studio/server.js";
-import { qualifiedSqlTable } from "../studio-web/src/api.ts";
+import { qualifiedSqlTable } from "../src/studio/sql-ident.js";
 
 describe("studio dialect capabilities", () => {
 	it("prefixes analyze SQL for each dialect", () => {

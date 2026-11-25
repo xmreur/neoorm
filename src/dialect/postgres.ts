@@ -375,15 +375,25 @@ function emitCreateExtensions(extensions: readonly string[]): string[] {
 	return extensions.map((ext) => `CREATE EXTENSION IF NOT EXISTS ${q(ext)};`);
 }
 
+function enumLiteral(value: string): string {
+	return `'${value.replace(/'/g, "''")}'`;
+}
+
 export function emitCreateEnumTypes(
 	enumTypes: Record<string, { values: readonly string[] }>,
 ): string[] {
 	return Object.entries(enumTypes).map(([name, definition]) => {
-		const quotedValues = definition.values
-			.map((value) => `'${value.replace(/'/g, "''")}'`)
-			.join(", ");
+		const quotedValues = definition.values.map(enumLiteral).join(", ");
 		return `CREATE TYPE ${q(name)} AS ENUM (${quotedValues});`;
 	});
+}
+
+export function emitAddEnumValue(typeName: string, value: string): string {
+	return `ALTER TYPE ${q(typeName)} ADD VALUE ${enumLiteral(value)};`;
+}
+
+export function emitDropEnumType(typeName: string): string {
+	return `DROP TYPE ${q(typeName)};`;
 }
 
 export function emitCreateSchema(schema: string | undefined): string {
@@ -643,6 +653,8 @@ export const postgresDialect: Dialect = {
 	emitCreateExtensions,
 	emitCreateSchema,
 	emitCreateEnumTypes,
+	emitAddEnumValue,
+	emitDropEnumType,
 	emitCreateTable,
 	emitDropTable,
 	emitCreateIndex,

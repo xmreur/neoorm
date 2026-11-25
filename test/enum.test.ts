@@ -5,6 +5,7 @@ import {
 	schemaToManifest,
 	validateManifest,
 } from "../src/codegen/schema-to-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import {
 	emitCreateEnumTypes,
 	postgresDialect,
@@ -174,28 +175,133 @@ describe("enumType column", () => {
 		});
 	});
 
-	it("flags enum value changes as manual migrations", () => {
+	it("emits ALTER TYPE ADD VALUE when a native enum only grows", () => {
 		const prev = schemaToManifest(schema, undefined, {
 			enumMode: "native",
 		});
-		const nextSchema = defineSchema({
-			posts: table({
-				id: text().notNull().primary(),
-				status: enumType([
-					"draft",
-					"published",
-					"archived",
-				] as const).notNull(),
+		const next = schemaToManifest(
+			defineSchema({
+				posts: table({
+					id: text().notNull().primary(),
+					status: enumType([
+						"draft",
+						"published",
+						"archived",
+					] as const)
+						.notNull()
+						.default("draft"),
+				}),
 			}),
-		});
-		const next = schemaToManifest(nextSchema, undefined, {
+			undefined,
+			{ enumMode: "native" },
+		);
+		const diff = diffManifest(prev, next);
+		expect(diff.destructive).toEqual([]);
+		expect(diff.sql).toEqual([
+			`ALTER TYPE "posts_status" ADD VALUE 'archived';`,
+		]);
+	});
+
+	it("keeps enum reorders and deletions as manual migrations", () => {
+		const prev = schemaToManifest(schema, undefined, {
 			enumMode: "native",
 		});
+		const reorder = schemaToManifest(
+			defineSchema({
+				posts: table({
+					id: text().notNull().primary(),
+					status: enumType(["published", "draft"] as const)
+						.notNull()
+						.default("draft"),
+				}),
+			}),
+			undefined,
+			{ enumMode: "native" },
+		);
+		const shortened = schemaToManifest(
+			defineSchema({
+				posts: table({
+					id: text().notNull().primary(),
+					status: enumType(["draft"] as const)
+						.notNull()
+						.default("draft"),
+				}),
+			}),
+			undefined,
+			{ enumMode: "native" },
+		);
+		for (const next of [reorder, shortened]) {
+			const diff = diffManifest(prev, next);
+			expect(diff.sql).toEqual([]);
+			expect(diff.destructive.map((change) => change.kind)).toEqual([
+				"alter_enum_manual",
+			]);
+		}
+	});
+
+	it("emits DROP TYPE after the last use of a postgres enum is removed", () => {
+		const prev = schemaToManifest(schema, undefined, {
+			enumMode: "native",
+		});
+		const next = schemaToManifest(
+			defineSchema({
+				posts: table({
+					id: text().notNull().primary(),
+				}),
+			}),
+			undefined,
+			{ enumMode: "native" },
+		);
 		const diff = diffManifest(prev, next);
-		expect(
-			diff.destructive.some(
-				(change) => change.kind === "alter_enum_manual",
-			),
-		).toBe(true);
+		expect(diff.sql).toEqual([
+			`ALTER TABLE "posts" DROP COLUMN "status";`,
+			`DROP TYPE "posts_status";`,
+		]);
+	});
+
+	it("modifies a MySQL ENUM when values are appended and not when they are reordered", () => {
+		const options = {
+			enumMode: "native" as const,
+			provider: "mysql" as const,
+		};
+		const prev = schemaToManifest(schema, undefined, options);
+		const appended = schemaToManifest(
+			defineSchema({
+				posts: table({
+					id: text().notNull().primary(),
+					status: enumType([
+						"draft",
+						"published",
+						"archived",
+					] as const)
+						.notNull()
+						.default("draft"),
+				}),
+			}),
+			undefined,
+			options,
+		);
+		const reordered = schemaToManifest(
+			defineSchema({
+				posts: table({
+					id: text().notNull().primary(),
+					status: enumType(["published", "draft"] as const)
+						.notNull()
+						.default("draft"),
+				}),
+			}),
+			undefined,
+			options,
+		);
+		const appendDiff = diffManifest(prev, appended, mysqlDialect);
+		expect(appendDiff.destructive).toEqual([]);
+		expect(appendDiff.sql).toEqual([
+			"ALTER TABLE `posts` MODIFY COLUMN `status` ENUM('draft', 'published', 'archived') NOT NULL DEFAULT 'draft';",
+		]);
+		const reorderDiff = diffManifest(prev, reordered, mysqlDialect);
+		expect(reorderDiff.sql).toEqual([]);
+		expect(reorderDiff.destructive.map((change) => change.kind)).toEqual([
+			"alter_enum_manual",
+		]);
 	});
 });
