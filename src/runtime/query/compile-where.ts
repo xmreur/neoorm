@@ -1465,7 +1465,27 @@ export function parseOrderDirection(direction: string): "ASC" | "DESC" {
 export type OrderByItem = {
 	expression: string;
 	direction: "ASC" | "DESC";
+	nullable: boolean;
 };
+
+/**
+ * Nullable keys sort like PostgreSQL on every dialect: `ASC` is NULLS LAST
+ * and `DESC` is NULLS FIRST. MySQL and MariaDB have no NULLS clause, so a
+ * leading `(col IS NULL)` sort expresses the same order.
+ */
+export function compileOrderedExpression(
+	dialect: Dialect,
+	expression: string,
+	direction: "ASC" | "DESC",
+	nullable: boolean,
+): string {
+	if (!nullable) return `${expression} ${direction}`;
+	if (isMysqlFamilyDialect(dialect)) {
+		return `(${expression} IS NULL) ${direction}, ${expression} ${direction}`;
+	}
+	const nulls = direction === "ASC" ? "NULLS LAST" : "NULLS FIRST";
+	return `${expression} ${direction} ${nulls}`;
+}
 
 export function compileOrderByItems(
 	table: ManifestTable,
@@ -1491,6 +1511,7 @@ export function compileOrderByItems(
 		items.push({
 			expression: `${prefix}${dialect.quoteIdentifier(col.sqlName)}`,
 			direction: parseOrderDirection(direction),
+			nullable: col.nullable,
 		});
 	}
 	return items;
@@ -1511,7 +1532,16 @@ export function compileOrderBy(
 		dialect,
 	);
 	if (items.length === 0) return "";
-	return `ORDER BY ${items.map((item) => `${item.expression} ${item.direction}`).join(", ")}`;
+	return `ORDER BY ${items
+		.map((item) =>
+			compileOrderedExpression(
+				dialect,
+				item.expression,
+				item.direction,
+				item.nullable,
+			),
+		)
+		.join(", ")}`;
 }
 
 export function normalizeSelectColumns(
@@ -1737,14 +1767,24 @@ function splitOrderList(body: string): string[] {
 	return items;
 }
 
-function parseOrderItem(
-	item: string,
-): { expression: string; direction: "ASC" | "DESC" } | undefined {
-	const match = /^(.*)\s+(ASC|DESC)$/i.exec(item.trim());
+function parseOrderItem(item: string):
+	| {
+			expression: string;
+			direction: "ASC" | "DESC";
+			nulls?: "NULLS FIRST" | "NULLS LAST";
+	  }
+	| undefined {
+	const match = /^(.*)\s+(ASC|DESC)(?:\s+(NULLS FIRST|NULLS LAST))?$/i.exec(
+		item.trim(),
+	);
 	const expression = match?.[1]?.trim();
 	const direction = match?.[2]?.toUpperCase();
+	const nulls = match?.[3]?.toUpperCase();
 	if (!expression || (direction !== "ASC" && direction !== "DESC")) {
 		return undefined;
+	}
+	if (nulls === "NULLS FIRST" || nulls === "NULLS LAST") {
+		return { expression, direction, nulls };
 	}
 	return { expression, direction };
 }
@@ -1764,16 +1804,17 @@ function orderByDerivedOutputs(
 	const items = splitOrderList(orderSql.slice(head[0].length)).map((item) => {
 		const parsed = parseOrderItem(item);
 		if (!parsed) return item.trim();
+		const nulls = parsed.nulls ? ` ${parsed.nulls}` : "";
 		for (const col of table.columns) {
 			const sqlIdent = dialect.quoteIdentifier(col.sqlName);
 			if (
 				parsed.expression === sqlIdent ||
 				parsed.expression === `${tableIdent}.${sqlIdent}`
 			) {
-				return `${dialect.quoteIdentifier(col.tsName)} ${parsed.direction}`;
+				return `${dialect.quoteIdentifier(col.tsName)} ${parsed.direction}${nulls}`;
 			}
 		}
-		return `${parsed.expression} ${parsed.direction}`;
+		return `${parsed.expression} ${parsed.direction}${nulls}`;
 	});
 	return `ORDER BY ${items.join(", ")}`;
 }

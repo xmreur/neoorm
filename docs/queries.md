@@ -491,6 +491,8 @@ const page = await db.posts.findMany({
 
 Do not use `paginate` for that comparison: `paginate` is keyset pagination (`take + 1`, cursors, `hasMore`).
 
+Nullable `orderBy` columns on `findMany` and `findFirst` use the same placement as `paginate`: `asc` is `NULLS LAST` and `desc` is `NULLS FIRST`. MySQL and MariaDB write that as `(col IS NULL)` before the column, because they reject a `NULLS` clause.
+
 ## Cursor pagination
 
 For feeds, infinite scroll, and large tables, use `paginate` instead of `take`/`skip`. It uses **keyset pagination** on your `orderBy` columns plus the table primary key as a stable tiebreaker.
@@ -514,7 +516,7 @@ for (;;) {
 }
 ```
 
-- `orderBy` is required; scalar `id` is appended automatically when omitted. Columns may use different directions. Nullable sort columns use SQL-standard nulls on every dialect: `asc` is `NULLS LAST`, `desc` is `NULLS FIRST`.
+- `orderBy` is required; scalar `id` is appended automatically when omitted. Columns may use different directions. Nullable sort columns use the same placement as `findMany` and `findFirst`: `asc` is `NULLS LAST`, `desc` is `NULLS FIRST`.
 - `select`, `omit`, and `includeHidden` work like `findMany`. Cursor fields used by `orderBy` stay in the SQL (and in `nextCursor` / `prevCursor`) even when omitted from `items`.
 - `take` is the page size; `hasMore` / `hasPrevious` use a `take + 1` probe in the query direction. A `before` page also probes once forward so `hasMore` is not assumed true. After an `after` page, `hasPrevious` is true because `after` was passed.
 - `after` is a typed cursor (`nextCursor` from the previous page). `before` walks the other way (`prevCursor`).
