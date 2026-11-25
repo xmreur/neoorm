@@ -1,3 +1,10 @@
+import {
+	defineSchema,
+	table as defineTable,
+	id,
+	index,
+	text,
+} from "neoorm/schema";
 import { describe, expect, it } from "vitest";
 import {
 	columnsEqual,
@@ -6,6 +13,7 @@ import {
 	formatDestructiveWarnings,
 	resolveMigrationSql,
 } from "../src/codegen/diff-manifest.js";
+import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
@@ -324,6 +332,84 @@ describe("diffManifest", () => {
 		expect(reversed.sql).toEqual([
 			'ALTER TABLE "accounts" RENAME TO "users";',
 		]);
+	});
+
+	it("renames an index when a table rename changes its SQL name", () => {
+		const columns = {
+			id: id(),
+			title: text().notNull(),
+		};
+		const prev = schemaToManifest(
+			defineSchema({
+				posts: defineTable("posts", columns, (t) => [index(t.title)]),
+			}),
+		);
+		const next = schemaToManifest(
+			defineSchema({
+				posts: defineTable("articles", columns, (t) => [
+					index(t.title),
+				]),
+			}),
+		);
+
+		expect(diffManifest(prev, next).sql).toEqual([
+			'ALTER TABLE "posts" RENAME TO "articles";',
+			'ALTER INDEX "posts_title_idx" RENAME TO "articles_title_idx";',
+		]);
+		expect(diffManifest(prev, next, mysqlDialect).sql).toEqual([
+			"ALTER TABLE `posts` RENAME TO `articles`;",
+			"ALTER TABLE `articles` RENAME INDEX `posts_title_idx` TO `articles_title_idx`;",
+		]);
+		expect(diffManifest(prev, next, sqliteDialect).sql).toEqual([
+			'ALTER TABLE "posts" RENAME TO "articles";',
+			'DROP INDEX IF EXISTS "posts_title_idx";',
+			'CREATE INDEX "articles_title_idx" ON "articles" ("title");',
+		]);
+	});
+
+	it("drops and recreates an index when the shape changes", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+			col("title", "title", { nullable: false }),
+			col("body", "body", { nullable: false }),
+		];
+		const prev = manifest({
+			posts: table("posts", "posts", columns, {
+				indexes: [
+					{
+						name: "title",
+						sqlName: "posts_title_idx",
+						columns: ["title"],
+						unique: false,
+					},
+				],
+			}),
+		});
+		const next = manifest({
+			posts: table("posts", "articles", columns, {
+				indexes: [
+					{
+						name: "body",
+						sqlName: "articles_body_idx",
+						columns: ["body"],
+						unique: false,
+					},
+				],
+			}),
+		});
+
+		const { sql } = diffManifest(prev, next);
+		expect(sql.some((s) => s.includes("RENAME INDEX"))).toBe(false);
+		expect(
+			sql.some((s) =>
+				s.includes('DROP INDEX IF EXISTS "posts_title_idx"'),
+			),
+		).toBe(true);
+		expect(
+			sql.some((s) =>
+				s.includes('CREATE INDEX "articles_body_idx" ON "articles"'),
+			),
+		).toBe(true);
 	});
 
 	it("applies column changes to the new table name after a rename", () => {

@@ -231,6 +231,12 @@ export type TableDiff = {
 	alterColumns?: ColumnAlter[];
 	addIndexes?: ManifestIndex[];
 	dropIndexes?: string[];
+	/** Same index shape, different SQL name (table renames change `{table}_{keys}_idx`). */
+	renameIndexes?: Array<{
+		from: string;
+		to: string;
+		index: ManifestIndex;
+	}>;
 	fkChanges?: FkChange[];
 	manifest?: Manifest;
 };

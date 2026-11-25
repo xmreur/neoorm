@@ -418,6 +418,7 @@ async function introspectSqliteTable(
 		);
 		indexes.push({
 			name: row.name,
+			sqlName: row.name,
 			columns,
 			unique: row.unique === 1,
 			keys,

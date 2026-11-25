@@ -713,6 +713,14 @@ function emitAlterTable(
 		);
 	}
 
+	if (diff.renameIndexes) {
+		for (const rename of diff.renameIndexes) {
+			stmts.push(
+				`ALTER TABLE ${q(table.sqlName)} RENAME INDEX ${q(rename.from)} TO ${q(rename.to)};`,
+			);
+		}
+	}
+
 	if (diff.fkChanges) {
 		for (const change of diff.fkChanges) {
 			if (change.drop) {

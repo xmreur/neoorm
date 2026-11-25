@@ -308,6 +308,13 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 		);
 	}
 
+	if (diff.renameIndexes) {
+		for (const rename of diff.renameIndexes) {
+			stmts.push(emitDropIndex(rename.from));
+			stmts.push(emitCreateIndex(table, rename.index));
+		}
+	}
+
 	if (diff.dropColumns) {
 		for (const col of diff.dropColumns) {
 			stmts.push(`ALTER TABLE ${tableRef(table)} DROP COLUMN ${q(col)};`);
