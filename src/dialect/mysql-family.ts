@@ -284,6 +284,55 @@ function formatDefaultValue(
 		: String(col.defaultValue);
 }
 
+type ColumnAlterClauseOverrides = {
+	nullable?: boolean;
+	/** `null` drops the default. Absent keeps the column's own default. */
+	defaultColumn?: ManifestColumn | null;
+};
+
+/** Primary columns are stored NOT NULL even when `nullable` is set. */
+function columnIsNullable(col: ManifestColumn, override?: boolean): boolean {
+	if (override !== undefined) return override;
+	return col.primary ? false : col.nullable;
+}
+
+function alterDefaultSql(
+	col: ManifestColumn,
+	dialect: Dialect,
+	overrides?: ColumnAlterClauseOverrides,
+): string | null {
+	if (overrides && Object.hasOwn(overrides, "defaultColumn")) {
+		const source = overrides.defaultColumn;
+		if (source === null || source === undefined) return null;
+		return formatDefaultValue(source, dialect);
+	}
+	return formatDefaultValue(col, dialect);
+}
+
+/**
+ * Column definition for CHANGE/MODIFY, which replace every attribute that
+ * is not restated. Indexes and CHECK stay on their own statements.
+ */
+function columnAlterDefinition(
+	col: ManifestColumn,
+	manifest: Manifest | undefined,
+	dialect: Dialect,
+	options: MysqlFamilyDialectOptions,
+	overrides?: ColumnAlterClauseOverrides,
+): string {
+	const parts: string[] = [familyColumnType(col, manifest, options)];
+	if (col.kind !== "serial") {
+		parts.push(
+			columnIsNullable(col, overrides?.nullable) ? "NULL" : "NOT NULL",
+		);
+	}
+	const defaultSql = alterDefaultSql(col, dialect, overrides);
+	if (defaultSql !== null) {
+		parts.push(`DEFAULT ${defaultSql}`);
+	}
+	return parts.join(" ");
+}
+
 function columnDef(
 	col: ManifestColumn,
 	table: ManifestTable,
@@ -522,25 +571,30 @@ function emitAlterColumn(
 	const tableName = tableRef(table);
 	const colName = q(alter.sqlName);
 
-	if (alter.setType) {
-		const typeSql = familyColumnType(alter.setType, manifest, options);
-		const notNull =
-			alter.setNullable === false ||
-			(alter.setNullable === undefined && !alter.setType.nullable)
-				? " NOT NULL"
-				: "";
+	if (alter.setType || alter.setNullable !== undefined) {
+		const source =
+			alter.setType ??
+			table.columns.find((column) => column.sqlName === alter.sqlName);
+		const overrides: ColumnAlterClauseOverrides = {};
+		if (alter.setNullable !== undefined) {
+			overrides.nullable = alter.setNullable;
+		}
+		if (alter.setDefault !== undefined) {
+			overrides.defaultColumn = alter.setDefault;
+		}
+		const definition = source
+			? columnAlterDefinition(
+					source,
+					manifest,
+					dialect,
+					options,
+					overrides,
+				)
+			: alter.setNullable === false
+				? "TEXT NOT NULL"
+				: "TEXT NULL";
 		stmts.push(
-			`ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${typeSql}${notNull};`,
-		);
-	} else if (alter.setNullable !== undefined) {
-		const existing = table.columns.find((c) => c.sqlName === alter.sqlName);
-		const typeSql = existing
-			? familyColumnType(existing, manifest, options)
-			: "TEXT";
-		stmts.push(
-			alter.setNullable
-				? `ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${typeSql} NULL;`
-				: `ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${typeSql} NOT NULL;`,
+			`ALTER TABLE ${tableName} MODIFY COLUMN ${colName} ${definition};`,
 		);
 	}
 
@@ -635,11 +689,11 @@ function emitAlterTable(
 	if (diff.renameColumns) {
 		for (const { from, to } of diff.renameColumns) {
 			const nextCol = table.columns.find((c) => c.sqlName === to);
-			const typeSql = nextCol
-				? familyColumnType(nextCol, manifest, options)
-				: "TEXT";
+			const definition = nextCol
+				? columnAlterDefinition(nextCol, manifest, dialect, options)
+				: "TEXT NULL";
 			stmts.push(
-				`ALTER TABLE ${tableRef(table)} CHANGE COLUMN ${q(from)} ${q(to)} ${typeSql};`,
+				`ALTER TABLE ${tableRef(table)} CHANGE COLUMN ${q(from)} ${q(to)} ${definition};`,
 			);
 		}
 	}
