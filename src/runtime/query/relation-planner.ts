@@ -1,3 +1,4 @@
+import { relationFkPairs } from "../../dialect/fk.js";
 import { postgresDialect } from "../../dialect/postgres.js";
 import { isMariadbDialect, isMysqlDialect } from "../../dialect/resolve.js";
 import type {
@@ -300,8 +301,10 @@ function canInlineCount(
 	relationName: string,
 ): boolean {
 	if (findM2M(manifest, parentTable.accessor, relationName)) return false;
+	if (parentTable.primaryKey.length !== 1) return false;
 	const relation = findRelation(parentTable, relationName);
-	return relation?.cardinality === "many";
+	if (relation?.cardinality !== "many") return false;
+	return relationFkPairs(relation).length === 1;
 }
 
 function isSimpleCountSpec(spec: RelationCountSpec): boolean {
@@ -420,6 +423,11 @@ function tryBuildHasManyAggregatePlan(
 	manifestIndex?: ManifestIndex,
 ): HasManyAggregatePlan | undefined {
 	if (chains.length === 0) return undefined;
+	if (parentTable.primaryKey.length !== 1) return undefined;
+	const first = chains[0];
+	if (first && relationFkPairs(first.chain.relation).length !== 1) {
+		return undefined;
+	}
 
 	const parentRef = dialect.tableRef(parentTable);
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
@@ -896,6 +904,13 @@ export function planRelationLoad(
 			chain.relation.cardinality === "many" &&
 			!tableOwnsFkColumn(parentTable, chain.relation, parentTableIndex)
 		) {
+			if (
+				parentTable.primaryKey.length !== 1 ||
+				relationFkPairs(chain.relation).length !== 1
+			) {
+				batchWith[relationName] = withInput;
+				continue;
+			}
 			pendingHasMany.push({ relationName, chain });
 			continue;
 		}

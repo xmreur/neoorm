@@ -684,6 +684,8 @@ async function disconnectInverseMany(
 	relation: ManifestRelation,
 	parentId: string,
 	childPks: Record<string, unknown>[] | undefined,
+	parentTable?: ManifestTable,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
@@ -691,15 +693,35 @@ async function disconnectInverseMany(
 	if (!targetTable) return;
 
 	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
-	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
-	if (!fkCol.nullable) {
-		compileError(
-			`Cannot disconnect relation ${relation.name}: FK column is not nullable`,
-		);
+	const pairs = relationFkPairs(relation);
+	for (const pair of pairs) {
+		const col =
+			columnByTsName(targetIndex, targetTable, pair.fkColumn) ??
+			columnBySqlName(targetIndex, targetTable, pair.fkSqlColumn);
+		if (!col?.nullable) {
+			compileError(
+				`Cannot disconnect relation ${relation.name}: FK column is not nullable`,
+			);
+		}
 	}
 
-	const params: unknown[] = [parentId];
-	let sql = `UPDATE ${dialect.tableRef(targetTable)} SET ${dialect.quoteIdentifier(fkCol.sqlName)} = NULL WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = ${dialect.placeholder(1)}`;
+	const assignment = inverseFkAssignments(
+		relation,
+		parentTable ?? targetTable,
+		parentRow,
+		parentId,
+	);
+	const setSql = assignment.sqlNames
+		.map((sqlName) => `${dialect.quoteIdentifier(sqlName)} = NULL`)
+		.join(", ");
+	const whereSql = assignment.sqlNames
+		.map(
+			(sqlName, i) =>
+				`${dialect.quoteIdentifier(sqlName)} = ${dialect.placeholder(i + 1)}`,
+		)
+		.join(" AND ");
+	const params: unknown[] = [...assignment.values];
+	let sql = `UPDATE ${dialect.tableRef(targetTable)} SET ${setSql} WHERE ${whereSql}`;
 
 	if (childPks && childPks.length > 0) {
 		const predicate = sqlPkPredicate(
@@ -707,7 +729,7 @@ async function disconnectInverseMany(
 			targetTable,
 			targetIndex,
 			childPks,
-			2,
+			assignment.values.length + 1,
 		);
 		sql += ` AND ${predicate.sql}`;
 		params.push(...predicate.params);
@@ -737,6 +759,8 @@ async function setInverseMany(
 		relation,
 		parentId,
 		undefined,
+		parentTable,
+		parentRow,
 	);
 	await connectInverseMany(
 		executor,
@@ -755,6 +779,8 @@ async function deleteInverseManyChildren(
 	relation: ManifestRelation,
 	parentId: string,
 	childPks: Record<string, unknown>[] | undefined,
+	parentTable?: ManifestTable,
+	parentRow?: Record<string, unknown>,
 ): Promise<void> {
 	const dialect = runtime.dialect ?? postgresDialect;
 	const { manifest } = runtime;
@@ -762,9 +788,20 @@ async function deleteInverseManyChildren(
 	if (!targetTable) return;
 
 	const targetIndex = getTableIndex(runtime.tableIndex, targetTable.accessor);
-	const fkCol = childFkColumnMeta(targetTable, relation, targetIndex);
-	const params: unknown[] = [parentId];
-	let sql = `DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${dialect.quoteIdentifier(fkCol.sqlName)} = ${dialect.placeholder(1)}`;
+	const assignment = inverseFkAssignments(
+		relation,
+		parentTable ?? targetTable,
+		parentRow,
+		parentId,
+	);
+	const whereSql = assignment.sqlNames
+		.map(
+			(sqlName, i) =>
+				`${dialect.quoteIdentifier(sqlName)} = ${dialect.placeholder(i + 1)}`,
+		)
+		.join(" AND ");
+	const params: unknown[] = [...assignment.values];
+	let sql = `DELETE FROM ${dialect.tableRef(targetTable)} WHERE ${whereSql}`;
 
 	if (childPks && childPks.length > 0) {
 		const predicate = sqlPkPredicate(
@@ -772,7 +809,7 @@ async function deleteInverseManyChildren(
 			targetTable,
 			targetIndex,
 			childPks,
-			2,
+			assignment.values.length + 1,
 		);
 		sql += ` AND ${predicate.sql}`;
 		params.push(...predicate.params);
@@ -1224,6 +1261,8 @@ async function executeInverseManyWrite(
 				rel,
 				parentId,
 				undefined,
+				table,
+				parentRow,
 			);
 		} else {
 			const pks = normalizeConnectPks(runtime, rel.targetAccessor, del);
@@ -1233,6 +1272,8 @@ async function executeInverseManyWrite(
 				rel,
 				parentId,
 				pks,
+				table,
+				parentRow,
 			);
 		}
 	}
@@ -1246,6 +1287,8 @@ async function executeInverseManyWrite(
 				rel,
 				parentId,
 				undefined,
+				table,
+				parentRow,
 			);
 		} else {
 			const pks = normalizeConnectPks(
@@ -1253,7 +1296,15 @@ async function executeInverseManyWrite(
 				rel.targetAccessor,
 				disconnect,
 			);
-			await disconnectInverseMany(executor, runtime, rel, parentId, pks);
+			await disconnectInverseMany(
+				executor,
+				runtime,
+				rel,
+				parentId,
+				pks,
+				table,
+				parentRow,
+			);
 		}
 	}
 
@@ -1329,6 +1380,8 @@ async function executeInverseOneWrite(
 				rel,
 				parentId,
 				undefined,
+				table,
+				parentRow,
 			);
 		} else {
 			const pks = normalizeConnectPks(runtime, rel.targetAccessor, del);
@@ -1338,6 +1391,8 @@ async function executeInverseOneWrite(
 				rel,
 				parentId,
 				pks,
+				table,
+				parentRow,
 			);
 		}
 	}
@@ -1354,6 +1409,8 @@ async function executeInverseOneWrite(
 			rel,
 			parentId,
 			undefined,
+			table,
+			parentRow,
 		);
 	}
 
@@ -1367,6 +1424,8 @@ async function executeInverseOneWrite(
 				rel,
 				parentId,
 				undefined,
+				table,
+				parentRow,
 			);
 			await connectInverseMany(
 				executor,

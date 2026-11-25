@@ -665,6 +665,77 @@ describe("composite foreignKey relation writes", () => {
 		),
 	});
 
+	it("delete matches every foreign-key column", async () => {
+		const manifest = schemaToManifest(orderSchema);
+		const runtime: QueryRuntime = { manifest };
+		const executor = createMockExecutor();
+
+		await executeRelationWrites(
+			executor,
+			runtime,
+			"users",
+			"acme\0u1",
+			[
+				{
+					relationName: "orders",
+					value: { delete: [{ id: "ord_1" }] },
+				},
+			],
+			runCreate,
+			{ tenantId: "acme", id: "u1" },
+		);
+
+		const del = executor.queries.find((q) => q.sql.includes("DELETE"));
+		expect(del?.sql).toContain('"tenant_id" = $1');
+		expect(del?.sql).toContain('"user_id" = $2');
+		expect(del?.params).toEqual(["acme", "u1", "ord_1"]);
+	});
+
+	it("disconnect nulls every foreign-key column", async () => {
+		const nullableSchema = defineSchema({
+			users: table(
+				{
+					tenantId: text().notNull(),
+					id: text().notNull(),
+				},
+				(t) => [primaryKey(t.tenantId, t.id)],
+			),
+			orders: table(
+				{
+					id: id(),
+					tenantId: text(),
+					userId: text(),
+				},
+				(t) => [
+					foreignKey(t.tenantId, t.userId)
+						.references("users", "tenantId", "id")
+						.as("user")
+						.inverse("orders"),
+				],
+			),
+		});
+		const manifest = schemaToManifest(nullableSchema);
+		const runtime: QueryRuntime = { manifest };
+		const executor = createMockExecutor();
+
+		await executeRelationWrites(
+			executor,
+			runtime,
+			"users",
+			"acme\0u1",
+			[{ relationName: "orders", value: { disconnect: true } }],
+			runCreate,
+			{ tenantId: "acme", id: "u1" },
+		);
+
+		const update = executor.queries.find((q) => q.sql.includes("UPDATE"));
+		expect(update?.sql).toContain('"tenant_id" = NULL');
+		expect(update?.sql).toContain('"user_id" = NULL');
+		expect(update?.sql).toContain('"tenant_id" = $1');
+		expect(update?.sql).toContain('"user_id" = $2');
+		expect(update?.params).toEqual(["acme", "u1"]);
+	});
+
 	it("connect assigns every local FK column", async () => {
 		const manifest = schemaToManifest(orderSchema);
 		const runtime: QueryRuntime = { manifest };
