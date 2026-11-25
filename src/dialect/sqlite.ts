@@ -266,16 +266,19 @@ function emitRebuildSql(table: ManifestTable, diff: TableDiff): string[] {
 		),
 	);
 
+	const source = diff.renameFromSqlName
+		? { ...table, sqlName: diff.renameFromSqlName }
+		: table;
 	const copyCols = rebuildColumnCopyNames(diff);
 	if (copyCols.length > 0) {
 		const insertCols = copyCols.map((col) => q(col.newName)).join(", ");
 		const selectCols = copyCols.map((col) => q(col.oldName)).join(", ");
 		stmts.push(
-			`INSERT INTO ${q(newTableName)} (${insertCols}) SELECT ${selectCols} FROM ${tableRef(table)};`,
+			`INSERT INTO ${q(newTableName)} (${insertCols}) SELECT ${selectCols} FROM ${tableRef(source)};`,
 		);
 	}
 
-	stmts.push(`DROP TABLE ${tableRef(table)};`);
+	stmts.push(`DROP TABLE ${tableRef(source)};`);
 	stmts.push(`ALTER TABLE ${q(newTableName)} RENAME TO ${q(table.sqlName)};`);
 
 	for (const index of table.indexes) {
@@ -298,6 +301,12 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 	}
 
 	const stmts: string[] = [];
+
+	if (diff.renameFromSqlName) {
+		stmts.push(
+			`ALTER TABLE ${tableRef({ ...table, sqlName: diff.renameFromSqlName })} RENAME TO ${q(table.sqlName)};`,
+		);
+	}
 
 	if (diff.dropColumns) {
 		for (const col of diff.dropColumns) {

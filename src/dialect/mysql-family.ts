@@ -695,6 +695,12 @@ function emitAlterTable(
 	const stmts: string[] = [];
 	const manifest = diff.manifest;
 
+	if (diff.renameFromSqlName) {
+		stmts.push(
+			`ALTER TABLE ${q(diff.renameFromSqlName)} RENAME TO ${q(table.sqlName)};`,
+		);
+	}
+
 	if (diff.fkChanges) {
 		for (const change of diff.fkChanges) {
 			if (change.drop) {
