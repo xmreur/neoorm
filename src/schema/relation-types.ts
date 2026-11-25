@@ -981,6 +981,14 @@ type ShallowWhereInput<
 	NOT?: ShallowWhereInput<TColumns, TSchema, TAccessor>;
 } & ColumnWhereInput<TColumns, TSchema>;
 
+type RelationCountCompare = {
+	equals?: number;
+	gt?: number;
+	gte?: number;
+	lt?: number;
+	lte?: number;
+};
+
 type ShallowManyRelationFilter<
 	TSchema extends Record<string, TableDef>,
 	TTargetAccessor extends keyof TSchema & string,
@@ -1000,6 +1008,13 @@ type ShallowManyRelationFilter<
 		TSchema,
 		TTargetAccessor
 	>;
+	_count?: RelationCountCompare & {
+		where?: ShallowWhereInput<
+			TSchema[TTargetAccessor]["_columns"],
+			TSchema,
+			TTargetAccessor
+		>;
+	};
 };
 
 export type ManyRelationFilter<
@@ -1021,6 +1036,13 @@ export type ManyRelationFilter<
 		TSchema,
 		TTargetAccessor
 	>;
+	_count?: RelationCountCompare & {
+		where?: WhereInput<
+			TSchema[TTargetAccessor]["_columns"],
+			TSchema,
+			TTargetAccessor
+		>;
+	};
 };
 
 type OutgoingFkRelationWhereEntry<

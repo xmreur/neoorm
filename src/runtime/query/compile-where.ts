@@ -640,6 +640,116 @@ function compileToOneParts(
 	return { relAlias, joinCond, nested };
 }
 
+const RELATION_FILTER_MODES = ["some", "every", "none", "_count"] as const;
+
+const RELATION_COUNT_COMPARE_OPS = [
+	"equals",
+	"gt",
+	"gte",
+	"lt",
+	"lte",
+] as const;
+
+type RelationCountCompareOp = (typeof RELATION_COUNT_COMPARE_OPS)[number];
+
+function isRelationCountCompareOp(op: string): op is RelationCountCompareOp {
+	return (RELATION_COUNT_COMPARE_OPS as readonly string[]).includes(op);
+}
+
+function compileRelationCountFilter(
+	parentTable: ManifestTable,
+	relation: ManifestRelation,
+	rawSpec: unknown,
+	dialect: Dialect,
+	paramIndex: number,
+	manifest: Manifest,
+	targetTable: ManifestTable,
+	columnRef: (col: ManifestColumn) => string,
+	relAliasSql: string,
+	fromClause: string,
+	joinParts: readonly string[],
+	manifestIndex: ManifestIndex | undefined,
+	aliasScope: WhereAliasScope,
+): CompiledNode {
+	if (!isOperatorObject(rawSpec)) {
+		compileError(
+			`Relation filter "${relation.name}._count" must be an object`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
+	}
+	const unknown = Object.keys(rawSpec).filter(
+		(key) => key !== "where" && !isRelationCountCompareOp(key),
+	);
+	if (unknown[0]) {
+		compileError(
+			`unsupported relation count filter "${unknown[0]}" on "${relation.name}._count"`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+				suggestions: suggestWhereOperator(unknown[0], [
+					...RELATION_COUNT_COMPARE_OPS,
+					"where",
+				]),
+			},
+		);
+	}
+	const compareOps = Object.keys(rawSpec).filter(isRelationCountCompareOp);
+	if (compareOps.length === 0) {
+		compileError(
+			`Relation filter "${relation.name}._count" requires at least one of equals, gt, gte, lt, or lte`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
+	}
+	const nestedWhere = rawSpec.where;
+	if (nestedWhere !== undefined && !isOperatorObject(nestedWhere)) {
+		compileError(
+			`Relation filter "${relation.name}._count.where" must be a where object`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
+	}
+	const nested = compileWhereNode(
+		manifest,
+		targetTable,
+		(nestedWhere ?? {}) as Record<string, unknown>,
+		dialect,
+		paramIndex,
+		columnRef,
+		manifestIndex,
+		relAliasSql,
+		aliasScope,
+	);
+	const whereParts = nested.sql ? [...joinParts, nested.sql] : [...joinParts];
+	const countExpr = `(SELECT COUNT(*) FROM ${fromClause} WHERE ${whereParts.join(" AND ")})`;
+	const conditions: string[] = [];
+	const params = [...nested.params];
+	let nextParamIndex = nested.nextParamIndex;
+	for (const op of compareOps) {
+		const value = rawSpec[op];
+		if (typeof value !== "number" || !Number.isFinite(value)) {
+			compileError(
+				`Relation filter "${relation.name}._count.${op}" must be a finite number`,
+				{
+					tableAccessor: parentTable.accessor,
+					tableSqlName: parentTable.sqlName,
+				},
+			);
+		}
+		conditions.push(dialect.whereOperators[op](countExpr, nextParamIndex));
+		params.push(value);
+		nextParamIndex++;
+	}
+	return compiledResult(conditions.join(" AND "), params, nextParamIndex);
+}
+
 function compileRelationCondition(
 	manifest: Manifest,
 	parentTable: ManifestTable,
@@ -687,7 +797,7 @@ function compileRelationCondition(
 
 	if (!isOperatorObject(rawValue) || Array.isArray(rawValue)) {
 		compileError(
-			`Relation filter "${relation.name}" must be an object with some, every, or none`,
+			`Relation filter "${relation.name}" must be an object with some, every, none, or _count`,
 			{
 				tableAccessor: parentTable.accessor,
 				tableSqlName: parentTable.sqlName,
@@ -695,23 +805,25 @@ function compileRelationCondition(
 		);
 	}
 
-	const relationModes = ["some", "every", "none"] as const;
-	const modes = relationModes.filter((key) => key in rawValue);
+	const modes = RELATION_FILTER_MODES.filter((key) => key in rawValue);
 	if (modes.length !== 1) {
 		const hintKey = Object.keys(rawValue)[0] ?? "some";
 		compileError(
-			`Relation filter "${relation.name}" requires exactly one of some, every, or none`,
+			`Relation filter "${relation.name}" requires exactly one of some, every, none, or _count`,
 			{
 				tableAccessor: parentTable.accessor,
 				tableSqlName: parentTable.sqlName,
-				suggestions: suggestWhereOperator(hintKey, relationModes),
+				suggestions: suggestWhereOperator(
+					hintKey,
+					RELATION_FILTER_MODES,
+				),
 			},
 		);
 	}
 	const mode = modes[0];
 	if (!mode) {
 		compileError(
-			`Relation filter "${relation.name}" requires exactly one of some, every, or none`,
+			`Relation filter "${relation.name}" requires exactly one of some, every, none, or _count`,
 			{
 				tableAccessor: parentTable.accessor,
 				tableSqlName: parentTable.sqlName,
@@ -725,18 +837,10 @@ function compileRelationCondition(
 			{
 				tableAccessor: parentTable.accessor,
 				tableSqlName: parentTable.sqlName,
-				suggestions: suggestWhereOperator(extraKeys[0], relationModes),
-			},
-		);
-	}
-
-	const nestedWhere = rawValue[mode];
-	if (nestedWhere !== undefined && !isOperatorObject(nestedWhere)) {
-		compileError(
-			`Relation filter "${relation.name}.${mode}" must be a where object`,
-			{
-				tableAccessor: parentTable.accessor,
-				tableSqlName: parentTable.sqlName,
+				suggestions: suggestWhereOperator(
+					extraKeys[0],
+					RELATION_FILTER_MODES,
+				),
 			},
 		);
 	}
@@ -744,17 +848,6 @@ function compileRelationCondition(
 	const relAlias = nextRelAlias(scope);
 	const columnRef = (col: ManifestColumn) =>
 		`${dialect.quoteIdentifier(relAlias)}.${dialect.quoteIdentifier(col.sqlName)}`;
-	const nested = compileWhereNode(
-		manifest,
-		targetTable,
-		(nestedWhere ?? {}) as Record<string, unknown>,
-		dialect,
-		paramIndex,
-		columnRef,
-		manifestIndex,
-		dialect.quoteIdentifier(relAlias),
-		scope,
-	);
 
 	let fromClause: string;
 	const joinParts: string[] = [];
@@ -785,6 +878,46 @@ function compileRelationCondition(
 			),
 		);
 	}
+
+	if (mode === "_count") {
+		return compileRelationCountFilter(
+			parentTable,
+			relation,
+			rawValue._count,
+			dialect,
+			paramIndex,
+			manifest,
+			targetTable,
+			columnRef,
+			dialect.quoteIdentifier(relAlias),
+			fromClause,
+			joinParts,
+			manifestIndex,
+			scope,
+		);
+	}
+
+	const nestedWhere = rawValue[mode];
+	if (nestedWhere !== undefined && !isOperatorObject(nestedWhere)) {
+		compileError(
+			`Relation filter "${relation.name}.${mode}" must be a where object`,
+			{
+				tableAccessor: parentTable.accessor,
+				tableSqlName: parentTable.sqlName,
+			},
+		);
+	}
+	const nested = compileWhereNode(
+		manifest,
+		targetTable,
+		(nestedWhere ?? {}) as Record<string, unknown>,
+		dialect,
+		paramIndex,
+		columnRef,
+		manifestIndex,
+		dialect.quoteIdentifier(relAlias),
+		scope,
+	);
 
 	switch (mode) {
 		case "some":
@@ -844,7 +977,7 @@ export type UpdateJoinEntry = {
 
 /**
  * Partition top-level to-one relation filters (JOIN candidates) out of an
- * update `where`. To-many (`some`/`every`/`none`), M2M, combinators, and
+ * update `where`. To-many (`some`/`every`/`none`/`_count`), M2M, combinators, and
  * malformed values stay in `restWhere` for the regular `EXISTS` path, so
  * error behavior is unchanged.
  */
@@ -1181,6 +1314,14 @@ function logicalShapeKey(combinator: "AND" | "OR", value: unknown[]): string {
 		.join(",")}`;
 }
 
+function relationCountShapeKey(key: string, spec: unknown): string {
+	if (!isOperatorObject(spec)) return `${key}:rel:_count`;
+	const compareOps = Object.keys(spec).filter((op) => op !== "where");
+	const nested = spec.where;
+	const wherePart = isOperatorObject(nested) ? whereShapeKey(nested) : "{}";
+	return `${key}:rel:_count:${compareOps.join(",")}:${wherePart}`;
+}
+
 export function whereShapeKey(where: Record<string, unknown>): string {
 	const parts: string[] = [];
 	for (const [key, value] of Object.entries(where)) {
@@ -1204,7 +1345,17 @@ export function whereShapeKey(where: Record<string, unknown>): string {
 			// shape key has to match or permuted operator objects would hit
 			// a cached shell whose placeholders bind the wrong values.
 			const ops = Object.keys(value);
-			if (
+			if (ops.includes("_count")) {
+				const mixed = ops.filter(
+					(op) => op === "some" || op === "every" || op === "none",
+				);
+				const countPart = relationCountShapeKey(key, value._count);
+				parts.push(
+					mixed.length > 0
+						? `${countPart}+${mixed.join(",")}`
+						: countPart,
+				);
+			} else if (
 				ops.some(
 					(op) => op === "some" || op === "every" || op === "none",
 				)

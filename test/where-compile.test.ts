@@ -790,7 +790,7 @@ describe("where compilation", () => {
 		expect(owned.sql).toContain('"_rel"."email" = $1');
 	});
 
-	it("rejects a to-many relation filter without some/every/none", () => {
+	it("rejects a to-many relation filter without some/every/none/_count", () => {
 		expect(() =>
 			compileWhere(
 				manifest,
@@ -798,7 +798,145 @@ describe("where compilation", () => {
 				{ posts: { published: true } },
 				postgresDialect,
 			),
-		).toThrow(/requires exactly one of some, every, or none/);
+		).toThrow(/requires exactly one of some, every, none, or _count/);
+	});
+
+	it("compiles a filtered relation count as a correlated COUNT subquery", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { _count: { gte: 5, where: { published: true } } } },
+			postgresDialect,
+		);
+		expect(sql).toBe(
+			'WHERE (SELECT COUNT(*) FROM "posts" AS "_rel" WHERE "_rel"."author_id" = "users"."id" AND "_rel"."published" = $1) >= $2',
+		);
+		expect(params).toEqual([true, 5]);
+	});
+
+	it("counts every related row when _count.where is omitted", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { _count: { equals: 0 } } },
+			postgresDialect,
+		);
+		expect(sql).toBe(
+			'WHERE (SELECT COUNT(*) FROM "posts" AS "_rel" WHERE "_rel"."author_id" = "users"."id") = $1',
+		);
+		expect(params).toEqual([0]);
+	});
+
+	it("ANDs multiple relation count comparisons", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { _count: { gte: 5, lte: 10 } } },
+			postgresDialect,
+		);
+		expect(sql).toContain(") >= $1");
+		expect(sql).toContain(") <= $2");
+		expect(params).toEqual([5, 10]);
+	});
+
+	it("quotes a relation count filter for MySQL", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			users,
+			{ posts: { _count: { gte: 5, where: { published: true } } } },
+			mysqlDialect,
+		);
+		expect(sql).toBe(
+			"WHERE (SELECT COUNT(*) FROM `posts` AS `_rel` WHERE `_rel`.`author_id` = `users`.`id` AND `_rel`.`published` = ?) >= ?",
+		);
+		expect(params).toEqual([1, 5]);
+	});
+
+	it("counts many-to-many links through the junction table", () => {
+		const { sql, params } = compileWhere(
+			manifest,
+			posts,
+			{ tags: { _count: { gte: 2, where: { slug: "orm" } } } },
+			postgresDialect,
+		);
+		expect(sql).toContain("SELECT COUNT(*)");
+		expect(sql).toContain('"posts_tags"');
+		expect(sql).toContain('"tags"');
+		expect(sql).toContain('"_jt"."post_id" = "posts"."id"');
+		expect(sql).toContain('"_rel"."slug" = $1');
+		expect(sql).toContain(">= $2");
+		expect(params).toEqual(["orm", 2]);
+	});
+
+	it("does not reuse a count filter shell for a different comparison", () => {
+		const gte = getCachedWhereClause(
+			manifest,
+			users,
+			{ posts: { _count: { gte: 5 } } },
+			postgresDialect,
+			1,
+			tableIndex,
+		);
+		const gt = getCachedWhereClause(
+			manifest,
+			users,
+			{ posts: { _count: { gt: 5 } } },
+			postgresDialect,
+			1,
+			tableIndex,
+		);
+		const nine = getCachedWhereClause(
+			manifest,
+			users,
+			{ posts: { _count: { gte: 9 } } },
+			postgresDialect,
+			1,
+			tableIndex,
+		);
+		expect(gte.sql).toContain(">=");
+		expect(gt.sql).toContain(" > ");
+		expect(gt.sql).not.toContain(">=");
+		expect(nine.sql).toBe(gte.sql);
+		expect(nine.params).toEqual([9]);
+		expect(gte.params).toEqual([5]);
+	});
+
+	it("rejects a relation count mixed with some", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				users,
+				{
+					posts: {
+						_count: { gte: 5 },
+						some: { published: true },
+					},
+				},
+				postgresDialect,
+			),
+		).toThrow(/requires exactly one of some, every, none, or _count/);
+	});
+
+	it("rejects a relation count that only has where", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				users,
+				{ posts: { _count: { where: { published: true } } } },
+				postgresDialect,
+			),
+		).toThrow(/requires at least one of equals, gt, gte, lt, or lte/);
+	});
+
+	it("rejects a non-numeric relation count", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				users,
+				{ posts: { _count: { gte: "5" } } },
+				postgresDialect,
+			),
+		).toThrow(/must be a finite number/);
 	});
 
 	it("compiles some as EXISTS of matching related rows", () => {
