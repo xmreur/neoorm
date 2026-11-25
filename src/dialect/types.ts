@@ -228,6 +228,8 @@ export type TableDiff = {
 	renameColumns?: Array<{ from: string; to: string }>;
 	/** Previous SQL name when the accessor stayed and the table was renamed. */
 	renameFromSqlName?: string;
+	/** Previous PostgreSQL schema when the table moves with SET SCHEMA. */
+	moveFromSchema?: string;
 	alterColumns?: ColumnAlter[];
 	addIndexes?: ManifestIndex[];
 	dropIndexes?: string[];
@@ -288,11 +290,16 @@ export type Dialect = {
 	emitCreateSchema(schema: string | undefined): string;
 	emitCreateEnumTypes(
 		enumTypes: Record<string, { values: readonly string[] }>,
+		schemaName?: string,
 	): string[];
 	/** Postgres `ALTER TYPE … ADD VALUE`. Null when the dialect has no enum type. */
-	emitAddEnumValue(typeName: string, value: string): string | null;
+	emitAddEnumValue(
+		typeName: string,
+		value: string,
+		schemaName?: string,
+	): string | null;
 	/** Postgres `DROP TYPE`. Null when the dialect has no enum type. */
-	emitDropEnumType(typeName: string): string | null;
+	emitDropEnumType(typeName: string, schemaName?: string): string | null;
 	emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
 	emitDropTable(table: ManifestTable): string;
 	emitCreateIndex(
@@ -300,7 +307,11 @@ export type Dialect = {
 		index: ManifestIndex,
 		manifest?: Manifest,
 	): string;
-	emitDropIndex(indexName: string, tableSqlName?: string): string;
+	emitDropIndex(
+		indexName: string,
+		tableSqlName?: string,
+		schemaName?: string,
+	): string;
 	emitDropConstraint(tableSqlName: string, constraintName: string): string;
 	emitAlterTable(table: ManifestTable, diff: TableDiff): string[];
 	emitAlterColumn(

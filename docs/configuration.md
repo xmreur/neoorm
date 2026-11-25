@@ -51,7 +51,7 @@ datasource: {
 },
 ```
 
-`datasource.schema` is PostgreSQL-only (ignored on SQLite, MySQL, and MariaDB). `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL/MariaDB column `ENUM`. See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md).
+`datasource.schema` is PostgreSQL-only (ignored on SQLite, MySQL, and MariaDB). A non-public schema is created if needed, and index and enum DDL is schema-qualified (`DROP INDEX IF EXISTS "app"."posts_title_idx"`, `CREATE TYPE "app"."posts_status"`). Changing the schema moves each table with `ALTER TABLE … SET SCHEMA` and moves existing enum types the same way. `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL/MariaDB column `ENUM`. See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md).
 
 ### Enum modes
 
