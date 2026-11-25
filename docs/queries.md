@@ -238,6 +238,7 @@ await db.posts.findMany({ where: { price: { contains: "9" } } });
 | String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `searchTs`, `in`, `notIn`, `mode` |
 | Numeric / Date | `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn` |
 | JSON | `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, `path` |
+| Array (`textArray`, `intArray`, `uuidArray`, `enumArray`) | `equals`, `has`, `hasEvery`, `hasSome` |
 | PostGIS (`geometry`, `geography`, `point`) | `intersects`, `within`, `dWithin` |
 | All nullable | `isNull`, `isNotNull` |
 
@@ -264,6 +265,8 @@ await db.posts.findMany({
 `parser` is `plain` (`plainto_tsquery`, the default), `phrase` (`phraseto_tsquery`), or `websearch` (`websearch_to_tsquery`). `language` defaults to `english` and must match `/^[a-z_]+$/` since it is interpolated as the `regconfig`. On MySQL/MariaDB the `language` and `parser` options are accepted but ignored.
 
 JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path). On MySQL and MariaDB they compile to `JSON_CONTAINS`, `JSON_CONTAINS_PATH`, and `JSON_EXTRACT`.
+
+Array columns use `has` for one element, `hasEvery` when every value must be present, and `hasSome` when any value is enough. On PostgreSQL those are `$n = ANY(col)`, `col @> $n`, and `col && $n`. On SQLite they use `json_each`. On MySQL and MariaDB they use `JSON_CONTAINS` and `JSON_OVERLAPS`. Arrays are stored as JSON outside PostgreSQL.
 
 ```ts
 await db.posts.findMany({

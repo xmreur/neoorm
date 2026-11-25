@@ -25,6 +25,7 @@ import {
 	type JsonColumnBuilder,
 	type JsonValidationMethods,
 } from "../schema/json-column.js";
+import { arrayWhereOperators } from "./array/operators.js";
 import { jsonWhereOperators } from "./json/operators.js";
 import type { ColumnTypePlugin, NeoOrmPlugin } from "./types.js";
 
@@ -650,6 +651,7 @@ const textArrayType: ColumnTypePlugin = {
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_text";
 	},
+	whereOperators: arrayWhereOperators,
 };
 
 const intArrayType: ColumnTypePlugin = {
@@ -688,6 +690,7 @@ const intArrayType: ColumnTypePlugin = {
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_int4";
 	},
+	whereOperators: arrayWhereOperators,
 };
 
 function createNumericFloatPlugin(
@@ -880,6 +883,7 @@ const uuidArrayType: ColumnTypePlugin = {
 	introspect(pgDataType, udtName) {
 		return pgDataType === "ARRAY" && udtName === "_uuid";
 	},
+	whereOperators: arrayWhereOperators,
 };
 
 function enumArrayTsType(col: ManifestColumn): string {
@@ -954,6 +958,7 @@ const enumArrayType: ColumnTypePlugin = {
 		if (Array.isArray(dbValue)) return dbValue;
 		return parseJsonValue(dbValue, col);
 	},
+	whereOperators: arrayWhereOperators,
 };
 
 const citextType: ColumnTypePlugin = {

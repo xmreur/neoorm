@@ -11,7 +11,7 @@ Studio reads `neoorm.config.ts` (after `.env`, like the other commands) and comp
 ## Data grid
 
 - Spreadsheet-like browsing with pagination, multi-column sort (Shift+click), column reorder (drag headers), column show/hide, and wrap/truncate.
-- Filters map to real NeoOrm `where` operators: strings (`contains`, `startsWith`, `endsWith`, `search`, insensitive via advanced JSON), numbers/dates (`gt`, `gte`, `lt`, `lte`, `in`), nulls, enums, JSON (`jsonContains`, `hasKey`, `path`), plus an advanced JSON box for relation filters (`some`/`every`/`none`), `AND`/`OR`/`NOT`.
+- Filters map to real NeoOrm `where` operators: strings (`contains`, `startsWith`, `endsWith`, `search`, insensitive via advanced JSON), numbers/dates (`gt`, `gte`, `lt`, `lte`, `in`), nulls, enums, arrays (`has`, `hasEvery`, `hasSome`), JSON (`jsonContains`, `hasKey`, `path`), plus an advanced JSON box for relation filters (`some`/`every`/`none`), `AND`/`OR`/`NOT`.
 - Table-wide search runs `contains` across text-like columns.
 - Double-click a cell to edit. Edits are staged — press `Save` (or `⌘/Ctrl+S`) to write them, `Esc`-via-banner to discard. Cell editors are type-aware: booleans, enum selects, timestamps, JSON, arrays, UUID generation, `bytea` upload, decimals as strings.
 - Hidden columns (`.hidden()`) are visible in Studio but masked until you reveal them — useful for passwords and secrets, which are fetched with `includeHidden`.

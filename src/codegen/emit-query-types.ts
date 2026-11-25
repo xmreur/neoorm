@@ -69,6 +69,17 @@ function filterForColumn(
 	if (kind === "json" || kind === "jsonb") {
 		return `JsonFilter<${nonNullTs}>`;
 	}
+	if (
+		kind === "textArray" ||
+		kind === "intArray" ||
+		kind === "uuidArray" ||
+		kind === "enumArray"
+	) {
+		const element = nonNullTs.endsWith("[]")
+			? nonNullTs.slice(0, -2)
+			: nonNullTs;
+		return `ArrayFilter<${element}>`;
+	}
 	if (kind === "geometry" || kind === "geography" || kind === "point") {
 		return "SpatialFilter";
 	}
@@ -595,6 +606,15 @@ export function emitQueryTypesTs(manifest: Manifest): string {
 		"  lte?: T;",
 		"  in?: readonly T[];",
 		"  notIn?: readonly T[];",
+		"  isNull?: true;",
+		"  isNotNull?: true;",
+		"}",
+		"",
+		"export interface ArrayFilter<T> {",
+		"  equals?: readonly T[] | null;",
+		"  has?: T;",
+		"  hasEvery?: readonly T[];",
+		"  hasSome?: readonly T[];",
 		"  isNull?: true;",
 		"  isNotNull?: true;",
 		"}",
