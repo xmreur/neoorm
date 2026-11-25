@@ -8,6 +8,7 @@ import {
 import type {
 	Dialect,
 	ManifestManyToMany,
+	ManifestRelation,
 	ManifestTable,
 } from "../../dialect/types.js";
 import { rebaseParamRefs } from "../../sql/template.js";
@@ -45,6 +46,7 @@ import {
 	projectionSignature,
 	resolveParentProjection,
 } from "./projection.js";
+import { inverseFkMatchKey, inverseFkParentValues } from "./relation-join.js";
 import {
 	buildCountAggregateGroupBy,
 	buildPlanExtraSelectCols,
@@ -204,23 +206,113 @@ async function loadRelationCounts(
 		Object.entries(countSpec).map(async ([relationName, spec]) => {
 			const whereFilter =
 				typeof spec === "object" ? spec.where : undefined;
-			const counts = await countRelationLinks(
-				executor,
-				runtime,
-				parentTable,
-				relationName,
-				parentIds,
-				whereFilter,
-			);
+			const relation = findRelation(parentTable, relationName);
+			const composite =
+				relation !== undefined &&
+				relation.cardinality === "many" &&
+				!findM2M(
+					runtime.manifest,
+					parentTable.accessor,
+					relationName,
+				) &&
+				relationFkPairs(relation).length > 1;
+			const counts = composite
+				? await countCompositeRelationLinks(
+						executor,
+						runtime,
+						parentTable,
+						relation,
+						parentRows,
+						whereFilter,
+					)
+				: await countRelationLinks(
+						executor,
+						runtime,
+						parentTable,
+						relationName,
+						parentIds,
+						whereFilter,
+					);
 
 			for (const parent of parentRows) {
-				const parentKey = rowPkKey(parent, parentTable);
+				const parentKey = composite
+					? inverseFkMatchKey(relation, parentTable, parent)
+					: rowPkKey(parent, parentTable);
 				const bucket =
 					(parent._count as Record<string, number> | undefined) ?? {};
 				bucket[relationName] = counts.get(parentKey) ?? 0;
 				parent._count = bucket;
 			}
 		}),
+	);
+}
+
+async function countCompositeRelationLinks(
+	executor: Executor,
+	runtime: QueryRuntime,
+	parentTable: ManifestTable,
+	relation: NonNullable<ReturnType<typeof findRelation>>,
+	parentRows: Record<string, unknown>[],
+	whereFilter?: Record<string, unknown>,
+): Promise<Map<string, number>> {
+	const dialect = runtime.dialect ?? postgresDialect;
+	const targetTable = runtime.manifest.tables[relation.targetAccessor];
+	if (!targetTable || parentRows.length === 0) return new Map();
+
+	const pairs = relationFkPairs(relation);
+	const params: unknown[] = [];
+	const orSql = parentRows
+		.map((row) => {
+			const values = inverseFkParentValues(relation, parentTable, row);
+			const andSql = pairs.map((pair, i) => {
+				params.push(values[i]);
+				return `${dialect.quoteIdentifier(pair.fkSqlColumn)} = ${dialect.placeholder(params.length)}`;
+			});
+			return `(${andSql.join(" AND ")})`;
+		})
+		.join(" OR ");
+
+	let extraWhere = "";
+	let extraParams: unknown[] = [];
+	if (whereFilter) {
+		const compiled = compileWhere(
+			runtime.manifest,
+			targetTable,
+			whereFilter,
+			dialect,
+			1,
+			runtime.tableIndex,
+		);
+		if (compiled.sql) {
+			const adjusted = rebaseParamRefs(compiled.sql, params.length);
+			extraWhere = ` AND ${adjusted.replace(/^WHERE\s+/i, "")}`;
+			extraParams = compiled.params;
+		}
+	}
+
+	const selectCols = pairs
+		.map(
+			(pair, i) =>
+				`${dialect.quoteIdentifier(pair.fkSqlColumn)} AS ${dialect.quoteIdentifier(`fk_${i}`)}`,
+		)
+		.join(", ");
+	const groupCols = pairs
+		.map((pair) => dialect.quoteIdentifier(pair.fkSqlColumn))
+		.join(", ");
+	const sql = `SELECT ${selectCols}, ${dialect.castToInt("COUNT(*)")} AS count FROM ${dialect.tableRef(targetTable)} WHERE ${orSql}${extraWhere} GROUP BY ${groupCols}`;
+	const rows = await runQuery<Record<string, unknown>>(
+		executor,
+		runtime,
+		{ operation: "select", tableAccessor: targetTable.accessor },
+		sql,
+		[...params, ...extraParams],
+	);
+
+	return new Map(
+		rows.map((row) => [
+			pairs.map((_, i) => String(row[`fk_${i}`] ?? "")).join("\0"),
+			Number(row.count ?? 0),
+		]),
 	);
 }
 
@@ -399,6 +491,7 @@ function applyPerParentTakeSkip(args: {
 	take?: number | undefined;
 	skip?: number | undefined;
 	dialect: Dialect;
+	orderParentSql?: string;
 }): string {
 	const {
 		selectList,
@@ -408,6 +501,7 @@ function applyPerParentTakeSkip(args: {
 		take,
 		skip,
 		dialect,
+		orderParentSql,
 	} = args;
 	if (take === undefined && skip === undefined) {
 		return `SELECT ${selectList} ${fromSql}${orderBySql ? ` ${orderBySql}` : ""}`;
@@ -424,7 +518,7 @@ function applyPerParentTakeSkip(args: {
 			? `${rank} > ${skipN} AND ${rank} <= ${skipN + takeN}`
 			: `${rank} > ${skipN}`;
 
-	const parentId = dialect.quoteIdentifier(BATCH_PARENT_ID);
+	const parentId = orderParentSql ?? dialect.quoteIdentifier(BATCH_PARENT_ID);
 	return `SELECT * FROM (SELECT ${selectList}, ROW_NUMBER() OVER (PARTITION BY ${partitionBy}${overOrder}) AS ${rank} ${fromSql}) AS ${ranked} WHERE ${filter} ORDER BY ${parentId}, ${rank}`;
 }
 
@@ -449,6 +543,126 @@ async function loadNestedRelations(
 			),
 		),
 	);
+}
+
+async function loadCompositeInverseRelation(
+	executor: Executor,
+	runtime: QueryRuntime,
+	parentTable: ManifestTable,
+	parentRows: Record<string, unknown>[],
+	targetTable: ManifestTable,
+	relation: ManifestRelation,
+	relationName: string,
+	withSpec: WithInput,
+	nestedSpec: RelationSpec | undefined,
+): Promise<void> {
+	if (parentRows.length === 0) return;
+
+	const dialect = runtime.dialect ?? postgresDialect;
+	const pairs = relationFkPairs(relation);
+	const params: unknown[] = [];
+	const orSql = parentRows
+		.map((row) => {
+			const values = inverseFkParentValues(relation, parentTable, row);
+			const andSql = pairs.map((pair, i) => {
+				params.push(values[i]);
+				return `${dialect.quoteIdentifier(pair.fkSqlColumn)} = ${dialect.placeholder(params.length)}`;
+			});
+			return `(${andSql.join(" AND ")})`;
+		})
+		.join(" OR ");
+
+	const selectCols = columnsForSelect(
+		targetTable,
+		withSpec,
+		runtime.tableIndex,
+		undefined,
+		dialect,
+	);
+	const fkSelect = pairs
+		.map((pair) => dialect.quoteIdentifier(pair.fkSqlColumn))
+		.filter((quoted) => !selectCols.includes(quoted))
+		.join(", ");
+	const selectList = fkSelect ? `${selectCols}, ${fkSelect}` : selectCols;
+	const { extraWhere, extraParams } = compileBatchedRelationWhere(
+		runtime,
+		targetTable,
+		nestedSpec?.where,
+		params.length,
+	);
+	const orderBySql = nestedSpec?.orderBy
+		? compileOrderBy(
+				targetTable,
+				nestedSpec.orderBy,
+				undefined,
+				runtime.tableIndex,
+				dialect,
+			)
+		: "";
+	const partitionBy = pairs
+		.map((pair) => dialect.quoteIdentifier(pair.fkSqlColumn))
+		.join(", ");
+	const sql = applyPerParentTakeSkip({
+		selectList,
+		fromSql: `FROM ${dialect.tableRef(targetTable)} WHERE ${orSql}${extraWhere}`,
+		partitionBy,
+		orderBySql,
+		take: nestedSpec?.take,
+		skip: nestedSpec?.skip,
+		dialect,
+		orderParentSql: partitionBy,
+	});
+
+	const rows = await runQuery(
+		executor,
+		runtime,
+		{ operation: "select", tableAccessor: targetTable.accessor },
+		sql,
+		[...params, ...extraParams],
+	);
+	const targetTableIndex = getTableIndex(
+		runtime.tableIndex,
+		targetTable.accessor,
+	);
+	const grouped = new Map<string, Record<string, unknown>[]>();
+	for (const row of rows) {
+		const key = pairs
+			.map((pair) =>
+				String(row[pair.fkSqlColumn] ?? row[pair.fkColumn] ?? ""),
+			)
+			.join("\0");
+		const mapped = mapRowToTs(
+			targetTableIndex,
+			targetTable,
+			stripBatchRelationMeta(row),
+		);
+		let bucket = grouped.get(key);
+		if (!bucket) {
+			bucket = [];
+			grouped.set(key, bucket);
+		}
+		bucket.push(mapped);
+	}
+
+	for (const parent of parentRows) {
+		const parentKey = inverseFkMatchKey(relation, parentTable, parent);
+		if (relation.cardinality === "one") {
+			parent[relationName] = grouped.get(parentKey)?.[0] ?? null;
+		} else {
+			parent[relationName] = grouped.get(parentKey) ?? [];
+		}
+	}
+
+	if (nestedSpec?.with && relation.cardinality === "many") {
+		const childRows = [...grouped.values()].flat();
+		await loadNestedRelations(
+			executor,
+			runtime,
+			targetTable,
+			childRows,
+			nestedSpec.with,
+		);
+	}
 }
 
 async function loadOneRelation(
@@ -597,6 +811,18 @@ async function loadOneRelation(
 				? (byKey.get(key) ?? null)
 				: null;
 		}
+	} else if (relationFkPairs(relation).length > 1) {
+		await loadCompositeInverseRelation(
+			executor,
+			runtime,
+			parentTable,
+			parentRows,
+			targetTable,
+			relation,
+			relationName,
+			withSpec,
+			nestedSpec,
+		);
 	} else {
 		const fkCol = dialect.quoteIdentifier(relation.fkSqlColumn);
 		const placeholders = joinPlaceholders(dialect, parentIds.length);
