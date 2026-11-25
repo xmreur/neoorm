@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { diffManifest } from "../codegen/diff-manifest.js";
 import { schemaToManifest } from "../codegen/schema-to-manifest.js";
 import {
 	buildFindByIdQuery,
@@ -20,6 +21,7 @@ import {
 	serial,
 	table,
 	text,
+	timestamp,
 	timestamps,
 	unique,
 	uuid,
@@ -429,5 +431,171 @@ describe("mysql dialect", () => {
 		);
 		expect(having.sql).toContain("COUNT(*) IN (?, ?)");
 		expect(having.params).toEqual([1, 2]);
+	});
+
+	it("keeps nullability, defaults, and AUTO_INCREMENT on CHANGE COLUMN", () => {
+		const prev = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					name: text().notNull().default("anon"),
+					nick: text().default("anon"),
+					email: text().notNull().unique(),
+					createdAt: timestamp()
+						.notNull()
+						.defaultNow()
+						.map("created_at"),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+		const next = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary().map("user_id"),
+					name: text().notNull().default("anon").map("full_name"),
+					nick: text().default("anon").map("nickname"),
+					email: text().notNull().unique().map("email_address"),
+					createdAt: timestamp()
+						.notNull()
+						.defaultNow()
+						.map("opened_at"),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+
+		const { sql } = diffManifest(prev, next, mysqlDialect);
+		expect(sql).toContain(
+			"ALTER TABLE `users` CHANGE COLUMN `id` `user_id` INT NOT NULL AUTO_INCREMENT;",
+		);
+		expect(sql).toContain(
+			"ALTER TABLE `users` CHANGE COLUMN `name` `full_name` TEXT NOT NULL DEFAULT 'anon';",
+		);
+		expect(sql).toContain(
+			"ALTER TABLE `users` CHANGE COLUMN `nick` `nickname` TEXT NULL DEFAULT 'anon';",
+		);
+		expect(sql).toContain(
+			"ALTER TABLE `users` CHANGE COLUMN `email` `email_address` VARCHAR(191) NOT NULL;",
+		);
+		expect(sql).toContain(
+			"ALTER TABLE `users` CHANGE COLUMN `created_at` `opened_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6);",
+		);
+		for (const statement of sql) {
+			if (
+				statement.includes("CHANGE COLUMN") ||
+				statement.includes("MODIFY COLUMN")
+			) {
+				expect(statement).not.toContain("PRIMARY KEY");
+				expect(statement).not.toContain("UNIQUE");
+			}
+		}
+	});
+
+	it("keeps NOT NULL and the default when only the length changes", () => {
+		const prev = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					name: text().notNull().default("anon").maxLength(20),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+		const next = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					name: text().notNull().default("anon").maxLength(40),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+
+		const { sql } = diffManifest(prev, next, mysqlDialect);
+		expect(sql).toContain(
+			"ALTER TABLE `users` MODIFY COLUMN `name` VARCHAR(40) NOT NULL DEFAULT 'anon';",
+		);
+	});
+
+	it("keeps the default when only nullability changes", () => {
+		const prev = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					name: text().notNull().default("anon"),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+		const next = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					name: text().default("anon"),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+
+		const { sql } = diffManifest(prev, next, mysqlDialect);
+		expect(sql).toContain(
+			"ALTER TABLE `users` MODIFY COLUMN `name` TEXT NULL DEFAULT 'anon';",
+		);
+	});
+
+	it("changes a default with ALTER COLUMN and does not MODIFY the column", () => {
+		const withDefault = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					score: int().notNull().default(0),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+		const nextDefault = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					score: int().notNull().default(1),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+		const dropped = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					score: int().notNull(),
+				}),
+			}),
+			undefined,
+			{ provider: "mysql" },
+		);
+
+		const setDefault = diffManifest(withDefault, nextDefault, mysqlDialect);
+		expect(setDefault.sql).toContain(
+			"ALTER TABLE `users` ALTER COLUMN `score` SET DEFAULT 1;",
+		);
+		expect(
+			setDefault.sql.some((statement) => statement.includes("MODIFY")),
+		).toBe(false);
+
+		const dropDefault = diffManifest(withDefault, dropped, mysqlDialect);
+		expect(dropDefault.sql).toContain(
+			"ALTER TABLE `users` ALTER COLUMN `score` DROP DEFAULT;",
+		);
+		expect(
+			dropDefault.sql.some((statement) => statement.includes("MODIFY")),
+		).toBe(false);
 	});
 });
