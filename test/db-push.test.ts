@@ -99,7 +99,7 @@ const PUSH_SCHEMA_V2 = `import { defineSchema, id, table, text } from "neoorm/sc
 export const schema = defineSchema({
 	users: table({
 		id: id(),
-		email: text().notNull(),
+		email: text().notNull().default("dev@example.com"),
 	}),
 });
 `;

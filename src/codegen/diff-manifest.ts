@@ -7,10 +7,12 @@ import {
 	resolveIndexSqlName,
 	resolveUniqueConstraintName,
 } from "../dialect/postgres.js";
+import { isMysqlFamilyDialect } from "../dialect/resolve.js";
 import { manifestIndexKeys } from "../dialect/shared.js";
 import type {
 	ColumnAlter,
 	DestructiveChange,
+	DestructiveChangeKind,
 	Dialect,
 	FkChange,
 	Manifest,
@@ -52,6 +54,40 @@ function isUnsafeTypeChange(
 
 function effectiveNullable(col: ManifestColumn): boolean {
 	return col.primary ? false : col.nullable;
+}
+
+/** NOT NULL with nothing to fill existing rows. Serial columns generate values. */
+function columnNeedsNotNullBackfill(col: ManifestColumn): boolean {
+	if (effectiveNullable(col)) return false;
+	if (col.kind === "serial") return false;
+	if (col.defaultNow) return false;
+	if (col.defaultValue !== undefined && col.defaultValue !== null) {
+		return false;
+	}
+	return true;
+}
+
+export function isManualDestructiveChange(
+	kind: DestructiveChangeKind,
+): boolean {
+	switch (kind) {
+		case "alter_column_type_manual":
+		case "alter_enum_manual":
+		case "add_column_not_null":
+		case "set_not_null":
+			return true;
+		case "drop_table":
+		case "drop_column":
+		case "alter_column_type":
+		case "drop_index":
+		case "drop_fk":
+		case "alter_primary_key":
+			return false;
+		default: {
+			const _exhaustive: never = kind;
+			return _exhaustive;
+		}
+	}
 }
 
 function onDeleteEqual(a: string | undefined, b: string | undefined): boolean {
@@ -632,6 +668,11 @@ function diffTable(
 	};
 }
 
+function enforcesNotNull(sql: string): boolean {
+	if (sql.includes("DROP NOT NULL")) return false;
+	return sql.includes("SET NOT NULL") || /\bNOT NULL\b/.test(sql);
+}
+
 function classifyDestructive(
 	diff: TableDiff,
 	prevTable?: ManifestTable,
@@ -701,6 +742,50 @@ function classifyDestructive(
 		}
 	}
 
+	for (const col of diff.addColumns ?? []) {
+		if (!columnNeedsNotNullBackfill(col)) continue;
+		const detail = `Add NOT NULL column "${tableName}"."${col.sqlName}" without a default`;
+		for (const sql of dialect.emitAlterTable(diff.table, {
+			table: diff.table,
+			...(manifest ? { manifest } : {}),
+			addColumns: [col],
+		})) {
+			changes.push({
+				kind: "add_column_not_null",
+				table: tableName,
+				detail,
+				sql,
+			});
+		}
+	}
+
+	const notNullAlters = (diff.alterColumns ?? []).filter(
+		(alter) => alter.setNullable === false,
+	);
+	if (notNullAlters.length > 0) {
+		const column = notNullAlters.map((alter) => alter.sqlName).join(", ");
+		const detail = `Set "${tableName}"."${column}" NOT NULL without an UPDATE of existing nulls`;
+		const statements =
+			dialect.name === "sqlite"
+				? dialect.emitAlterTable(diff.table, diff)
+				: notNullAlters.flatMap((alter) =>
+						dialect.emitAlterTable(diff.table, {
+							table: diff.table,
+							...(manifest ? { manifest } : {}),
+							alterColumns: [alter],
+						}),
+					);
+		for (const sql of statements) {
+			if (dialect.name !== "sqlite" && !enforcesNotNull(sql)) continue;
+			changes.push({
+				kind: "set_not_null",
+				table: tableName,
+				detail,
+				sql,
+			});
+		}
+	}
+
 	for (const indexName of diff.dropIndexes ?? []) {
 		changes.push({
 			kind: "drop_index",
@@ -724,6 +809,64 @@ function classifyDestructive(
 	return changes;
 }
 
+function alterWithoutSetNotNull(
+	alter: ColumnAlter,
+	dialect: Dialect,
+): ColumnAlter | null {
+	if (alter.setNullable !== false) return alter;
+	const next: ColumnAlter = { sqlName: alter.sqlName };
+	if (alter.setType) next.setType = alter.setType;
+	if (alter.fromSqlType !== undefined) next.fromSqlType = alter.fromSqlType;
+	if (alter.setDefault !== undefined) next.setDefault = alter.setDefault;
+	if (alter.setUnique !== undefined) next.setUnique = alter.setUnique;
+	if (alter.dropUniqueConstraint !== undefined) {
+		next.dropUniqueConstraint = alter.dropUniqueConstraint;
+	}
+	if (alter.setCheckExpression !== undefined) {
+		next.setCheckExpression = alter.setCheckExpression;
+	}
+	if (alter.dropCheck !== undefined) next.dropCheck = alter.dropCheck;
+	const hasWork =
+		next.setType !== undefined ||
+		next.setDefault !== undefined ||
+		next.setUnique !== undefined ||
+		next.dropUniqueConstraint !== undefined ||
+		next.setCheckExpression !== undefined ||
+		next.dropCheck !== undefined;
+	if (!hasWork) return null;
+	// MySQL MODIFY restates every attribute from the next column, which is
+	// already NOT NULL. Force NULL so the safe statement does not set it.
+	if (isMysqlFamilyDialect(dialect) && next.setType) {
+		next.setNullable = true;
+	}
+	return next;
+}
+
+function safeAlterColumns(
+	diff: TableDiff,
+	dialect: Dialect,
+): ColumnAlter[] | undefined {
+	const alters = diff.alterColumns?.filter(
+		(alter) =>
+			!alter.setType ||
+			!isUnsafeTypeChange(alter, diff.manifest, dialect),
+	);
+	if (!alters || alters.length === 0) return undefined;
+	// SQLite rebuilds the whole table from the next definition, so a SET NOT
+	// NULL cannot be peeled off of the other alters.
+	if (
+		dialect.name === "sqlite" &&
+		alters.some((alter) => alter.setNullable === false)
+	) {
+		return undefined;
+	}
+	const kept = alters.flatMap((alter) => {
+		const next = alterWithoutSetNotNull(alter, dialect);
+		return next ? [next] : [];
+	});
+	return kept.length > 0 ? kept : undefined;
+}
+
 function stripDestructiveFromDiff(
 	diff: TableDiff,
 	dialect: Dialect = postgresDialect,
@@ -733,18 +876,15 @@ function stripDestructiveFromDiff(
 	}
 
 	const fkChanges = diff.fkChanges?.filter((change) => !change.drop);
-	const alterColumns = diff.alterColumns?.filter(
-		(alter) =>
-			!alter.setType ||
-			!isUnsafeTypeChange(alter, diff.manifest, dialect),
+	const alterColumns = safeAlterColumns(diff, dialect);
+	const addColumns = diff.addColumns?.filter(
+		(col) => !columnNeedsNotNullBackfill(col),
 	);
 
 	const stripped: TableDiff = {
 		table: diff.table,
 		...(diff.create ? { create: diff.create } : {}),
-		...(diff.addColumns && diff.addColumns.length > 0
-			? { addColumns: diff.addColumns }
-			: {}),
+		...(addColumns && addColumns.length > 0 ? { addColumns } : {}),
 		...(diff.renameColumns && diff.renameColumns.length > 0
 			? { renameColumns: diff.renameColumns }
 			: {}),
@@ -959,10 +1099,8 @@ export function resolveMigrationSql(
 	dialect: Dialect = postgresDialect,
 ): { sql: string[]; blocked: DestructiveChange[] } {
 	if (acceptDataLoss) {
-		const blocked = diff.destructive.filter(
-			(change) =>
-				change.kind === "alter_column_type_manual" ||
-				change.kind === "alter_enum_manual",
+		const blocked = diff.destructive.filter((change) =>
+			isManualDestructiveChange(change.kind),
 		);
 		if (blocked.length === 0) {
 			return { sql: diff.sql, blocked: [] };
@@ -1041,10 +1179,7 @@ export function explainNoMigrationSql(
 	}
 
 	for (const change of diff.destructive) {
-		if (
-			change.kind === "alter_column_type_manual" ||
-			change.kind === "alter_enum_manual"
-		) {
+		if (isManualDestructiveChange(change.kind)) {
 			const [warning] = formatDestructiveWarnings([change]);
 			if (warning) {
 				reasons.push(warning);
@@ -1116,6 +1251,10 @@ export function formatDestructiveWarnings(
 				return `${change.detail} — primary key changes require manual migration`;
 			case "alter_enum_manual":
 				return `${change.detail} — enum value changes require manual migration`;
+			case "add_column_not_null":
+				return `${change.detail} — add a default, or write a manual migration that backfills existing rows`;
+			case "set_not_null":
+				return `${change.detail} — write a manual migration that UPDATEs existing nulls before SET NOT NULL`;
 			default: {
 				const _exhaustive: never = change.kind;
 				return _exhaustive;

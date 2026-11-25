@@ -31,7 +31,7 @@ neoorm generate [options]
 
 Options:
 - `-n, --name <name>` — migration name (e.g. `--name add_users`). Only needed when a migration is created: prompts on a TTY at that point, errors in CI. Folders are `<timestamp>_<slug>` with the slug capped at 50 chars. No-change runs (client regeneration only) and pending-apply-only `dev` runs never prompt and succeed without `--name`.
-- `--accept-data-loss` — include destructive DDL such as column and table drops. Enum value changes and unsafe type changes stay blocked and need a manual migration.
+- `--accept-data-loss` — include destructive DDL such as column and table drops. Enum value changes, unsafe type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL` stay blocked and need a default or a manual migration.
 
 ## `neoorm migrate dev`
 

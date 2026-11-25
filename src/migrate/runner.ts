@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import {
 	diffManifest,
 	formatDestructiveWarnings,
+	isManualDestructiveChange,
 	resolveMigrationSql,
 } from "../codegen/diff-manifest.js";
 import type { CompileSchemaOptions } from "../codegen/generate.js";
@@ -1257,11 +1258,28 @@ export function dbPushWarnings(blocked: DestructiveChange[]): string[] {
 		return [];
 	}
 	const warnings = formatDestructiveWarnings(blocked);
-	if (blocked.some((change) => change.kind === "alter_column_type_manual")) {
+	const hasTypeChange = blocked.some(
+		(change) => change.kind === "alter_column_type_manual",
+	);
+	const hasNotNull = blocked.some(
+		(change) =>
+			change.kind === "add_column_not_null" ||
+			change.kind === "set_not_null",
+	);
+	const hasAcceptable = blocked.some(
+		(change) => !isManualDestructiveChange(change.kind),
+	);
+	if (hasTypeChange) {
 		warnings.push(
 			"Some type changes cannot be applied automatically and were skipped.",
 		);
-	} else {
+	}
+	if (hasNotNull) {
+		warnings.push(
+			"NOT NULL changes were not applied. Add a default, or write a migration that updates existing rows.",
+		);
+	}
+	if (hasAcceptable || (!hasTypeChange && !hasNotNull)) {
 		warnings.push(
 			"Destructive changes were not applied. Re-run with --accept-data-loss to apply them.",
 		);

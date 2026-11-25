@@ -24,6 +24,35 @@ export const schema = defineSchema({
 });
 `;
 
+const SCHEMA_NOT_NULL_V1 = `import { defineSchema, id, table, text } from "neoorm/schema";
+
+export const schema = defineSchema({
+	users: table({ id: id(), name: text() }),
+});
+`;
+
+const SCHEMA_NOT_NULL_V2 = `import { defineSchema, id, table, text } from "neoorm/schema";
+
+export const schema = defineSchema({
+	users: table({
+		id: id(),
+		name: text().notNull(),
+		bio: text().notNull(),
+	}),
+});
+`;
+
+const SCHEMA_NOT_NULL_DEFAULT = `import { defineSchema, id, table, text } from "neoorm/schema";
+
+export const schema = defineSchema({
+	users: table({
+		id: id(),
+		name: text(),
+		bio: text().notNull().default("x"),
+	}),
+});
+`;
+
 const SCHEMA_V2 = `import { defineSchema, id, table } from "neoorm/schema";
 
 export const schema = defineSchema({
@@ -86,6 +115,76 @@ describe("accept-data-loss generate flow", () => {
 		const migrationsDir = join(outDir, "migrations");
 		const migrationDirsAfterBlock = await readdir(migrationsDir);
 		expect(migrationDirsAfterBlock).toHaveLength(1);
+
+		await rm(workDir, { recursive: true, force: true });
+	});
+
+	it("does not write a migration when NOT NULL needs a backfill", async () => {
+		const workDir = await createWorkDir();
+		const outDir = join(workDir, "neoorm");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			SCHEMA_NOT_NULL_V1,
+			"schema-v1.ts",
+		);
+		await generateFromSchema(schemaV1Path, outDir, { name: "v1_init" });
+		const snapshotAfterV1 = await readSnapshot(outDir);
+
+		const schemaV2Path = await writeSchema(
+			workDir,
+			SCHEMA_NOT_NULL_V2,
+			"schema-v2.ts",
+		);
+		const blocked = await generateFromSchema(schemaV2Path, outDir, {
+			name: "v2_not_null",
+			acceptDataLoss: true,
+		});
+		expect(blocked.destructiveBlocked).toBe(true);
+		expect(blocked.summary.status).toBe("migration_blocked");
+		expect(blocked.migrationName).toBeNull();
+		expect(
+			blocked.summary.reasons.some((reason) =>
+				reason.includes("NOT NULL"),
+			),
+		).toBe(true);
+		expect(
+			blocked.summary.reasons.some((reason) =>
+				reason.includes("--accept-data-loss"),
+			),
+		).toBe(false);
+
+		const snapshotAfterBlocked = await readSnapshot(outDir);
+		expect(hashManifest(defined(snapshotAfterBlocked, "snapshot"))).toBe(
+			hashManifest(defined(snapshotAfterV1, "v1 snapshot")),
+		);
+		expect(
+			snapshotAfterBlocked?.tables.users?.columns.map((c) => c.sqlName),
+		).toEqual(["id", "name"]);
+
+		const migrationDirs = await readdir(join(outDir, "migrations"));
+		expect(migrationDirs).toHaveLength(1);
+
+		const schemaDefaultPath = await writeSchema(
+			workDir,
+			SCHEMA_NOT_NULL_DEFAULT,
+			"schema-default.ts",
+		);
+		const allowed = await generateFromSchema(schemaDefaultPath, outDir, {
+			name: "v2_bio_default",
+		});
+		expect(allowed.destructiveBlocked).toBe(false);
+		expect(allowed.migrationName).not.toBeNull();
+		const migrationSql = await readFile(
+			join(
+				outDir,
+				"migrations",
+				allowed.migrationName ?? "",
+				"migration.sql",
+			),
+			"utf-8",
+		);
+		expect(migrationSql).toContain("NOT NULL");
+		expect(migrationSql).toContain("DEFAULT");
 
 		await rm(workDir, { recursive: true, force: true });
 	});
