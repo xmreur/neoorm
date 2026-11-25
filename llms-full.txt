@@ -2390,7 +2390,7 @@ When migration is blocked, the CLI explains why. Re-run with `--accept-data-loss
 neoorm generate --name add_users --accept-data-loss
 ```
 
-Appending a native enum value is ordinary DDL: `ALTER TYPE … ADD VALUE` on PostgreSQL, and `MODIFY … ENUM(...)` on MySQL and MariaDB. Removing or reordering values stays blocked after `--accept-data-loss`, and so do primary key changes (`primaryKey()` or a `.primary()` toggle), unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL`. Generate writes no SQL for those and leaves `snapshot.json` unchanged. Dropping the last use of a PostgreSQL enum emits `DROP TYPE` after the column or table that used it is dropped. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first. Renaming a table's SQL name while keeping its accessor emits `ALTER TABLE … RENAME TO` and keeps the rows. It is not a drop. Indexes keep their shape and are renamed with the table (`posts_title_idx` becomes `articles_title_idx`), so a later drop uses the name that exists in the database. SQLite has no `RENAME INDEX`, so that rename is a drop of the old name and a create of the new one.
+Appending a native enum value is ordinary DDL: `ALTER TYPE … ADD VALUE` on PostgreSQL, and `MODIFY … ENUM(...)` on MySQL and MariaDB. Removing or reordering values stays blocked after `--accept-data-loss`, and so do primary key changes (`primaryKey()` or a `.primary()` toggle), unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL`. Generate writes no SQL for those and leaves `snapshot.json` unchanged. Dropping the last use of a PostgreSQL enum emits `DROP TYPE` after the column or table that used it is dropped. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first. Renaming a table's SQL name while keeping its accessor emits `ALTER TABLE … RENAME TO` and keeps the rows. It is not a drop. Indexes keep their shape and are renamed with the table (`posts_title_idx` becomes `articles_title_idx`), so a later drop uses the name that exists in the database. SQLite has no `RENAME INDEX`, so that rename is a drop of the old name and a create of the new one. Changing `datasource.schema` moves the tables and existing enum types into the new schema instead of leaving them in `public`. Index and enum statements in a non-public schema are schema-qualified.
 
 To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
 
@@ -2860,7 +2860,7 @@ datasource: {
 },
 ```
 
-`datasource.schema` is PostgreSQL-only (ignored on SQLite, MySQL, and MariaDB). `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL/MariaDB column `ENUM`. See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md).
+`datasource.schema` is PostgreSQL-only (ignored on SQLite, MySQL, and MariaDB). A non-public schema is created if needed, and index and enum DDL is schema-qualified (`DROP INDEX IF EXISTS "app"."posts_title_idx"`, `CREATE TYPE "app"."posts_status"`). Changing the schema moves each table with `ALTER TABLE … SET SCHEMA` and moves existing enum types the same way. `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL/MariaDB column `ENUM`. See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md).
 
 ### Enum modes
 

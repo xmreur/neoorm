@@ -1,6 +1,7 @@
 import {
 	defineSchema,
 	table as defineTable,
+	enumType,
 	id,
 	index,
 	text,
@@ -15,7 +16,10 @@ import {
 } from "../src/codegen/diff-manifest.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
-import { postgresDialect } from "../src/dialect/postgres.js";
+import {
+	applySchemaToManifest,
+	postgresDialect,
+} from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import type {
 	Manifest,
@@ -558,6 +562,82 @@ describe("diffManifest", () => {
 		expect(diffManifest(prev, next).sql).toContain(
 			'ALTER TABLE "tenant"."users" RENAME TO "accounts";',
 		);
+	});
+
+	it("moves a table when its schema changes", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+		];
+		const prev = manifest({
+			users: table("users", "users", columns),
+		});
+		const next = manifest({
+			users: table("users", "users", columns, { schemaName: "app" }),
+		});
+
+		expect(diffManifest(prev, next).sql).toEqual([
+			'CREATE SCHEMA IF NOT EXISTS "app";',
+			'ALTER TABLE "public"."users" SET SCHEMA "app";',
+		]);
+	});
+
+	it("schema-qualifies index and enum DDL outside public", () => {
+		const columns = {
+			id: id(),
+			title: text().notNull(),
+			status: enumType(["draft", "published"]),
+		};
+		const prev = applySchemaToManifest(
+			schemaToManifest(
+				defineSchema({
+					posts: defineTable(columns, (t) => [index(t.title)]),
+				}),
+				undefined,
+				{ enumMode: "native" },
+			),
+			"app",
+		);
+		const next = applySchemaToManifest(
+			schemaToManifest(
+				defineSchema({
+					posts: defineTable({
+						id: id(),
+						status: enumType(["draft", "published"]),
+					}),
+				}),
+				undefined,
+				{ enumMode: "native" },
+			),
+			"app",
+		);
+
+		const created = diffManifest(null, prev).sql.join("\n");
+		expect(created).toContain(
+			"CREATE TYPE \"app\".\"posts_status\" AS ENUM ('draft', 'published');",
+		);
+		expect(created).toContain('"status" "app"."posts_status"');
+
+		const { sql } = diffManifest(prev, next);
+		expect(sql).toContain('DROP INDEX IF EXISTS "app"."posts_title_idx";');
+	});
+
+	it("moves an existing enum type with the schema", () => {
+		const source = defineSchema({
+			posts: defineTable({
+				id: id(),
+				status: enumType(["draft", "published"]),
+			}),
+		});
+		const prev = schemaToManifest(source, undefined, {
+			enumMode: "native",
+		});
+		const next = applySchemaToManifest(prev, "app");
+
+		const sql = diffManifest(prev, next).sql;
+		expect(sql).toContain(
+			'ALTER TYPE "public"."posts_status" SET SCHEMA "app";',
+		);
+		expect(sql).toContain('ALTER TABLE "public"."posts" SET SCHEMA "app";');
 	});
 
 	it("detects add column, drop column, and rename column", () => {

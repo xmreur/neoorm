@@ -5,6 +5,7 @@ import {
 	postgresDialect,
 	resolveFkConstraintName,
 	resolveIndexSqlName,
+	resolvePgSchemaName,
 	resolveUniqueConstraintName,
 } from "../dialect/postgres.js";
 import { isMysqlFamilyDialect } from "../dialect/resolve.js";
@@ -695,6 +696,12 @@ function diffTable(
 		prevTable.primaryKey,
 		nextTable.primaryKey,
 	);
+	const prevSchema = resolvePgSchemaName(prevTable.schemaName);
+	const nextSchema = resolvePgSchemaName(nextTable.schemaName);
+	const moveFromSchema =
+		dialect.name === "postgresql" && prevSchema !== nextSchema
+			? prevSchema
+			: undefined;
 
 	const hasChanges =
 		addColumns.length > 0 ||
@@ -705,7 +712,8 @@ function diffTable(
 		dropIndexes.length > 0 ||
 		renameIndexes.length > 0 ||
 		fkChanges.length > 0 ||
-		primaryKeyChanged;
+		primaryKeyChanged ||
+		moveFromSchema !== undefined;
 
 	if (!hasChanges) {
 		return null;
@@ -721,6 +729,7 @@ function diffTable(
 		...(addIndexes.length > 0 ? { addIndexes } : {}),
 		...(dropIndexes.length > 0 ? { dropIndexes } : {}),
 		...(renameIndexes.length > 0 ? { renameIndexes } : {}),
+		...(moveFromSchema ? { moveFromSchema } : {}),
 		...(fkChanges.length > 0 ? { fkChanges } : {}),
 	};
 }
@@ -840,7 +849,11 @@ function classifyDestructive(
 			kind: "drop_index",
 			table: tableName,
 			detail: `Drop index "${indexName}" on "${tableName}"`,
-			sql: dialect.emitDropIndex(indexName),
+			sql: dialect.emitDropIndex(
+				indexName,
+				undefined,
+				diff.table.schemaName,
+			),
 		});
 	}
 
@@ -947,6 +960,7 @@ function stripDestructiveFromDiff(
 		...(diff.renameIndexes && diff.renameIndexes.length > 0
 			? { renameIndexes: diff.renameIndexes }
 			: {}),
+		...(diff.moveFromSchema ? { moveFromSchema: diff.moveFromSchema } : {}),
 		...(fkChanges && fkChanges.length > 0 ? { fkChanges } : {}),
 	};
 
@@ -958,6 +972,7 @@ function stripDestructiveFromDiff(
 		(stripped.alterColumns?.length ?? 0) > 0 ||
 		(stripped.addIndexes?.length ?? 0) > 0 ||
 		(stripped.renameIndexes?.length ?? 0) > 0 ||
+		stripped.moveFromSchema !== undefined ||
 		(stripped.fkChanges?.length ?? 0) > 0;
 
 	return hasChanges ? stripped : null;
@@ -972,6 +987,9 @@ export function buildMigrationSql(
 	enumDdl?: {
 		addValues?: readonly EnumValueChange[];
 		dropTypes?: readonly string[];
+		schema?: string;
+		dropSchema?: string;
+		moveTypes?: readonly { name: string; from: string; to: string }[];
 	},
 ): string[] {
 	const sql: string[] = [];
@@ -996,11 +1014,22 @@ export function buildMigrationSql(
 	}
 
 	if (newEnumTypes && Object.keys(newEnumTypes).length > 0) {
-		sql.push(...dialect.emitCreateEnumTypes(newEnumTypes));
+		sql.push(...dialect.emitCreateEnumTypes(newEnumTypes, enumDdl?.schema));
+	}
+
+	for (const move of enumDdl?.moveTypes ?? []) {
+		if (dialect.name !== "postgresql") continue;
+		sql.push(
+			`ALTER TYPE ${dialect.quoteIdentifier(move.from)}.${dialect.quoteIdentifier(move.name)} SET SCHEMA ${dialect.quoteIdentifier(move.to)};`,
+		);
 	}
 
 	for (const added of enumDdl?.addValues ?? []) {
-		const statement = dialect.emitAddEnumValue(added.name, added.value);
+		const statement = dialect.emitAddEnumValue(
+			added.name,
+			added.value,
+			enumDdl?.schema,
+		);
 		if (statement) sql.push(statement);
 	}
 
@@ -1028,7 +1057,10 @@ export function buildMigrationSql(
 	);
 
 	for (const name of enumDdl?.dropTypes ?? []) {
-		const statement = dialect.emitDropEnumType(name);
+		const statement = dialect.emitDropEnumType(
+			name,
+			enumDdl?.dropSchema ?? enumDdl?.schema,
+		);
 		if (statement) sql.push(statement);
 	}
 
@@ -1134,6 +1166,7 @@ function tableDiffHasSql(diff: TableDiff): boolean {
 		(diff.addIndexes?.length ?? 0) > 0 ||
 		(diff.dropIndexes?.length ?? 0) > 0 ||
 		(diff.renameIndexes?.length ?? 0) > 0 ||
+		diff.moveFromSchema !== undefined ||
 		(diff.fkChanges?.length ?? 0) > 0
 	);
 }
@@ -1196,11 +1229,23 @@ function stripManualEnumAlters(
 			...(diff.renameIndexes
 				? { renameIndexes: diff.renameIndexes }
 				: {}),
+			...(diff.moveFromSchema
+				? { moveFromSchema: diff.moveFromSchema }
+				: {}),
 			...(diff.fkChanges ? { fkChanges: diff.fkChanges } : {}),
 		};
 		if (tableDiffHasSql(next)) kept.push(next);
 	}
 	return kept;
+}
+
+function singlePgSchema(manifest: Manifest): string | undefined {
+	const names = new Set<string>();
+	for (const table of Object.values(manifest.tables)) {
+		names.add(resolvePgSchemaName(table.schemaName));
+	}
+	if (names.size !== 1) return undefined;
+	return [...names][0];
 }
 
 function tableSqlKey(table: ManifestTable): string {
@@ -1228,9 +1273,6 @@ function tableRenameSqlMap(
 	for (const [accessor, nextTable] of Object.entries(next.tables)) {
 		const prevTable = prev.tables[accessor];
 		if (!prevTable) continue;
-		if ((prevTable.schemaName ?? "") !== (nextTable.schemaName ?? "")) {
-			continue;
-		}
 		if (prevTable.sqlName === nextTable.sqlName) continue;
 		const prevOwnerOfNext = prevByKey.get(tableSqlKey(nextTable));
 		if (prevOwnerOfNext !== undefined && prevOwnerOfNext !== accessor) {
@@ -1346,7 +1388,12 @@ export function diffManifest(
 		sql.push(...dialect.emitCreateExtensions(extensions));
 
 		if (next.enumTypes) {
-			sql.push(...dialect.emitCreateEnumTypes(next.enumTypes));
+			sql.push(
+				...dialect.emitCreateEnumTypes(
+					next.enumTypes,
+					singlePgSchema(next),
+				),
+			);
 		}
 
 		sql.push(
@@ -1382,6 +1429,24 @@ export function diffManifest(
 
 	destructive.push(...enumDestructive);
 
+	const prevPgSchema =
+		dialect.name === "postgresql" ? singlePgSchema(prev) : undefined;
+	const nextPgSchema =
+		dialect.name === "postgresql" ? singlePgSchema(next) : undefined;
+	const moveTypes: { name: string; from: string; to: string }[] = [];
+	let dropSchema = nextPgSchema;
+	if (
+		prevPgSchema !== undefined &&
+		nextPgSchema !== undefined &&
+		prevPgSchema !== nextPgSchema
+	) {
+		dropSchema = prevPgSchema;
+		for (const name of Object.keys(next.enumTypes ?? {})) {
+			if (prev.enumTypes?.[name] === undefined) continue;
+			moveTypes.push({ name, from: prevPgSchema, to: nextPgSchema });
+		}
+	}
+
 	const sql = buildMigrationSql(
 		sqlDiffs,
 		newExtensions,
@@ -1391,6 +1456,9 @@ export function diffManifest(
 		{
 			addValues: enumDiff.addValues,
 			dropTypes: enumDiff.dropTypes,
+			...(nextPgSchema !== undefined ? { schema: nextPgSchema } : {}),
+			...(dropSchema !== undefined ? { dropSchema } : {}),
+			...(moveTypes.length > 0 ? { moveTypes } : {}),
 		},
 	);
 

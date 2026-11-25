@@ -204,12 +204,30 @@ export function pgStorageSqlType(
 	}
 }
 
+function columnTypeSql(
+	col: ManifestColumn,
+	table: ManifestTable,
+	manifest?: Manifest,
+): string {
+	const native = col.typeOptions?.nativeTypeName;
+	if (
+		(col.kind === "enum" || col.kind === "enumArray") &&
+		typeof native === "string" &&
+		table.schemaName &&
+		table.schemaName !== DEFAULT_PG_SCHEMA
+	) {
+		const qualified = quoteQualifiedIdentifier(table.schemaName, native);
+		return col.kind === "enumArray" ? `${qualified}[]` : qualified;
+	}
+	return columnType(col, manifest);
+}
+
 function columnDef(
 	col: ManifestColumn,
 	table: ManifestTable,
 	manifest?: Manifest,
 ): string {
-	const parts = [q(col.sqlName), columnType(col, manifest)];
+	const parts = [q(col.sqlName), columnTypeSql(col, table, manifest)];
 
 	if (isSolePrimaryKeyColumn(col, table)) {
 		parts.push("PRIMARY KEY");
@@ -380,21 +398,34 @@ function enumLiteral(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
 
+function qualifyPgName(schemaName: string | undefined, name: string): string {
+	if (!schemaName || schemaName === DEFAULT_PG_SCHEMA) return q(name);
+	return quoteQualifiedIdentifier(schemaName, name);
+}
+
 export function emitCreateEnumTypes(
 	enumTypes: Record<string, { values: readonly string[] }>,
+	schemaName?: string,
 ): string[] {
 	return Object.entries(enumTypes).map(([name, definition]) => {
 		const quotedValues = definition.values.map(enumLiteral).join(", ");
-		return `CREATE TYPE ${q(name)} AS ENUM (${quotedValues});`;
+		return `CREATE TYPE ${qualifyPgName(schemaName, name)} AS ENUM (${quotedValues});`;
 	});
 }
 
-export function emitAddEnumValue(typeName: string, value: string): string {
-	return `ALTER TYPE ${q(typeName)} ADD VALUE ${enumLiteral(value)};`;
+export function emitAddEnumValue(
+	typeName: string,
+	value: string,
+	schemaName?: string,
+): string {
+	return `ALTER TYPE ${qualifyPgName(schemaName, typeName)} ADD VALUE ${enumLiteral(value)};`;
 }
 
-export function emitDropEnumType(typeName: string): string {
-	return `DROP TYPE ${q(typeName)};`;
+export function emitDropEnumType(
+	typeName: string,
+	schemaName?: string,
+): string {
+	return `DROP TYPE ${qualifyPgName(schemaName, typeName)};`;
 }
 
 export function emitCreateSchema(schema: string | undefined): string {
@@ -458,8 +489,12 @@ function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
 	return `CREATE ${unique}INDEX ${q(indexName)} ON ${tableRef(table)}${using} (${cols})${withClause}${where};`;
 }
 
-function emitDropIndex(indexName: string, _tableSqlName?: string): string {
-	return `DROP INDEX IF EXISTS ${q(indexName)};`;
+function emitDropIndex(
+	indexName: string,
+	_tableSqlName?: string,
+	schemaName?: string,
+): string {
+	return `DROP INDEX IF EXISTS ${qualifyPgName(schemaName, indexName)};`;
 }
 
 function emitDropConstraint(
@@ -509,7 +544,7 @@ function emitAlterColumn(
 	const colName = q(alter.sqlName);
 
 	if (alter.setType) {
-		const typeSql = columnType(alter.setType, manifest);
+		const typeSql = columnTypeSql(alter.setType, table, manifest);
 		const using =
 			alter.fromSqlType !== undefined
 				? typeCastUsing(alter.sqlName, alter.fromSqlType, typeSql)
@@ -576,6 +611,13 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 	const stmts: string[] = [];
 	const manifest = diff.manifest;
 
+	if (diff.moveFromSchema) {
+		const currentName = diff.renameFromSqlName ?? table.sqlName;
+		stmts.push(
+			`ALTER TABLE ${quoteQualifiedIdentifier(diff.moveFromSchema, currentName)} SET SCHEMA ${q(resolvePgSchemaName(table.schemaName))};`,
+		);
+	}
+
 	if (diff.renameFromSqlName) {
 		stmts.push(
 			`ALTER TABLE ${tableRef({ ...table, sqlName: diff.renameFromSqlName })} RENAME TO ${q(table.sqlName)};`,
@@ -585,7 +627,7 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 	if (diff.renameIndexes) {
 		for (const rename of diff.renameIndexes) {
 			stmts.push(
-				`ALTER INDEX ${q(rename.from)} RENAME TO ${q(rename.to)};`,
+				`ALTER INDEX ${sameSchemaRef(table, rename.from)} RENAME TO ${q(rename.to)};`,
 			);
 		}
 	}
@@ -600,7 +642,9 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 
 	if (diff.dropIndexes) {
 		for (const indexName of diff.dropIndexes) {
-			stmts.push(emitDropIndex(indexName));
+			stmts.push(
+				emitDropIndex(indexName, table.sqlName, table.schemaName),
+			);
 		}
 	}
 
