@@ -127,6 +127,7 @@ export type {
 	AggregateArgs,
 	ApplyOmit,
 	ApplySelect,
+	ArrayFilter,
 	ColumnWhereInput,
 	ComparableFilter,
 	ConnectInput,

@@ -68,16 +68,27 @@ const JSON_OPS = [
 	"isNull",
 	"isNotNull",
 ];
+const ARRAY_OPS = [
+	"has",
+	"hasEvery",
+	"hasSome",
+	"equals",
+	"isNull",
+	"isNotNull",
+];
 
 function opsFor(column: StudioColumnMeta): string[] {
 	if (column.kind === "bool") return ENUM_OPS;
 	if (column.kind === "json" || column.kind === "jsonb") return JSON_OPS;
 	if (
-		column.kind === "enum" ||
-		column.kind.endsWith("Array") ||
+		column.kind === "textArray" ||
+		column.kind === "intArray" ||
+		column.kind === "uuidArray" ||
 		column.kind === "enumArray"
-	)
-		return ENUM_OPS;
+	) {
+		return ARRAY_OPS;
+	}
+	if (column.kind === "enum") return ENUM_OPS;
 	if (
 		isTextKind(column.kind) ||
 		column.kind === "timestamp" ||
@@ -106,6 +117,31 @@ function parseFilterValue(
 		insensitive && isTextKind(column.kind)
 			? { ...predicate, mode: "insensitive" }
 			: predicate;
+	if (op === "has") {
+		if (column.kind === "intArray") {
+			const n = Number(trimmed);
+			return { has: Number.isFinite(n) ? n : trimmed };
+		}
+		return { has: trimmed };
+	}
+	if (op === "hasEvery" || op === "hasSome") {
+		let items: unknown[];
+		try {
+			const parsed = JSON.parse(
+				trimmed.startsWith("[") ? trimmed : `[${trimmed}]`,
+			) as unknown;
+			items = Array.isArray(parsed) ? parsed : [trimmed];
+		} catch {
+			items = trimmed.split(",").map((part) => part.trim());
+		}
+		if (column.kind === "intArray") {
+			items = items.map((item) => {
+				const n = Number(item);
+				return Number.isFinite(n) ? n : item;
+			});
+		}
+		return { [op]: items };
+	}
 	if (op === "in") {
 		try {
 			const parsed = JSON.parse(

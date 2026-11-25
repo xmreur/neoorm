@@ -112,6 +112,19 @@ type JsonPathWhere = {
 };
 
 /** Named so type errors point at the filter instead of expanding it. */
+export interface ArrayFilter<T> {
+	equals?: readonly T[] | null;
+	/** Column contains this element (`= ANY` / JSON membership). */
+	has?: T;
+	/** Column contains every element (`@>` / JSON containment). */
+	hasEvery?: readonly T[];
+	/** Column contains at least one element (`&&` / JSON overlap). */
+	hasSome?: readonly T[];
+	isNull?: true;
+	isNotNull?: true;
+}
+
+/** Named so type errors point at the filter instead of expanding it. */
 export interface JsonFilter<T> {
 	equals?: T;
 	jsonContains?: Partial<T> | T;
@@ -150,6 +163,8 @@ type PluginWhereForColumn<TCol extends ColumnDef> = [
 				keyof PluginColumnWhereOperators]
 		: unknown;
 
+type ArrayItem<T> = NonNullable<T> extends readonly (infer E)[] ? E : never;
+
 type CoreColumnWhereOperators<
 	TCol extends ColumnDef,
 	TSchema extends Record<string, TableDef> = Record<string, TableDef>,
@@ -158,11 +173,17 @@ type CoreColumnWhereOperators<
 		? ComparableFilter<string>
 		: ColumnKindOf<TCol> extends "json" | "jsonb"
 			? JsonFilter<InferColumnValue<TCol, TSchema>>
-			: TCol extends ColumnBuilder<unknown, infer _M>
-				? WhereOperators<InferColumnValue<TCol, TSchema>>
-				: TCol extends FkBuilder
+			: ColumnKindOf<TCol> extends
+						| "textArray"
+						| "intArray"
+						| "uuidArray"
+						| "enumArray"
+				? ArrayFilter<ArrayItem<InferColumnValue<TCol, TSchema>>>
+				: TCol extends ColumnBuilder<unknown, infer _M>
 					? WhereOperators<InferColumnValue<TCol, TSchema>>
-					: WhereOperators<InferColumnValue<TCol, TSchema>>;
+					: TCol extends FkBuilder
+						? WhereOperators<InferColumnValue<TCol, TSchema>>
+						: WhereOperators<InferColumnValue<TCol, TSchema>>;
 
 type InferColumnWhereOperators<
 	TCol extends ColumnDef,

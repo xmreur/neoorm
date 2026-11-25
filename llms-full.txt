@@ -1790,6 +1790,7 @@ await db.posts.findMany({ where: { price: { contains: "9" } } });
 | String | `equals`, `contains`, `startsWith`, `endsWith`, `search`, `searchTs`, `in`, `notIn`, `mode` |
 | Numeric / Date | `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn` |
 | JSON | `jsonContains`, `hasKey`, `hasAnyKeys`, `hasAllKeys`, `path` |
+| Array (`textArray`, `intArray`, `uuidArray`, `enumArray`) | `equals`, `has`, `hasEvery`, `hasSome` |
 | PostGIS (`geometry`, `geography`, `point`) | `intersects`, `within`, `dWithin` |
 | All nullable | `isNull`, `isNotNull` |
 
@@ -1816,6 +1817,8 @@ await db.posts.findMany({
 `parser` is `plain` (`plainto_tsquery`, the default), `phrase` (`phraseto_tsquery`), or `websearch` (`websearch_to_tsquery`). `language` defaults to `english` and must match `/^[a-z_]+$/` since it is interpolated as the `regconfig`. On MySQL/MariaDB the `language` and `parser` options are accepted but ignored.
 
 JSON operators on PostgreSQL use `@>`, `?`, and `#>` / `#>>`. On SQLite they compile to `json_patch` (object containment), `json_each` (key existence), and `json_extract` (path). On MySQL and MariaDB they compile to `JSON_CONTAINS`, `JSON_CONTAINS_PATH`, and `JSON_EXTRACT`.
+
+Array columns use `has` for one element, `hasEvery` when every value must be present, and `hasSome` when any value is enough. On PostgreSQL those are `$n = ANY(col)`, `col @> $n`, and `col && $n`. On SQLite they use `json_each`. On MySQL and MariaDB they use `JSON_CONTAINS` and `JSON_OVERLAPS`. Arrays are stored as JSON outside PostgreSQL.
 
 ```ts
 await db.posts.findMany({
@@ -2761,7 +2764,7 @@ Studio reads `neoorm.config.ts` (after `.env`, like the other commands) and comp
 ## Data grid
 
 - Spreadsheet-like browsing with pagination, multi-column sort (Shift+click), column reorder (drag headers), column show/hide, and wrap/truncate.
-- Filters map to real NeoOrm `where` operators: strings (`contains`, `startsWith`, `endsWith`, `search`, insensitive via advanced JSON), numbers/dates (`gt`, `gte`, `lt`, `lte`, `in`), nulls, enums, JSON (`jsonContains`, `hasKey`, `path`), plus an advanced JSON box for relation filters (`some`/`every`/`none`), `AND`/`OR`/`NOT`.
+- Filters map to real NeoOrm `where` operators: strings (`contains`, `startsWith`, `endsWith`, `search`, insensitive via advanced JSON), numbers/dates (`gt`, `gte`, `lt`, `lte`, `in`), nulls, enums, arrays (`has`, `hasEvery`, `hasSome`), JSON (`jsonContains`, `hasKey`, `path`), plus an advanced JSON box for relation filters (`some`/`every`/`none`), `AND`/`OR`/`NOT`.
 - Table-wide search runs `contains` across text-like columns.
 - Double-click a cell to edit. Edits are staged — press `Save` (or `⌘/Ctrl+S`) to write them, `Esc`-via-banner to discard. Cell editors are type-aware: booleans, enum selects, timestamps, JSON, arrays, UUID generation, `bytea` upload, decimals as strings.
 - Hidden columns (`.hidden()`) are visible in Studio but masked until you reveal them — useful for passwords and secrets, which are fetched with `includeHidden`.
