@@ -91,4 +91,4 @@ await db.posts.updateMany({
 
 ## Operation order
 
-Within a single relation field, operations run in order: `delete` → `disconnect` → `set` → `connect` / `connectOrCreate` → `create`. Mixing `set` with `connect` or `create` is discouraged — `set` replaces the full link set.
+Within a single relation field, operations run in order: `delete` → `disconnect` → `set` → `connect` / `connectOrCreate` → `create`. `set` replaces the current links, then `connect` and `create` add to that list.

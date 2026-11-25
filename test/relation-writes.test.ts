@@ -314,6 +314,34 @@ describe("relation-writes", () => {
 		]);
 	});
 
+	it("connects more rows after set replaces the links", async () => {
+		const executor = createMockExecutor();
+
+		await executeRelationWrites(
+			executor,
+			runtime,
+			"posts",
+			"post_1",
+			[
+				{
+					relationName: "tags",
+					value: {
+						set: [{ id: "tag_1" }],
+						connect: [{ id: "tag_9" }],
+					},
+				},
+			],
+			runCreate,
+		);
+
+		const inserts = executor.queries.filter((q) =>
+			q.sql.includes("INSERT"),
+		);
+		expect(inserts).toHaveLength(2);
+		expect(inserts[0]?.params).toEqual(["post_1", "tag_1"]);
+		expect(inserts[1]?.params).toEqual(["post_1", "tag_9"]);
+	});
+
 	it("executeRelationWrites connects M2M links in one insert", async () => {
 		const executor = createMockExecutor();
 
