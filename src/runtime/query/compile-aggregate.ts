@@ -758,7 +758,14 @@ export function buildGroupByQuery(
 	dialect: Dialect = postgresDialect,
 ): string {
 	const byCols = resolveGroupByColumns(table, byKeys, manifestIndex);
-	const selectBy = buildSelectColumns(table, byKeys, manifestIndex);
+	const selectBy = buildSelectColumns(
+		table,
+		byKeys,
+		manifestIndex,
+		undefined,
+		undefined,
+		dialect,
+	);
 	const aggParts = aggregateSelectParts(
 		table,
 		selectors,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { schema } from "../examples/blog/schema.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { mariadbDialect } from "../src/dialect/mariadb.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import {
 	buildGroupByQuery,
@@ -43,6 +45,26 @@ describe("groupBy SQL", () => {
 		expect(sql).toContain("ORDER BY COUNT(*) DESC");
 		expect(sql).toContain("LIMIT 10");
 		expect(having.params).toEqual([5, 10]);
+	});
+
+	it("quotes groupBy select columns with the dialect", () => {
+		for (const dialect of [mysqlDialect, mariadbDialect]) {
+			const sql = buildGroupByQuery(
+				posts,
+				["status"],
+				{ _count: true },
+				"",
+				"",
+				"",
+				undefined,
+				undefined,
+				undefined,
+				dialect,
+			);
+			expect(sql).toContain("SELECT `status`");
+			expect(sql).toContain("GROUP BY `status`");
+			expect(sql).not.toContain('"status"');
+		}
 	});
 
 	it("throws on empty by", () => {
