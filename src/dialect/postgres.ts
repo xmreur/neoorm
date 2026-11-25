@@ -672,6 +672,9 @@ export const postgresDialect: Dialect = {
 	jsonAggExpr(expr) {
 		return `json_agg(${expr})`;
 	},
+	jsonAggOrderedExpr(expr, orderBy) {
+		return `json_agg(${expr} ORDER BY ${orderBy})`;
+	},
 	jsonAggFilterExpr(expr, predicate) {
 		return `json_agg(${expr}) FILTER (WHERE ${predicate})`;
 	},

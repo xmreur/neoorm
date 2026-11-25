@@ -424,7 +424,8 @@ function applyPerParentTakeSkip(args: {
 			? `${rank} > ${skipN} AND ${rank} <= ${skipN + takeN}`
 			: `${rank} > ${skipN}`;
 
-	return `SELECT * FROM (SELECT ${selectList}, ROW_NUMBER() OVER (PARTITION BY ${partitionBy}${overOrder}) AS ${rank} ${fromSql}) AS ${ranked} WHERE ${filter}`;
+	const parentId = dialect.quoteIdentifier(BATCH_PARENT_ID);
+	return `SELECT * FROM (SELECT ${selectList}, ROW_NUMBER() OVER (PARTITION BY ${partitionBy}${overOrder}) AS ${rank} ${fromSql}) AS ${ranked} WHERE ${filter} ORDER BY ${parentId}, ${rank}`;
 }
 
 async function loadNestedRelations(

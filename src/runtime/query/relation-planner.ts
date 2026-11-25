@@ -1,5 +1,5 @@
 import { postgresDialect } from "../../dialect/postgres.js";
-import { isMariadbDialect } from "../../dialect/resolve.js";
+import { isMariadbDialect, isMysqlDialect } from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	Manifest,
@@ -13,6 +13,7 @@ import {
 	buildSelectColumns,
 	columnsForOutput,
 	compileOrderBy,
+	compileOrderByItems,
 	compileWhere,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
@@ -622,6 +623,9 @@ function buildHasManyRowExpression(
 	return dialect.jsonBuildObjectExpr(entries);
 }
 
+/** Largest MySQL LIMIT. Makes a derived-table ORDER BY visible to JSON_ARRAYAGG. */
+const MYSQL_ORDERED_SUBQUERY_LIMIT = "18446744073709551615";
+
 function buildHasManySubqueryFromRef(
 	node: InlineChainNode,
 	_parentTable: ManifestTable,
@@ -641,8 +645,38 @@ function buildHasManySubqueryFromRef(
 		manifest,
 		extra,
 	);
+	const orderItems = compileOrderByItems(
+		node.targetTable,
+		node.nestedSpec?.orderBy,
+		childAlias,
+		manifestIndex,
+		dialect,
+	);
+	// MySQL's JSON_ARRAYAGG cannot take ORDER BY, and it drops a derived
+	// table's ORDER BY unless that table has LIMIT. A max LIMIT keeps the
+	// subquery order. Other engines aggregate with an explicit ORDER BY.
+	const orderInAggregate = orderItems.length > 0 && !isMysqlDialect(dialect);
+	const orderSelects = orderInAggregate
+		? orderItems.map((item, index) => {
+				const alias = dialect.quoteIdentifier(`__neoorm_ord_${index}`);
+				return `${item.expression} AS ${alias}`;
+			})
+		: [];
+	const aggregateOrder = orderItems
+		.map((item, index) => {
+			const alias = dialect.quoteIdentifier(`__neoorm_ord_${index}`);
+			return `${alias} ${item.direction}`;
+		})
+		.join(", ");
+	const agg = orderInAggregate
+		? dialect.jsonAggOrderedExpr("agg_row", aggregateOrder)
+		: dialect.jsonAggExpr("agg_row");
+	const selectList =
+		orderSelects.length > 0
+			? `${rowExpr} AS agg_row, ${orderSelects.join(", ")}`
+			: `${rowExpr} AS agg_row`;
 
-	let sql = `(SELECT ${dialect.jsonAggExpr("agg_row")} FROM (SELECT ${rowExpr} AS agg_row FROM ${dialect.tableRef(node.targetTable)} ${dialect.quoteIdentifier(childAlias)} WHERE ${dialect.quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
+	let sql = `(SELECT ${agg} FROM (SELECT ${selectList} FROM ${dialect.tableRef(node.targetTable)} ${dialect.quoteIdentifier(childAlias)} WHERE ${dialect.quoteIdentifier(childAlias)}.${fkCol} = ${parentCorrelationRef}`;
 
 	if (extra && manifest && node.nestedSpec?.where) {
 		sql = appendNestedWhereSql(
@@ -668,6 +702,8 @@ function buildHasManySubqueryFromRef(
 	}
 	if (node.nestedSpec?.take !== undefined) {
 		sql += ` LIMIT ${normalizeLimitOffset(node.nestedSpec.take, "take")}`;
+	} else if (orderItems.length > 0 && isMysqlDialect(dialect)) {
+		sql += ` LIMIT ${MYSQL_ORDERED_SUBQUERY_LIMIT}`;
 	}
 	if (node.nestedSpec?.skip !== undefined) {
 		sql += ` OFFSET ${normalizeLimitOffset(node.nestedSpec.skip, "skip")}`;

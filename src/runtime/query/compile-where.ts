@@ -1454,18 +1454,23 @@ export function parseOrderDirection(direction: string): "ASC" | "DESC" {
 	}
 }
 
-export function compileOrderBy(
+export type OrderByItem = {
+	expression: string;
+	direction: "ASC" | "DESC";
+};
+
+export function compileOrderByItems(
 	table: ManifestTable,
 	orderBy: OrderByInput | undefined,
 	tableAlias?: string,
 	manifestIndex?: ManifestIndex,
 	dialect: Dialect = postgresDialect,
-): string {
-	if (!orderBy || Object.keys(orderBy).length === 0) return "";
+): OrderByItem[] {
+	if (!orderBy || Object.keys(orderBy).length === 0) return [];
 
 	const tableIndex = getTableIndex(manifestIndex, table.accessor);
 	const prefix = tableAlias ? `${dialect.quoteIdentifier(tableAlias)}.` : "";
-	const parts: string[] = [];
+	const items: OrderByItem[] = [];
 	for (const [tsKey, direction] of Object.entries(orderBy)) {
 		if (tsKey === "_count" || typeof direction !== "string") continue;
 		const col = requireTsColumn(
@@ -1475,11 +1480,30 @@ export function compileOrderBy(
 			"orderBy",
 			"select",
 		);
-		const dir = parseOrderDirection(direction);
-		parts.push(`${prefix}${dialect.quoteIdentifier(col.sqlName)} ${dir}`);
+		items.push({
+			expression: `${prefix}${dialect.quoteIdentifier(col.sqlName)}`,
+			direction: parseOrderDirection(direction),
+		});
 	}
+	return items;
+}
 
-	return parts.length > 0 ? `ORDER BY ${parts.join(", ")}` : "";
+export function compileOrderBy(
+	table: ManifestTable,
+	orderBy: OrderByInput | undefined,
+	tableAlias?: string,
+	manifestIndex?: ManifestIndex,
+	dialect: Dialect = postgresDialect,
+): string {
+	const items = compileOrderByItems(
+		table,
+		orderBy,
+		tableAlias,
+		manifestIndex,
+		dialect,
+	);
+	if (items.length === 0) return "";
+	return `ORDER BY ${items.map((item) => `${item.expression} ${item.direction}`).join(", ")}`;
 }
 
 export function normalizeSelectColumns(

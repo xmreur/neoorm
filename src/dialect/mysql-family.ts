@@ -448,6 +448,15 @@ export function createMysqlFamilyDialect(
 		jsonAggExpr(expr) {
 			return `JSON_ARRAYAGG(${expr})`;
 		},
+		jsonAggOrderedExpr(expr, orderBy) {
+			// MySQL rejects ORDER BY inside JSON_ARRAYAGG. Callers keep that
+			// engine on jsonAggExpr and force a LIMIT so the derived table
+			// order survives. MariaDB accepts the clause.
+			if (options.name === "mysql") {
+				return `JSON_ARRAYAGG(${expr})`;
+			}
+			return `JSON_ARRAYAGG(${expr} ORDER BY ${orderBy})`;
+		},
 		jsonAggFilterExpr(expr, predicate) {
 			// JSON_ARRAYAGG has no FILTER. A failed LEFT JOIN still emits one
 			// row, and CASE WHEN … END aggregates that row as a JSON null.

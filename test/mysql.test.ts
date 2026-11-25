@@ -434,4 +434,35 @@ describeMysql("mysql runtime", () => {
 			await client.close();
 		}
 	});
+
+	it("orders a has-many include by the nested orderBy", async () => {
+		const { pool, client } = await setup();
+		const orm = makeOrm(manifest, pool);
+		try {
+			const user = await orm.users.create({
+				data: { email: "ord@x", name: "ord" },
+			});
+			for (const title of ["a", "c", "b"]) {
+				await orm.posts.create({
+					data: { title, author: { connect: { id: user.id } } },
+				});
+			}
+
+			const rows = await orm.users.findMany({
+				where: { email: "ord@x" },
+				with: { posts: { orderBy: { title: "desc" } } },
+			});
+			const posts = rows[0]?.posts as Array<{ title: string }>;
+			expect(posts.map((post) => post.title)).toEqual(["c", "b", "a"]);
+
+			const taken = await orm.users.findMany({
+				where: { email: "ord@x" },
+				with: { posts: { orderBy: { title: "desc" }, take: 2 } },
+			});
+			const takenPosts = taken[0]?.posts as Array<{ title: string }>;
+			expect(takenPosts.map((post) => post.title)).toEqual(["c", "b"]);
+		} finally {
+			await client.close();
+		}
+	});
 });
