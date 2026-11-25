@@ -239,6 +239,7 @@ export type TableRepository = {
 			select?: readonly string[] | Record<string, boolean | undefined>;
 			omit?: readonly string[] | Record<string, boolean | undefined>;
 			with?: Record<string, WithInput>;
+			includeHidden?: boolean;
 		},
 	): Promise<Record<string, unknown> | null>;
 	create(args: {
