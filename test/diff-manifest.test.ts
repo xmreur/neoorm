@@ -6,6 +6,7 @@ import {
 	formatDestructiveWarnings,
 	resolveMigrationSql,
 } from "../src/codegen/diff-manifest.js";
+import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
 import type {
@@ -793,6 +794,198 @@ describe("resolveMigrationSql", () => {
 		const allowed = resolveMigrationSql(diff, prev, next, true);
 		expect(allowed.sql.some((s) => s.includes("DROP COLUMN"))).toBe(true);
 		expect(allowed.blocked).toEqual([]);
+	});
+
+	it("blocks ADD COLUMN NOT NULL without a default, including with --accept-data-loss", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("bio", "bio", { nullable: false }),
+			]),
+		});
+
+		const diff = diffManifest(prev, next);
+		expect(diff.sql.some((s) => s.includes('ADD COLUMN "bio"'))).toBe(true);
+		expect(diff.sql.some((s) => s.includes("NOT NULL"))).toBe(true);
+		expect(
+			diff.destructive.some(
+				(change) => change.kind === "add_column_not_null",
+			),
+		).toBe(true);
+
+		for (const accept of [false, true]) {
+			const resolved = resolveMigrationSql(diff, prev, next, accept);
+			expect(
+				resolved.sql.some((s) => s.includes('ADD COLUMN "bio"')),
+			).toBe(false);
+			expect(
+				resolved.blocked.some(
+					(change) => change.kind === "add_column_not_null",
+				),
+			).toBe(true);
+		}
+	});
+
+	it("allows ADD COLUMN NOT NULL when a default or serial fills existing rows", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+			]),
+		});
+		const withDefault = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("bio", "bio", { nullable: false, defaultValue: "x" }),
+			]),
+		});
+		const withNow = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("createdAt", "created_at", {
+					kind: "timestamp",
+					nullable: false,
+					defaultNow: true,
+				}),
+			]),
+		});
+		const withSerial = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("n", "n", { kind: "serial", nullable: false }),
+			]),
+		});
+
+		for (const next of [withDefault, withNow, withSerial]) {
+			const diff = diffManifest(prev, next);
+			expect(
+				diff.destructive.some(
+					(change) => change.kind === "add_column_not_null",
+				),
+			).toBe(false);
+			const resolved = resolveMigrationSql(diff, prev, next, false);
+			expect(resolved.sql.some((s) => s.includes("ADD COLUMN"))).toBe(
+				true,
+			);
+			expect(resolved.blocked).toEqual([]);
+		}
+	});
+
+	it("blocks SET NOT NULL even when a default is added in the same alter", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", { nullable: true }),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", { nullable: false, defaultValue: "anon" }),
+			]),
+		});
+
+		const diff = diffManifest(prev, next);
+		expect(diff.sql.some((s) => s.includes("SET NOT NULL"))).toBe(true);
+		expect(
+			diff.destructive.some((change) => change.kind === "set_not_null"),
+		).toBe(true);
+
+		const safe = resolveMigrationSql(diff, prev, next, false);
+		expect(safe.sql.some((s) => s.includes("SET NOT NULL"))).toBe(false);
+		expect(safe.sql.some((s) => s.includes("SET DEFAULT 'anon'"))).toBe(
+			true,
+		);
+		expect(
+			safe.blocked.some((change) => change.kind === "set_not_null"),
+		).toBe(true);
+
+		const accepted = resolveMigrationSql(diff, prev, next, true);
+		expect(accepted.sql.some((s) => s.includes("SET NOT NULL"))).toBe(
+			false,
+		);
+		expect(
+			accepted.blocked.some((change) => change.kind === "set_not_null"),
+		).toBe(true);
+	});
+
+	it("strips a SQLite rebuild that would copy nulls into a NOT NULL column", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", { nullable: true }),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", { nullable: false }),
+			]),
+		});
+
+		const diff = diffManifest(prev, next, sqliteDialect);
+		expect(diff.sql.some((s) => s.includes("__neoorm_users_new"))).toBe(
+			true,
+		);
+		expect(
+			diff.destructive.some((change) => change.kind === "set_not_null"),
+		).toBe(true);
+		const resolved = resolveMigrationSql(
+			diff,
+			prev,
+			next,
+			true,
+			sqliteDialect,
+		);
+		expect(resolved.sql.some((s) => s.includes("__neoorm_users_new"))).toBe(
+			false,
+		);
+		expect(
+			resolved.blocked.some((change) => change.kind === "set_not_null"),
+		).toBe(true);
+	});
+
+	it("keeps a MySQL type change nullable when SET NOT NULL is blocked", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", {
+					kind: "text",
+					nullable: true,
+					typeOptions: { maxLength: 20 },
+				}),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", {
+					kind: "text",
+					nullable: false,
+					typeOptions: { maxLength: 40 },
+				}),
+			]),
+		});
+
+		const diff = diffManifest(prev, next, mysqlDialect);
+		const resolved = resolveMigrationSql(
+			diff,
+			prev,
+			next,
+			false,
+			mysqlDialect,
+		);
+		const modify = resolved.sql.find((s) => s.includes("MODIFY COLUMN"));
+		expect(modify).toBeDefined();
+		expect(modify).toContain("NULL");
+		expect(modify).not.toContain("NOT NULL");
+		expect(
+			resolved.blocked.some((change) => change.kind === "set_not_null"),
+		).toBe(true);
 	});
 
 	it("drops check constraints with IF EXISTS when adding .check() later", () => {

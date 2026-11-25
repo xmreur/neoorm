@@ -232,6 +232,8 @@ export type DestructiveChangeKind =
 	| "alter_column_type"
 	| "alter_column_type_manual"
 	| "alter_enum_manual"
+	| "add_column_not_null"
+	| "set_not_null"
 	| "drop_index"
 	| "drop_fk"
 	| "alter_primary_key";

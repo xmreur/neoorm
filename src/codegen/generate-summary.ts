@@ -6,6 +6,7 @@ import type {
 import {
 	explainNoMigrationSql,
 	formatDestructiveWarnings,
+	isManualDestructiveChange,
 } from "./diff-manifest.js";
 
 export type GenerateStatus =
@@ -61,10 +62,8 @@ export function summarizeGenerateOutcome(params: {
 		const reasons = [
 			`Wrote ${sql.length} SQL statement(s) to "${migrationName}".`,
 		];
-		const manualBlocked = blocked.filter(
-			(change) =>
-				change.kind === "alter_column_type_manual" ||
-				change.kind === "alter_enum_manual",
+		const manualBlocked = blocked.filter((change) =>
+			isManualDestructiveChange(change.kind),
 		);
 		if (manualBlocked.length > 0) {
 			reasons.push(
@@ -86,9 +85,13 @@ export function summarizeGenerateOutcome(params: {
 
 	if (blocked.length > 0) {
 		const reasons = [...formatDestructiveWarnings(blocked)];
-		// The flag does not emit enum edits or unsafe casts. Once it has
-		// already been passed, telling the user to pass it again is wrong.
-		if (!acceptDataLoss) {
+		// The flag does not emit enum edits, unsafe casts, or NOT NULL
+		// changes that need a backfill. Once it has already been passed,
+		// telling the user to pass it again is wrong.
+		const needsAcceptDataLoss = blocked.some(
+			(change) => !isManualDestructiveChange(change.kind),
+		);
+		if (!acceptDataLoss && needsAcceptDataLoss) {
 			reasons.push("Re-run: neoorm generate --accept-data-loss");
 		}
 		return {

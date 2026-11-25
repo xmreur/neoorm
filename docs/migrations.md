@@ -37,7 +37,7 @@ When migration is blocked, the CLI explains why. Re-run with `--accept-data-loss
 neoorm generate --name add_users --accept-data-loss
 ```
 
-Enum value changes and unsafe column type changes stay blocked after that flag. Generate writes no SQL for them and leaves `snapshot.json` unchanged. Those edits need a manual migration.
+Enum value changes, unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL` stay blocked after that flag. Generate writes no SQL for them and leaves `snapshot.json` unchanged. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first.
 
 To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
 

@@ -19,6 +19,7 @@ import {
 	diffManifest,
 	emptyManifest,
 	formatDestructiveWarnings,
+	isManualDestructiveChange,
 	resolveMigrationSql,
 } from "./diff-manifest.js";
 import { emitIncludesTs } from "./emit-includes.js";
@@ -776,7 +777,12 @@ export async function previewMigrationSql(
 		const warnings = [...preview.warnings];
 		if (preview.migrationBlocked) {
 			warnings.push(...formatDestructiveWarnings(preview.blocked));
-			if (!(options.acceptDataLoss ?? false)) {
+			if (
+				!(options.acceptDataLoss ?? false) &&
+				preview.blocked.some(
+					(change) => !isManualDestructiveChange(change.kind),
+				)
+			) {
 				warnings.push(
 					"Destructive schema changes are excluded from this preview. Re-run with --accept-data-loss to include them.",
 				);
@@ -883,7 +889,10 @@ async function generateFromSchemaInner(
 
 	if (summary.status === "migration_blocked") {
 		allWarnings.push(...formatDestructiveWarnings(blocked));
-		if (!(options.acceptDataLoss ?? false)) {
+		if (
+			!(options.acceptDataLoss ?? false) &&
+			blocked.some((change) => !isManualDestructiveChange(change.kind))
+		) {
 			allWarnings.push(
 				"Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
 			);
