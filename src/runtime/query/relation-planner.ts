@@ -1,6 +1,10 @@
 import { relationFkPairs } from "../../dialect/fk.js";
 import { postgresDialect } from "../../dialect/postgres.js";
-import { isMariadbDialect, isMysqlDialect } from "../../dialect/resolve.js";
+import {
+	isMariadbDialect,
+	isMysqlDialect,
+	isMysqlFamilyDialect,
+} from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	Manifest,
@@ -16,6 +20,7 @@ import {
 	compileOrderBy,
 	compileOrderByItems,
 	compileWhere,
+	MYSQL_FAMILY_MAX_LIMIT,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
@@ -631,9 +636,6 @@ function buildHasManyRowExpression(
 	return dialect.jsonBuildObjectExpr(entries);
 }
 
-/** Largest MySQL LIMIT. Makes a derived-table ORDER BY visible to JSON_ARRAYAGG. */
-const MYSQL_ORDERED_SUBQUERY_LIMIT = "18446744073709551615";
-
 function buildHasManySubqueryFromRef(
 	node: InlineChainNode,
 	_parentTable: ManifestTable,
@@ -708,12 +710,18 @@ function buildHasManySubqueryFromRef(
 			dialect,
 		)}`;
 	}
+	let hasLimit = false;
 	if (node.nestedSpec?.take !== undefined) {
 		sql += ` LIMIT ${normalizeLimitOffset(node.nestedSpec.take, "take")}`;
+		hasLimit = true;
 	} else if (orderItems.length > 0 && isMysqlDialect(dialect)) {
-		sql += ` LIMIT ${MYSQL_ORDERED_SUBQUERY_LIMIT}`;
+		sql += ` LIMIT ${MYSQL_FAMILY_MAX_LIMIT}`;
+		hasLimit = true;
 	}
 	if (node.nestedSpec?.skip !== undefined) {
+		if (!hasLimit && isMysqlFamilyDialect(dialect)) {
+			sql += ` LIMIT ${MYSQL_FAMILY_MAX_LIMIT}`;
+		}
 		sql += ` OFFSET ${normalizeLimitOffset(node.nestedSpec.skip, "skip")}`;
 	}
 	sql += ") agg)";

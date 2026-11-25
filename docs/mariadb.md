@@ -149,6 +149,6 @@ Simple has-many includes (`with: { posts: true }`) on `findMany`, `findById`, an
 
 `createMany` is a multi-value `INSERT` plus `affectedRows` and does not use `RETURNING`. `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
 
-Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based.
+Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based. `skip` without `take` is `LIMIT 18446744073709551615 OFFSET n`, because MariaDB rejects a bare `OFFSET`.
 
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, savepoint-based nested transactions — behaves the same as on PostgreSQL.
