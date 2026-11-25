@@ -212,7 +212,7 @@ export function SqlConsole({
 							checked={analyze}
 							onChange={(e) => setAnalyze(e.target.checked)}
 						/>{" "}
-						ANALYZE
+						{meta.dialect === "sqlite" ? "QUERY PLAN" : "ANALYZE"}
 					</label>
 					<Button
 						size="sm"

@@ -96,9 +96,15 @@ export function QueryPlayground({
 	const [take, setTake] = useState("20");
 	const [skip, setSkip] = useState("");
 	const [result, setResult] = useState<{
-		kind: "rows" | "value";
+		kind: "rows" | "value" | "page";
 		rows?: Record<string, unknown>[];
 		value?: unknown;
+		cursors?: {
+			nextCursor: unknown;
+			prevCursor: unknown;
+			hasMore: boolean;
+			hasPrevious: boolean;
+		};
 	} | null>(null);
 	const [running, setRunning] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -149,7 +155,17 @@ export function QueryPlayground({
 			const args = buildArgs();
 			const res = await api.query({ accessor, method, args });
 			if (res.rows) setResult({ kind: "rows", rows: res.rows });
-			else if (res.items) setResult({ kind: "rows", rows: res.items });
+			else if (res.items)
+				setResult({
+					kind: "page",
+					rows: res.items,
+					cursors: {
+						nextCursor: res.nextCursor ?? null,
+						prevCursor: res.prevCursor ?? null,
+						hasMore: res.hasMore === true,
+						hasPrevious: res.hasPrevious === true,
+					},
+				});
 			else if (res.row !== undefined)
 				setResult({ kind: "rows", rows: res.row ? [res.row] : [] });
 			else setResult({ kind: "value", value: res.result });
@@ -396,8 +412,15 @@ export function QueryPlayground({
 				</p>
 			) : null}
 			{result ? (
-				result.kind === "rows" ? (
-					<ResultTable rows={result.rows ?? []} />
+				result.kind === "rows" || result.kind === "page" ? (
+					<div className="flex flex-col gap-2">
+						<ResultTable rows={result.rows ?? []} />
+						{result.kind === "page" ? (
+							<pre className="mono overflow-auto rounded-md border border-border p-3 text-xs">
+								{JSON.stringify(result.cursors, null, 2)}
+							</pre>
+						) : null}
+					</div>
 				) : (
 					<pre className="mono overflow-auto rounded-md border border-border p-3 text-xs">
 						{JSON.stringify(result.value, null, 2)}

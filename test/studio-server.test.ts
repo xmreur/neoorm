@@ -465,6 +465,15 @@ describe("studio read-only mode", () => {
 			readOnlyServer,
 		);
 		expect(explain.status).toBe(200);
+		const explainPlan = await api(
+			"/api/sql",
+			post({ text: "select 1 as one", explain: "analyze" }),
+			readOnlyServer,
+		);
+		expect(explainPlan.status).toBe(200);
+		expect(
+			(explainPlan.body as { rows: Record<string, unknown>[] }).rows[0],
+		).toHaveProperty("detail");
 		const explainWrite = await api(
 			"/api/sql",
 			post({ text: "delete from users", explain: true }),
@@ -527,6 +536,44 @@ describe("studio graph, migrate status, export", () => {
 		expect(res.status).toBe(200);
 		const text = await res.text();
 		expect(text.split("\n")[0]).toContain("email");
+	});
+
+	it("exports only rows matching the current where", async () => {
+		await api(
+			"/api/import",
+			post({
+				accessor: "users",
+				rows: [{ email: "view-a@x.c" }, { email: "view-b@x.c" }],
+			}),
+		);
+		const res = await fetch(
+			`${server.url}/api/export?accessor=users&format=json&where=${encodeURIComponent(JSON.stringify({ email: "view-a@x.c" }))}`,
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			rows: { email: string }[];
+		};
+		expect(body.rows.map((row) => row.email)).toEqual(["view-a@x.c"]);
+	});
+
+	it("passes findById select and with through", async () => {
+		const created = await api(
+			"/api/tables/users/rows",
+			post({ data: { email: "byid@x.c", name: "hidden" } }),
+		);
+		const id = String((created.body as { row: { id: number } }).row.id);
+		const found = await api(
+			"/api/query",
+			post({
+				accessor: "users",
+				method: "findById",
+				args: { id, select: ["email"] },
+			}),
+		);
+		expect(found.status).toBe(200);
+		const row = (found.body as { row: Record<string, unknown> }).row;
+		expect(row.email).toBe("byid@x.c");
+		expect(row).not.toHaveProperty("name");
 	});
 });
 

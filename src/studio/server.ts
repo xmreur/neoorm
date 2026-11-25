@@ -12,6 +12,11 @@ import { compileSchemaToManifest, readSnapshot } from "../codegen/generate.js";
 import type { NeoOrmConfig } from "../config.js";
 import { loadConfig } from "../config.js";
 import type { DatabaseProvider } from "../datasource-provider.js";
+import {
+	DEFAULT_PG_SCHEMA,
+	quoteQualifiedIdentifier,
+	resolvePgSchemaName,
+} from "../dialect/postgres.js";
 import { dialectForProvider } from "../dialect/resolve.js";
 import type { Dialect, Manifest } from "../dialect/types.js";
 import {
@@ -937,7 +942,18 @@ async function handleQueryPlayground(
 				});
 				return;
 			}
-			const row = await repo.findById(id);
+			const row = await repo.findById(id, {
+				...(args.select !== undefined
+					? { select: args.select as never }
+					: {}),
+				...(args.omit !== undefined
+					? { omit: args.omit as never }
+					: {}),
+				...(args.with !== undefined
+					? { with: clampNestedTakes(args.with) as never }
+					: {}),
+				includeHidden: true,
+			});
 			sendJson(res, 200, {
 				row: row ? encodeStudioRows([row])[0] : null,
 			});
@@ -1014,6 +1030,54 @@ async function handleQueryPlayground(
 	}
 }
 
+export function explainSql(
+	dialectName: Dialect["name"],
+	text: string,
+	explain: unknown,
+): string {
+	if (explain === "analyze") return `${analyzePrefix(dialectName)} ${text}`;
+	if (explain === true) return `EXPLAIN ${text}`;
+	return text;
+}
+
+function analyzePrefix(dialectName: Dialect["name"]): string {
+	switch (dialectName) {
+		case "sqlite":
+			return "EXPLAIN QUERY PLAN";
+		case "mariadb":
+			return "ANALYZE";
+		case "postgresql":
+		case "mysql":
+			return "EXPLAIN ANALYZE";
+		default: {
+			const _never: never = dialectName;
+			return _never;
+		}
+	}
+}
+
+export function migrationsLedgerTable(
+	dialect: Dialect,
+	schema?: string,
+): string {
+	switch (dialect.name) {
+		case "sqlite":
+		case "mysql":
+		case "mariadb":
+			return dialect.quoteIdentifier("_neoorm_migrations");
+		case "postgresql": {
+			const schemaName = resolvePgSchemaName(schema);
+			return schemaName === DEFAULT_PG_SCHEMA
+				? dialect.quoteIdentifier("_neoorm_migrations")
+				: quoteQualifiedIdentifier(schemaName, "_neoorm_migrations");
+		}
+		default: {
+			const _never: never = dialect.name;
+			return _never;
+		}
+	}
+}
+
 async function handleSql(
 	ctx: StudioContext,
 	req: IncomingMessage,
@@ -1042,9 +1106,7 @@ async function handleSql(
 		});
 		return;
 	}
-	let text = body.text;
-	if (body.explain === "analyze") text = `EXPLAIN ANALYZE ${text}`;
-	else if (body.explain === true) text = `EXPLAIN ${text}`;
+	const text = explainSql(ctx.dialect.name, body.text, body.explain);
 	const rows = await ctx.client.execute({ text, params });
 	sendJson(res, 200, { rows: encodeStudioRows(rows), rowCount: rows.length });
 }
@@ -1263,8 +1325,9 @@ async function readMigrateStatus(ctx: StudioContext): Promise<unknown> {
 		checksum: string | null;
 	}[] = [];
 	try {
+		const ledger = migrationsLedgerTable(ctx.dialect, ctx.pgSchema);
 		const rows = await ctx.client.execute({
-			text: `SELECT ${ctx.dialect.quoteIdentifier("name")}, ${ctx.dialect.quoteIdentifier("checksum")}, ${ctx.dialect.quoteIdentifier("applied_at")} FROM ${ctx.dialect.quoteIdentifier("_neoorm_migrations")} ORDER BY ${ctx.dialect.quoteIdentifier("name")} ASC`,
+			text: `SELECT ${ctx.dialect.quoteIdentifier("name")}, ${ctx.dialect.quoteIdentifier("checksum")}, ${ctx.dialect.quoteIdentifier("applied_at")} FROM ${ledger} ORDER BY ${ctx.dialect.quoteIdentifier("name")} ASC`,
 			params: [],
 		});
 		applied = rows.map((row) => ({
