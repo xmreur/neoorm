@@ -246,7 +246,7 @@ await db.posts.findMany({ where: { price: { contains: "9" } } });
 
 `search` is POSIX regex on PostgreSQL (`~`, or `~*` with `mode: "insensitive"`), `REGEXP_LIKE` on MySQL 8, `REGEXP` on MariaDB, and JavaScript `RegExp` (`REGEXP` / `regexp_i`) on SQLite.
 
-`searchTs` is full-text search: `to_tsvector(...) @@ plainto_tsquery(...)` on PostgreSQL, `MATCH ... AGAINST (... IN NATURAL LANGUAGE MODE)` on MySQL/MariaDB, and unsupported on SQLite (it fails at query-build time — SQLite FTS5 needs virtual tables). It works on `text` / `citext` columns and directly on `tsvector()` columns (no `to_tsvector` wrapper):
+`searchTs` is full-text search: `to_tsvector(...) @@ plainto_tsquery(...)` on PostgreSQL, `MATCH ... AGAINST (... IN NATURAL LANGUAGE MODE)` on MySQL/MariaDB, and unsupported on SQLite (it fails at query-build time — SQLite FTS5 needs virtual tables). It is only valid on `text`, `citext`, and `tsvector()` (no `to_tsvector` wrapper). `uuid`, `date`, `enum`, and `money` do not accept it. On MySQL and MariaDB, `MATCH ... AGAINST` needs `index(...).using("fulltext")`.
 
 ```ts
 await db.posts.findMany({

@@ -114,7 +114,14 @@ export type ManifestManyToMany = {
 	inverse: string;
 };
 
-export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin" | "bloom";
+export type IndexMethod =
+	| "btree"
+	| "hash"
+	| "gin"
+	| "gist"
+	| "brin"
+	| "bloom"
+	| "fulltext";
 
 export type ManifestIndexKey = {
 	sqlName?: string;

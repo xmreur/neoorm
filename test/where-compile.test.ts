@@ -350,6 +350,17 @@ describe("where compilation", () => {
 		expect(params).toEqual(["%ORM%", "tutorial"]);
 	});
 
+	it("rejects searchTs on columns that are not text, citext, or tsvector", () => {
+		expect(() =>
+			compileWhere(
+				manifest,
+				posts,
+				{ status: { searchTs: "draft" } },
+				postgresDialect,
+			),
+		).toThrow(/unsupported where operator "searchTs"/);
+	});
+
 	it("throws for searchTs on sqlite", () => {
 		expect(() =>
 			compileWhere(

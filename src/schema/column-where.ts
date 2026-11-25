@@ -97,12 +97,17 @@ export interface StringFilter<T extends string = string> {
 	startsWith?: T;
 	endsWith?: T;
 	search?: T;
-	searchTs?: string | SearchTsQuery;
 	mode?: QueryMode;
 	in?: readonly T[];
 	notIn?: readonly T[];
 	isNull?: true;
 	isNotNull?: true;
+}
+
+/** String filters plus `searchTs`. Only `text`, `citext`, and `tsvector`. */
+export interface TextSearchFilter<T extends string = string>
+	extends StringFilter<T> {
+	searchTs?: string | SearchTsQuery;
 }
 
 type JsonPathWhere = {
@@ -173,17 +178,19 @@ type CoreColumnWhereOperators<
 		? ComparableFilter<string>
 		: ColumnKindOf<TCol> extends "json" | "jsonb"
 			? JsonFilter<InferColumnValue<TCol, TSchema>>
-			: ColumnKindOf<TCol> extends
-						| "textArray"
-						| "intArray"
-						| "uuidArray"
-						| "enumArray"
-				? ArrayFilter<ArrayItem<InferColumnValue<TCol, TSchema>>>
-				: TCol extends ColumnBuilder<unknown, infer _M>
-					? WhereOperators<InferColumnValue<TCol, TSchema>>
-					: TCol extends FkBuilder
+			: ColumnKindOf<TCol> extends "text" | "citext" | "tsvector"
+				? TextSearchFilter<string>
+				: ColumnKindOf<TCol> extends
+							| "textArray"
+							| "intArray"
+							| "uuidArray"
+							| "enumArray"
+					? ArrayFilter<ArrayItem<InferColumnValue<TCol, TSchema>>>
+					: TCol extends ColumnBuilder<unknown, infer _M>
 						? WhereOperators<InferColumnValue<TCol, TSchema>>
-						: WhereOperators<InferColumnValue<TCol, TSchema>>;
+						: TCol extends FkBuilder
+							? WhereOperators<InferColumnValue<TCol, TSchema>>
+							: WhereOperators<InferColumnValue<TCol, TSchema>>;
 
 type InferColumnWhereOperators<
 	TCol extends ColumnDef,

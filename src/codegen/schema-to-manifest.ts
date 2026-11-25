@@ -1118,6 +1118,7 @@ const NON_UNIQUE_INDEX_METHODS = new Set<IndexMethod>([
 	"gist",
 	"brin",
 	"bloom",
+	"fulltext",
 ]);
 
 function assertBloomWithOptions(
@@ -1185,7 +1186,13 @@ function extrasToManifest(
 					`Index WITH options require using("bloom")`,
 				);
 			}
-			if (using && using !== "btree") {
+			if (using === "fulltext" && !isMysqlFamilyProvider(provider)) {
+				throw schemaError(
+					"invalid_column",
+					`${isSqliteProvider(provider) ? "SQLite" : "PostgreSQL"} does not support fulltext indexes`,
+				);
+			}
+			if (using && using !== "btree" && using !== "fulltext") {
 				if (isSqliteProvider(provider)) {
 					throw schemaError(
 						"invalid_column",

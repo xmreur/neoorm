@@ -51,7 +51,7 @@ describe("where type error messages", () => {
 			expect(lines.length).toBeGreaterThan(0);
 			// Wrong operator points at the named filter …
 			expect(output).toContain("ComparableFilter<string>");
-			expect(output).toContain("StringFilter<string>");
+			expect(output).toContain("TextSearchFilter<string>");
 			// … instead of dumping the anonymous operator bag …
 			expect(output).not.toContain("InferColumnWhereOperators");
 			expect(output).not.toContain("ComparableWhereOperators");

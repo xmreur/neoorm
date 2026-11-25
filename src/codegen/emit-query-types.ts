@@ -23,8 +23,6 @@ import { tsPropertyKey } from "./ts-syntax.js";
 
 const STRING_FILTER_KINDS = new Set([
 	"id",
-	"text",
-	"citext",
 	"uuid",
 	"enum",
 	"date",
@@ -82,6 +80,9 @@ function filterForColumn(
 	}
 	if (kind === "geometry" || kind === "geography" || kind === "point") {
 		return "SpatialFilter";
+	}
+	if (kind === "text" || kind === "citext" || kind === "tsvector") {
+		return `TextSearchFilter<${nonNullTs}>`;
 	}
 	if (STRING_FILTER_KINDS.has(kind)) {
 		return `StringFilter<${nonNullTs}>`;
@@ -590,12 +591,15 @@ export function emitQueryTypesTs(manifest: Manifest): string {
 		"  startsWith?: T;",
 		"  endsWith?: T;",
 		"  search?: T;",
-		"  searchTs?: string | SearchTsQuery;",
 		"  mode?: QueryMode;",
 		"  in?: readonly T[];",
 		"  notIn?: readonly T[];",
 		"  isNull?: true;",
 		"  isNotNull?: true;",
+		"}",
+		"",
+		"export interface TextSearchFilter<T extends string = string> extends StringFilter<T> {",
+		"  searchTs?: string | SearchTsQuery;",
 		"}",
 		"",
 		"export interface ComparableFilter<T> {",

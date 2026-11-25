@@ -1080,10 +1080,12 @@ export function id(): ColumnBuilder<string, IdColumnMeta> {
 }
 
 /** `TEXT` column. Pass `{ maxLength: n }` for `VARCHAR(n)` on Postgres. */
-export function text(options?: TextOptions): TextColumnBuilder<string | null> {
+export function text(
+	options?: TextOptions,
+): TextColumnBuilder<string | null, ColumnMeta & { kind: "text" }> {
 	return textType.createBuilder(
 		options as Record<string, unknown> | undefined,
-	) as TextColumnBuilder<string | null>;
+	) as TextColumnBuilder<string | null, ColumnMeta & { kind: "text" }>;
 }
 
 /** `BOOLEAN` column. */
