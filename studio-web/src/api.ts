@@ -1,3 +1,8 @@
+export {
+	qualifiedSqlTable,
+	quoteSqlIdent,
+} from "../../src/studio/sql-ident.js";
+
 export type StudioColumnMeta = {
 	tsName: string;
 	sqlName: string;
@@ -129,8 +134,12 @@ export class StudioApiError extends Error {
 		this.name = "StudioApiError";
 		this.status = status;
 		this.code = body.error.code;
-		this.detail = body.error.detail;
-		this.columnTsName = body.error.columnTsName;
+		if (body.error.detail !== undefined) {
+			this.detail = body.error.detail;
+		}
+		if (body.error.columnTsName !== undefined) {
+			this.columnTsName = body.error.columnTsName;
+		}
 	}
 }
 
@@ -138,26 +147,6 @@ const TOKEN_STORAGE_KEY = "neoorm-studio-token";
 
 function token(): string {
 	return localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
-}
-
-export function quoteSqlIdent(dialect: string, name: string): string {
-	if (dialect === "mysql" || dialect === "mariadb") {
-		return `\`${name.replaceAll("`", "``")}\``;
-	}
-	return `"${name.replaceAll('"', '""')}"`;
-}
-
-/** Table reference for client-built INSERT statements. */
-export function qualifiedSqlTable(
-	dialect: string,
-	sqlName: string,
-	schema?: string,
-): string {
-	const table = quoteSqlIdent(dialect, sqlName);
-	if (dialect === "postgresql" && schema && schema !== "public") {
-		return `${quoteSqlIdent(dialect, schema)}.${table}`;
-	}
-	return table;
 }
 
 export function setToken(value: string): void {
