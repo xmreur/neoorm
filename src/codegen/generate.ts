@@ -15,11 +15,11 @@ import type { SchemaDef } from "../schema/define-schema.js";
 import type { ColumnDef, ColumnNaming, TableDef } from "../schema/table.js";
 import { resolveSqlColumnName } from "../utils/case.js";
 import {
-	buildDownSql,
 	diffManifest,
 	emptyManifest,
 	formatDestructiveWarnings,
 	isManualDestructiveChange,
+	planDownSql,
 	resolveMigrationSql,
 } from "./diff-manifest.js";
 import { emitIncludesTs } from "./emit-includes.js";
@@ -448,18 +448,20 @@ export async function writeMigration(
 
 	if (options?.next) {
 		const prev = options.prev ?? null;
-		const downSql = buildDownSql(prev, options.next, options.dialect);
-		await writeFile(
-			join(migrationDir, "down.sql"),
-			downSql.join("\n\n"),
-			"utf-8",
-		);
-		const snapshotBefore = toPersistedManifest(prev ?? emptyManifest());
-		await writeFile(
-			join(migrationDir, "snapshot.before.json"),
-			JSON.stringify(snapshotBefore, null, 2),
-			"utf-8",
-		);
+		const downPlan = planDownSql(prev, options.next, options.dialect);
+		if (downPlan.blocked.length === 0) {
+			await writeFile(
+				join(migrationDir, "down.sql"),
+				downPlan.sql.join("\n\n"),
+				"utf-8",
+			);
+			const snapshotBefore = toPersistedManifest(prev ?? emptyManifest());
+			await writeFile(
+				join(migrationDir, "snapshot.before.json"),
+				JSON.stringify(snapshotBefore, null, 2),
+				"utf-8",
+			);
+		}
 	}
 
 	return migrationName;
@@ -493,7 +495,7 @@ export async function writeGeneratedFiles(
 		typebox?: boolean;
 		elysia?: boolean;
 	},
-): Promise<{ migrationName: string | null }> {
+): Promise<{ migrationName: string | null; warnings: string[] }> {
 	await mkdir(outDir, { recursive: true });
 	await writeFile(
 		join(outDir, "manifest.ts"),
@@ -565,6 +567,19 @@ export async function writeGeneratedFiles(
 		await writeSnapshot(outDir, manifest);
 	}
 
+	const warnings: string[] = [];
+	if (migrationSql.length > 0) {
+		const downPlan = planDownSql(prev, manifest, dialect);
+		if (downPlan.blocked.length > 0) {
+			const details = downPlan.blocked
+				.map((change) => change.detail)
+				.join("; ");
+			warnings.push(
+				`down.sql was not written (${details}). migrate down will not restore snapshot.json.`,
+			);
+		}
+	}
+
 	const migrationName = await writeMigration(outDir, migrationSql, {
 		prev,
 		next: manifest,
@@ -572,7 +587,7 @@ export async function writeGeneratedFiles(
 		...(options?.name ? { name: options.name } : {}),
 	});
 
-	return { migrationName };
+	return { migrationName, warnings };
 }
 
 /** Result of {@link generateFromSchema}. */
@@ -860,7 +875,7 @@ async function generateFromSchemaInner(
 		sanitizeMigrationName(rawName);
 	}
 
-	const { migrationName } = await writeGeneratedFiles(
+	const { migrationName, warnings: downWarnings } = await writeGeneratedFiles(
 		outDir,
 		manifest,
 		migrationSql,
@@ -875,6 +890,8 @@ async function generateFromSchemaInner(
 			...(options.elysia === true ? { elysia: true } : {}),
 		},
 	);
+
+	allWarnings.push(...downWarnings);
 
 	const summary = summarizeGenerateOutcome({
 		prev,

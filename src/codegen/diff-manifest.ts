@@ -23,6 +23,8 @@ import type {
 	ManifestTable,
 	TableDiff,
 } from "../dialect/types.js";
+import { schemaError } from "../runtime/error-builders.js";
+import { SchemaErrorCode } from "../runtime/error-codes.js";
 
 function tablesBySqlName(manifest: Manifest): Map<string, ManifestTable> {
 	return new Map(
@@ -1372,16 +1374,46 @@ export function emptyManifest(): Manifest {
 	};
 }
 
+export type DownSqlPlan = {
+	sql: string[];
+	blocked: DestructiveChange[];
+};
+
+/**
+ * Reverse diff (`next` → `prev`) with data loss accepted. Manual statements
+ * stay in `blocked` and are omitted from `sql`.
+ */
+export function planDownSql(
+	prev: Manifest | null,
+	next: Manifest,
+	dialect?: Dialect,
+): DownSqlPlan {
+	const resolved = dialect ?? postgresDialect;
+	const target = prev ?? emptyManifest();
+	const diff = diffManifest(next, target, resolved);
+	return resolveMigrationSql(diff, next, target, true, resolved);
+}
+
 /** SQL to roll back a forward migration (next → prev). */
 export function buildDownSql(
 	prev: Manifest | null,
 	next: Manifest,
-	dialect: Dialect = postgresDialect,
+	dialect?: Dialect,
 ): string[] {
-	const target = prev ?? emptyManifest();
-	const diff = diffManifest(next, target, dialect);
-	const { sql } = resolveMigrationSql(diff, next, target, true, dialect);
-	return sql;
+	const plan = planDownSql(prev, next, dialect);
+	if (plan.blocked.length > 0) {
+		const details = plan.blocked.map((change) => change.detail).join("; ");
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			`Cannot generate down.sql: ${details}`,
+			{},
+			[
+				"The reverse of this migration needs a manual change, so no down.sql was produced.",
+				"Write down.sql by hand if you need to roll it back. migrate down will not restore snapshot.json for the generated file.",
+			],
+		);
+	}
+	return plan.sql;
 }
 
 export function resolveMigrationSql(

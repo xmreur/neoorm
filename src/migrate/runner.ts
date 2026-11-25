@@ -5,12 +5,14 @@ import {
 	diffManifest,
 	formatDestructiveWarnings,
 	isManualDestructiveChange,
+	planDownSql,
 	resolveMigrationSql,
 } from "../codegen/diff-manifest.js";
 import type { CompileSchemaOptions } from "../codegen/generate.js";
 import {
 	compileSchemaToManifest,
 	manifestFromSnapshotJson,
+	readSnapshot,
 	writeSnapshot,
 } from "../codegen/generate.js";
 import {
@@ -1143,6 +1145,34 @@ export async function migrateDown(
 		await readDownSql(migrationsDir, name);
 	}
 
+	const outDir = options?.outDir ?? dirname(migrationsDir);
+	const currentSnapshot = await readSnapshot(outDir);
+	if (currentSnapshot) {
+		let nextManifest = currentSnapshot;
+		for (const name of toRevert) {
+			const prevManifest = await readSnapshotBefore(migrationsDir, name);
+			const plan = planDownSql(prevManifest, nextManifest, dialect);
+			if (plan.blocked.length > 0) {
+				const file = await readDownSql(migrationsDir, name);
+				if (file.trim() === plan.sql.join("\n\n").trim()) {
+					const details = plan.blocked
+						.map((change) => change.detail)
+						.join("; ");
+					throw schemaError(
+						SchemaErrorCode.migration_guard,
+						`Migration "${name}" cannot be rolled back (${details}). snapshot.json was not restored.`,
+						{ migrationName: name },
+						[
+							"down.sql omits a manual change, so applying it would not return the database to the previous schema.",
+							"Write a complete down.sql by hand, or recreate the database with neoorm migrate reset --force.",
+						],
+					);
+				}
+			}
+			nextManifest = prevManifest;
+		}
+	}
+
 	const reverted: string[] = [];
 	for (const name of toRevert) {
 		await revertMigration(
@@ -1155,7 +1185,6 @@ export async function migrateDown(
 		reverted.push(name);
 	}
 
-	const outDir = options?.outDir ?? dirname(migrationsDir);
 	const oldestReverted = toRevert.at(-1);
 	if (!oldestReverted) {
 		return reverted;

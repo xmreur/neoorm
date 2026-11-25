@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -7,7 +14,13 @@ import {
 	diffManifest,
 	emptyManifest,
 } from "../src/codegen/diff-manifest.js";
-import { generateFromSchema, readSnapshot } from "../src/codegen/generate.js";
+import {
+	generateFromSchema,
+	hashManifest,
+	readSnapshot,
+	writeSnapshot,
+} from "../src/codegen/generate.js";
+import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import type {
 	Manifest,
@@ -21,6 +34,12 @@ import {
 	resetDatabaseSchema,
 } from "../src/migrate/runner.js";
 import { pgClient } from "../src/runtime/driver.js";
+import {
+	defineSchema,
+	table as defineTable,
+	id,
+	text,
+} from "../src/schema/index.js";
 import { defined, manifestTableFromRecord } from "./helpers/manifest.js";
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -145,6 +164,24 @@ describe("buildDownSql", () => {
 		expect(down.some((s) => s.includes('DROP TABLE "users"'))).toBe(true);
 		expect(emptyManifest().tables).toEqual({});
 	});
+
+	it("fails closed when rolling back a dropped NOT NULL column", () => {
+		const prev = schemaToManifest(
+			defineSchema({
+				users: defineTable({ id: id(), name: text().notNull() }),
+			}),
+		);
+		const next = schemaToManifest(
+			defineSchema({
+				users: defineTable({ id: id() }),
+			}),
+		);
+
+		expect(() => buildDownSql(prev, next)).toThrow(
+			/Cannot generate down\.sql/,
+		);
+		expect(() => buildDownSql(prev, next)).toThrow(/NOT NULL/);
+	});
 });
 
 describe("migrateDown step selection", () => {
@@ -178,6 +215,162 @@ describe("migrateDown step selection", () => {
 				steps: 2,
 			}),
 		).rejects.toThrow(/only 1 applied/);
+	});
+});
+
+describe("incomplete down migrations", () => {
+	it("does not write down.sql and does not rewind the snapshot", async () => {
+		const tmpRoot = join(import.meta.dirname, ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		const tmpDir = await mkdtemp(join(tmpRoot, "down-manual-"));
+		try {
+			const outDir = join(tmpDir, "neoorm");
+			const v1 = join(tmpDir, "v1.ts");
+			await writeFile(
+				v1,
+				`import { defineSchema, id, table, text } from "neoorm/schema";
+export const schema = defineSchema({
+	users: table({ id: id(), name: text().notNull() }),
+});
+`,
+			);
+			await generateFromSchema(v1, outDir, { name: "v1" });
+			const v2 = join(tmpDir, "v2.ts");
+			await writeFile(
+				v2,
+				`import { defineSchema, id, table } from "neoorm/schema";
+export const schema = defineSchema({
+	users: table({ id: id() }),
+});
+`,
+			);
+			const generated = await generateFromSchema(v2, outDir, {
+				name: "drop_name",
+				acceptDataLoss: true,
+			});
+			const migrationName = defined(
+				generated.migrationName,
+				"migrationName",
+			);
+			expect(
+				generated.warnings.some((warning) =>
+					warning.includes("down.sql was not written"),
+				),
+			).toBe(true);
+			const migrationDir = join(outDir, "migrations", migrationName);
+			await expect(
+				access(join(migrationDir, "down.sql")),
+			).rejects.toThrow();
+			await expect(
+				access(join(migrationDir, "snapshot.before.json")),
+			).rejects.toThrow();
+			const migrationSql = await readFile(
+				join(migrationDir, "migration.sql"),
+				"utf-8",
+			);
+			expect(migrationSql).toContain('DROP COLUMN "name"');
+			const afterHash = hashManifest(
+				defined(await readSnapshot(outDir), "snapshot"),
+			);
+
+			const pool = {
+				query: async () => ({
+					rows: [
+						{
+							name: migrationName,
+							checksum: "x",
+							down_checksum: null,
+							applied_at: new Date(),
+						},
+					],
+				}),
+				connect: async () => {
+					throw new Error("should not connect");
+				},
+			} as unknown as Pool;
+			await expect(
+				migrateDown(
+					pgClient(pool),
+					postgresDialect,
+					join(outDir, "migrations"),
+					{
+						outDir,
+						steps: 1,
+					},
+				),
+			).rejects.toThrow(/no down\.sql/);
+			expect(
+				hashManifest(defined(await readSnapshot(outDir), "snapshot")),
+			).toBe(afterHash);
+		} finally {
+			await rm(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("does not restore the snapshot when down.sql omitted the ADD COLUMN", async () => {
+		const tmpRoot = join(import.meta.dirname, ".tmp");
+		await mkdir(tmpRoot, { recursive: true });
+		const tmpDir = await mkdtemp(join(tmpRoot, "down-partial-"));
+		try {
+			const outDir = join(tmpDir, "neoorm");
+			const prev = schemaToManifest(
+				defineSchema({
+					users: defineTable({ id: id(), name: text().notNull() }),
+				}),
+			);
+			const next = schemaToManifest(
+				defineSchema({
+					users: defineTable({ id: id() }),
+				}),
+			);
+			await writeSnapshot(outDir, next);
+			const migrationName = "20240101_drop_name";
+			const migrationDir = join(outDir, "migrations", migrationName);
+			await mkdir(migrationDir, { recursive: true });
+			await writeFile(join(migrationDir, "down.sql"), "", "utf-8");
+			await writeFile(
+				join(migrationDir, "snapshot.before.json"),
+				JSON.stringify(prev, null, 2),
+				"utf-8",
+			);
+			const beforeHash = hashManifest(
+				defined(await readSnapshot(outDir), "snapshot"),
+			);
+
+			const pool = {
+				query: async () => ({
+					rows: [
+						{
+							name: migrationName,
+							checksum: "x",
+							down_checksum: "y",
+							applied_at: new Date(),
+						},
+					],
+				}),
+				connect: async () => {
+					throw new Error("should not connect");
+				},
+			} as unknown as Pool;
+			await expect(
+				migrateDown(
+					pgClient(pool),
+					postgresDialect,
+					join(outDir, "migrations"),
+					{
+						outDir,
+						steps: 1,
+					},
+				),
+			).rejects.toThrow(
+				/cannot be rolled back[\s\S]*snapshot\.json was not restored/,
+			);
+			expect(
+				hashManifest(defined(await readSnapshot(outDir), "snapshot")),
+			).toBe(beforeHash);
+		} finally {
+			await rm(tmpDir, { recursive: true, force: true });
+		}
 	});
 });
 
