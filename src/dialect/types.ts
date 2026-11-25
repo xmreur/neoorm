@@ -165,6 +165,8 @@ export type Manifest = {
 	extensions?: string[];
 	enumMode?: "check" | "union" | "native";
 	enumTypes?: Record<string, ManifestEnumType>;
+	/** Modules the generated client imports so column plugins register before queries run. */
+	pluginModules?: string[];
 };
 
 export type CompiledQuery = {

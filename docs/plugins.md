@@ -59,3 +59,5 @@ declare module "neoorm/schema" {
   }
 }
 ```
+
+`registerPlugin` records the module that called it. Generate writes those specifiers on the manifest and the generated client imports them before `createNeoOrmClient`. Operator, select, write, and serialize hooks are then registered when the client loads.
