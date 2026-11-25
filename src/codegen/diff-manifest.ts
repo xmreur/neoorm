@@ -282,7 +282,11 @@ function indexSignature(index: ManifestIndex): string {
 function diffIndexes(
 	prevTable: ManifestTable,
 	nextTable: ManifestTable,
-): { addIndexes: ManifestIndex[]; dropIndexes: string[] } {
+): {
+	addIndexes: ManifestIndex[];
+	dropIndexes: string[];
+	renameIndexes: Array<{ from: string; to: string; index: ManifestIndex }>;
+} {
 	const prevBySqlName = new Map(
 		prevTable.indexes.map((idx) => [indexSqlName(prevTable, idx), idx]),
 	);
@@ -299,6 +303,11 @@ function diffIndexes(
 
 	const addIndexes: ManifestIndex[] = [];
 	const dropIndexes: string[] = [];
+	const renameIndexes: Array<{
+		from: string;
+		to: string;
+		index: ManifestIndex;
+	}> = [];
 	const matchedPrevSqlNames = new Set<string>();
 
 	for (const [sqlName, nextIdx] of nextBySqlName) {
@@ -313,10 +322,19 @@ function diffIndexes(
 		}
 
 		const prevBySig = prevBySignature.get(indexSignature(nextIdx));
-		if (prevBySig) {
-			matchedPrevSqlNames.add(indexSqlName(prevTable, prevBySig));
-			if (!indexesEqual(prevBySig, nextIdx)) {
-				dropIndexes.push(indexSqlName(prevTable, prevBySig));
+		const prevSql = prevBySig
+			? indexSqlName(prevTable, prevBySig)
+			: undefined;
+		if (prevBySig && prevSql && !matchedPrevSqlNames.has(prevSql)) {
+			matchedPrevSqlNames.add(prevSql);
+			if (indexesEqual(prevBySig, nextIdx) && prevSql !== sqlName) {
+				renameIndexes.push({
+					from: prevSql,
+					to: sqlName,
+					index: nextIdx,
+				});
+			} else if (!indexesEqual(prevBySig, nextIdx)) {
+				dropIndexes.push(prevSql);
 				addIndexes.push(nextIdx);
 			}
 			continue;
@@ -332,7 +350,7 @@ function diffIndexes(
 		dropIndexes.push(sqlName);
 	}
 
-	return { addIndexes, dropIndexes };
+	return { addIndexes, dropIndexes, renameIndexes };
 }
 
 function rewriteFkTarget(
@@ -668,7 +686,10 @@ function diffTable(
 		dialect,
 	);
 	const { addColumns, dropColumns, renameColumns, alterColumns } = columnDiff;
-	const { addIndexes, dropIndexes } = diffIndexes(prevTable, nextTable);
+	const { addIndexes, dropIndexes, renameIndexes } = diffIndexes(
+		prevTable,
+		nextTable,
+	);
 	const fkChanges = diffForeignKeys(prevTable, nextTable, renamedSql);
 	const primaryKeyChanged = !primaryKeysEqual(
 		prevTable.primaryKey,
@@ -682,6 +703,7 @@ function diffTable(
 		alterColumns.length > 0 ||
 		addIndexes.length > 0 ||
 		dropIndexes.length > 0 ||
+		renameIndexes.length > 0 ||
 		fkChanges.length > 0 ||
 		primaryKeyChanged;
 
@@ -698,6 +720,7 @@ function diffTable(
 		...(alterColumns.length > 0 ? { alterColumns } : {}),
 		...(addIndexes.length > 0 ? { addIndexes } : {}),
 		...(dropIndexes.length > 0 ? { dropIndexes } : {}),
+		...(renameIndexes.length > 0 ? { renameIndexes } : {}),
 		...(fkChanges.length > 0 ? { fkChanges } : {}),
 	};
 }
@@ -921,6 +944,9 @@ function stripDestructiveFromDiff(
 		...(diff.addIndexes && diff.addIndexes.length > 0
 			? { addIndexes: diff.addIndexes }
 			: {}),
+		...(diff.renameIndexes && diff.renameIndexes.length > 0
+			? { renameIndexes: diff.renameIndexes }
+			: {}),
 		...(fkChanges && fkChanges.length > 0 ? { fkChanges } : {}),
 	};
 
@@ -931,6 +957,7 @@ function stripDestructiveFromDiff(
 		(stripped.renameColumns?.length ?? 0) > 0 ||
 		(stripped.alterColumns?.length ?? 0) > 0 ||
 		(stripped.addIndexes?.length ?? 0) > 0 ||
+		(stripped.renameIndexes?.length ?? 0) > 0 ||
 		(stripped.fkChanges?.length ?? 0) > 0;
 
 	return hasChanges ? stripped : null;
@@ -1106,6 +1133,7 @@ function tableDiffHasSql(diff: TableDiff): boolean {
 		(diff.alterColumns?.length ?? 0) > 0 ||
 		(diff.addIndexes?.length ?? 0) > 0 ||
 		(diff.dropIndexes?.length ?? 0) > 0 ||
+		(diff.renameIndexes?.length ?? 0) > 0 ||
 		(diff.fkChanges?.length ?? 0) > 0
 	);
 }
@@ -1165,6 +1193,9 @@ function stripManualEnumAlters(
 			...(alterColumns.length > 0 ? { alterColumns } : {}),
 			...(diff.addIndexes ? { addIndexes: diff.addIndexes } : {}),
 			...(diff.dropIndexes ? { dropIndexes: diff.dropIndexes } : {}),
+			...(diff.renameIndexes
+				? { renameIndexes: diff.renameIndexes }
+				: {}),
 			...(diff.fkChanges ? { fkChanges: diff.fkChanges } : {}),
 		};
 		if (tableDiffHasSql(next)) kept.push(next);

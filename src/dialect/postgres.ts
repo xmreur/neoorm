@@ -582,6 +582,14 @@ function emitAlterTable(table: ManifestTable, diff: TableDiff): string[] {
 		);
 	}
 
+	if (diff.renameIndexes) {
+		for (const rename of diff.renameIndexes) {
+			stmts.push(
+				`ALTER INDEX ${q(rename.from)} RENAME TO ${q(rename.to)};`,
+			);
+		}
+	}
+
 	if (diff.fkChanges) {
 		for (const change of diff.fkChanges) {
 			if (change.drop) {
