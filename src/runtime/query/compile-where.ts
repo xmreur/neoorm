@@ -1679,6 +1679,70 @@ export function normalizeLimitOffset(value: unknown, label: string): number {
 	return value;
 }
 
+function splitOrderList(body: string): string[] {
+	const items: string[] = [];
+	let depth = 0;
+	let start = 0;
+	for (let i = 0; i < body.length; i++) {
+		const char = body[i];
+		if (char === "(") {
+			depth++;
+			continue;
+		}
+		if (char === ")") {
+			depth = Math.max(0, depth - 1);
+			continue;
+		}
+		if (char === "," && depth === 0) {
+			items.push(body.slice(start, i));
+			start = i + 1;
+		}
+	}
+	items.push(body.slice(start));
+	return items;
+}
+
+function parseOrderItem(
+	item: string,
+): { expression: string; direction: "ASC" | "DESC" } | undefined {
+	const match = /^(.*)\s+(ASC|DESC)$/i.exec(item.trim());
+	const expression = match?.[1]?.trim();
+	const direction = match?.[2]?.toUpperCase();
+	if (!expression || (direction !== "ASC" && direction !== "DESC")) {
+		return undefined;
+	}
+	return { expression, direction };
+}
+
+/**
+ * The SQLite distinct wrapper selects output names (`created_at` AS `createdAt`).
+ * The outer ORDER BY must use those names. The window still sorts the base table.
+ */
+function orderByDerivedOutputs(
+	table: ManifestTable,
+	orderSql: string,
+	dialect: Dialect,
+): string {
+	const head = /^\s*ORDER BY\s+/i.exec(orderSql);
+	if (!head?.[0]) return orderSql;
+	const tableIdent = dialect.quoteIdentifier(table.sqlName);
+	const items = splitOrderList(orderSql.slice(head[0].length)).map((item) => {
+		const parsed = parseOrderItem(item);
+		if (!parsed) return item.trim();
+		for (const col of table.columns) {
+			const sqlIdent = dialect.quoteIdentifier(col.sqlName);
+			if (
+				parsed.expression === sqlIdent ||
+				parsed.expression === `${tableIdent}.${sqlIdent}`
+			) {
+				return `${dialect.quoteIdentifier(col.tsName)} ${parsed.direction}`;
+			}
+		}
+		return `${parsed.expression} ${parsed.direction}`;
+	});
+	return `ORDER BY ${items.join(", ")}`;
+}
+
 export function buildFindManyQuery(
 	table: ManifestTable,
 	whereSql: string,
@@ -1754,7 +1818,12 @@ export function buildFindManyQuery(
 		sql = `SELECT * FROM (${sql}) AS ${alias} WHERE ${alias}.${rn} = 1`;
 	}
 
-	if (orderSql) sql += ` ${orderSql}`;
+	if (orderSql) {
+		const outerOrder = sqliteDistinct
+			? orderByDerivedOutputs(table, orderSql, dialect)
+			: orderSql;
+		sql += ` ${outerOrder}`;
+	}
 	if (take !== undefined) {
 		sql += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
 	}
