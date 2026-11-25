@@ -51,6 +51,34 @@ describe("distinct findMany", () => {
 		expect(sql).toMatch(/ORDER BY "email" ASC LIMIT 10 OFFSET 2$/);
 	});
 
+	it("orders the sqlite wrapper by select output names", () => {
+		const posts = manifestTable(manifest, "posts");
+		const sql = buildFindManyQuery(
+			posts,
+			"",
+			'ORDER BY "posts"."created_at" DESC, "author_id" ASC',
+			undefined,
+			undefined,
+			["createdAt", "authorId"],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			sqliteDialect,
+		);
+
+		expect(sql).toContain('"created_at" AS "createdAt"');
+		expect(sql).toContain('"author_id" AS "authorId"');
+		expect(sql).toContain(
+			'ROW_NUMBER() OVER (PARTITION BY "created_at", "author_id" ORDER BY "posts"."created_at" DESC, "author_id" ASC)',
+		);
+		expect(sql).toMatch(
+			/WHERE "_neoorm_d"\."_neoorm_rn" = 1 ORDER BY "createdAt" DESC, "authorId" ASC$/,
+		);
+	});
+
 	it("rejects distinct without matching orderBy prefix", async () => {
 		const runtime: QueryRuntime = { manifest };
 		const executor: Executor = {

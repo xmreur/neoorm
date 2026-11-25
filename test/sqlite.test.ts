@@ -546,6 +546,33 @@ describe("sqlite runtime", () => {
 		db.close();
 	});
 
+	it("orders distinct rows by a snake_case column", async () => {
+		const { db } = await setup();
+		const orm = makeOrm(manifest, db);
+		const ada = await orm.users.create({
+			data: { email: "ada@x", name: "ada" },
+		});
+		const bob = await orm.users.create({
+			data: { email: "bob@x", name: "bob" },
+		});
+		await orm.posts.create({
+			data: { title: "a1", author: { connect: { id: ada.id } } },
+		});
+		await orm.posts.create({
+			data: { title: "a2", author: { connect: { id: ada.id } } },
+		});
+		await orm.posts.create({
+			data: { title: "b1", author: { connect: { id: bob.id } } },
+		});
+
+		const rows = await orm.posts.findMany({
+			distinct: ["authorId"],
+			orderBy: { authorId: "desc" },
+		});
+		expect(rows.map((row) => row.authorId)).toEqual([bob.id, ada.id]);
+		db.close();
+	});
+
 	it("uses sqlite when the manifest declares provider sqlite", async () => {
 		const client = createNeoOrmClient({
 			version: 1,
