@@ -206,6 +206,8 @@ describe("updateMany JOIN updates", () => {
 
 		const update = executor.queries.find((q) => q.sql.startsWith("UPDATE"));
 		expect(update?.sql).toContain("INNER JOIN `profiles` AS `_uj`");
+		expect(update?.sql).toContain("`_uj`.`user_id` = `users`.`id`");
+		expect(update?.sql).not.toContain("`users`.`user_id`");
 		expect(update?.sql).toContain("WHERE `_uj`.`bio` = ?");
 		expect(update?.sql).not.toContain("EXISTS");
 	});
