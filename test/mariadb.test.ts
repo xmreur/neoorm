@@ -168,6 +168,46 @@ describeMariadb("mariadb runtime", () => {
 		}
 	});
 
+	it("returns an empty array when a has-many parent has no children", async () => {
+		const { pool, client } = await setup();
+		const orm = makeOrm(manifest, pool);
+		try {
+			const lonely = await orm.users.create({
+				data: { email: "lonely@x", name: "lonely" },
+			});
+			const parent = await orm.users.create({
+				data: {
+					email: "parent@x",
+					name: "parent",
+					posts: { create: [{ title: "hi" }] },
+				},
+			});
+
+			const lonelyMany = await orm.users.findMany({
+				where: { email: "lonely@x" },
+				with: { posts: true },
+			});
+			expect(lonelyMany).toHaveLength(1);
+			expect(lonelyMany[0]?.posts).toEqual([]);
+
+			const lonelyOne = await orm.users.findById(
+				{ id: lonely.id },
+				{ with: { posts: true } },
+			);
+			expect(lonelyOne?.posts).toEqual([]);
+
+			const withChild = await orm.users.findMany({
+				where: { id: parent.id },
+				with: { posts: true },
+			});
+			expect(withChild[0]?.posts).toEqual([
+				expect.objectContaining({ title: "hi", authorId: parent.id }),
+			]);
+		} finally {
+			await client.close();
+		}
+	});
+
 	it("supports nested writes, includes, and savepoints", async () => {
 		const { pool, client } = await setup();
 		const orm = makeOrm(manifest, pool);
