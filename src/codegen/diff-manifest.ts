@@ -939,6 +939,10 @@ export function buildMigrationSql(
 	manifest?: Manifest,
 	newEnumTypes?: Record<string, { values: readonly string[] }>,
 	dialect: Dialect = postgresDialect,
+	enumDdl?: {
+		addValues?: readonly EnumValueChange[];
+		dropTypes?: readonly string[];
+	},
 ): string[] {
 	const sql: string[] = [];
 	const schemaNames = new Set(
@@ -965,6 +969,11 @@ export function buildMigrationSql(
 		sql.push(...dialect.emitCreateEnumTypes(newEnumTypes));
 	}
 
+	for (const added of enumDdl?.addValues ?? []) {
+		const statement = dialect.emitAddEnumValue(added.name, added.value);
+		if (statement) sql.push(statement);
+	}
+
 	const alterDiffs = tableDiffs.filter((d) => !d.create && !d.drop);
 	const dropDiffs = tableDiffs.filter((d) => d.drop);
 	const createDiffs = tableDiffs.filter((d) => d.create);
@@ -988,18 +997,45 @@ export function buildMigrationSql(
 		),
 	);
 
+	for (const name of enumDdl?.dropTypes ?? []) {
+		const statement = dialect.emitDropEnumType(name);
+		if (statement) sql.push(statement);
+	}
+
 	return sql;
 }
 
-function diffEnumTypes(
-	prev: Manifest | null,
-	next: Manifest,
-): {
+type EnumValueChange = {
+	name: string;
+	value: string;
+};
+
+type EnumTypeDiff = {
 	newEnumTypes: Record<string, { values: readonly string[] }>;
+	addValues: EnumValueChange[];
+	dropTypes: string[];
+	/** Native enum types whose value list was reordered or shortened. */
+	manualNames: ReadonlySet<string>;
 	destructive: DestructiveChange[];
-} {
+};
+
+function isEnumValueAppend(
+	prev: readonly string[],
+	next: readonly string[],
+): boolean {
+	if (next.length <= prev.length) return false;
+	for (let index = 0; index < prev.length; index++) {
+		if (prev[index] !== next[index]) return false;
+	}
+	return true;
+}
+
+function diffEnumTypes(prev: Manifest | null, next: Manifest): EnumTypeDiff {
 	const destructive: DestructiveChange[] = [];
 	const newEnumTypes: Record<string, { values: readonly string[] }> = {};
+	const addValues: EnumValueChange[] = [];
+	const dropTypes: string[] = [];
+	const manualNames = new Set<string>();
 	const prevEnums = prev?.enumTypes ?? {};
 	const nextEnums = next.enumTypes ?? {};
 
@@ -1010,19 +1046,127 @@ function diffEnumTypes(
 			continue;
 		}
 		if (
-			JSON.stringify(prevDefinition.values) !==
+			JSON.stringify(prevDefinition.values) ===
 			JSON.stringify(definition.values)
 		) {
-			destructive.push({
-				kind: "alter_enum_manual",
-				table: name,
-				detail: `Enum type "${name}" values changed — manual migration required`,
-				sql: `-- ALTER TYPE ${name} ... (manual)`,
-			});
+			continue;
 		}
+		if (isEnumValueAppend(prevDefinition.values, definition.values)) {
+			for (const value of definition.values.slice(
+				prevDefinition.values.length,
+			)) {
+				addValues.push({ name, value });
+			}
+			continue;
+		}
+		manualNames.add(name);
+		destructive.push({
+			kind: "alter_enum_manual",
+			table: name,
+			detail: `Enum type "${name}" values changed — manual migration required`,
+			sql: `-- ALTER TYPE ${name} ... (manual)`,
+		});
 	}
 
-	return { newEnumTypes, destructive };
+	for (const name of Object.keys(prevEnums)) {
+		if (!nextEnums[name]) dropTypes.push(name);
+	}
+
+	return { newEnumTypes, addValues, dropTypes, manualNames, destructive };
+}
+
+function nativeEnumName(column: ManifestColumn): string | undefined {
+	const name = column.typeOptions?.nativeTypeName;
+	return typeof name === "string" ? name : undefined;
+}
+
+function columnAlterHasWork(alter: ColumnAlter): boolean {
+	return (
+		alter.setType !== undefined ||
+		alter.setNullable !== undefined ||
+		alter.setDefault !== undefined ||
+		alter.setUnique !== undefined ||
+		alter.dropUniqueConstraint !== undefined ||
+		alter.setCheckExpression !== undefined ||
+		alter.dropCheck !== undefined
+	);
+}
+
+function tableDiffHasSql(diff: TableDiff): boolean {
+	return (
+		diff.create === true ||
+		diff.drop === true ||
+		diff.renameFromSqlName !== undefined ||
+		(diff.addColumns?.length ?? 0) > 0 ||
+		(diff.dropColumns?.length ?? 0) > 0 ||
+		(diff.renameColumns?.length ?? 0) > 0 ||
+		(diff.alterColumns?.length ?? 0) > 0 ||
+		(diff.addIndexes?.length ?? 0) > 0 ||
+		(diff.dropIndexes?.length ?? 0) > 0 ||
+		(diff.fkChanges?.length ?? 0) > 0
+	);
+}
+
+/** MySQL ENUM reorder/delete is a MODIFY. Leave it out of the migration SQL. */
+function stripManualEnumAlters(
+	diffs: readonly TableDiff[],
+	manualNames: ReadonlySet<string>,
+): TableDiff[] {
+	if (manualNames.size === 0) return [...diffs];
+	const kept: TableDiff[] = [];
+	for (const diff of diffs) {
+		if (!diff.alterColumns) {
+			kept.push(diff);
+			continue;
+		}
+		const alterColumns = diff.alterColumns.flatMap((alter) => {
+			const column = diff.table.columns.find(
+				(candidate) => candidate.sqlName === alter.sqlName,
+			);
+			const enumName = column ? nativeEnumName(column) : undefined;
+			if (
+				enumName === undefined ||
+				!manualNames.has(enumName) ||
+				alter.setType === undefined
+			) {
+				return [alter];
+			}
+			const rest: ColumnAlter = { sqlName: alter.sqlName };
+			if (alter.setNullable !== undefined)
+				rest.setNullable = alter.setNullable;
+			if (alter.setDefault !== undefined)
+				rest.setDefault = alter.setDefault;
+			if (alter.setUnique !== undefined) rest.setUnique = alter.setUnique;
+			if (alter.dropUniqueConstraint !== undefined) {
+				rest.dropUniqueConstraint = alter.dropUniqueConstraint;
+			}
+			if (alter.setCheckExpression !== undefined) {
+				rest.setCheckExpression = alter.setCheckExpression;
+			}
+			if (alter.dropCheck !== undefined) rest.dropCheck = alter.dropCheck;
+			return columnAlterHasWork(rest) ? [rest] : [];
+		});
+		const next: TableDiff = {
+			table: diff.table,
+			...(diff.manifest ? { manifest: diff.manifest } : {}),
+			...(diff.create ? { create: diff.create } : {}),
+			...(diff.drop ? { drop: diff.drop } : {}),
+			...(diff.renameFromSqlName
+				? { renameFromSqlName: diff.renameFromSqlName }
+				: {}),
+			...(diff.addColumns ? { addColumns: diff.addColumns } : {}),
+			...(diff.dropColumns ? { dropColumns: diff.dropColumns } : {}),
+			...(diff.renameColumns
+				? { renameColumns: diff.renameColumns }
+				: {}),
+			...(alterColumns.length > 0 ? { alterColumns } : {}),
+			...(diff.addIndexes ? { addIndexes: diff.addIndexes } : {}),
+			...(diff.dropIndexes ? { dropIndexes: diff.dropIndexes } : {}),
+			...(diff.fkChanges ? { fkChanges: diff.fkChanges } : {}),
+		};
+		if (tableDiffHasSql(next)) kept.push(next);
+	}
+	return kept;
 }
 
 function tableSqlKey(table: ManifestTable): string {
@@ -1185,10 +1329,9 @@ export function diffManifest(
 	const newExtensions = (next.extensions ?? []).filter(
 		(ext) => !prevExtensions.has(ext),
 	);
-	const { newEnumTypes, destructive: enumDestructive } = diffEnumTypes(
-		prev,
-		next,
-	);
+	const enumDiff = diffEnumTypes(prev, next);
+	const { newEnumTypes, destructive: enumDestructive } = enumDiff;
+	const sqlDiffs = stripManualEnumAlters(tableDiffs, enumDiff.manualNames);
 
 	for (const diff of tableDiffs) {
 		const prevTable = diff.renameFromSqlName
@@ -1206,11 +1349,15 @@ export function diffManifest(
 	destructive.push(...enumDestructive);
 
 	const sql = buildMigrationSql(
-		tableDiffs,
+		sqlDiffs,
 		newExtensions,
 		next,
 		newEnumTypes,
 		dialect,
+		{
+			addValues: enumDiff.addValues,
+			dropTypes: enumDiff.dropTypes,
+		},
 	);
 
 	return { isInitial: false, sql, destructive };
@@ -1387,7 +1534,7 @@ export function formatDestructiveWarnings(
 			case "alter_primary_key":
 				return `${change.detail} — primary key changes require manual migration`;
 			case "alter_enum_manual":
-				return `${change.detail} — enum value changes require manual migration`;
+				return `${change.detail} — removing or reordering enum values requires a manual migration`;
 			case "add_column_not_null":
 				return `${change.detail} — add a default, or write a manual migration that backfills existing rows`;
 			case "set_not_null":

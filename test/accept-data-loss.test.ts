@@ -264,7 +264,70 @@ describe("accept-data-loss generate flow", () => {
 		await rm(workDir, { recursive: true, force: true });
 	});
 
-	it("leaves the snapshot unchanged for an enum value change with acceptDataLoss", async () => {
+	it("writes ADD VALUE and advances the snapshot for an appended enum value", async () => {
+		const workDir = await createWorkDir();
+		const outDir = join(workDir, "neoorm");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			`import { defineSchema, enumType, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	posts: table({
+		id: id(),
+		status: enumType(["draft", "published"] as const).notNull(),
+	}),
+});
+`,
+			"schema-v1.ts",
+		);
+		const options = {
+			enumMode: "native" as const,
+			provider: "postgresql" as const,
+		};
+		await generateFromSchema(schemaV1Path, outDir, {
+			...options,
+			name: "v1_init",
+		});
+		const snapshotAfterV1 = await readSnapshot(outDir);
+		const v1Hash = hashManifest(defined(snapshotAfterV1, "v1 snapshot"));
+		const schemaV2Path = await writeSchema(
+			workDir,
+			`import { defineSchema, enumType, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	posts: table({
+		id: id(),
+		status: enumType(["draft", "published", "archived"] as const).notNull(),
+	}),
+});
+`,
+			"schema-v2.ts",
+		);
+		const generated = await generateFromSchema(schemaV2Path, outDir, {
+			...options,
+			name: "v2_enum",
+		});
+		expect(generated.destructiveBlocked).toBe(false);
+		expect(generated.migrationName).not.toBeNull();
+		const migrationSql = await readFile(
+			join(
+				outDir,
+				"migrations",
+				generated.migrationName ?? "",
+				"migration.sql",
+			),
+			"utf-8",
+		);
+		expect(migrationSql).toContain(
+			`ALTER TYPE "posts_status" ADD VALUE 'archived';`,
+		);
+		expect(
+			hashManifest(defined(await readSnapshot(outDir), "snapshot")),
+		).not.toBe(v1Hash);
+		await rm(workDir, { recursive: true, force: true });
+	});
+
+	it("leaves the snapshot unchanged when an enum value is removed", async () => {
 		const workDir = await createWorkDir();
 		const outDir = join(workDir, "neoorm");
 		const schemaV1Path = await writeSchema(
@@ -299,7 +362,7 @@ export const schema = defineSchema({
 export const schema = defineSchema({
 	posts: table({
 		id: id(),
-		status: enumType(["draft", "published", "archived"] as const).notNull(),
+		status: enumType(["draft"] as const).notNull(),
 	}),
 });
 `,
@@ -348,6 +411,76 @@ export const schema = defineSchema({
 			hashManifest(defined(await readSnapshot(outDir), "snapshot")),
 		).toBe(v1Hash);
 
+		await rm(workDir, { recursive: true, force: true });
+	});
+
+	it("writes DROP TYPE only when the column drop is accepted", async () => {
+		const workDir = await createWorkDir();
+		const outDir = join(workDir, "neoorm");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			`import { defineSchema, enumType, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	posts: table({
+		id: id(),
+		status: enumType(["draft", "published"] as const).notNull(),
+	}),
+});
+`,
+			"schema-v1.ts",
+		);
+		const options = {
+			enumMode: "native" as const,
+			provider: "postgresql" as const,
+		};
+		await generateFromSchema(schemaV1Path, outDir, {
+			...options,
+			name: "v1_init",
+		});
+		const v1Hash = hashManifest(
+			defined(await readSnapshot(outDir), "v1 snapshot"),
+		);
+		const schemaV2Path = await writeSchema(
+			workDir,
+			`import { defineSchema, id, table } from "neoorm/schema";
+
+export const schema = defineSchema({
+	posts: table({ id: id() }),
+});
+`,
+			"schema-v2.ts",
+		);
+		const blocked = await generateFromSchema(schemaV2Path, outDir, {
+			...options,
+			name: "v2_drop",
+		});
+		expect(blocked.destructiveBlocked).toBe(true);
+		expect(blocked.migrationName).toBeNull();
+		expect(
+			hashManifest(defined(await readSnapshot(outDir), "snapshot")),
+		).toBe(v1Hash);
+
+		const accepted = await generateFromSchema(schemaV2Path, outDir, {
+			...options,
+			acceptDataLoss: true,
+			name: "v2_drop",
+		});
+		expect(accepted.destructiveBlocked).toBe(false);
+		const migrationSql = await readFile(
+			join(
+				outDir,
+				"migrations",
+				accepted.migrationName ?? "",
+				"migration.sql",
+			),
+			"utf-8",
+		);
+		expect(migrationSql).toContain(`DROP TYPE "posts_status";`);
+		const dropColumn = migrationSql.indexOf(`DROP COLUMN "status"`);
+		const dropType = migrationSql.indexOf(`DROP TYPE "posts_status"`);
+		expect(dropColumn).toBeGreaterThanOrEqual(0);
+		expect(dropType).toBeGreaterThan(dropColumn);
 		await rm(workDir, { recursive: true, force: true });
 	});
 });

@@ -386,6 +386,8 @@ export const sqliteDialect: Dialect = {
 	emitCreateExtensions: () => [],
 	emitCreateSchema: () => "",
 	emitCreateEnumTypes: () => [],
+	emitAddEnumValue: () => null,
+	emitDropEnumType: () => null,
 	emitCreateTable,
 	emitDropTable,
 	emitCreateIndex,

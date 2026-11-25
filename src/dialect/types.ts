@@ -276,6 +276,10 @@ export type Dialect = {
 	emitCreateEnumTypes(
 		enumTypes: Record<string, { values: readonly string[] }>,
 	): string[];
+	/** Postgres `ALTER TYPE … ADD VALUE`. Null when the dialect has no enum type. */
+	emitAddEnumValue(typeName: string, value: string): string | null;
+	/** Postgres `DROP TYPE`. Null when the dialect has no enum type. */
+	emitDropEnumType(typeName: string): string | null;
 	emitCreateTable(table: ManifestTable, options?: CreateTableOptions): string;
 	emitDropTable(table: ManifestTable): string;
 	emitCreateIndex(

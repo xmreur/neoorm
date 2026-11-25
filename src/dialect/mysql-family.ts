@@ -393,6 +393,8 @@ export function createMysqlFamilyDialect(
 		emitCreateExtensions: () => [],
 		emitCreateSchema: () => "",
 		emitCreateEnumTypes: () => [],
+		emitAddEnumValue: () => null,
+		emitDropEnumType: () => null,
 		emitCreateTable(table, createOptions = {}) {
 			return emitCreateTable(table, createOptions, dialect, options);
 		},
