@@ -11,6 +11,7 @@ import { emitClientTs } from "../src/codegen/generate.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import {
 	bool,
+	decimal,
 	defineSchema,
 	enumType,
 	fk,
@@ -165,6 +166,20 @@ describe("emitQueryTypesTs", () => {
 		expect(source).toMatch(/ {2}statusChangedById\?: .+;/);
 		expect(source).toContain("statusChangedBy?: UserWhere;");
 		expect(source).not.toMatch(/statusChangedById\?: UserWhere/);
+	});
+
+	it("emits increment, decrement, and multiply on decimal updates", () => {
+		const schema = defineSchema({
+			items: table({
+				id: id(),
+				price: decimal({ precision: 10, scale: 2 }),
+			}),
+		});
+		const source = emitQueryTypesTs(schemaToManifest(schema));
+
+		expect(source).toContain(
+			"price?: string | null | { increment?: string; decrement?: string; multiply?: string; set?: string | null };",
+		);
 	});
 });
 

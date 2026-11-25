@@ -345,6 +345,7 @@ export function updateScalarTsType(
 	switch (col.kind) {
 		case "int":
 		case "serial":
+		case "decimal":
 		case "real":
 		case "double":
 		case "bigint":
