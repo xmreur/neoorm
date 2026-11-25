@@ -4,6 +4,7 @@ import { schemaToManifest } from "../codegen/schema-to-manifest.js";
 import { compileWhere } from "../runtime/query/compile.js";
 import { buildUpsertQuery } from "../runtime/query/compile-write.js";
 import {
+	bigint,
 	bool,
 	citext,
 	defineSchema,
@@ -479,6 +480,37 @@ describe("mariadb dialect", () => {
 		);
 		expect(
 			dropDefault.sql.some((statement) => statement.includes("MODIFY")),
+		).toBe(false);
+	});
+
+	it("does not DROP DEFAULT after MODIFY already omitted it", () => {
+		const withDefault = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					score: int().notNull().default(0),
+				}),
+			}),
+			undefined,
+			{ provider: "mariadb" },
+		);
+		const next = schemaToManifest(
+			defineSchema({
+				users: table({
+					id: serial().primary(),
+					score: bigint().notNull(),
+				}),
+			}),
+			undefined,
+			{ provider: "mariadb" },
+		);
+
+		const { sql } = diffManifest(withDefault, next, mariadbDialect);
+		expect(sql).toContain(
+			"ALTER TABLE `users` MODIFY COLUMN `score` BIGINT NOT NULL;",
+		);
+		expect(
+			sql.some((statement) => statement.includes("DROP DEFAULT")),
 		).toBe(false);
 	});
 });

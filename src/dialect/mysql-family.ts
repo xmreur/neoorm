@@ -613,7 +613,9 @@ function emitAlterColumn(
 	const tableName = tableRef(table);
 	const colName = q(alter.sqlName);
 
-	if (alter.setType || alter.setNullable !== undefined) {
+	const rewritesColumn =
+		Boolean(alter.setType) || alter.setNullable !== undefined;
+	if (rewritesColumn) {
 		const source =
 			alter.setType ??
 			table.columns.find((column) => column.sqlName === alter.sqlName);
@@ -642,9 +644,13 @@ function emitAlterColumn(
 
 	if (alter.setDefault !== undefined) {
 		if (alter.setDefault === null) {
-			stmts.push(
-				`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`,
-			);
+			// MODIFY already restates the column without DEFAULT, which
+			// clears it. A following DROP DEFAULT is redundant.
+			if (!rewritesColumn) {
+				stmts.push(
+					`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP DEFAULT;`,
+				);
+			}
 		} else {
 			const defaultSql = formatDefaultValue(alter.setDefault, dialect);
 			if (defaultSql !== null) {
