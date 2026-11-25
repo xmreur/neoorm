@@ -360,11 +360,22 @@ function columnDef(
 		parts.push(`DEFAULT ${defaultSql}`);
 	}
 
-	if (col.checkExpression) {
-		parts.push(`CHECK (${col.checkExpression})`);
-	}
-
 	return parts.join(" ");
+}
+
+function checkConstraintName(
+	tableSqlName: string,
+	columnSqlName: string,
+): string {
+	return `${tableSqlName}_${columnSqlName}_check`;
+}
+
+function checkConstraintClause(
+	table: ManifestTable,
+	col: ManifestColumn,
+): string | undefined {
+	if (!col.checkExpression) return undefined;
+	return `CONSTRAINT ${q(checkConstraintName(table.sqlName, col.sqlName))} CHECK (${col.checkExpression})`;
 }
 
 export function createMysqlFamilyDialect(
@@ -486,6 +497,11 @@ function emitCreateTable(
 	if (table.primaryKey.length > 1) {
 		const pkCols = table.primaryKey.map((c) => q(c)).join(", ");
 		lines.push(`  PRIMARY KEY (${pkCols})`);
+	}
+
+	for (const col of table.columns) {
+		const checkSql = checkConstraintClause(table, col);
+		if (checkSql) lines.push(`  ${checkSql}`);
 	}
 
 	if (inlineForeignKeys) {
@@ -638,14 +654,19 @@ function emitAlterColumn(
 	}
 
 	if (alter.setCheckExpression !== undefined) {
-		const constraintName = `${table.sqlName}_${alter.sqlName}_check`;
-		const dropKind =
-			options.dropCheckKind === "check"
-				? "DROP CHECK"
-				: "DROP CONSTRAINT";
-		stmts.push(
-			`ALTER TABLE ${tableName} ${dropKind} ${q(constraintName)};`,
+		const constraintName = checkConstraintName(
+			table.sqlName,
+			alter.sqlName,
 		);
+		if (alter.dropCheck) {
+			const dropKind =
+				options.dropCheckKind === "check"
+					? "DROP CHECK"
+					: "DROP CONSTRAINT";
+			stmts.push(
+				`ALTER TABLE ${tableName} ${dropKind} ${q(constraintName)};`,
+			);
+		}
 		if (alter.setCheckExpression !== null) {
 			stmts.push(
 				`ALTER TABLE ${tableName} ADD CONSTRAINT ${q(constraintName)} CHECK (${alter.setCheckExpression});`,
@@ -708,6 +729,10 @@ function emitAlterTable(
 			stmts.push(
 				`ALTER TABLE ${tableRef(table)} ADD COLUMN ${columnDef(col, table, manifest, dialect, options)};`,
 			);
+			const checkSql = checkConstraintClause(table, col);
+			if (checkSql) {
+				stmts.push(`ALTER TABLE ${tableRef(table)} ADD ${checkSql};`);
+			}
 		}
 	}
 

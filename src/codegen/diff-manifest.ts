@@ -488,6 +488,9 @@ function buildColumnAlter(
 	}
 
 	if (prevCol.checkExpression !== nextCol.checkExpression) {
+		if (prevCol.checkExpression) {
+			alter.dropCheck = true;
+		}
 		alter.setCheckExpression = nextCol.checkExpression ?? null;
 		hasAlter = true;
 	}

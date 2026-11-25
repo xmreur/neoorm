@@ -194,6 +194,8 @@ export type ColumnAlter = {
 	setUnique?: boolean;
 	dropUniqueConstraint?: string;
 	setCheckExpression?: string | null;
+	/** Previous column had a check. MySQL/MariaDB drop that named check before replacing it. */
+	dropCheck?: boolean;
 };
 
 export type FkChange = {
