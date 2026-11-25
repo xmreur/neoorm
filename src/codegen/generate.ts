@@ -732,8 +732,10 @@ async function computeMigrationPreview(
 		}
 	}
 
-	const migrationBlocked =
-		blocked.length > 0 && !(options.acceptDataLoss ?? false);
+	// resolveMigrationSql already removes destructive changes the flag can emit.
+	// Enum value edits and unsafe casts stay in `blocked`. While any remain,
+	// withhold SQL and the snapshot so the next generate still sees the diff.
+	const migrationBlocked = blocked.length > 0;
 	const migrationSql = migrationBlocked ? [] : sql;
 
 	return {
@@ -774,9 +776,11 @@ export async function previewMigrationSql(
 		const warnings = [...preview.warnings];
 		if (preview.migrationBlocked) {
 			warnings.push(...formatDestructiveWarnings(preview.blocked));
-			warnings.push(
-				"Destructive schema changes are excluded from this preview. Re-run with --accept-data-loss to include them.",
-			);
+			if (!(options.acceptDataLoss ?? false)) {
+				warnings.push(
+					"Destructive schema changes are excluded from this preview. Re-run with --accept-data-loss to include them.",
+				);
+			}
 		}
 		return {
 			manifest: preview.manifest,
@@ -874,13 +878,16 @@ async function generateFromSchemaInner(
 		blocked,
 		schemaChanged,
 		migrationName,
+		acceptDataLoss: options.acceptDataLoss ?? false,
 	});
 
 	if (summary.status === "migration_blocked") {
 		allWarnings.push(...formatDestructiveWarnings(blocked));
-		allWarnings.push(
-			"Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
-		);
+		if (!(options.acceptDataLoss ?? false)) {
+			allWarnings.push(
+				"Destructive schema changes were not written to a migration. Re-run with --accept-data-loss to include them.",
+			);
+		}
 	}
 
 	return {
