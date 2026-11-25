@@ -296,6 +296,7 @@ export function isOmittedOnCreate(
 	return (
 		col.primary ||
 		col.generated === true ||
+		col.generatedExpression !== undefined ||
 		col.kind === "serial" ||
 		isManagedTimestamp(col)
 	);
@@ -309,7 +310,11 @@ export function isOmittedOnUpdate(
 	if (isJunctionPkColumn(col, table, isJunction)) {
 		return true;
 	}
-	return col.primary || isManagedTimestamp(col);
+	return (
+		col.primary ||
+		col.generatedExpression !== undefined ||
+		isManagedTimestamp(col)
+	);
 }
 
 export function isCreateRequired(

@@ -51,6 +51,8 @@ export type ManifestColumn = {
 	uniqueConstraintName?: string;
 	storageSqlType?: string;
 	checkExpression?: string;
+	/** Stored `GENERATED ALWAYS AS` expression. Distinct from serial `generated`. */
+	generatedExpression?: string;
 	generated?: boolean;
 	/** Structured CHECK helper values for validation emit. Ignored by migration diffs. */
 	checkMin?: number | string;
@@ -203,6 +205,8 @@ export type ColumnAlter = {
 	setUnique?: boolean;
 	dropUniqueConstraint?: string;
 	setCheckExpression?: string | null;
+	/** Next stored expression, or `null` when generation is removed. */
+	setGeneratedExpression?: string | null;
 	/** Previous column had a check. MySQL/MariaDB drop that named check before replacing it. */
 	dropCheck?: boolean;
 };

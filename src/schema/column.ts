@@ -50,6 +50,8 @@ export type ColumnMeta = {
 	typeOptions?: Record<string, unknown> | undefined;
 	mapName?: string | undefined;
 	checkExpression?: string | undefined;
+	/** Stored generated column expression (`GENERATED ALWAYS AS`). */
+	generatedExpression?: string | undefined;
 	checkMin?: number | bigint | string | undefined;
 	checkMax?: number | bigint | string | undefined;
 	checkPositive?: boolean | undefined;
@@ -104,6 +106,13 @@ export interface ColumnBuilder<TValue, TMeta extends ColumnMeta = ColumnMeta> {
 		TValue,
 		Omit<TMeta, "checkExpression"> & { checkExpression: string }
 	>;
+	/** Stored generated column (`GENERATED ALWAYS AS (expression) STORED`). */
+	generated(
+		expression: string,
+	): ColumnBuilder<
+		TValue,
+		Omit<TMeta, "generatedExpression"> & { generatedExpression: string }
+	>;
 }
 
 type SharedColumnBuilderMethod =
@@ -114,7 +123,8 @@ type SharedColumnBuilderMethod =
 	| "default"
 	| "primary"
 	| "map"
-	| "check";
+	| "check"
+	| "generated";
 
 /** Fluent builder for a timestamp column (supports `defaultNow` and `updatedAt`). */
 export interface TimestampColumnBuilder<
@@ -172,6 +182,13 @@ export interface TimestampColumnBuilder<
 		TValue,
 		Omit<TMeta, "checkExpression"> & { checkExpression: string }
 	>;
+	/** Stored generated column (`GENERATED ALWAYS AS (expression) STORED`). */
+	generated(
+		expression: string,
+	): TimestampColumnBuilder<
+		TValue,
+		Omit<TMeta, "generatedExpression"> & { generatedExpression: string }
+	>;
 	/** Default to `now()` on insert. */
 	defaultNow(): TimestampColumnBuilder<
 		TValue,
@@ -224,6 +241,13 @@ export type TextColumnBuilder<
 	): TextColumnBuilder<
 		TValue,
 		Omit<TMeta, "checkExpression"> & { checkExpression: string }
+	>;
+	/** Stored generated column (`GENERATED ALWAYS AS (expression) STORED`). */
+	generated(
+		expression: string,
+	): TextColumnBuilder<
+		TValue,
+		Omit<TMeta, "generatedExpression"> & { generatedExpression: string }
 	>;
 	/** Limit string length (`VARCHAR(n)` on Postgres; CHECK on SQLite). */
 	maxLength(n: number): TextColumnBuilder<TValue, TMeta>;
@@ -282,6 +306,13 @@ export type NumericColumnBuilder<
 		TValue,
 		Omit<TMeta, "checkExpression"> & { checkExpression: string }
 	>;
+	/** Stored generated column (`GENERATED ALWAYS AS (expression) STORED`). */
+	generated(
+		expression: string,
+	): NumericColumnBuilder<
+		TValue,
+		Omit<TMeta, "generatedExpression"> & { generatedExpression: string }
+	>;
 	/** Require values >= n via CHECK. */
 	min(n: number | bigint | string): NumericColumnBuilder<TValue, TMeta>;
 	/** Require values <= n via CHECK. */
@@ -331,6 +362,12 @@ export function createColumnBuilder<
 		},
 		check(expression: string) {
 			return rebuild({ ...meta, checkExpression: expression } as TMeta);
+		},
+		generated(expression: string) {
+			return rebuild({
+				...meta,
+				generatedExpression: expression,
+			} as TMeta);
 		},
 	} as ColumnBuilder<TValue, TMeta>;
 
@@ -420,6 +457,17 @@ export function createTimestampColumnBuilder<TValue, TMeta extends ColumnMeta>(
 				TMeta,
 				"checkExpression"
 			> & { checkExpression: string });
+		},
+		generated(expression: string) {
+			return createTimestampColumnBuilder<
+				TValue,
+				Omit<TMeta, "generatedExpression"> & {
+					generatedExpression: string;
+				}
+			>({ ...meta, generatedExpression: expression } as Omit<
+				TMeta,
+				"generatedExpression"
+			> & { generatedExpression: string });
 		},
 		defaultNow() {
 			return createTimestampColumnBuilder<

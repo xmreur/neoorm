@@ -11,6 +11,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
+import { storedGeneratedSql } from "./generated-column.js";
 import { numberedPlaceholder } from "./placeholders.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import {
@@ -143,9 +144,13 @@ function columnDef(
 		if (col.unique) parts.push("UNIQUE");
 	}
 
-	const defaultSql = formatDefaultValue(col, dialect);
-	if (defaultSql !== null) {
-		parts.push(`DEFAULT ${defaultSql}`);
+	if (col.generatedExpression) {
+		parts.push(storedGeneratedSql(col.generatedExpression));
+	} else {
+		const defaultSql = formatDefaultValue(col, dialect);
+		if (defaultSql !== null) {
+			parts.push(`DEFAULT ${defaultSql}`);
+		}
 	}
 
 	if (col.checkExpression) {
@@ -244,6 +249,7 @@ function rebuildColumnCopyNames(diff: TableDiff): Array<{
 	const copyCols: Array<{ newName: string; oldName: string }> = [];
 	for (const col of diff.table.columns) {
 		if (addCols.has(col.sqlName)) continue;
+		if (col.generatedExpression) continue;
 		copyCols.push({
 			newName: col.sqlName,
 			oldName: renames.get(col.sqlName) ?? col.sqlName,

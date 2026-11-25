@@ -8,6 +8,7 @@ import type {
 	ManifestTable,
 } from "../../dialect/types.js";
 import type { DatabaseClient } from "../../runtime/driver.js";
+import { schemaError } from "../../runtime/error-builders.js";
 import {
 	columnTsNameFromSqlName,
 	tableAccessorFromSqlName,
@@ -22,6 +23,7 @@ interface TableInfoRow {
 	notnull: number;
 	dflt_value: string | null;
 	pk: number;
+	hidden?: number;
 }
 
 interface ForeignKeyRow {
@@ -230,6 +232,61 @@ function parseDefaultValue(value: string | null): {
 	return { defaultValue: trimmed };
 }
 
+function assignSqliteStoredGenerated(
+	column: ManifestColumn,
+	col: TableInfoRow,
+	createSql: string | null | undefined,
+	tableName: string,
+): void {
+	if ((col.hidden ?? 0) !== 3) return;
+	const expression = sqliteStoredGeneratedExpression(createSql, col.name);
+	if (!expression) {
+		throw schemaError(
+			"invalid_column",
+			`Cannot read the stored generated expression for "${tableName}"."${col.name}"`,
+		);
+	}
+	column.generatedExpression = expression;
+}
+
+export function sqliteStoredGeneratedExpression(
+	createSql: string | null | undefined,
+	columnName: string,
+): string | undefined {
+	if (!createSql) return undefined;
+	const quoted = `"${columnName.replaceAll('"', '""')}"`;
+	let searchFrom = 0;
+	while (searchFrom < createSql.length) {
+		const idx = createSql.indexOf(quoted, searchFrom);
+		if (idx < 0) return undefined;
+		const rest = createSql.slice(idx + quoted.length);
+		const marker = /GENERATED\s+ALWAYS\s+AS\s*\(/i.exec(rest);
+		if (!marker) {
+			searchFrom = idx + quoted.length;
+			continue;
+		}
+		const start = marker.index + marker[0].length;
+		let depth = 1;
+		let end = start;
+		for (; end < rest.length; end++) {
+			const char = rest[end];
+			if (char === "(") depth++;
+			else if (char === ")") {
+				depth--;
+				if (depth === 0) break;
+			}
+		}
+		if (depth !== 0) return undefined;
+		const after = rest.slice(end + 1);
+		if (!/^\s*STORED\b/i.test(after)) {
+			searchFrom = idx + quoted.length;
+			continue;
+		}
+		return rest.slice(start, end).trim();
+	}
+	return undefined;
+}
+
 export async function introspectSqliteToManifest(
 	client: DatabaseClient,
 ): Promise<Manifest> {
@@ -252,7 +309,7 @@ async function introspectSqliteTable(
 ): Promise<ManifestTable> {
 	const info = (
 		await client.query<TableInfoRow>(
-			`PRAGMA table_info(${quoteIdentifier(tableName)})`,
+			`PRAGMA table_xinfo(${quoteIdentifier(tableName)})`,
 		)
 	).rows;
 	const fks = (
@@ -285,10 +342,13 @@ async function introspectSqliteTable(
 		)
 	).rows;
 
-	const primaryKey = info.filter((col) => col.pk > 0).map((col) => col.name);
+	const columns = info.filter((col) => (col.hidden ?? 0) !== 1);
+	const primaryKey = columns
+		.filter((col) => col.pk > 0)
+		.map((col) => col.name);
 	const singleIntegerPk =
 		primaryKey.length === 1 &&
-		info.some((col) => col.pk > 0 && /int/i.test(col.type));
+		columns.some((col) => col.pk > 0 && /int/i.test(col.type));
 
 	const fkMap = new Map(
 		groupedFks
@@ -299,7 +359,7 @@ async function introspectSqliteTable(
 			}),
 	);
 
-	const manifestColumns: ManifestColumn[] = info.map((col) => {
+	const manifestColumns: ManifestColumn[] = columns.map((col) => {
 		const tsName = columnTsNameFromSqlName(col.name);
 		const nullable = col.notnull === 0;
 		const fk = fkMap.get(col.name);
@@ -307,7 +367,7 @@ async function introspectSqliteTable(
 
 		if (fk) {
 			const local = fk.columns[0];
-			return {
+			const column: ManifestColumn = {
 				tsName,
 				sqlName: col.name,
 				kind: "fk",
@@ -324,6 +384,8 @@ async function introspectSqliteTable(
 				...(fk.onUpdate ? { onUpdate: fk.onUpdate } : {}),
 				...(fk.deferrable ? { deferrable: fk.deferrable } : {}),
 			};
+			assignSqliteStoredGenerated(column, col, createSql, tableName);
+			return column;
 		}
 
 		const kind = sqliteTypeToKind(col.type, defaults.defaultNow);
@@ -342,6 +404,8 @@ async function introspectSqliteTable(
 				: {}),
 			...(singleIntegerPk && col.pk > 0 ? { generated: true } : {}),
 		};
+
+		assignSqliteStoredGenerated(column, col, createSql, tableName);
 
 		return column;
 	});

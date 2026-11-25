@@ -9,6 +9,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
+import { storedGeneratedSql } from "./generated-column.js";
 import { numberedPlaceholder } from "./placeholders.js";
 import {
 	formatIndexKeyList,
@@ -236,9 +237,13 @@ function columnDef(
 		if (col.unique) parts.push("UNIQUE");
 	}
 
-	const defaultSql = formatDefaultValue(col);
-	if (defaultSql !== null) {
-		parts.push(`DEFAULT ${defaultSql}`);
+	if (col.generatedExpression) {
+		parts.push(storedGeneratedSql(col.generatedExpression));
+	} else {
+		const defaultSql = formatDefaultValue(col);
+		if (defaultSql !== null) {
+			parts.push(`DEFAULT ${defaultSql}`);
+		}
 	}
 
 	if (col.checkExpression) {
@@ -534,6 +539,11 @@ function emitAddTableForeignKey(
 	return `ALTER TABLE ${tableRef(table)} ADD CONSTRAINT ${q(fk.name)} ${tableForeignKeyClause(q, fk, sameSchemaRef(table, fk.targetTable))};`;
 }
 
+function indexReferencesColumn(index: ManifestIndex, sqlName: string): boolean {
+	if (index.columns.includes(sqlName)) return true;
+	return index.keys?.some((key) => key.sqlName === sqlName) ?? false;
+}
+
 function emitAlterColumn(
 	table: ManifestTable,
 	alter: ColumnAlter,
@@ -542,6 +552,30 @@ function emitAlterColumn(
 	const stmts: string[] = [];
 	const tableName = tableRef(table);
 	const colName = q(alter.sqlName);
+
+	if (typeof alter.setGeneratedExpression === "string") {
+		const col = table.columns.find(
+			(column) => column.sqlName === alter.sqlName,
+		);
+		if (!col) {
+			return stmts;
+		}
+		const replaced = [
+			`ALTER TABLE ${tableName} DROP COLUMN ${colName};`,
+			`ALTER TABLE ${tableName} ADD COLUMN ${columnDef(col, table, manifest)};`,
+		];
+		for (const index of table.indexes) {
+			if (!indexReferencesColumn(index, alter.sqlName)) continue;
+			replaced.push(emitCreateIndex(table, index));
+		}
+		return replaced;
+	}
+
+	if (alter.setGeneratedExpression === null) {
+		stmts.push(
+			`ALTER TABLE ${tableName} ALTER COLUMN ${colName} DROP EXPRESSION;`,
+		);
+	}
 
 	if (alter.setType) {
 		const typeSql = columnTypeSql(alter.setType, table, manifest);

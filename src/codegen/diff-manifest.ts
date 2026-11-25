@@ -1,4 +1,5 @@
 import { parseFkTarget } from "../dialect/fk.js";
+import { generatedExpressionsEqual } from "../dialect/generated-column.js";
 import {
 	canAutoCastType,
 	DEFAULT_PG_SCHEMA,
@@ -62,6 +63,7 @@ function effectiveNullable(col: ManifestColumn): boolean {
 /** NOT NULL with nothing to fill existing rows. Serial columns generate values. */
 function columnNeedsNotNullBackfill(col: ManifestColumn): boolean {
 	if (effectiveNullable(col)) return false;
+	if (col.generatedExpression) return false;
 	if (col.kind === "serial") return false;
 	if (col.defaultNow) return false;
 	if (col.defaultValue !== undefined && col.defaultValue !== null) {
@@ -157,6 +159,10 @@ export function columnsEqual(
 		defaultsEqual(a, b) &&
 		typeOptionsEqual(a.typeOptions, b.typeOptions) &&
 		a.checkExpression === b.checkExpression &&
+		generatedExpressionsEqual(
+			a.generatedExpression,
+			b.generatedExpression,
+		) &&
 		columnSqlType(a, manifest, dialect) ===
 			columnSqlType(b, manifest, dialect) &&
 		(a.kind !== "fk" ||
@@ -575,6 +581,16 @@ function buildColumnAlter(
 			alter.dropCheck = true;
 		}
 		alter.setCheckExpression = nextCol.checkExpression ?? null;
+		hasAlter = true;
+	}
+
+	if (
+		!generatedExpressionsEqual(
+			prevCol.generatedExpression,
+			nextCol.generatedExpression,
+		)
+	) {
+		alter.setGeneratedExpression = nextCol.generatedExpression ?? null;
 		hasAlter = true;
 	}
 

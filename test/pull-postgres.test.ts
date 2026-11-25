@@ -104,6 +104,15 @@ const blogDb: MockDb = {
 				column_default: null,
 			},
 			{
+				column_name: "total",
+				data_type: "integer",
+				udt_name: "int4",
+				is_nullable: "NO",
+				column_default: null,
+				is_generated: "ALWAYS",
+				generation_expression: "(qty * price)",
+			},
+			{
 				column_name: "created_at",
 				data_type: "timestamp with time zone",
 				udt_name: "timestamptz",
@@ -219,6 +228,9 @@ describe("introspectPostgres extras", () => {
 		);
 		expect(schema).toContain("views: int().notNull().default(0)");
 		expect(schema).toContain('score: int().notNull().check("score >= 0")');
+		expect(schema).toContain(
+			'total: int().notNull().generated("(qty * price)")',
+		);
 		expect(schema).toContain(
 			"createdAt: timestamp().notNull().defaultNow()",
 		);
