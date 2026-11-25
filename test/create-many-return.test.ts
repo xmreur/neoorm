@@ -233,7 +233,7 @@ describe("mysql-family bulk insert", () => {
 		expect(reselect?.params).toEqual([10, 11]);
 	});
 
-	it("does not synthesize consecutive ids when skipDuplicates is set", async () => {
+	it("returns only the serial rows skipDuplicates inserted", async () => {
 		const runtime: QueryRuntime = {
 			manifest: serialManifest,
 			dialect: mysqlDialect,
@@ -243,6 +243,10 @@ describe("mysql-family bulk insert", () => {
 			executor.queries.push({ sql, params: params ?? [] });
 			return { rows: [], rowCount: 1, insertId: 10 };
 		}) as Executor["execute"];
+		executor.query = vi.fn(async (sql: string, params?: unknown[]) => {
+			executor.queries.push({ sql, params: params ?? [] });
+			return [{ id: 10, message: "b" }];
+		}) as Executor["query"];
 
 		const rows = await createManyAndReturnRecords(
 			executor,
@@ -254,10 +258,61 @@ describe("mysql-family bulk insert", () => {
 			},
 		);
 
-		expect(rows).toEqual([{ message: "a" }, { message: "b" }]);
-		expect(rows.some((row) => row.id === 11)).toBe(false);
-		expect(executor.query).not.toHaveBeenCalled();
+		expect(rows).toEqual([{ id: 10, message: "b" }]);
+		expect(rows.some((row) => row.message === "a")).toBe(false);
+		const reselect = executor.queries.find((q) =>
+			q.sql.startsWith("SELECT"),
+		);
+		expect(reselect?.params).toEqual([10]);
 		expect(executor.queries[0]?.sql).toContain("INSERT IGNORE");
-		expect(executor.queries[0]?.sql).not.toContain("RETURNING");
+	});
+
+	it("omits client primary keys that already existed", async () => {
+		const keyed = defineSchema({
+			items: table({
+				id: text().notNull().primary(),
+				email: text().notNull().unique(),
+			}),
+		});
+		const runtime: QueryRuntime = {
+			manifest: schemaToManifest(keyed),
+			dialect: mysqlDialect,
+		};
+		const executor = createMockExecutor([]);
+		let selects = 0;
+		executor.query = vi.fn(async (sql: string, params?: unknown[]) => {
+			executor.queries.push({ sql, params: params ?? [] });
+			selects += 1;
+			if (selects === 1) {
+				return [{ id: "old", email: "a@x" }];
+			}
+			return [
+				{ id: "old", email: "a@x" },
+				{ id: "new", email: "b@x" },
+			];
+		}) as Executor["query"];
+		executor.execute = vi.fn(async (sql: string, params?: unknown[]) => {
+			executor.queries.push({ sql, params: params ?? [] });
+			return { rows: [], rowCount: 1 };
+		}) as Executor["execute"];
+
+		const rows = await createManyAndReturnRecords(
+			executor,
+			runtime,
+			"items",
+			{
+				data: [
+					{ id: "old", email: "a@x" },
+					{ id: "new", email: "b@x" },
+				],
+				skipDuplicates: true,
+			},
+		);
+
+		expect(rows).toEqual([{ id: "new", email: "b@x" }]);
+		expect(executor.queries[0]?.sql.startsWith("SELECT")).toBe(true);
+		expect(
+			executor.queries.some((q) => q.sql.includes("INSERT IGNORE")),
+		).toBe(true);
 	});
 });

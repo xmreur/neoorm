@@ -69,7 +69,7 @@ const users = await db.users.createManyAndReturn({
 });
 ```
 
-On MySQL (no `RETURNING`), serial-PK batches are hydrated with a follow-up re-select so DB-side defaults come back too; MariaDB uses `RETURNING` directly.
+On MySQL (no `RETURNING`), serial-PK batches are hydrated with a follow-up re-select so DB-side defaults come back too; MariaDB uses `RETURNING` directly. With `skipDuplicates`, that re-select covers only the rows this statement inserted: serial keys from `LAST_INSERT_ID()` for the inserted count, and client-supplied primary keys that were not already in the table.
 
 Unknown keys in `data` fail at compile time (`unknown_column`), same as `where`.
 

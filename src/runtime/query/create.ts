@@ -26,6 +26,8 @@ import {
 } from "./mutation-returning.js";
 import {
 	fillMissingPrimaryKeys,
+	primaryKeyTsNames,
+	rowPkKey,
 	rowScalarPkValue,
 	scalarPkAvailable,
 } from "./primary-key.js";
@@ -322,6 +324,19 @@ export async function createManyAndReturnRecords(
 			? mysqlFamilySerialPrimaryKey(table)
 			: undefined;
 	const returning = dialect.supportsReturning && serialPk === undefined;
+	const clientPkRows =
+		skipDuplicates &&
+		!dialect.supportsReturning &&
+		rowsHaveClientPrimaryKeys(table, scalarRows);
+	const preexistingKeys = clientPkRows
+		? await loadPrimaryKeySet(
+				executor,
+				runtime,
+				table,
+				tableAccessor,
+				scalarRows,
+			)
+		: undefined;
 	const sql = buildInsertManyQuery(
 		table,
 		dataKeys,
@@ -354,6 +369,13 @@ export async function createManyAndReturnRecords(
 		values,
 	);
 	if (
+		skipDuplicates &&
+		!dialect.supportsReturning &&
+		executed.rowCount === 0
+	) {
+		return [];
+	}
+	if (
 		serialPk &&
 		executed.insertId !== undefined &&
 		executed.rowCount === scalarRows.length
@@ -379,6 +401,36 @@ export async function createManyAndReturnRecords(
 			synthesized,
 		);
 	}
+	if (skipDuplicates && !dialect.supportsReturning) {
+		if (preexistingKeys) {
+			const loaded = await reloadClientPrimaryKeyRows(
+				executor,
+				runtime,
+				table,
+				tableAccessor,
+				scalarRows,
+			);
+			return (loaded ?? []).filter(
+				(row) => !preexistingKeys.has(rowPkKey(row, table)),
+			);
+		}
+		const insertedSerial = mysqlFamilySerialPrimaryKey(table);
+		if (
+			insertedSerial &&
+			executed.insertId !== undefined &&
+			executed.rowCount > 0
+		) {
+			return fetchRowsByPrimaryKeyIn(
+				executor,
+				runtime,
+				table,
+				tableAccessor,
+				serialIdsFromInsert(executed.insertId, executed.rowCount),
+				"insert",
+			);
+		}
+		return [];
+	}
 	const pkTs = table.columns.find((c) => c.primary)?.tsName;
 	if (pkTs && scalarRows.every((row) => row[pkTs] != null)) {
 		if (table.primaryKey.length === 1) {
@@ -402,6 +454,74 @@ export async function createManyAndReturnRecords(
 		if (reloaded) return reloaded;
 	}
 	return scalarRows;
+}
+
+function rowsHaveClientPrimaryKeys(
+	table: NonNullable<QueryRuntime["manifest"]["tables"][string]>,
+	rows: Record<string, unknown>[],
+): boolean {
+	const tsNames = primaryKeyTsNames(table);
+	if (tsNames.length === 0 || rows.length === 0) return false;
+	return rows.every((row) => tsNames.every((name) => row[name] != null));
+}
+
+function serialIdsFromInsert(
+	insertId: number | bigint,
+	count: number,
+): Array<number | bigint> {
+	const ids: Array<number | bigint> = [];
+	for (let i = 0; i < count; i++) {
+		ids.push(
+			typeof insertId === "bigint" ? insertId + BigInt(i) : insertId + i,
+		);
+	}
+	return ids;
+}
+
+async function reloadClientPrimaryKeyRows(
+	executor: Executor,
+	runtime: QueryRuntime,
+	table: NonNullable<QueryRuntime["manifest"]["tables"][string]>,
+	tableAccessor: string,
+	scalarRows: Record<string, unknown>[],
+): Promise<Record<string, unknown>[] | undefined> {
+	if (table.primaryKey.length === 1) {
+		const pkTs = primaryKeyTsNames(table)[0];
+		if (!pkTs) return undefined;
+		return fetchRowsByPrimaryKeyIn(
+			executor,
+			runtime,
+			table,
+			tableAccessor,
+			scalarRows.map((row) => row[pkTs]),
+			"insert",
+		);
+	}
+	return fetchRowsByPkLookups(
+		executor,
+		runtime,
+		table,
+		tableAccessor,
+		scalarRows,
+		"insert",
+	);
+}
+
+async function loadPrimaryKeySet(
+	executor: Executor,
+	runtime: QueryRuntime,
+	table: NonNullable<QueryRuntime["manifest"]["tables"][string]>,
+	tableAccessor: string,
+	scalarRows: Record<string, unknown>[],
+): Promise<Set<string>> {
+	const loaded = await reloadClientPrimaryKeyRows(
+		executor,
+		runtime,
+		table,
+		tableAccessor,
+		scalarRows,
+	);
+	return new Set((loaded ?? []).map((row) => rowPkKey(row, table)));
 }
 
 function prepareCreateManyRows(

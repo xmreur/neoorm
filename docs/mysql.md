@@ -130,7 +130,7 @@ bunx neoorm migrate reset --force
 | `interval` / `inet` / `cidr` / range types | supported | rejected at schema compile |
 | `datasource.schema` | multi-schema | ignored (URL database) |
 
-`createMany` is a multi-value `INSERT` plus `affectedRows` and does not use `RETURNING`. `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count inside a transaction and assumes consecutive autoincrement values.
+`createMany` is a multi-value `INSERT` plus `affectedRows` and does not use `RETURNING`. `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count and assumes consecutive autoincrement values. `skipDuplicates` returns only rows that `INSERT IGNORE` actually wrote: the serial id range for `affectedRows`, or client-supplied primary keys that were not already present.
 
 Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based.
 
