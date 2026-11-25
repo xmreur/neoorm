@@ -124,8 +124,9 @@ function emitWhereType(
 	for (const rel of effectiveRelations(manifest, table)) {
 		const targetWhere = `${modelTypeName(rel.targetAccessor)}Where`;
 		if (rel.cardinality === "many") {
+			const countFilter = `{ where?: ${targetWhere}; equals?: number; gt?: number; gte?: number; lt?: number; lte?: number }`;
 			lines.push(
-				`  ${tsPropertyKey(rel.name)}?: { some?: ${targetWhere}; every?: ${targetWhere}; none?: ${targetWhere} };`,
+				`  ${tsPropertyKey(rel.name)}?: { some?: ${targetWhere}; every?: ${targetWhere}; none?: ${targetWhere}; _count?: ${countFilter} };`,
 			);
 		} else {
 			lines.push(`  ${tsPropertyKey(rel.name)}?: ${targetWhere};`);

@@ -121,7 +121,7 @@ describe("emitQueryTypesTs", () => {
 		expect(upsertBlock).toContain("where: UserWhereUnique;");
 		expect(upsertBlock).not.toContain("& UserWhere;");
 		expect(source).toContain(
-			"posts?: { some?: PostWhere; every?: PostWhere; none?: PostWhere };",
+			"posts?: { some?: PostWhere; every?: PostWhere; none?: PostWhere; _count?: { where?: PostWhere; equals?: number; gt?: number; gte?: number; lt?: number; lte?: number } };",
 		);
 		expect(source).toContain("profile?: ProfileWhere;");
 		expect(source).toContain("author?: UserWhere;");

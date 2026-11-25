@@ -1859,6 +1859,11 @@ await db.users.findMany({
   where: { posts: { some: { published: true } } },
 });
 
+// users with at least five published posts
+await db.users.findMany({
+  where: { posts: { _count: { gte: 5, where: { published: true } } } },
+});
+
 // posts whose author has a verified email
 await db.posts.findMany({
   where: { author: { email: { contains: "@" } } },
@@ -1877,8 +1882,9 @@ await db.posts.findMany({
 | `posts: { some: { ... } }` | At least one related record matches (to-many) |
 | `posts: { every: { ... } }` | All related records match (to-many). Compiled as `NOT EXISTS` of related rows that fail the nested filter. |
 | `posts: { none: { ... } }` | No related records match (to-many) |
+| `posts: { _count: { gte: 5, where: { ... } } }` | Related-row count matches. `where` is optional. `equals`, `gt`, `gte`, `lt`, and `lte` can be combined. |
 
-Relation filters compile to SQL `EXISTS` subqueries, so they work with `findMany`, `count`, `updateMany`, and `deleteMany` without duplicate rows.
+`some`, `every`, and `none` compile to SQL `EXISTS` subqueries. `_count` compiles to a scalar `COUNT` subquery. Both work with `findMany`, `count`, `updateMany`, and `deleteMany` without duplicate rows.
 
 ### JSON and decimal filters
 
