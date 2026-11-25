@@ -2440,14 +2440,14 @@ PostgreSQL reset recreates the schema owned by the connecting role. It does not 
 
 ## Rollback
 
-`down.sql` and `snapshot.before.json` are written automatically when `neoorm generate` or `neoorm migrate dev` creates a migration. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration.
+`down.sql` and `snapshot.before.json` are written when `neoorm generate` or `neoorm migrate dev` creates a migration whose reverse diff is complete. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration. If that reverse needs a manual change — adding back a `NOT NULL` column with no default, setting `NOT NULL`, or another change `--accept-data-loss` does not emit — NeoORM writes neither file. `migrate down` then refuses the rollback and leaves `snapshot.json` unchanged.
 
 ```bash
 neoorm migrate down
 neoorm migrate down --steps 2
 ```
 
-Rolls back the most recently applied migration(s) by running each migration folder's `down.sql`, removing the ledger entry from `_neoorm_migrations`, and restoring `snapshot.json` from `snapshot.before.json`.
+Rolls back the most recently applied migration(s) by running each migration folder's `down.sql`, removing the ledger entry from `_neoorm_migrations`, and restoring `snapshot.json` from `snapshot.before.json`. A `down.sql` that omitted a manual change is refused before any SQL runs, and `snapshot.json` stays as it is.
 
 Legacy migrations without `down.sql` cannot be rolled back — re-generate the migration or add `down.sql` manually.
 
