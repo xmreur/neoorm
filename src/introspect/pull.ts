@@ -466,7 +466,9 @@ function emitColumnModifiers(
 	if (col.deferrable) {
 		def += `.deferrable("${escapeTsString(col.deferrable)}")`;
 	}
-	if (col.defaultNow) {
+	if (col.generatedExpression) {
+		def += `.generated("${escapeTsString(col.generatedExpression)}")`;
+	} else if (col.defaultNow) {
 		def += ".defaultNow()";
 	} else if (col.defaultValue !== undefined) {
 		def += `.default(${formatTsValue(col.kind, col.defaultValue)})`;
@@ -1403,6 +1405,9 @@ function sqliteColumnDef(
 	}
 	if (!col.nullable && !col.primary) {
 		def += ".notNull()";
+	}
+	if (col.generatedExpression) {
+		def += `.generated("${escapeTsString(col.generatedExpression)}")`;
 	}
 	return `${def},`;
 }

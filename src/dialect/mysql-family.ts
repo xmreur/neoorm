@@ -13,6 +13,7 @@ import {
 	parseFkTarget,
 	tableForeignKeyClause,
 } from "./fk.js";
+import { storedGeneratedSql } from "./generated-column.js";
 import { joinPlaceholders, positionalPlaceholder } from "./placeholders.js";
 import { resolveIndexSqlName } from "./postgres.js";
 import { formatIndexKeyList, isSolePrimaryKeyColumn } from "./shared.js";
@@ -326,9 +327,13 @@ function columnAlterDefinition(
 			columnIsNullable(col, overrides?.nullable) ? "NULL" : "NOT NULL",
 		);
 	}
-	const defaultSql = alterDefaultSql(col, dialect, overrides);
-	if (defaultSql !== null) {
-		parts.push(`DEFAULT ${defaultSql}`);
+	if (col.generatedExpression) {
+		parts.push(storedGeneratedSql(col.generatedExpression));
+	} else {
+		const defaultSql = alterDefaultSql(col, dialect, overrides);
+		if (defaultSql !== null) {
+			parts.push(`DEFAULT ${defaultSql}`);
+		}
 	}
 	return parts.join(" ");
 }
@@ -355,9 +360,13 @@ function columnDef(
 		}
 	}
 
-	const defaultSql = formatDefaultValue(col, dialect);
-	if (defaultSql !== null) {
-		parts.push(`DEFAULT ${defaultSql}`);
+	if (col.generatedExpression) {
+		parts.push(storedGeneratedSql(col.generatedExpression));
+	} else {
+		const defaultSql = formatDefaultValue(col, dialect);
+		if (defaultSql !== null) {
+			parts.push(`DEFAULT ${defaultSql}`);
+		}
 	}
 
 	return parts.join(" ");
@@ -614,7 +623,9 @@ function emitAlterColumn(
 	const colName = q(alter.sqlName);
 
 	const rewritesColumn =
-		Boolean(alter.setType) || alter.setNullable !== undefined;
+		Boolean(alter.setType) ||
+		alter.setNullable !== undefined ||
+		alter.setGeneratedExpression !== undefined;
 	if (rewritesColumn) {
 		const source =
 			alter.setType ??

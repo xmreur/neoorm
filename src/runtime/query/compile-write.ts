@@ -865,6 +865,9 @@ export function dataToSqlValues(
 	for (const [key, value] of Object.entries(data)) {
 		const col = columnByTsName(tableIndex, table, key);
 		if (!col) continue;
+		if (col.generatedExpression) {
+			compileError(`cannot write generated column "${col.tsName}"`);
+		}
 		if (options?.excludePrimary && col.primary) continue;
 		if (value === undefined) continue;
 		keys.push(key);
@@ -893,6 +896,9 @@ export function dataToUpdateAssignments(
 	for (const [key, raw] of Object.entries(data)) {
 		const col = columnByTsName(tableIndex, table, key);
 		if (!col) continue;
+		if (col.generatedExpression) {
+			compileError(`cannot write generated column "${col.tsName}"`);
+		}
 		if (options?.excludePrimary && col.primary) continue;
 		if (raw === undefined) continue;
 		const parsed = parseAtomicUpdate(col, raw);

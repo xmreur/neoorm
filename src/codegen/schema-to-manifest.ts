@@ -887,6 +887,40 @@ function compileIndexWhere(
 	return sql;
 }
 
+function applyGeneratedExpression(
+	tsName: string,
+	meta: ColumnMeta,
+	result: ManifestColumn,
+): void {
+	if (meta.generatedExpression === undefined) return;
+	const expression = meta.generatedExpression.trim();
+	if (expression.length === 0) {
+		throw schemaError(
+			"invalid_column",
+			`Column "${tsName}" generated expression is empty`,
+		);
+	}
+	if (meta.kind === "serial") {
+		throw schemaError(
+			"invalid_column",
+			`Column "${tsName}" cannot be a generated serial`,
+		);
+	}
+	if ("updatedAt" in meta && meta.updatedAt === true) {
+		throw schemaError(
+			"invalid_column",
+			`Column "${tsName}" cannot be generated and updatedAt`,
+		);
+	}
+	if (meta.defaultNow || meta.defaultValue !== undefined) {
+		throw schemaError(
+			"invalid_column",
+			`Column "${tsName}" cannot be generated and have a default`,
+		);
+	}
+	result.generatedExpression = expression;
+}
+
 function columnToManifest(
 	tsName: string,
 	col: ColumnDef,
@@ -1014,6 +1048,7 @@ function columnToManifest(
 	if (meta.kind === "serial") {
 		result.generated = true;
 	}
+	applyGeneratedExpression(tsName, meta, result);
 	if (meta.hidden === true) {
 		result.hidden = true;
 	}

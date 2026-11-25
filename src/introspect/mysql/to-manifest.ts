@@ -28,6 +28,7 @@ type ColumnRow = {
 	numeric_precision: number | null;
 	numeric_scale: number | null;
 	column_key: string;
+	generation_expression?: string | null;
 };
 
 type FkRow = {
@@ -182,6 +183,16 @@ function parseDefaultValue(value: string | null): {
 	return { defaultValue: trimmed };
 }
 
+function mysqlStoredGeneratedExpression(row: ColumnRow): string | undefined {
+	const extra = row.extra.toLowerCase();
+	const stored =
+		extra.includes("stored generated") ||
+		extra.includes("persistent generated");
+	if (!stored) return undefined;
+	const expression = row.generation_expression?.trim();
+	return expression ? expression : undefined;
+}
+
 export async function introspectMysqlToManifest(
 	client: DatabaseClient,
 ): Promise<Manifest> {
@@ -215,6 +226,7 @@ async function introspectMysqlTable(
 			        IS_NULLABLE AS is_nullable,
 			        COLUMN_DEFAULT AS column_default,
 			        EXTRA AS extra,
+			        GENERATION_EXPRESSION AS generation_expression,
 			        CHARACTER_MAXIMUM_LENGTH AS character_maximum_length,
 			        NUMERIC_PRECISION AS numeric_precision,
 			        NUMERIC_SCALE AS numeric_scale,
@@ -315,6 +327,10 @@ async function introspectMysqlTable(
 			defaultNow: defaults.defaultNow === true,
 		};
 		if (mapped.generated) column.generated = true;
+		const generatedExpression = mysqlStoredGeneratedExpression(row);
+		if (generatedExpression) {
+			column.generatedExpression = generatedExpression;
+		}
 		if (mapped.typeOptions) column.typeOptions = mapped.typeOptions;
 		if (defaults.defaultValue !== undefined) {
 			column.defaultValue = defaults.defaultValue;

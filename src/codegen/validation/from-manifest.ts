@@ -45,6 +45,7 @@ function omitOnCreate(
 	return (
 		col.primary ||
 		col.generated === true ||
+		col.generatedExpression !== undefined ||
 		col.kind === "serial" ||
 		isManagedTimestamp(col)
 	);
@@ -58,7 +59,11 @@ function omitOnUpdate(
 	if (isJunctionPkColumn(col, table, isJunction)) {
 		return true;
 	}
-	return col.primary || isManagedTimestamp(col);
+	return (
+		col.primary ||
+		col.generatedExpression !== undefined ||
+		isManagedTimestamp(col)
+	);
 }
 
 function omitOnSelect(col: ManifestColumn): boolean {

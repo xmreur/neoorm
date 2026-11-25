@@ -820,27 +820,23 @@ updatedAt: timestamp().notNull().defaultNow().updatedAt(),
 
 ### Full-text search
 
-`tsvector()` declares a full-text document column (`TSVECTOR` on Postgres, `TEXT` elsewhere). It is maintained by the database — typically a trigger:
+`tsvector()` declares a full-text document column (`TSVECTOR` on Postgres, `TEXT` elsewhere). Keep it in sync with `.generated("expr")`, a stored generated column (`GENERATED ALWAYS AS (expr) STORED` on Postgres, SQLite, MySQL, and MariaDB). Migrations own the expression, and `db pull` round-trips it:
 
 ```ts
 docs: table({
   id: id(),
   title: text().notNull(),
-  body: tsvector(),
+  body: tsvector().notNull().generated("to_tsvector('english', title)"),
+}),
+
+orders: table({
+  qty: int().notNull(),
+  price: int().notNull(),
+  total: int().notNull().generated("qty * price"),
 }),
 ```
 
-```sql
-CREATE OR REPLACE FUNCTION docs_body_tsvector() RETURNS trigger AS $$
-BEGIN
-  NEW.body := to_tsvector('english', NEW.title);
-  RETURN NEW;
-END $$ LANGUAGE plpgsql;
-
-CREATE TRIGGER docs_body_tsvector_trigger
-  BEFORE INSERT OR UPDATE ON docs
-  FOR EACH ROW EXECUTE FUNCTION docs_body_tsvector();
-```
+A hand-written trigger is still outside migrations, so `db pull` will not recreate it. Generated columns are readable and rejected on insert and update. They cannot also have a default, `updatedAt()`, or be `serial()`.
 
 Index it with GIN and query it with the `searchTs` where operator (see [Where clauses](queries.md#column-filters)):
 

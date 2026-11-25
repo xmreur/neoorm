@@ -11,6 +11,8 @@ export type ColumnRow = {
 	is_nullable: string;
 	column_default: string | null;
 	character_maximum_length: number | null;
+	is_generated?: string | null;
+	generation_expression?: string | null;
 };
 
 export type FkRow = {
@@ -75,7 +77,7 @@ export async function queryColumns(
 	const result = await client.query<ColumnRow>(
 		`
     SELECT column_name, data_type, udt_name, is_nullable, column_default,
-           character_maximum_length
+           character_maximum_length, is_generated, generation_expression
     FROM information_schema.columns
     WHERE table_schema = $1 AND table_name = $2
     ORDER BY ordinal_position

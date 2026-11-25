@@ -452,6 +452,16 @@ function applyCheckConstraints(
 	}
 }
 
+function storedGeneratedFields(col: {
+	is_generated?: string | null;
+	generation_expression?: string | null;
+}): { generatedExpression: string } | Record<string, never> {
+	if (col.is_generated !== "ALWAYS") return {};
+	const expression = col.generation_expression?.trim();
+	if (!expression) return {};
+	return { generatedExpression: expression };
+}
+
 async function introspectTable(
 	client: DatabaseClient,
 	tableName: string,
@@ -525,6 +535,7 @@ async function introspectTable(
 				...(fk.onDelete ? { onDelete: fk.onDelete } : {}),
 				...(fk.onUpdate ? { onUpdate: fk.onUpdate } : {}),
 				...(fk.deferrable ? { deferrable: fk.deferrable } : {}),
+				...storedGeneratedFields(col),
 			};
 		}
 
@@ -548,6 +559,7 @@ async function introspectTable(
 				: {}),
 			...(uniqueConstraintName ? { uniqueConstraintName } : {}),
 			...(kind === "serial" ? { generated: true } : {}),
+			...storedGeneratedFields(col),
 		};
 
 		if (
