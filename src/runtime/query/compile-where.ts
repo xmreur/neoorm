@@ -15,7 +15,7 @@ import type { PluginWhereOperator } from "../../plugins/types.js";
 import { compileError } from "../compile-error.js";
 import { QueryErrorCode } from "../error-codes.js";
 import { didYouMean, suggestWhereOperator } from "../error-hints.js";
-import { findM2M } from "./manifest-lookup.js";
+import { findM2M, tableOwnsFkColumn } from "./manifest-lookup.js";
 import {
 	primaryKeySqlName,
 	requireScalarPrimaryKey,
@@ -621,14 +621,22 @@ function compileToOneParts(
 		scope,
 	);
 	const parentTableIndex = getTableIndex(manifestIndex, parentTable.accessor);
-	const joinCond = ownedFkJoinPredicate(
-		dialect,
-		parentTable,
-		parentTableIndex,
-		parent,
-		relAlias,
-		relation,
-	);
+	const joinCond = tableOwnsFkColumn(parentTable, relation, parentTableIndex)
+		? ownedFkJoinPredicate(
+				dialect,
+				parentTable,
+				parentTableIndex,
+				parent,
+				relAlias,
+				relation,
+			)
+		: inverseFkJoinPredicate(
+				dialect,
+				relAlias,
+				parent,
+				relation,
+				primaryKeySqlName(parentTable),
+			);
 	return { relAlias, joinCond, nested };
 }
 

@@ -765,6 +765,28 @@ describe("where compilation", () => {
 		expect(params).toEqual([{ featured: true }]);
 	});
 
+	it("joins an inverse one-to-one on the child's foreign key", () => {
+		const profiles = manifestTable(manifest, "profiles");
+		const inverse = compileWhere(
+			manifest,
+			users,
+			{ profile: { bio: "hello" } },
+			postgresDialect,
+		);
+		expect(inverse.sql).toContain('"_rel"."user_id" = "users"."id"');
+		expect(inverse.sql).toContain('"_rel"."bio" = $1');
+		expect(inverse.sql).not.toContain('"users"."user_id"');
+
+		const owned = compileWhere(
+			manifest,
+			profiles,
+			{ user: { email: "a@b.c" } },
+			postgresDialect,
+		);
+		expect(owned.sql).toContain('"_rel"."id" = "profiles"."user_id"');
+		expect(owned.sql).toContain('"_rel"."email" = $1');
+	});
+
 	it("rejects a to-many relation filter without some/every/none", () => {
 		expect(() =>
 			compileWhere(
