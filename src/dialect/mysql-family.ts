@@ -548,7 +548,12 @@ function emitCreateIndex(
 			},
 		);
 	}
-	if (index.using && index.using !== "btree" && index.using !== "hash") {
+	if (
+		index.using &&
+		index.using !== "btree" &&
+		index.using !== "hash" &&
+		index.using !== "fulltext"
+	) {
 		compileError(
 			`${options.unsupportedLabel} does not support ${index.using} indexes`,
 			{
@@ -559,9 +564,14 @@ function emitCreateIndex(
 	const indexName = resolveIndexSqlName(table.sqlName, index);
 	const cols = formatIndexKeyList(index, q, {
 		formatIdent: (sqlName) =>
-			mysqlIndexColumnExpr(table, sqlName, manifest, options),
+			index.using === "fulltext"
+				? q(sqlName)
+				: mysqlIndexColumnExpr(table, sqlName, manifest, options),
 		wrapExpr: (expression) => `(${expression})`,
 	});
+	if (index.using === "fulltext") {
+		return `CREATE FULLTEXT INDEX ${q(indexName)} ON ${tableRef(table)} (${cols});`;
+	}
 	const unique = index.unique ? "UNIQUE " : "";
 	const using =
 		index.using && index.using !== "btree"

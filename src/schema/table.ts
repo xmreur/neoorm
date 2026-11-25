@@ -127,7 +127,14 @@ type IndexFilterValue<TCol extends ColumnDef> =
 	| NonNullable<IndexWhereValue<TCol>>
 	| Date;
 
-export type IndexMethod = "btree" | "hash" | "gin" | "gist" | "brin" | "bloom";
+export type IndexMethod =
+	| "btree"
+	| "hash"
+	| "gin"
+	| "gist"
+	| "brin"
+	| "bloom"
+	| "fulltext";
 
 export type IndexExpr = {
 	readonly kind: "indexExpr";

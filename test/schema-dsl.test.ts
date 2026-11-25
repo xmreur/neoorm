@@ -527,6 +527,42 @@ describe("schema DSL 0.6", () => {
 		);
 	});
 
+	it("emits a MySQL FULLTEXT index and rejects it on other engines", () => {
+		const schema = defineSchema({
+			posts: table({ id: id(), title: text().notNull() }, (t) => [
+				index(t.title).using("fulltext"),
+			]),
+		});
+		expect(() => schemaToManifest(schema)).toThrow(
+			/PostgreSQL does not support fulltext indexes/,
+		);
+		expect(() =>
+			schemaToManifest(schema, undefined, { provider: "sqlite" }),
+		).toThrow(/SQLite does not support fulltext indexes/);
+
+		const mysql = schemaToManifest(schema, undefined, {
+			provider: "mysql",
+		});
+		const posts = manifestTable(mysql, "posts");
+		const fulltext = posts.indexes.find((idx) => idx.using === "fulltext");
+		expect(fulltext).toBeDefined();
+		if (!fulltext) return;
+		expect(mysqlDialect.emitCreateIndex(posts, fulltext, mysql)).toBe(
+			"CREATE FULLTEXT INDEX `posts_title_idx` ON `posts` (`title`);",
+		);
+		expect(() =>
+			schemaToManifest(
+				defineSchema({
+					posts: table({ id: id(), title: text().notNull() }, (t) => [
+						unique(t.title).using("fulltext"),
+					]),
+				}),
+				undefined,
+				{ provider: "mysql" },
+			),
+		).toThrow(/UNIQUE indexes cannot use fulltext/);
+	});
+
 	it("rejects bloom indexes on SQLite and MySQL", () => {
 		const schema = defineSchema({
 			items: table({ id: id(), a: text().notNull() }, (t) => [

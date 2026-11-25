@@ -130,7 +130,7 @@ describe("emitQueryTypesTs", () => {
 	it("emits string operators for text columns and comparable operators for timestamps", () => {
 		const source = emitQueryTypesTs(blogLikeManifest());
 
-		expect(source).toContain("email?: string | StringFilter<string>;");
+		expect(source).toContain("email?: string | TextSearchFilter<string>;");
 		expect(source).toContain("createdAt?: Date | ComparableFilter<Date>;");
 		expect(source).toContain(
 			"status?: PostStatus | StringFilter<PostStatus>;",

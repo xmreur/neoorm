@@ -189,6 +189,7 @@ export type {
 	StripCapable,
 	StripOmitKeys,
 	StripResult,
+	TextSearchFilter,
 	UniqueWhere,
 	UpdateArgs,
 	UpdateInput,

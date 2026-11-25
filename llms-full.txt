@@ -1033,9 +1033,9 @@ Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql"
 ],
 ```
 
-Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, `hash`, and `bloom`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH` and functional `(expr)` keys; they reject GIN/GiST/BRIN/bloom and partial `WHERE`.
+Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, `hash`, and `bloom`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH`, `using("fulltext")` (`CREATE FULLTEXT INDEX`, which `searchTs` needs), and functional `(expr)` keys. They reject GIN/GiST/BRIN/bloom and partial `WHERE`.
 
-`unique()` cannot use `gin` / `gist` / `brin` / `bloom`. Expression unique indexes are not `findUnique` / `upsert` targets.
+`unique()` cannot use `gin` / `gist` / `brin` / `bloom` / `fulltext`. Expression unique indexes are not `findUnique` / `upsert` targets.
 
 Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` maps positionally to the index keys (`col1`, `col2`, …) so its length must match the key count; omit `.with()` for server defaults. Using a bloom index automatically adds the `bloom` extension to the manifest (emitted as `CREATE EXTENSION IF NOT EXISTS "bloom"`).
 
@@ -1798,7 +1798,7 @@ await db.posts.findMany({ where: { price: { contains: "9" } } });
 
 `search` is POSIX regex on PostgreSQL (`~`, or `~*` with `mode: "insensitive"`), `REGEXP_LIKE` on MySQL 8, `REGEXP` on MariaDB, and JavaScript `RegExp` (`REGEXP` / `regexp_i`) on SQLite.
 
-`searchTs` is full-text search: `to_tsvector(...) @@ plainto_tsquery(...)` on PostgreSQL, `MATCH ... AGAINST (... IN NATURAL LANGUAGE MODE)` on MySQL/MariaDB, and unsupported on SQLite (it fails at query-build time — SQLite FTS5 needs virtual tables). It works on `text` / `citext` columns and directly on `tsvector()` columns (no `to_tsvector` wrapper):
+`searchTs` is full-text search: `to_tsvector(...) @@ plainto_tsquery(...)` on PostgreSQL, `MATCH ... AGAINST (... IN NATURAL LANGUAGE MODE)` on MySQL/MariaDB, and unsupported on SQLite (it fails at query-build time — SQLite FTS5 needs virtual tables). It is only valid on `text`, `citext`, and `tsvector()` (no `to_tsvector` wrapper). `uuid`, `date`, `enum`, and `money` do not accept it. On MySQL and MariaDB, `MATCH ... AGAINST` needs `index(...).using("fulltext")`.
 
 ```ts
 await db.posts.findMany({

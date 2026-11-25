@@ -48,3 +48,8 @@ expectPostsWhere({
 
 // @ts-expect-error -- unknown searchTs parser
 expectPostsWhere({ title: { searchTs: { query: "x", parser: "nope" } } });
+
+// @ts-expect-error -- searchTs is only valid on text, citext, and tsvector
+expectPostsWhere({ status: { searchTs: "draft" } });
+// @ts-expect-error -- searchTs is only valid on text, citext, and tsvector
+expectPostsWhere({ id: { searchTs: "x" } });

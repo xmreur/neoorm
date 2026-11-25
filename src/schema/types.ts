@@ -48,6 +48,7 @@ export type {
 	SearchTsParser,
 	SearchTsQuery,
 	StringFilter,
+	TextSearchFilter,
 	WhereOperators,
 } from "./column-where.js";
 export type {

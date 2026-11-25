@@ -295,9 +295,9 @@ Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql"
 ],
 ```
 
-Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, `hash`, and `bloom`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH` and functional `(expr)` keys; they reject GIN/GiST/BRIN/bloom and partial `WHERE`.
+Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, `hash`, and `bloom`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH`, `using("fulltext")` (`CREATE FULLTEXT INDEX`, which `searchTs` needs), and functional `(expr)` keys. They reject GIN/GiST/BRIN/bloom and partial `WHERE`.
 
-`unique()` cannot use `gin` / `gist` / `brin` / `bloom`. Expression unique indexes are not `findUnique` / `upsert` targets.
+`unique()` cannot use `gin` / `gist` / `brin` / `bloom` / `fulltext`. Expression unique indexes are not `findUnique` / `upsert` targets.
 
 Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` maps positionally to the index keys (`col1`, `col2`, …) so its length must match the key count; omit `.with()` for server defaults. Using a bloom index automatically adds the `bloom` extension to the manifest (emitted as `CREATE EXTENSION IF NOT EXISTS "bloom"`).
 

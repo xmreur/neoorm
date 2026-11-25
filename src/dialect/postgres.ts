@@ -1,6 +1,7 @@
 import { getColumnTypeOrThrow } from "../plugins/registry.js";
+import { compileError } from "../runtime/compile-error.js";
 import { schemaError } from "../runtime/error-builders.js";
-import { SchemaErrorCode } from "../runtime/error-codes.js";
+import { QueryErrorCode, SchemaErrorCode } from "../runtime/error-codes.js";
 import {
 	columnFkClause,
 	emitFkChangeAdd,
@@ -443,6 +444,11 @@ function emitDropTable(table: ManifestTable): string {
 }
 
 function emitCreateIndex(table: ManifestTable, index: ManifestIndex): string {
+	if (index.using === "fulltext") {
+		compileError("PostgreSQL does not support fulltext indexes", {
+			code: QueryErrorCode.unsupported_operation,
+		});
+	}
 	const indexName = resolveIndexSqlName(table.sqlName, index);
 	const cols = formatIndexKeyList(index, q);
 	const unique = index.unique ? "UNIQUE " : "";
