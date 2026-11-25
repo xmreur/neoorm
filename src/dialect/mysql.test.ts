@@ -26,6 +26,7 @@ import {
 	unique,
 	uuid,
 } from "../schema/index.js";
+import { mariadbDialect } from "./mariadb.js";
 import { mysqlColumnType, mysqlDialect } from "./mysql.js";
 import { MYSQL_IN_PLACEHOLDER_LIMIT } from "./mysql-family.js";
 import type { ManifestColumn } from "./types.js";
@@ -596,6 +597,87 @@ describe("mysql dialect", () => {
 		);
 		expect(
 			dropDefault.sql.some((statement) => statement.includes("MODIFY")),
+		).toBe(false);
+	});
+});
+
+describe("mysql family check constraints", () => {
+	function manifests(provider: "mysql" | "mariadb") {
+		const plain = schemaToManifest(
+			defineSchema({
+				items: table({
+					id: serial().primary(),
+					price: int().notNull(),
+				}),
+			}),
+			undefined,
+			{ provider },
+		);
+		const loose = schemaToManifest(
+			defineSchema({
+				items: table({
+					id: serial().primary(),
+					price: int().notNull().min(0),
+				}),
+			}),
+			undefined,
+			{ provider },
+		);
+		const strict = schemaToManifest(
+			defineSchema({
+				items: table({
+					id: serial().primary(),
+					price: int().notNull().min(1),
+				}),
+			}),
+			undefined,
+			{ provider },
+		);
+		return { plain, loose, strict };
+	}
+
+	it.each([
+		{ dialect: mysqlDialect, drop: "DROP CHECK" },
+		{ dialect: mariadbDialect, drop: "DROP CONSTRAINT" },
+	])("names checks on create and skips a drop when $dialect.name had no check", ({
+		dialect,
+		drop,
+	}) => {
+		const provider = dialect.name === "mariadb" ? "mariadb" : "mysql";
+		const { plain, loose, strict } = manifests(provider);
+		const items = loose.tables.items;
+		if (!items) throw new Error("expected items table");
+
+		const createSql = dialect.emitCreateTable(items, { manifest: loose });
+		expect(createSql).toContain(
+			"CONSTRAINT `items_price_check` CHECK (`price` >= 0)",
+		);
+		expect(createSql).not.toMatch(/`price` INT NOT NULL CHECK/);
+
+		const added = diffManifest(plain, loose, dialect);
+		expect(added.sql.some((statement) => statement.includes(drop))).toBe(
+			false,
+		);
+		expect(added.sql).toContain(
+			"ALTER TABLE `items` ADD CONSTRAINT `items_price_check` CHECK (`price` >= 0);",
+		);
+
+		const changed = diffManifest(loose, strict, dialect);
+		expect(changed.sql).toContain(
+			`ALTER TABLE \`items\` ${drop} \`items_price_check\`;`,
+		);
+		expect(changed.sql).toContain(
+			"ALTER TABLE `items` ADD CONSTRAINT `items_price_check` CHECK (`price` >= 1);",
+		);
+
+		const removed = diffManifest(loose, plain, dialect);
+		expect(removed.sql).toContain(
+			`ALTER TABLE \`items\` ${drop} \`items_price_check\`;`,
+		);
+		expect(
+			removed.sql.some((statement) =>
+				statement.includes("ADD CONSTRAINT"),
+			),
 		).toBe(false);
 	});
 });

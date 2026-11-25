@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { diffManifest } from "../src/codegen/diff-manifest.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
 import { mariadbDialect } from "../src/dialect/mariadb.js";
 import type { Manifest } from "../src/dialect/types.js";
@@ -322,6 +323,92 @@ describeMariadb("mariadb runtime", () => {
 				[name],
 			);
 			await rm(root, { recursive: true, force: true });
+			await client.close();
+		}
+	});
+
+	it("replaces a named check and adds one without dropping a missing constraint", async () => {
+		const { client } = await setup();
+		const loose = schemaToManifest(
+			defineSchema({
+				prices: table({
+					id: serial().primary(),
+					amount: int().notNull().min(0),
+				}),
+			}),
+			undefined,
+			{ provider: "mariadb" },
+		);
+		const strict = schemaToManifest(
+			defineSchema({
+				prices: table({
+					id: serial().primary(),
+					amount: int().notNull().min(1),
+				}),
+			}),
+			undefined,
+			{ provider: "mariadb" },
+		);
+		const plain = schemaToManifest(
+			defineSchema({
+				quotes: table({
+					id: serial().primary(),
+					amount: int().notNull(),
+				}),
+			}),
+			undefined,
+			{ provider: "mariadb" },
+		);
+		const checked = schemaToManifest(
+			defineSchema({
+				quotes: table({
+					id: serial().primary(),
+					amount: int().notNull().min(0),
+				}),
+			}),
+			undefined,
+			{ provider: "mariadb" },
+		);
+		try {
+			const prices = loose.tables.prices;
+			const quotes = plain.tables.quotes;
+			if (!prices || !quotes) throw new Error("expected check tables");
+			await client.query(
+				mariadbDialect.emitCreateTable(prices, { manifest: loose }),
+			);
+			const created = await client.query<Record<string, unknown>>(
+				"SHOW CREATE TABLE `prices`",
+			);
+			const ddl = String(created.rows[0]?.["Create Table"] ?? "");
+			expect(ddl).toContain("`prices_amount_check`");
+			expect(ddl).not.toContain("`amount` int(11) NOT NULL CHECK");
+
+			for (const statement of diffManifest(loose, strict, mariadbDialect)
+				.sql) {
+				await client.query(statement);
+			}
+			await expect(
+				client.query("INSERT INTO `prices` (`amount`) VALUES (0)"),
+			).rejects.toThrow();
+			await client.query("INSERT INTO `prices` (`amount`) VALUES (1)");
+
+			await client.query(
+				mariadbDialect.emitCreateTable(quotes, { manifest: plain }),
+			);
+			const addCheck = diffManifest(plain, checked, mariadbDialect);
+			expect(
+				addCheck.sql.some((statement) => statement.includes("DROP")),
+			).toBe(false);
+			for (const statement of addCheck.sql) {
+				await client.query(statement);
+			}
+			await expect(
+				client.query("INSERT INTO `quotes` (`amount`) VALUES (-1)"),
+			).rejects.toThrow();
+			await client.query("INSERT INTO `quotes` (`amount`) VALUES (0)");
+		} finally {
+			await client.query("DROP TABLE IF EXISTS `prices`");
+			await client.query("DROP TABLE IF EXISTS `quotes`");
 			await client.close();
 		}
 	});
