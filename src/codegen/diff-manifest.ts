@@ -325,9 +325,29 @@ function diffIndexes(
 	return { addIndexes, dropIndexes };
 }
 
+function rewriteFkTarget(
+	target: string,
+	renamedSql: ReadonlyMap<string, string>,
+): string {
+	const { tableSql, columnSql } = parseFkTarget(target);
+	const nextTable = renamedSql.get(tableSql);
+	if (!nextTable) return target;
+	return `${nextTable}.${columnSql}`;
+}
+
+function fkTargetsEqual(
+	prev: string | undefined,
+	next: string | undefined,
+	renamedSql: ReadonlyMap<string, string>,
+): boolean {
+	if (prev === undefined || next === undefined) return prev === next;
+	return rewriteFkTarget(prev, renamedSql) === next;
+}
+
 function diffForeignKeys(
 	prevTable: ManifestTable,
 	nextTable: ManifestTable,
+	renamedSql: ReadonlyMap<string, string>,
 ): FkChange[] {
 	const prevFks = new Map(fkColumns(prevTable).map((c) => [c.sqlName, c]));
 	const nextFks = new Map(fkColumns(nextTable).map((c) => [c.sqlName, c]));
@@ -354,7 +374,7 @@ function diffForeignKeys(
 		}
 
 		if (
-			prevCol.fkTarget !== nextCol.fkTarget ||
+			!fkTargetsEqual(prevCol.fkTarget, nextCol.fkTarget, renamedSql) ||
 			!onDeleteEqual(prevCol.onDelete, nextCol.onDelete) ||
 			!onUpdateEqual(prevCol.onUpdate, nextCol.onUpdate) ||
 			!deferrableEqual(prevCol.deferrable, nextCol.deferrable)
@@ -395,7 +415,7 @@ function diffForeignKeys(
 		}
 	}
 
-	changes.push(...diffCompositeForeignKeys(prevTable, nextTable));
+	changes.push(...diffCompositeForeignKeys(prevTable, nextTable, renamedSql));
 	return changes;
 }
 
@@ -414,11 +434,12 @@ function tableFkAdd(fk: ManifestForeignKey): NonNullable<FkChange["add"]> {
 function compositeFksEqual(
 	a: ManifestForeignKey,
 	b: ManifestForeignKey,
+	renamedSql: ReadonlyMap<string, string>,
 ): boolean {
 	return (
 		a.columns.length === b.columns.length &&
 		a.columns.every((col, i) => col === b.columns[i]) &&
-		a.targetTable === b.targetTable &&
+		(renamedSql.get(a.targetTable) ?? a.targetTable) === b.targetTable &&
 		a.targetColumns.length === b.targetColumns.length &&
 		a.targetColumns.every((col, i) => col === b.targetColumns[i]) &&
 		onDeleteEqual(a.onDelete, b.onDelete) &&
@@ -430,6 +451,7 @@ function compositeFksEqual(
 function diffCompositeForeignKeys(
 	prevTable: ManifestTable,
 	nextTable: ManifestTable,
+	renamedSql: ReadonlyMap<string, string>,
 ): FkChange[] {
 	const prevByName = new Map(
 		(prevTable.foreignKeys ?? []).map((fk) => [fk.name, fk]),
@@ -450,7 +472,7 @@ function diffCompositeForeignKeys(
 			});
 			continue;
 		}
-		if (!compositeFksEqual(prevFk, nextFk)) {
+		if (!compositeFksEqual(prevFk, nextFk, renamedSql)) {
 			changes.push({
 				column: firstCol,
 				columns: nextFk.columns,
@@ -612,6 +634,7 @@ function diffTable(
 	prevManifest?: Manifest,
 	nextManifest?: Manifest,
 	dialect: Dialect = postgresDialect,
+	renamedSql: ReadonlyMap<string, string> = new Map(),
 ): TableDiff | null {
 	if (!prevTable && nextTable) {
 		return {
@@ -640,7 +663,7 @@ function diffTable(
 	);
 	const { addColumns, dropColumns, renameColumns, alterColumns } = columnDiff;
 	const { addIndexes, dropIndexes } = diffIndexes(prevTable, nextTable);
-	const fkChanges = diffForeignKeys(prevTable, nextTable);
+	const fkChanges = diffForeignKeys(prevTable, nextTable, renamedSql);
 
 	const hasChanges =
 		addColumns.length > 0 ||
@@ -883,6 +906,9 @@ function stripDestructiveFromDiff(
 
 	const stripped: TableDiff = {
 		table: diff.table,
+		...(diff.renameFromSqlName
+			? { renameFromSqlName: diff.renameFromSqlName }
+			: {}),
 		...(diff.create ? { create: diff.create } : {}),
 		...(addColumns && addColumns.length > 0 ? { addColumns } : {}),
 		...(diff.renameColumns && diff.renameColumns.length > 0
@@ -897,6 +923,7 @@ function stripDestructiveFromDiff(
 
 	const hasChanges =
 		stripped.create ||
+		stripped.renameFromSqlName !== undefined ||
 		(stripped.addColumns?.length ?? 0) > 0 ||
 		(stripped.renameColumns?.length ?? 0) > 0 ||
 		(stripped.alterColumns?.length ?? 0) > 0 ||
@@ -998,6 +1025,124 @@ function diffEnumTypes(
 	return { newEnumTypes, destructive };
 }
 
+function tableSqlKey(table: ManifestTable): string {
+	return `${table.schemaName ?? ""}\0${table.sqlName}`;
+}
+
+/** Old SQL name → new SQL name for accessor renames that are unambiguous. */
+function tableRenameSqlMap(
+	prev: Manifest,
+	next: Manifest,
+): {
+	byAccessor: Map<string, ManifestTable>;
+	renamedSql: Map<string, string>;
+} {
+	const prevByKey = new Map<string, string>();
+	const nextByKey = new Map<string, string>();
+	for (const [accessor, table] of Object.entries(prev.tables)) {
+		prevByKey.set(tableSqlKey(table), accessor);
+	}
+	for (const [accessor, table] of Object.entries(next.tables)) {
+		nextByKey.set(tableSqlKey(table), accessor);
+	}
+
+	const byAccessor = new Map<string, ManifestTable>();
+	for (const [accessor, nextTable] of Object.entries(next.tables)) {
+		const prevTable = prev.tables[accessor];
+		if (!prevTable) continue;
+		if ((prevTable.schemaName ?? "") !== (nextTable.schemaName ?? "")) {
+			continue;
+		}
+		if (prevTable.sqlName === nextTable.sqlName) continue;
+		const prevOwnerOfNext = prevByKey.get(tableSqlKey(nextTable));
+		if (prevOwnerOfNext !== undefined && prevOwnerOfNext !== accessor) {
+			continue;
+		}
+		const nextOwnerOfPrev = nextByKey.get(tableSqlKey(prevTable));
+		if (nextOwnerOfPrev !== undefined && nextOwnerOfPrev !== accessor) {
+			continue;
+		}
+		byAccessor.set(accessor, prevTable);
+	}
+
+	const oldNameCount = new Map<string, number>();
+	for (const prevTable of byAccessor.values()) {
+		oldNameCount.set(
+			prevTable.sqlName,
+			(oldNameCount.get(prevTable.sqlName) ?? 0) + 1,
+		);
+	}
+	const renamedSql = new Map<string, string>();
+	for (const [accessor, prevTable] of byAccessor) {
+		if ((oldNameCount.get(prevTable.sqlName) ?? 0) !== 1) continue;
+		const nextTable = next.tables[accessor];
+		if (!nextTable) continue;
+		renamedSql.set(prevTable.sqlName, nextTable.sqlName);
+	}
+	return { byAccessor, renamedSql };
+}
+
+function diffManifestTables(
+	prev: Manifest,
+	next: Manifest,
+	dialect: Dialect,
+): TableDiff[] {
+	const { byAccessor, renamedSql } = tableRenameSqlMap(prev, next);
+	const consumedPrev = new Set<string>();
+	const consumedNext = new Set<string>();
+	const diffs: TableDiff[] = [];
+
+	for (const [accessor, prevTable] of byAccessor) {
+		const nextTable = next.tables[accessor];
+		if (!nextTable) continue;
+		consumedPrev.add(tableSqlKey(prevTable));
+		consumedNext.add(tableSqlKey(nextTable));
+		const diff = diffTable(
+			prevTable,
+			nextTable,
+			prev,
+			next,
+			dialect,
+			renamedSql,
+		);
+		diffs.push({
+			...(diff ?? {
+				table: nextTable,
+				manifest: next,
+			}),
+			renameFromSqlName: prevTable.sqlName,
+		});
+	}
+
+	const prevBySql = tablesBySqlName(prev);
+	const nextBySql = tablesBySqlName(next);
+	const allSqlNames = new Set([...prevBySql.keys(), ...nextBySql.keys()]);
+	for (const sqlName of allSqlNames) {
+		const prevTable = prevBySql.get(sqlName);
+		const nextTable = nextBySql.get(sqlName);
+		const prevForDiff =
+			prevTable && consumedPrev.has(tableSqlKey(prevTable))
+				? undefined
+				: prevTable;
+		const nextForDiff =
+			nextTable && consumedNext.has(tableSqlKey(nextTable))
+				? undefined
+				: nextTable;
+		if (!prevForDiff && !nextForDiff) continue;
+		const diff = diffTable(
+			prevForDiff,
+			nextForDiff,
+			prev,
+			next,
+			dialect,
+			renamedSql,
+		);
+		if (diff) diffs.push(diff);
+	}
+
+	return diffs;
+}
+
 export function diffManifest(
 	prev: Manifest | null,
 	next: Manifest,
@@ -1033,11 +1178,7 @@ export function diffManifest(
 		return { isInitial: true, sql, destructive: [] };
 	}
 
-	const prevBySql = tablesBySqlName(prev);
-	const nextBySql = tablesBySqlName(next);
-	const allSqlNames = new Set([...prevBySql.keys(), ...nextBySql.keys()]);
-
-	const tableDiffs: TableDiff[] = [];
+	const tableDiffs = diffManifestTables(prev, next, dialect);
 	const destructive: DestructiveChange[] = [];
 
 	const prevExtensions = new Set(prev.extensions ?? []);
@@ -1049,12 +1190,16 @@ export function diffManifest(
 		next,
 	);
 
-	for (const sqlName of allSqlNames) {
-		const prevTable = prevBySql.get(sqlName);
-		const nextTable = nextBySql.get(sqlName);
-		const diff = diffTable(prevTable, nextTable, prev, next, dialect);
-		if (!diff) continue;
-		tableDiffs.push(diff);
+	for (const diff of tableDiffs) {
+		const prevTable = diff.renameFromSqlName
+			? Object.values(prev.tables).find(
+					(table) =>
+						table.accessor === diff.table.accessor &&
+						table.sqlName === diff.renameFromSqlName,
+				)
+			: Object.values(prev.tables).find(
+					(table) => table.sqlName === diff.table.sqlName,
+				);
 		destructive.push(...classifyDestructive(diff, prevTable, dialect));
 	}
 
@@ -1120,16 +1265,8 @@ export function resolveMigrationSql(
 		return { sql: diff.sql, blocked: [] };
 	}
 
-	const prevBySql = tablesBySqlName(prev);
-	const nextBySql = tablesBySqlName(next);
-	const allSqlNames = new Set([...prevBySql.keys(), ...nextBySql.keys()]);
-
 	const safeDiffs: TableDiff[] = [];
-	for (const sqlName of allSqlNames) {
-		const prevTable = prevBySql.get(sqlName);
-		const nextTable = nextBySql.get(sqlName);
-		const tableDiff = diffTable(prevTable, nextTable, prev, next, dialect);
-		if (!tableDiff) continue;
+	for (const tableDiff of diffManifestTables(prev, next, dialect)) {
 		const stripped = stripDestructiveFromDiff(tableDiff, dialect);
 		if (stripped) {
 			safeDiffs.push(stripped);

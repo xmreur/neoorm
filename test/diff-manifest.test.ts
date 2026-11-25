@@ -299,6 +299,181 @@ describe("diffManifest", () => {
 		expect(destructive.some((d) => d.kind === "drop_table")).toBe(true);
 	});
 
+	it("renames a table when the accessor stays and the SQL name is unique", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+		];
+		const prev = manifest({
+			users: table("users", "users", columns),
+		});
+		const next = manifest({
+			users: table("users", "accounts", columns),
+		});
+
+		const diff = diffManifest(prev, next);
+		expect(diff.sql).toEqual(['ALTER TABLE "users" RENAME TO "accounts";']);
+		expect(diff.destructive).toEqual([]);
+		expect(diff.sql.some((s) => s.includes("DROP TABLE"))).toBe(false);
+		expect(diff.sql.some((s) => s.includes("CREATE TABLE"))).toBe(false);
+
+		const resolved = resolveMigrationSql(diff, prev, next, false);
+		expect(resolved.sql).toEqual(diff.sql);
+		expect(resolved.blocked).toEqual([]);
+
+		const reversed = diffManifest(next, prev);
+		expect(reversed.sql).toEqual([
+			'ALTER TABLE "accounts" RENAME TO "users";',
+		]);
+	});
+
+	it("applies column changes to the new table name after a rename", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "accounts", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", {}),
+			]),
+		});
+
+		const { sql } = diffManifest(prev, next);
+		const renameAt = sql.findIndex((s) => s.includes("RENAME TO"));
+		const addAt = sql.findIndex((s) => s.includes("ADD COLUMN"));
+		expect(renameAt).toBeGreaterThanOrEqual(0);
+		expect(addAt).toBeGreaterThan(renameAt);
+		expect(sql[addAt]).toContain('"accounts"');
+	});
+
+	it("keeps foreign keys that point at a renamed table", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+			]),
+			posts: table("posts", "posts", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("authorId", "author_id", {
+					kind: "fk",
+					fkTarget: "users.id",
+					nullable: false,
+				}),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "accounts", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+			]),
+			posts: table("posts", "posts", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("authorId", "author_id", {
+					kind: "fk",
+					fkTarget: "accounts.id",
+					nullable: false,
+				}),
+			]),
+		});
+
+		const { sql, destructive } = diffManifest(prev, next);
+		expect(sql).toEqual(['ALTER TABLE "users" RENAME TO "accounts";']);
+		expect(destructive.some((change) => change.kind === "drop_fk")).toBe(
+			false,
+		);
+	});
+
+	it("does not rename when the next SQL name is already taken", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+		];
+		const prev = manifest({
+			users: table("users", "users", columns),
+			accounts: table("accounts", "accounts", columns),
+		});
+		const next = manifest({
+			users: table("users", "accounts", columns),
+			accounts: table("accounts", "accounts", columns),
+		});
+
+		const { sql } = diffManifest(prev, next);
+		expect(sql.some((s) => s.includes("RENAME TO"))).toBe(false);
+		expect(sql.some((s) => s.includes('DROP TABLE "users"'))).toBe(true);
+	});
+
+	it("keeps a table when only the accessor changes", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+		];
+		const prev = manifest({
+			users: table("users", "users", columns),
+		});
+		const next = manifest({
+			accounts: table("accounts", "users", columns),
+		});
+
+		const { sql } = diffManifest(prev, next);
+		expect(sql.some((s) => s.includes("DROP TABLE"))).toBe(false);
+		expect(sql.some((s) => s.includes("CREATE TABLE"))).toBe(false);
+		expect(sql.some((s) => s.includes("RENAME TO"))).toBe(false);
+	});
+
+	it("quotes a table rename for SQLite and MySQL", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+		];
+		const prev = manifest({
+			users: table("users", "users", columns),
+		});
+		const next = manifest({
+			users: table("users", "accounts", columns),
+		});
+
+		expect(diffManifest(prev, next, sqliteDialect).sql).toEqual([
+			'ALTER TABLE "users" RENAME TO "accounts";',
+		]);
+		expect(diffManifest(prev, next, mysqlDialect).sql).toEqual([
+			"ALTER TABLE `users` RENAME TO `accounts`;",
+		]);
+	});
+
+	it("copies a SQLite rebuild from the old table name", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", { nullable: true }),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "accounts", [
+				col("id", "id", { kind: "id", primary: true, nullable: false }),
+				col("name", "name", { nullable: false }),
+			]),
+		});
+
+		const { sql } = diffManifest(prev, next, sqliteDialect);
+		expect(sql.some((s) => s.includes('FROM "users"'))).toBe(true);
+		expect(sql.some((s) => s.includes('FROM "accounts"'))).toBe(false);
+		expect(sql.some((s) => s.includes('RENAME TO "accounts"'))).toBe(true);
+	});
+
+	it("qualifies the source when renaming inside a non-public schema", () => {
+		const columns = [
+			col("id", "id", { kind: "id", primary: true, nullable: false }),
+		];
+		const prev = manifest({
+			users: table("users", "users", columns, { schemaName: "tenant" }),
+		});
+		const next = manifest({
+			users: table("users", "accounts", columns, {
+				schemaName: "tenant",
+			}),
+		});
+
+		expect(diffManifest(prev, next).sql).toContain(
+			'ALTER TABLE "tenant"."users" RENAME TO "accounts";',
+		);
+	});
+
 	it("detects add column, drop column, and rename column", () => {
 		const prev = manifest({
 			users: table("users", "users", [

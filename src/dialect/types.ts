@@ -219,6 +219,8 @@ export type TableDiff = {
 	addColumns?: ManifestColumn[];
 	dropColumns?: string[];
 	renameColumns?: Array<{ from: string; to: string }>;
+	/** Previous SQL name when the accessor stayed and the table was renamed. */
+	renameFromSqlName?: string;
 	alterColumns?: ColumnAlter[];
 	addIndexes?: ManifestIndex[];
 	dropIndexes?: string[];
