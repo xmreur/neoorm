@@ -140,19 +140,55 @@ function token(): string {
 	return localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
 }
 
+export function quoteSqlIdent(dialect: string, name: string): string {
+	if (dialect === "mysql" || dialect === "mariadb") {
+		return `\`${name.replaceAll("`", "``")}\``;
+	}
+	return `"${name.replaceAll('"', '""')}"`;
+}
+
+/** Table reference for client-built INSERT statements. */
+export function qualifiedSqlTable(
+	dialect: string,
+	sqlName: string,
+	schema?: string,
+): string {
+	const table = quoteSqlIdent(dialect, sqlName);
+	if (dialect === "postgresql" && schema && schema !== "public") {
+		return `${quoteSqlIdent(dialect, schema)}.${table}`;
+	}
+	return table;
+}
+
 export function setToken(value: string): void {
 	if (value) localStorage.setItem(TOKEN_STORAGE_KEY, value);
 	else localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
+export type ExportQuery = {
+	where?: string;
+	orderBy?: string;
+	q?: string;
+	take?: number;
+	skip?: number;
+};
+
 /** Download an export with the auth header so the token stays out of the URL. */
 export async function downloadExport(
 	accessor: string,
 	format: string,
+	query: ExportQuery = {},
 ): Promise<void> {
-	const res = await request(
-		`/api/export?accessor=${encodeURIComponent(accessor)}&format=${encodeURIComponent(format)}`,
-	);
+	const params = new URLSearchParams({
+		accessor,
+		format,
+	});
+	if (query.where) params.set("where", query.where);
+	if (query.orderBy) params.set("orderBy", query.orderBy);
+	if (query.q) params.set("q", query.q);
+	if (query.take !== undefined) params.set("take", String(query.take));
+	if (query.skip !== undefined) params.set("skip", String(query.skip));
+	const res = await request(`/api/export?${params.toString()}`);
 	if (!res.ok) {
 		await parse(res);
 		return;

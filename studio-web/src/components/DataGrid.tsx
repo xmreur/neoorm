@@ -6,6 +6,8 @@ import {
 	formatCell,
 	isTextKind,
 	navigationWhere,
+	qualifiedSqlTable,
+	quoteSqlIdent,
 	StudioApiError,
 	type StudioColumnMeta,
 	type StudioMetaResponse,
@@ -371,6 +373,9 @@ export function DataGrid({
 	const [hiddenCols, setHiddenCols] = useState<string[]>([]);
 	const [colOrder, setColOrder] = useState<string[] | null>(null);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [exportFormat, setExportFormat] = useState<
+		"json" | "csv" | "md" | "sql"
+	>("json");
 	const [edits, setEdits] = useState<Record<string, Record<string, unknown>>>(
 		{},
 	);
@@ -646,6 +651,13 @@ export function DataGrid({
 				"text/markdown",
 			);
 		} else {
+			const quote = (name: string): string =>
+				quoteSqlIdent(meta.dialect, name);
+			const tableName = qualifiedSqlTable(
+				meta.dialect,
+				mustTable().sqlName,
+				meta.pgSchema,
+			);
 			const lines = picked.map((r) => {
 				const vals = cols.map((c) => {
 					const v = r[c];
@@ -656,7 +668,15 @@ export function DataGrid({
 						return String(v);
 					return `'${(JSON.stringify(v) ?? "").replaceAll("'", "''")}'`;
 				});
-				return `INSERT INTO "${mustTable().sqlName}" (${cols.map((c) => `"${mustTable().columns.find((col) => col.tsName === c)?.sqlName ?? c}"`).join(", ")}) VALUES (${vals.join(", ")});`;
+				const sqlCols = cols
+					.map((c) =>
+						quote(
+							mustTable().columns.find((col) => col.tsName === c)
+								?.sqlName ?? c,
+						),
+					)
+					.join(", ");
+				return `INSERT INTO ${tableName} (${sqlCols}) VALUES (${vals.join(", ")});`;
 			});
 			download(`${accessor}.sql`, `${lines.join("\n")}\n`, "text/plain");
 		}
@@ -867,10 +887,36 @@ export function DataGrid({
 					</>
 				) : null}
 				<div className="ml-auto flex items-center gap-1.5">
+					<Select
+						value={exportFormat}
+						onChange={(e) =>
+							setExportFormat(
+								e.target.value as "json" | "csv" | "md" | "sql",
+							)
+						}
+						aria-label="Export format"
+					>
+						<option value="json">JSON</option>
+						<option value="csv">CSV</option>
+						<option value="md">Markdown</option>
+						<option value="sql">SQL</option>
+					</Select>
 					<Button
 						variant="outline"
 						size="sm"
-						onClick={() => void downloadExport(accessor, "json")}
+						onClick={() =>
+							void downloadExport(accessor, exportFormat, {
+								...(where
+									? { where: JSON.stringify(where) }
+									: {}),
+								...(Object.keys(orderBy).length > 0
+									? { orderBy: JSON.stringify(orderBy) }
+									: {}),
+								...(search.trim() ? { q: search.trim() } : {}),
+								take,
+								skip,
+							})
+						}
 					>
 						Export
 					</Button>

@@ -2772,7 +2772,7 @@ Studio reads `neoorm.config.ts` (after `.env`, like the other commands) and comp
 
 ## SQL console
 
-Run parameterized SQL with dialect-aware highlighting and schema autocomplete (`⌘/Ctrl+Enter` to run). Params are a JSON array (`$1`/`$2` on Postgres/SQLite, `?` on MySQL). Optional `EXPLAIN` / `EXPLAIN ANALYZE`. Query history is kept locally.
+Run parameterized SQL with dialect-aware highlighting and schema autocomplete (`⌘/Ctrl+Enter` to run). Params are a JSON array (`$1`/`$2` on Postgres/SQLite, `?` on MySQL). Optional `EXPLAIN`. Analyze is `EXPLAIN ANALYZE` on Postgres and MySQL, `EXPLAIN QUERY PLAN` on SQLite, and `ANALYZE` on MariaDB. Query history is kept locally.
 
 ## Query playground
 
