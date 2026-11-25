@@ -1,9 +1,14 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { emitModelsTs } from "../src/codegen/emit-models.js";
 import { schemaToManifest } from "../src/codegen/schema-to-manifest.js";
+import { emitElysiaTs } from "../src/codegen/validation/emit-elysia.js";
+import { emitTypeboxTs } from "../src/codegen/validation/emit-typebox.js";
+import { emitZodTs } from "../src/codegen/validation/emit-zod.js";
+import { validationFromManifest } from "../src/codegen/validation/from-manifest.js";
 import {
 	defineSchema,
 	table,
+	text,
 	timestamp,
 	timestamps,
 	uuid,
@@ -46,5 +51,51 @@ describe("timestamp TypeScript types", () => {
 		const data: PostCreate = { createdAt, deletedAt: null };
 		void createdAt.toISOString();
 		void data;
+	});
+
+	it("treats timestamp().primary() as not null", () => {
+		expect(timestamp().primary()._meta).toMatchObject({
+			primary: true,
+			nullable: false,
+		});
+		expect(text().primary()._meta.nullable).toBe(false);
+
+		const eventSchema = defineSchema({
+			events: table({
+				at: timestamp().primary(),
+				deletedAt: timestamp(),
+			}),
+		});
+		type EventRow = InferSelectRow<
+			(typeof eventSchema._tables)["events"]["_columns"]
+		>;
+		expectTypeOf<EventRow["at"]>().toEqualTypeOf<Date>();
+		expectTypeOf<EventRow["deletedAt"]>().toEqualTypeOf<Date | null>();
+
+		const manifest = schemaToManifest(eventSchema);
+		const columns = manifest.tables.events?.columns;
+		expect(columns?.find((col) => col.tsName === "at")?.nullable).toBe(
+			false,
+		);
+		expect(
+			columns?.find((col) => col.tsName === "deletedAt")?.nullable,
+		).toBe(true);
+
+		const models = emitModelsTs(manifest);
+		expect(models).toContain("at: Date;");
+		expect(models).toContain("deletedAt: Date | null;");
+
+		const ir = validationFromManifest(manifest);
+		const zod = emitZodTs(ir);
+		const typebox = emitTypeboxTs(ir);
+		const elysia = emitElysiaTs(ir);
+		expect(zod).toContain("at: dateValue,");
+		expect(zod).toContain("deletedAt: dateValue.nullable(),");
+		expect(typebox).toContain("at: dateValue,");
+		expect(typebox).toContain(
+			"deletedAt: Type.Union([dateValue, Type.Null()]),",
+		);
+		expect(elysia).toContain("at: t.Date(),");
+		expect(elysia).toContain("deletedAt: t.Nullable(t.Date()),");
 	});
 });

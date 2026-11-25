@@ -153,7 +153,10 @@ export interface TimestampColumnBuilder<
 	/** Mark as primary key (implies `NOT NULL`). */
 	primary(): TimestampColumnBuilder<
 		TValue,
-		Omit<TMeta, "primary"> & { primary: true }
+		Omit<TMeta, "primary" | "nullable"> & {
+			primary: true;
+			nullable: false;
+		}
 	>;
 	/** Map the TS property name to a different database column name. */
 	map(
@@ -388,9 +391,17 @@ export function createTimestampColumnBuilder<TValue, TMeta extends ColumnMeta>(
 		primary() {
 			return createTimestampColumnBuilder<
 				TValue,
-				Omit<TMeta, "primary"> & { primary: true }
-			>({ ...meta, primary: true } as Omit<TMeta, "primary"> & {
+				Omit<TMeta, "primary" | "nullable"> & {
+					primary: true;
+					nullable: false;
+				}
+			>({
+				...meta,
+				primary: true,
+				nullable: false,
+			} as Omit<TMeta, "primary" | "nullable"> & {
 				primary: true;
+				nullable: false;
 			});
 		},
 		map(name: string) {
