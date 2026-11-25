@@ -1196,6 +1196,73 @@ describe("resolveMigrationSql", () => {
 			),
 		).toBe(false);
 	});
+
+	it("diffs a primaryKey() change and keeps it manual", () => {
+		const columns = [
+			col("a", "a", { nullable: false }),
+			col("b", "b", { nullable: false }),
+			col("c", "c", { nullable: false }),
+		];
+		const prev = manifest({
+			items: table("items", "items", columns, {
+				primaryKey: ["a", "b"],
+			}),
+		});
+		const next = manifest({
+			items: table("items", "items", columns, {
+				primaryKey: ["a", "c"],
+			}),
+		});
+
+		const diff = diffManifest(prev, next);
+		expect(diff.sql).toEqual([]);
+		expect(diff.destructive.map((change) => change.kind)).toEqual([
+			"alter_primary_key",
+		]);
+		expect(diff.destructive[0]?.detail).toContain("(a, b)");
+		expect(diff.destructive[0]?.detail).toContain("(a, c)");
+
+		const accepted = resolveMigrationSql(diff, prev, next, true);
+		expect(accepted.sql).toEqual([]);
+		expect(accepted.blocked.map((change) => change.kind)).toEqual([
+			"alter_primary_key",
+		]);
+	});
+
+	it("diffs a .primary() toggle as one manual primary key change", () => {
+		const prev = manifest({
+			users: table("users", "users", [
+				col("id", "id", { nullable: false, primary: true }),
+				col("email", "email", { nullable: false }),
+			]),
+		});
+		const next = manifest({
+			users: table("users", "users", [
+				col("id", "id", { nullable: false }),
+				col("email", "email", { nullable: false, primary: true }),
+			]),
+		});
+
+		const diff = diffManifest(prev, next, postgresDialect);
+		expect(diff.sql).toEqual([]);
+		expect(diff.destructive).toHaveLength(1);
+		expect(diff.destructive[0]?.kind).toBe("alter_primary_key");
+		expect(diff.destructive[0]?.sql).toContain("id -> email");
+
+		const mysql = diffManifest(prev, next, mysqlDialect);
+		expect(mysql.sql.join("\n")).not.toContain("PRIMARY KEY");
+		const accepted = resolveMigrationSql(
+			mysql,
+			prev,
+			next,
+			true,
+			mysqlDialect,
+		);
+		expect(accepted.sql.join("\n")).not.toContain("PRIMARY KEY");
+		expect(accepted.blocked.map((change) => change.kind)).toEqual([
+			"alter_primary_key",
+		]);
+	});
 });
 
 describe("columnsEqual", () => {

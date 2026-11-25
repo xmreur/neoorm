@@ -414,6 +414,66 @@ export const schema = defineSchema({
 		await rm(workDir, { recursive: true, force: true });
 	});
 
+	it("leaves the snapshot unchanged when the primary key changes", async () => {
+		const workDir = await createWorkDir();
+		const outDir = join(workDir, "neoorm");
+		const schemaV1Path = await writeSchema(
+			workDir,
+			`import { defineSchema, primaryKey, table, text } from "neoorm/schema";
+
+export const schema = defineSchema({
+	items: table(
+		{
+			a: text().notNull(),
+			b: text().notNull(),
+			c: text().notNull(),
+		},
+		(t) => [primaryKey(t.a, t.b)],
+	),
+});
+`,
+			"schema-v1.ts",
+		);
+
+		await generateFromSchema(schemaV1Path, outDir, { name: "v1_init" });
+		const snapshotAfterV1 = await readSnapshot(outDir);
+		const v1Hash = hashManifest(defined(snapshotAfterV1, "v1 snapshot"));
+
+		const schemaV2Path = await writeSchema(
+			workDir,
+			`import { defineSchema, primaryKey, table, text } from "neoorm/schema";
+
+export const schema = defineSchema({
+	items: table(
+		{
+			a: text().notNull(),
+			b: text().notNull(),
+			c: text().notNull(),
+		},
+		(t) => [primaryKey(t.a, t.c)],
+	),
+});
+`,
+			"schema-v2.ts",
+		);
+		const accepted = await generateFromSchema(schemaV2Path, outDir, {
+			acceptDataLoss: true,
+			name: "v2_pk",
+		});
+		expect(accepted.destructiveBlocked).toBe(true);
+		expect(accepted.migrationName).toBeNull();
+		expect(
+			accepted.summary.blocked.some(
+				(change) => change.kind === "alter_primary_key",
+			),
+		).toBe(true);
+		expect(
+			hashManifest(defined(await readSnapshot(outDir), "snapshot")),
+		).toBe(v1Hash);
+
+		await rm(workDir, { recursive: true, force: true });
+	});
+
 	it("writes DROP TYPE only when the column drop is accepted", async () => {
 		const workDir = await createWorkDir();
 		const outDir = join(workDir, "neoorm");

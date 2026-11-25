@@ -73,6 +73,7 @@ export function isManualDestructiveChange(
 	switch (kind) {
 		case "alter_column_type_manual":
 		case "alter_enum_manual":
+		case "alter_primary_key":
 		case "add_column_not_null":
 		case "set_not_null":
 			return true;
@@ -81,13 +82,20 @@ export function isManualDestructiveChange(
 		case "alter_column_type":
 		case "drop_index":
 		case "drop_fk":
-		case "alter_primary_key":
 			return false;
 		default: {
 			const _exhaustive: never = kind;
 			return _exhaustive;
 		}
 	}
+}
+
+function primaryKeysEqual(
+	prev: readonly string[],
+	next: readonly string[],
+): boolean {
+	if (prev.length !== next.length) return false;
+	return prev.every((name, index) => name === next[index]);
 }
 
 function onDeleteEqual(a: string | undefined, b: string | undefined): boolean {
@@ -541,10 +549,6 @@ function buildColumnAlter(
 		hasAlter = true;
 	}
 
-	if (prevCol.primary !== nextCol.primary) {
-		hasAlter = true;
-	}
-
 	if (prevCol.checkExpression !== nextCol.checkExpression) {
 		if (prevCol.checkExpression) {
 			alter.dropCheck = true;
@@ -664,6 +668,10 @@ function diffTable(
 	const { addColumns, dropColumns, renameColumns, alterColumns } = columnDiff;
 	const { addIndexes, dropIndexes } = diffIndexes(prevTable, nextTable);
 	const fkChanges = diffForeignKeys(prevTable, nextTable, renamedSql);
+	const primaryKeyChanged = !primaryKeysEqual(
+		prevTable.primaryKey,
+		nextTable.primaryKey,
+	);
 
 	const hasChanges =
 		addColumns.length > 0 ||
@@ -672,7 +680,8 @@ function diffTable(
 		alterColumns.length > 0 ||
 		addIndexes.length > 0 ||
 		dropIndexes.length > 0 ||
-		fkChanges.length > 0;
+		fkChanges.length > 0 ||
+		primaryKeyChanged;
 
 	if (!hasChanges) {
 		return null;
@@ -724,6 +733,20 @@ function classifyDestructive(
 		});
 	}
 
+	if (
+		prevTable &&
+		!primaryKeysEqual(prevTable.primaryKey, diff.table.primaryKey)
+	) {
+		const from = prevTable.primaryKey.join(", ");
+		const to = diff.table.primaryKey.join(", ");
+		changes.push({
+			kind: "alter_primary_key",
+			table: tableName,
+			detail: `Change primary key on "${tableName}" from (${from}) to (${to})`,
+			sql: `-- primary key change on ${tableName} (${from} -> ${to}) requires manual migration`,
+		});
+	}
+
 	for (const alter of diff.alterColumns ?? []) {
 		if (alter.setType && isUnsafeTypeChange(alter, manifest, dialect)) {
 			for (const sql of dialect.emitAlterColumn(
@@ -739,28 +762,6 @@ function classifyDestructive(
 						sql,
 					});
 				}
-			}
-		}
-
-		if (prevTable) {
-			const prevCol = prevTable.columns.find(
-				(c) =>
-					c.sqlName === alter.sqlName ||
-					c.tsName ===
-						diff.table.columns.find(
-							(n) => n.sqlName === alter.sqlName,
-						)?.tsName,
-			);
-			const nextCol = diff.table.columns.find(
-				(c) => c.sqlName === alter.sqlName,
-			);
-			if (prevCol && nextCol && prevCol.primary !== nextCol.primary) {
-				changes.push({
-					kind: "alter_primary_key",
-					table: tableName,
-					detail: `Change primary key on "${tableName}"."${alter.sqlName}"`,
-					sql: `-- primary key change on ${tableName}.${alter.sqlName} requires manual migration`,
-				});
 			}
 		}
 	}

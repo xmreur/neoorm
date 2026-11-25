@@ -85,9 +85,9 @@ export function summarizeGenerateOutcome(params: {
 
 	if (blocked.length > 0) {
 		const reasons = [...formatDestructiveWarnings(blocked)];
-		// The flag does not emit enum value removals or reorders, unsafe casts, or NOT NULL
-		// changes that need a backfill. Once it has already been passed,
-		// telling the user to pass it again is wrong.
+		// The flag does not emit enum value removals or reorders, primary key
+		// changes, unsafe casts, or NOT NULL changes that need a backfill.
+		// Once it has already been passed, telling the user to pass it again is wrong.
 		const needsAcceptDataLoss = blocked.some(
 			(change) => !isManualDestructiveChange(change.kind),
 		);
