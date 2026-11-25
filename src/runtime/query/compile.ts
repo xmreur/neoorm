@@ -31,6 +31,7 @@ export {
 	columnsForOutput,
 	compileOrderBy,
 	compileOrderByItems,
+	compileOrderedExpression,
 	compileUpdateJoins,
 	compileWhere,
 	getCachedFindManyQuery,

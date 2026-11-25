@@ -5,6 +5,7 @@ import { mariadbDialect } from "../src/dialect/mariadb.js";
 import { mysqlDialect } from "../src/dialect/mysql.js";
 import { postgresDialect } from "../src/dialect/postgres.js";
 import { sqliteDialect } from "../src/dialect/sqlite.js";
+import type { Executor } from "../src/runtime/executor.js";
 import {
 	compileOrderBy,
 	compileWhere,
@@ -12,6 +13,8 @@ import {
 	getCachedWhereClause,
 	orderByShapeKey,
 } from "../src/runtime/query/compile.js";
+import type { QueryRuntime } from "../src/runtime/query/execute.js";
+import { findFirst, findMany } from "../src/runtime/query/find.js";
 import { buildManifestIndex } from "../src/runtime/query/table-index.js";
 import { defineSchema, id, table, tsvector } from "../src/schema/index.js";
 import { manifestTable } from "./helpers/manifest.js";
@@ -915,5 +918,85 @@ describe("orderBy compilation", () => {
 				tableIndex,
 			),
 		).toThrow(/Unknown column "emial" in orderBy/);
+	});
+
+	it("places nullable order keys like paginate", () => {
+		expect(
+			compileOrderBy(
+				users,
+				{ name: "asc" },
+				undefined,
+				tableIndex,
+				postgresDialect,
+			),
+		).toBe('ORDER BY "name" ASC NULLS LAST');
+		expect(
+			compileOrderBy(
+				users,
+				{ name: "desc" },
+				undefined,
+				tableIndex,
+				sqliteDialect,
+			),
+		).toBe('ORDER BY "name" DESC NULLS FIRST');
+		expect(
+			compileOrderBy(
+				users,
+				{ name: "asc" },
+				undefined,
+				tableIndex,
+				mysqlDialect,
+			),
+		).toBe("ORDER BY (`name` IS NULL) ASC, `name` ASC");
+		expect(
+			compileOrderBy(
+				users,
+				{ name: "desc" },
+				undefined,
+				tableIndex,
+				mariadbDialect,
+			),
+		).toBe("ORDER BY (`name` IS NULL) DESC, `name` DESC");
+		expect(
+			compileOrderBy(
+				users,
+				{ email: "asc" },
+				undefined,
+				tableIndex,
+				sqliteDialect,
+			),
+		).toBe('ORDER BY "email" ASC');
+	});
+});
+
+describe("findMany null order", () => {
+	const manifest = blogManifest();
+
+	function recordingExecutor(): Executor & { sql: string[] } {
+		const sql: string[] = [];
+		return {
+			sql,
+			inTransaction: false,
+			query: async <T = Record<string, unknown>>(text: string) => {
+				sql.push(text);
+				return [] as T[];
+			},
+			queryOne: async () => null,
+			execute: async () => ({ rows: [], rowCount: 0 }),
+			transaction: async (fn) => fn(recordingExecutor()),
+		};
+	}
+
+	it("sends the paginate null placement from findMany and findFirst", async () => {
+		const runtime: QueryRuntime = { manifest, dialect: sqliteDialect };
+		const executor = recordingExecutor();
+		await findMany(executor, runtime, "users", {
+			orderBy: { name: "asc" },
+		});
+		await findFirst(executor, runtime, "users", {
+			orderBy: { name: "desc" },
+		});
+		expect(executor.sql[0]).toContain('"name" ASC NULLS LAST');
+		expect(executor.sql[1]).toContain('"name" DESC NULLS FIRST');
 	});
 });

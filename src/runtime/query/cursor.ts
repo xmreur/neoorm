@@ -1,6 +1,5 @@
 import { joinPlaceholders } from "../../dialect/placeholders.js";
 import { postgresDialect } from "../../dialect/postgres.js";
-import { isMysqlFamilyDialect } from "../../dialect/resolve.js";
 import type {
 	Dialect,
 	ManifestColumn,
@@ -8,7 +7,11 @@ import type {
 } from "../../dialect/types.js";
 import { compileError } from "../compile-error.js";
 import { QueryErrorCode } from "../error-codes.js";
-import { parseOrderDirection, serializeColumnValue } from "./compile.js";
+import {
+	compileOrderedExpression,
+	parseOrderDirection,
+	serializeColumnValue,
+} from "./compile.js";
 import { requireScalarPrimaryKey } from "./primary-key.js";
 import {
 	columnByTsName,
@@ -113,16 +116,8 @@ function orderKeySql(
 	prefix: string,
 ): string {
 	const col = `${prefix}${dialect.quoteIdentifier(key.sqlName)}`;
-	const dir = key.direction.toUpperCase();
-	if (!key.column.nullable) {
-		return `${col} ${dir}`;
-	}
-	if (isMysqlFamilyDialect(dialect)) {
-		const nullDir = key.direction === "asc" ? "ASC" : "DESC";
-		return `(${col} IS NULL) ${nullDir}, ${col} ${dir}`;
-	}
-	const nulls = key.direction === "asc" ? "NULLS LAST" : "NULLS FIRST";
-	return `${col} ${dir} ${nulls}`;
+	const dir = key.direction === "asc" ? "ASC" : "DESC";
+	return compileOrderedExpression(dialect, col, dir, key.column.nullable);
 }
 
 export function compileOrderByFromSpec(
