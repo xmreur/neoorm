@@ -39,6 +39,7 @@ import {
 import { splitStatements } from "../sql/split-statements.js";
 
 const MIGRATIONS_TABLE = "_neoorm_migrations";
+const MIGRATION_PROGRESS_TABLE = "_neoorm_migration_progress";
 
 /**
  * MySQL/MariaDB connections run a single statement per query
@@ -51,6 +52,76 @@ function migrationFileStatements(dialect: Dialect, sql: string): string[] {
 		? splitStatements(sql, { backslashEscapes: true })
 		: [sql];
 	return statements.filter((statement) => statement.trim().length > 0);
+}
+
+function migrationProgressRef(dialect: Dialect): string {
+	return dialect.quoteIdentifier(MIGRATION_PROGRESS_TABLE);
+}
+
+async function ensureMigrationProgressTable(
+	client: DatabaseClient,
+	dialect: Dialect,
+): Promise<void> {
+	await client.query(
+		`CREATE TABLE IF NOT EXISTS ${migrationProgressRef(dialect)} (name VARCHAR(191) NOT NULL PRIMARY KEY, checksum TEXT NOT NULL, applied_statements INT NOT NULL)`,
+	);
+}
+
+async function readMigrationProgress(
+	client: DatabaseClient,
+	dialect: Dialect,
+	name: string,
+): Promise<{ checksum: string; appliedStatements: number } | null> {
+	const result = await client.query<{
+		checksum: string;
+		applied_statements: number | string;
+	}>(
+		`SELECT checksum, applied_statements FROM ${migrationProgressRef(dialect)} WHERE name = $1`,
+		[name],
+	);
+	const row = result.rows[0];
+	if (!row) return null;
+	return {
+		checksum: row.checksum,
+		appliedStatements: Number(row.applied_statements),
+	};
+}
+
+/**
+ * InnoDB DDL commits each statement. Record how many statements of this
+ * file have committed so the next deploy skips them instead of retrying
+ * from the start.
+ */
+async function applyMysqlFamilyStatements(
+	client: DatabaseClient,
+	dialect: Dialect,
+	name: string,
+	sql: string,
+	statements: string[],
+): Promise<void> {
+	await ensureMigrationProgressTable(client, dialect);
+	const checksum = hashMigrationSql(sql);
+	const progress = await readMigrationProgress(client, dialect, name);
+	if (progress && progress.checksum !== checksum) {
+		throw schemaError(
+			SchemaErrorCode.migration_guard,
+			`Migration "${name}" changed on disk after ${progress.appliedStatements} statement(s) were applied. Deploy will not resume a different migration.sql.`,
+			{ migrationName: name },
+			[
+				"Restore the original migration.sql, or repair the database and delete its row from _neoorm_migration_progress.",
+			],
+		);
+	}
+	const start = progress?.appliedStatements ?? 0;
+	for (let i = start; i < statements.length; i++) {
+		const statement = statements[i];
+		if (statement === undefined) continue;
+		await client.query(statement);
+		await client.query(
+			`INSERT INTO ${migrationProgressRef(dialect)} (name, checksum, applied_statements) VALUES ($1, $2, $3) ON DUPLICATE KEY UPDATE checksum = $2, applied_statements = $3`,
+			[name, checksum, i + 1],
+		);
+	}
 }
 
 /** int4 classid for `pg_advisory_xact_lock` — distinct from table OIDs. */
@@ -910,8 +981,19 @@ export async function applyMigration(
 				if (schemaSql) {
 					await tx.query(schemaSql);
 				}
-				for (const statement of migrationFileStatements(dialect, sql)) {
-					await tx.query(statement);
+				const statements = migrationFileStatements(dialect, sql);
+				if (isMysqlFamilyDialect(dialect)) {
+					await applyMysqlFamilyStatements(
+						tx,
+						dialect,
+						name,
+						sql,
+						statements,
+					);
+				} else {
+					for (const statement of statements) {
+						await tx.query(statement);
+					}
 				}
 				const downChecksum = await hashDownSqlIfPresent(
 					migrationsDir,
@@ -921,6 +1003,12 @@ export async function applyMigration(
 					`INSERT INTO ${migrationsTableRef(dialect, context.schema)} (name, checksum, down_checksum) VALUES ($1, $2, $3)`,
 					[name, hashMigrationSql(sql), downChecksum],
 				);
+				if (isMysqlFamilyDialect(dialect)) {
+					await tx.query(
+						`DELETE FROM ${migrationProgressRef(dialect)} WHERE name = $1`,
+						[name],
+					);
+				}
 			});
 		if (dialect.name === "sqlite") {
 			await withSqliteForeignKeysOff(client, apply);

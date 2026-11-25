@@ -158,12 +158,76 @@ describe("mysql/mariadb migration file handling", () => {
 				"20200101_init",
 			);
 
-			expect(queries).toHaveLength(3);
-			expect(queries[0]).toBe("CREATE TABLE `ta` (id INT PRIMARY KEY)");
-			expect(queries[1]).toBe(
+			const creates = queries.filter((sql) =>
+				sql.startsWith("CREATE TABLE `t"),
+			);
+			expect(creates).toEqual([
+				"CREATE TABLE `ta` (id INT PRIMARY KEY)",
+				"CREATE TABLE `tb` (id INT PRIMARY KEY, note VARCHAR(50) DEFAULT 'a;b')",
+			]);
+			const progressAt = queries
+				.map((sql, index) =>
+					sql.includes("_neoorm_migration_progress") &&
+					sql.includes("ON DUPLICATE KEY UPDATE")
+						? index
+						: -1,
+				)
+				.filter((index) => index >= 0);
+			expect(progressAt).toHaveLength(2);
+			const firstCreate = queries.indexOf(creates[0] ?? "");
+			const secondCreate = queries.indexOf(creates[1] ?? "");
+			expect(progressAt[0]).toBeGreaterThan(firstCreate);
+			expect(progressAt[1]).toBeGreaterThan(secondCreate);
+			const ledgerAt = queries.findIndex(
+				(sql) =>
+					sql.includes("INSERT INTO") &&
+					sql.includes("down_checksum"),
+			);
+			expect(ledgerAt).toBeGreaterThan(progressAt[1] ?? -1);
+			expect(queries.at(-1)).toContain("DELETE FROM");
+		});
+
+		it(`resumes after the recorded statements on ${dialect.name}`, async () => {
+			const migrationsDir = await writeMigrationFile(
+				"neoorm-mysql-resume-",
+				"migration.sql",
+				MULTI_STATEMENT,
+			);
+			const checksum = hashMigrationSql(MULTI_STATEMENT);
+			const queries: string[] = [];
+			const client: DatabaseClient = {
+				query: async <T = Record<string, unknown>>(text: string) => {
+					queries.push(text);
+					if (
+						text.includes("_neoorm_migration_progress") &&
+						/^\s*SELECT/i.test(text)
+					) {
+						return {
+							rows: [
+								{ checksum, applied_statements: 1 },
+							] as unknown as T[],
+							rowCount: 1,
+						} as DriverResult<T>;
+					}
+					return { rows: [], rowCount: 0 } as DriverResult<T>;
+				},
+				transaction: async (fn) => fn(client),
+				close: async () => {},
+			};
+
+			await applyMigration(
+				client,
+				dialect,
+				migrationsDir,
+				"20200101_init",
+			);
+
+			expect(
+				queries.some((sql) => sql.startsWith("CREATE TABLE `ta`")),
+			).toBe(false);
+			expect(queries).toContain(
 				"CREATE TABLE `tb` (id INT PRIMARY KEY, note VARCHAR(50) DEFAULT 'a;b')",
 			);
-			expect(queries[2]).toContain("INSERT INTO");
 		});
 
 		it(`reverts a multi-statement down.sql statement by statement on ${dialect.name}`, async () => {
