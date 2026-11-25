@@ -1172,7 +1172,6 @@ async function executeM2MWrite(
 				ids,
 			);
 		}
-		return;
 	}
 
 	if ("connect" in value) {
@@ -1319,7 +1318,6 @@ async function executeInverseManyWrite(
 			table,
 			parentRow,
 		);
-		return;
 	}
 
 	if ("connect" in value) {
@@ -1437,7 +1435,6 @@ async function executeInverseOneWrite(
 				parentRow,
 			);
 		}
-		return;
 	}
 
 	if ("connect" in value) {
