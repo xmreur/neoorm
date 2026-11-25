@@ -2063,7 +2063,7 @@ for (;;) {
 }
 ```
 
-- `orderBy` is required; scalar `id` is appended automatically when omitted.
+- `orderBy` is required; scalar `id` is appended automatically when omitted. Columns may use different directions. Nullable sort columns use SQL-standard nulls on every dialect: `asc` is `NULLS LAST`, `desc` is `NULLS FIRST`.
 - `select`, `omit`, and `includeHidden` work like `findMany`. Cursor fields used by `orderBy` stay in the SQL (and in `nextCursor` / `prevCursor`) even when omitted from `items`.
 - `take` is the page size; `hasMore` / `hasPrevious` use a `take + 1` probe in the query direction. A `before` page also probes once forward so `hasMore` is not assumed true. After an `after` page, `hasPrevious` is true because `after` was passed.
 - `after` is a typed cursor (`nextCursor` from the previous page). `before` walks the other way (`prevCursor`).
