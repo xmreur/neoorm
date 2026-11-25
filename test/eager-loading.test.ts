@@ -156,6 +156,9 @@ describe("eager loading batching", () => {
 		const commentsQuery = atIndex(executor.queries, 0);
 		expect(commentsQuery.sql).toContain("ROW_NUMBER()");
 		expect(commentsQuery.sql).toContain("PARTITION BY");
+		expect(commentsQuery.sql).toContain(
+			'ORDER BY "_parent_id", "_neoorm_rn"',
+		);
 		expect(commentsQuery.sql).not.toMatch(/\bLIMIT 1\b/);
 		expect(commentsQuery.params).toEqual(["post_1", "post_2"]);
 	});

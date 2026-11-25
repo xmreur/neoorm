@@ -317,5 +317,7 @@ export type Dialect = {
 	): string;
 	jsonBuildObjectExpr(entries: string[]): string;
 	jsonAggExpr(expr: string): string;
+	/** Aggregate `expr` in `orderBy` order. `orderBy` is the sort list without the ORDER BY keyword. */
+	jsonAggOrderedExpr(expr: string, orderBy: string): string;
 	jsonAggFilterExpr(expr: string, predicate: string): string;
 };

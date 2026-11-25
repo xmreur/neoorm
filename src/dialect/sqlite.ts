@@ -419,6 +419,9 @@ export const sqliteDialect: Dialect = {
 	jsonAggExpr(expr) {
 		return `json_group_array(json(${expr}))`;
 	},
+	jsonAggOrderedExpr(expr, orderBy) {
+		return `json_group_array(json(${expr}) ORDER BY ${orderBy})`;
+	},
 	jsonAggFilterExpr(expr, predicate) {
 		return `json_group_array(json(${expr})) FILTER (WHERE ${predicate})`;
 	},
