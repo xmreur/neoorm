@@ -24,6 +24,7 @@ import {
 	getCachedOrderByClause,
 	getCachedWhereClause,
 	isImpossibleWhere,
+	limitOffsetSuffix,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
@@ -1252,16 +1253,15 @@ function isBareFindMany(
 	);
 }
 
-function appendLimitOffset(sql: string, take?: number, skip?: number): string {
-	let result = sql;
-	if (take !== undefined) {
-		result += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
-	}
-	if (skip !== undefined) {
-		const skipN = normalizeLimitOffset(skip, "skip");
-		if (skipN > 0) result += ` OFFSET ${skipN}`;
-	}
-	return result;
+function appendLimitOffset(
+	sql: string,
+	dialect: Dialect,
+	take?: number,
+	skip?: number,
+): string {
+	return (
+		sql + limitOffsetSuffix(dialect, take, skip, { omitZeroOffset: true })
+	);
 }
 
 export async function findMany(
@@ -1305,6 +1305,7 @@ export async function findMany(
 			const query = getCachedFindManyQuery(tableIndex, signature, () =>
 				appendLimitOffset(
 					orderSql ? `${findAllSql} ${orderSql}` : findAllSql,
+					dialect,
 					take,
 					skip,
 				),

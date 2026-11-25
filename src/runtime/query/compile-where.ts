@@ -1687,6 +1687,33 @@ export function normalizeLimitOffset(value: unknown, label: string): number {
 	return value;
 }
 
+/** Largest MySQL/MariaDB LIMIT. Those dialects reject OFFSET without LIMIT. */
+export const MYSQL_FAMILY_MAX_LIMIT = "18446744073709551615";
+
+export function limitOffsetSuffix(
+	dialect: Dialect,
+	take: number | undefined,
+	skip: number | undefined,
+	options?: { omitZeroOffset?: boolean },
+): string {
+	const takeN =
+		take !== undefined ? normalizeLimitOffset(take, "take") : undefined;
+	const skipN =
+		skip !== undefined ? normalizeLimitOffset(skip, "skip") : undefined;
+	const emitOffset =
+		skipN !== undefined && (options?.omitZeroOffset !== true || skipN > 0);
+	let sql = "";
+	if (takeN !== undefined) {
+		sql += ` LIMIT ${takeN}`;
+	} else if (emitOffset && isMysqlFamilyDialect(dialect)) {
+		sql += ` LIMIT ${MYSQL_FAMILY_MAX_LIMIT}`;
+	}
+	if (emitOffset && skipN !== undefined) {
+		sql += ` OFFSET ${skipN}`;
+	}
+	return sql;
+}
+
 function splitOrderList(body: string): string[] {
 	const items: string[] = [];
 	let depth = 0;
@@ -1832,12 +1859,7 @@ export function buildFindManyQuery(
 			: orderSql;
 		sql += ` ${outerOrder}`;
 	}
-	if (take !== undefined) {
-		sql += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
-	}
-	if (skip !== undefined) {
-		sql += ` OFFSET ${normalizeLimitOffset(skip, "skip")}`;
-	}
+	sql += limitOffsetSuffix(dialect, take, skip);
 
 	return sql;
 }

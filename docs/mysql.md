@@ -132,6 +132,6 @@ bunx neoorm migrate reset --force
 
 `createMany` is a multi-value `INSERT` plus `affectedRows` and does not use `RETURNING`. `createManyAndReturn` for serial primary keys uses `LAST_INSERT_ID()` plus row count and assumes consecutive autoincrement values. `skipDuplicates` returns only rows that `INSERT IGNORE` actually wrote: the serial id range for `affectedRows`, or client-supplied primary keys that were not already present.
 
-Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based.
+Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays cursor-based. `skip` without `take` is `LIMIT 18446744073709551615 OFFSET n`, because MySQL rejects a bare `OFFSET`.
 
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, savepoint-based nested transactions — behaves the same as on PostgreSQL.

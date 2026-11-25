@@ -82,3 +82,39 @@ describe("correlated has-many ORDER BY uses runtime dialect", () => {
 		expect(sql).toContain("ORDER BY `_parent_id`, `_neoorm_rn`");
 	});
 });
+
+describe("skip without take", () => {
+	const manifest = schemaToManifest(schema);
+	const maxLimit = "LIMIT 18446744073709551615 OFFSET 5";
+
+	it("emits a max LIMIT before OFFSET on MySQL and MariaDB", async () => {
+		for (const dialect of [mysqlDialect, mariadbDialect]) {
+			const runtime: QueryRuntime = { manifest, dialect };
+			const executor = createMockExecutor({ query: () => [] });
+			await findMany(executor, runtime, "users", { skip: 5 });
+			expect(executor.queries[0]?.sql).toContain(maxLimit);
+		}
+	});
+
+	it("leaves a bare OFFSET on Postgres and SQLite", async () => {
+		for (const dialect of [postgresDialect, sqliteDialect]) {
+			const runtime: QueryRuntime = { manifest, dialect };
+			const executor = createMockExecutor({ query: () => [] });
+			await findMany(executor, runtime, "users", { skip: 5 });
+			const sql = executor.queries[0]?.sql ?? "";
+			expect(sql).toContain("OFFSET 5");
+			expect(sql).not.toContain("LIMIT 18446744073709551615");
+		}
+	});
+
+	it("prefixes a nested MySQL skip with the max LIMIT", async () => {
+		const runtime: QueryRuntime = { manifest, dialect: mysqlDialect };
+		const executor = createMockExecutor({ query: () => [] });
+		await findMany(executor, runtime, "users", {
+			with: { posts: { skip: 2 } },
+		});
+		expect(executor.queries[0]?.sql).toContain(
+			"LIMIT 18446744073709551615 OFFSET 2",
+		);
+	});
+});

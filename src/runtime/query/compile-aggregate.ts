@@ -9,7 +9,7 @@ import type {
 import { compileError } from "../compile-error.js";
 import {
 	buildSelectColumns,
-	normalizeLimitOffset,
+	limitOffsetSuffix,
 	type OrderByInput,
 	parseOrderDirection,
 } from "./compile-where.js";
@@ -783,12 +783,7 @@ export function buildGroupByQuery(
 	sql += ` GROUP BY ${groupList}`;
 	if (havingSql) sql += ` ${havingSql}`;
 	if (orderSql) sql += ` ${orderSql}`;
-	if (take !== undefined) {
-		sql += ` LIMIT ${normalizeLimitOffset(take, "take")}`;
-	}
-	if (skip !== undefined) {
-		sql += ` OFFSET ${normalizeLimitOffset(skip, "skip")}`;
-	}
+	sql += limitOffsetSuffix(dialect, take, skip);
 	return sql;
 }
 

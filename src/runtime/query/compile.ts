@@ -38,6 +38,8 @@ export {
 	getCachedWhereClause,
 	isImpossibleWhere,
 	isImpossibleWhereSql,
+	limitOffsetSuffix,
+	MYSQL_FAMILY_MAX_LIMIT,
 	normalizeLimitOffset,
 	normalizeSelectColumns,
 	type OrderByInput,
