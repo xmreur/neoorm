@@ -430,8 +430,11 @@ describeMariadb("mariadb runtime", () => {
 				where: { email: "ord@x" },
 				with: { posts: { orderBy: { title: "desc" }, take: 10 } },
 			});
-			const posts = rows[0]?.posts as Array<{ title: string }>;
-			expect(posts.map((post) => post.title)).toEqual(["c", "b", "a"]);
+			expect(rows[0]?.posts).toEqual([
+				expect.objectContaining({ title: "c" }),
+				expect.objectContaining({ title: "b" }),
+				expect.objectContaining({ title: "a" }),
+			]);
 		} finally {
 			await client.close();
 		}

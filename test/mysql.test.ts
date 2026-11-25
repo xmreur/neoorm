@@ -452,15 +452,20 @@ describeMysql("mysql runtime", () => {
 				where: { email: "ord@x" },
 				with: { posts: { orderBy: { title: "desc" } } },
 			});
-			const posts = rows[0]?.posts as Array<{ title: string }>;
-			expect(posts.map((post) => post.title)).toEqual(["c", "b", "a"]);
+			expect(rows[0]?.posts).toEqual([
+				expect.objectContaining({ title: "c" }),
+				expect.objectContaining({ title: "b" }),
+				expect.objectContaining({ title: "a" }),
+			]);
 
 			const taken = await orm.users.findMany({
 				where: { email: "ord@x" },
 				with: { posts: { orderBy: { title: "desc" }, take: 2 } },
 			});
-			const takenPosts = taken[0]?.posts as Array<{ title: string }>;
-			expect(takenPosts.map((post) => post.title)).toEqual(["c", "b"]);
+			expect(taken[0]?.posts).toEqual([
+				expect.objectContaining({ title: "c" }),
+				expect.objectContaining({ title: "b" }),
+			]);
 		} finally {
 			await client.close();
 		}
