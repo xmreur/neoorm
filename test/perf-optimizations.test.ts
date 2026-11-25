@@ -446,6 +446,9 @@ describe("read path optimizations", () => {
 		const sql = executor.queries[0]?.sql ?? "";
 		expect(sql).toContain("LEFT JOIN `posts` AS `_hm_posts`");
 		expect(sql).toContain("JSON_ARRAYAGG");
+		expect(sql).toContain(
+			"CASE WHEN COUNT(CASE WHEN `_hm_posts`.`id` IS NOT NULL THEN 1 END) = 0 THEN NULL ELSE JSON_ARRAYAGG",
+		);
 		expect(sql).toContain("GROUP BY");
 		expect(sql).not.toMatch(
 			/JSON_ARRAYAGG[\s\S]*FROM\s*\([\s\S]*=\s*`users`\.`id`/,
@@ -483,6 +486,9 @@ describe("read path optimizations", () => {
 		const sql = executor.queries[0]?.sql ?? "";
 		expect(sql).toContain("LEFT JOIN `posts` AS `_hm_posts`");
 		expect(sql).toContain("JSON_ARRAYAGG");
+		expect(sql).toContain(
+			"CASE WHEN COUNT(CASE WHEN `_hm_posts`.`id` IS NOT NULL THEN 1 END) = 0 THEN NULL ELSE JSON_ARRAYAGG",
+		);
 		expect(sql).toContain("GROUP BY");
 		expect(sql).toContain("LIMIT 1");
 		expect(sql).not.toMatch(/`author_id`\s+IN\s*\(/);

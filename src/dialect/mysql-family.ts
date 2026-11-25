@@ -438,7 +438,12 @@ export function createMysqlFamilyDialect(
 			return `JSON_ARRAYAGG(${expr})`;
 		},
 		jsonAggFilterExpr(expr, predicate) {
-			return `JSON_ARRAYAGG(CASE WHEN ${predicate} THEN ${expr} END)`;
+			// JSON_ARRAYAGG has no FILTER. A failed LEFT JOIN still emits one
+			// row, and CASE WHEN … END aggregates that row as a JSON null.
+			// That value is not SQL NULL, so COALESCE cannot replace it.
+			// Skip the aggregate when nothing matched; the caller's COALESCE
+			// then turns the SQL NULL into [].
+			return `CASE WHEN COUNT(CASE WHEN ${predicate} THEN 1 END) = 0 THEN NULL ELSE JSON_ARRAYAGG(CASE WHEN ${predicate} THEN ${expr} END) END`;
 		},
 	};
 	return dialect;
