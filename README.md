@@ -1,6 +1,9 @@
-# NeoOrm
+<p align="center">
+  <img alt="NeoORM" src="docs/assets/logo-banner.svg" width="360" />
+</p>
+
 <p>
-  <strong>NeoOrm</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
+  <strong>NeoORM</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
   Schema → codegen → typed client — you own the SQL, we handle the boilerplate.
 
   PostgreSQL, SQLite, MySQL 8, and MariaDB 10.11 dialects ship today.
