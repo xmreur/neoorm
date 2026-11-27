@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { StudioMetaResponse } from "../api";
 import { navigate, tableLink, useStudio } from "../state";
+import { IconSearch } from "./icons";
+import { Kbd } from "./ui";
 
 type Item = { label: string; hint: string; run: () => void };
 
@@ -76,42 +78,48 @@ export function CommandPalette({
 		<div className="fixed inset-0 z-50 p-4">
 			<button
 				type="button"
-				className="absolute inset-0 bg-black/60"
+				className="absolute inset-0 bg-scrim"
 				aria-label="Close command palette"
 				onClick={() => setPaletteOpen(false)}
 			/>
-			<div className="relative z-10 mx-auto mt-24 max-w-lg overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl">
-				<input
-					ref={inputRef}
-					className="h-11 w-full bg-transparent px-4 text-sm outline-none placeholder:text-muted-foreground"
-					placeholder="Type a table, view, or action…"
-					value={query}
-					onChange={(e) => {
-						setQuery(e.target.value);
-						setIndex(0);
-					}}
-					onKeyDown={(e) => {
-						if (e.key === "Escape") setPaletteOpen(false);
-						if (e.key === "ArrowDown") {
-							e.preventDefault();
-							setIndex((i) => Math.min(i + 1, items.length - 1));
-						}
-						if (e.key === "ArrowUp") {
-							e.preventDefault();
-							setIndex((i) => Math.max(i - 1, 0));
-						}
-						if (e.key === "Enter" && items[index]) {
-							items[index].run();
-							setPaletteOpen(false);
-						}
-					}}
-				/>
+			<div className="studio-overlay relative z-10 mx-auto mt-24 max-w-lg overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground">
+				<div className="flex items-center gap-2.5 px-3.5 text-muted-foreground">
+					<IconSearch />
+					<input
+						ref={inputRef}
+						className="h-11 w-full bg-transparent text-sm text-foreground outline-none focus-visible:outline-none placeholder:text-muted-foreground"
+						placeholder="Type a table, view, or action…"
+						value={query}
+						onChange={(e) => {
+							setQuery(e.target.value);
+							setIndex(0);
+						}}
+						onKeyDown={(e) => {
+							if (e.key === "Escape") setPaletteOpen(false);
+							if (e.key === "ArrowDown") {
+								e.preventDefault();
+								setIndex((i) =>
+									Math.min(i + 1, items.length - 1),
+								);
+							}
+							if (e.key === "ArrowUp") {
+								e.preventDefault();
+								setIndex((i) => Math.max(i - 1, 0));
+							}
+							if (e.key === "Enter" && items[index]) {
+								items[index].run();
+								setPaletteOpen(false);
+							}
+						}}
+					/>
+					<Kbd>Esc</Kbd>
+				</div>
 				<ul className="max-h-72 overflow-auto border-t border-border p-1">
 					{items.map((item, i) => (
 						<li key={item.label}>
 							<button
 								type="button"
-								className={`flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm ${i === index ? "bg-accent text-accent-foreground" : ""}`}
+								className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${i === index ? "bg-accent text-accent-foreground" : "hover:bg-secondary"}`}
 								onMouseEnter={() => setIndex(i)}
 								onClick={() => {
 									item.run();
@@ -119,7 +127,9 @@ export function CommandPalette({
 								}}
 							>
 								<span className="flex-1">{item.label}</span>
-								<span className="text-[11px] text-muted-foreground">
+								<span
+									className={`text-[11px] ${i === index ? "text-accent-foreground/75" : "text-muted-foreground"}`}
+								>
 									{item.hint}
 								</span>
 							</button>

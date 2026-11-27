@@ -8,6 +8,7 @@ import {
 	useEffect,
 	useRef,
 } from "react";
+import { IconClose } from "./icons";
 import { cn } from "./lib";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -29,18 +30,18 @@ export function Button({
 				"inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors",
 				"disabled:pointer-events-none disabled:opacity-50",
 				variant === "default" &&
-					"bg-primary text-primary-foreground hover:opacity-90",
+					"bg-primary text-primary-foreground hover:bg-primary-hover",
 				variant === "secondary" &&
 					"bg-secondary text-secondary-foreground hover:opacity-90",
 				variant === "outline" &&
-					"border border-border bg-transparent hover:bg-accent hover:text-accent-foreground",
+					"border border-border bg-transparent hover:bg-secondary hover:text-foreground",
 				variant === "ghost" &&
-					"hover:bg-accent hover:text-accent-foreground",
+					"hover:bg-secondary hover:text-foreground",
 				variant === "destructive" &&
 					"bg-destructive text-destructive-foreground hover:opacity-90",
 				size === "sm" && "h-7 px-2.5 text-xs",
 				size === "md" && "h-8 px-3 text-sm",
-				size === "icon" && "size-8 text-sm",
+				size === "icon" && "size-[34px] text-sm",
 				className,
 			)}
 			{...rest}
@@ -59,8 +60,8 @@ export function Input({
 		<input
 			ref={ref}
 			className={cn(
-				"h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-sm outline-none",
-				"placeholder:text-muted-foreground focus:border-ring",
+				"h-8 w-full rounded-md border border-input bg-card px-2.5 text-sm outline-none focus-visible:outline-none",
+				"placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20",
 				className,
 			)}
 			{...rest}
@@ -79,8 +80,8 @@ export function Textarea({
 		<textarea
 			ref={ref}
 			className={cn(
-				"mono w-full rounded-md border border-input bg-transparent px-2.5 py-1.5 text-xs outline-none",
-				"placeholder:text-muted-foreground focus:border-ring",
+				"mono w-full rounded-md border border-input bg-card px-2.5 py-1.5 text-xs outline-none focus-visible:outline-none",
+				"placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20",
 				className,
 			)}
 			{...rest}
@@ -101,7 +102,7 @@ export function Select({
 		<select
 			ref={ref}
 			className={cn(
-				"h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus:border-ring [&>option]:bg-popover",
+				"h-8 rounded-md border border-input bg-card px-2 text-sm outline-none focus-visible:outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 [&>option]:bg-popover",
 				className,
 			)}
 			{...rest}
@@ -261,7 +262,7 @@ export function Field({
 
 export function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
 	return (
-		<kbd className="mono rounded border border-border bg-muted px-1 py-0.5 text-[10px]">
+		<kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] border border-border border-b-border-strong bg-secondary px-1 text-[11px] font-semibold text-muted-foreground">
 			{children}
 		</kbd>
 	);
@@ -297,7 +298,7 @@ export function Dialog({
 		<div className="fixed inset-0 z-50 flex items-center justify-center p-4">
 			<button
 				type="button"
-				className="absolute inset-0 bg-black/60"
+				className="absolute inset-0 bg-scrim"
 				aria-label="Close dialog"
 				onClick={onClose}
 			/>
@@ -307,7 +308,7 @@ export function Dialog({
 				aria-modal="true"
 				aria-label={title}
 				className={cn(
-					"relative z-10 max-h-[90vh] w-full overflow-auto rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl",
+					"studio-overlay relative z-10 max-h-[90vh] w-full overflow-auto rounded-lg border border-border bg-popover p-4 text-popover-foreground",
 					wide ? "max-w-3xl" : "max-w-lg",
 				)}
 			>
@@ -319,7 +320,7 @@ export function Dialog({
 						onClick={onClose}
 						aria-label="Close"
 					>
-						✕
+						<IconClose />
 					</Button>
 				</div>
 				{children}

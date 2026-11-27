@@ -67,15 +67,20 @@ export function MigrateStatus(): React.JSX.Element {
 				</span>
 			</div>
 			{status.pending.length > 0 ? (
-				<p className="rounded-md border border-border bg-card px-3 py-2 text-xs">
-					⚠️ {status.pending.length} pending migration(s) — the
-					database schema may differ from schema.ts. Apply them with{" "}
-					<span className="mono">neoorm migrate deploy</span> in your
-					terminal. Studio never applies migrations itself.
+				<p className="studio-callout-warning rounded-md border px-3 py-2 text-xs">
+					<span className="font-semibold text-warning">
+						{status.pending.length} pending migration(s)
+					</span>{" "}
+					— the database schema may differ from schema.ts. Apply them
+					with <span className="mono">neoorm migrate deploy</span> in
+					your terminal. Studio never applies migrations itself.
 				</p>
 			) : (
-				<p className="rounded-md border border-border bg-card px-3 py-2 text-xs">
-					✓ Database is up to date with the migration ledger.
+				<p className="studio-callout-success rounded-md border px-3 py-2 text-xs">
+					<span className="font-semibold text-success">
+						Up to date
+					</span>{" "}
+					— database matches the migration ledger.
 				</p>
 			)}
 			<div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
