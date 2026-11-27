@@ -1,4 +1,11 @@
-# Relation writes
+---
+title: Nested writes
+description: Nested connect, create, set, disconnect, and delete writes.
+group: queries
+order: 40
+---
+
+# Nested writes
 
 `create` and `update` accept nested relation writes alongside scalar fields. Relation-only updates are supported (no scalar `SET` required). Nested to-one `create` on `update` (and `create`) runs in the same transaction as the parent row so a failed parent write does not leave an orphan.
 

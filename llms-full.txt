@@ -1,8 +1,10 @@
-# NeoOrm
+# NeoORM
 
-> NeoOrm is a TypeScript-first SQL ORM: schema → codegen → typed client for PostgreSQL, SQLite, MySQL, and MariaDB. You own the SQL; it handles the boilerplate.
+> NeoORM is a TypeScript-first SQL ORM: schema → codegen → typed client for PostgreSQL, SQLite, MySQL, and MariaDB. You own the SQL; it handles the boilerplate.
 
 ## Getting started
+
+# Getting started
 
 ## Scaffold a new project
 
@@ -163,7 +165,7 @@ Raw `db.sql` uses the same compiler as `neoorm/sql`. With PostgreSQL `schema: "t
 
 Reuse an existing `pg` pool with `createNeoOrmClientFromPool(manifest, pool)`, or an existing SQLite handle with `createNeoOrmClientFromSqlite(manifest, database)`. `$disconnect()` does not close a borrowed pool or database — close it yourself when every consumer is done.
 
-Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Queries](queries.md#logging-sql)).
+Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Raw SQL & logging](raw-sql.md#logging-sql)).
 
 PostgreSQL data queries use named prepared statements by default. Set `preparedStatements: false` if you use transaction-mode PgBouncer (named prepares are not supported there).
 
@@ -184,568 +186,143 @@ const db = createNeoOrmClient(manifest, {
 
 For full `pg.Pool` control (custom host/user, event handlers), construct the pool yourself and pass it to `createNeoOrmClientFromPool`.
 
-## Examples
+## Configuration
 
-Copy-paste patterns for common NeoOrm tasks. The full runnable blog demo lives in [`examples/blog/`](https://github.com/xmreur/neoorm/tree/main/examples/blog) (`schema.ts` + `queries.example.ts`). PostGIS sample: [`examples/postgis/`](https://github.com/xmreur/neoorm/tree/main/examples/postgis).
+# Configuration
 
-Run `neoorm docs` to browse all documentation locally.
-
-## Blog schema
-
-A small CMS-style schema used throughout these examples:
-
-```ts
-import {
-  bool,
-  decimal,
-  defineSchema,
-  enumType,
-  fk,
-  id,
-  int,
-  jsonb,
-  many,
-  table,
-  text,
-  timestamps,
-  uuid,
-} from "neoorm/schema";
-
-export const schema = defineSchema({
-  users: table({
-    id: uuid().primary(),
-    email: text().notNull().unique(),
-    name: text(),
-    password: text().notNull().hidden(),
-    ...timestamps(),
-  }),
-
-  profiles: table({
-    id: id(),
-    userId: fk("users").notNull().unique().onDelete("cascade"),
-    bio: text(),
-    avatarUrl: text(),
-  }),
-
-  posts: table({
-    id: id(),
-    authorId: fk("users").notNull().index().onDelete("restrict"),
-    title: text().notNull(),
-    body: text().notNull(),
-    published: bool().notNull().default(false),
-    views: int().notNull().default(0),
-    status: enumType(["draft", "published", "archived"]).notNull().default("draft"),
-    metadata: jsonb<Record<string, unknown>>(),
-    price: decimal({ precision: 10, scale: 2 }),
-    ...timestamps(),
-    tags: many("tags"),
-  }),
-
-  comments: table({
-    id: id(),
-    postId: fk("posts").notNull().onDelete("cascade"),
-    authorId: fk("users").notNull(),
-    body: text().notNull(),
-    createdAt: timestamps().createdAt,
-  }),
-
-  tags: table({
-    id: id(),
-    slug: text().notNull().unique(),
-    name: text().notNull(),
-  }),
-});
-```
-
-Generate the client, then import it:
-
-```ts
-import { db } from "./neoorm/client.js";
-```
-
-## CRUD basics
-
-```ts
-// Create
-const user = await db.users.create({
-  data: { email: "alice@example.com", name: "Alice", password: "secret" },
-});
-
-// Create and return full row
-const post = await db.posts.create({
-  data: {
-    title: "Hello",
-    body: "World",
-    authorId: user.id,
-  },
-  returnCreated: true,
-});
-
-// Find by primary key
-const found = await db.users.findById(user.id);
-
-// Find first match
-const draft = await db.posts.findFirst({
-  where: { published: false },
-  orderBy: { createdAt: "desc" },
-});
-
-// Update
-await db.users.updateById(user.id, {
-  data: { name: "Alice Smith" },
-});
-
-// Update many
-await db.posts.updateMany({
-  where: { published: false },
-  data: { views: 0 },
-});
-
-// Delete
-await db.posts.delete({ where: { id: post.id } });
-await db.users.deleteById(user.id);
-```
-
-## Nested reads (`with`)
-
-```ts
-const user = await db.users.findById("user_1", {
-  with: {
-    profile: true,
-    posts: {
-      where: { published: true },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      with: {
-        comments: {
-          orderBy: { createdAt: "desc" },
-          take: 5,
-          with: { author: { select: { id: true, name: true } } },
-        },
-        tags: true,
-      },
-    },
-  },
-});
-```
-
-Select only specific columns:
-
-```ts
-const users = await db.users.findMany({
-  select: { id: true, email: true },
-  with: {
-    posts: { select: { title: true, published: true } },
-  },
-});
-```
-
-Omit columns at query time (dropped from the `SELECT`):
-
-```ts
-const user = await db.users.findById("user_1", {
-  omit: { createdAt: true, updatedAt: true },
-});
-```
-
-## Where filters
-
-```ts
-// Equality and operators
-const posts = await db.posts.findMany({
-  where: {
-    published: true,
-    views: { gte: 100 },
-    title: { contains: "ORM" },
-  },
-});
-
-// Case-insensitive search
-const hits = await db.posts.findMany({
-  where: { title: { contains: "orm", mode: "insensitive" } },
-});
-
-// Logical combinators
-const filtered = await db.posts.findMany({
-  where: {
-    OR: [
-      { status: "published" },
-      { AND: [{ published: true }, { views: { gt: 50 } }] },
-    ],
-  },
-});
-
-// Filter through relations
-const authors = await db.users.findMany({
-  where: {
-    posts: { some: { published: true, tags: { some: { slug: "typescript" } } } },
-  },
-});
-
-// JSONB containment
-const featured = await db.posts.findMany({
-  where: {
-    metadata: {
-      jsonContains: { featured: true, category: "engineering" },
-    },
-  },
-});
-
-// Exists / count helpers
-const taken = await db.users.exists({ where: { email: "alice@example.com" } });
-const total = await db.posts.count({ where: { published: true } });
-```
-
-## Relation writes
-
-Create with nested relations in one call:
-
-```ts
-const post = await db.posts.create({
-  data: {
-    title: "NeoORM",
-    body: "Typed relations and JSONB.",
-    published: true,
-    status: "published",
-    author: { connect: { id: "user_1" } },
-    tags: {
-      connectOrCreate: [
-        {
-          where: { slug: "orm" },
-          create: { slug: "orm", name: "ORM" },
-        },
-      ],
-    },
-  },
-  with: { author: true, tags: true },
-});
-```
-
-Update relations on an existing row:
-
-```ts
-await db.posts.update({
-  where: { id: post.id },
-  data: {
-    views: { increment: 1 },
-    comments: {
-      create: [
-        {
-          body: "Great post!",
-          author: { connect: { id: "user_1" } },
-        },
-      ],
-    },
-    tags: { set: [{ id: "tag_1" }, { id: "tag_2" }] },
-  },
-});
-```
-
-`connect`, `disconnect`, `set`, `create`, and `delete` work on to-one, one-to-many, and many-to-many relations. See [Relation writes](relations.md).
-
-## Pagination
-
-Offset/limit:
-
-```ts
-const page = await db.posts.findMany({
-  where: { published: true },
-  orderBy: { createdAt: "desc" },
-  take: 20,
-  skip: 40,
-});
-```
-
-Keyset (cursor) pagination for feeds:
-
-```ts
-let cursor: { createdAt: Date; id: string } | null = null;
-
-const page = await db.posts.paginate({
-  where: { published: true },
-  orderBy: { createdAt: "desc" },
-  take: 20,
-  omit: { body: true },
-  ...(cursor ? { after: cursor } : {}),
-});
-
-cursor = page.nextCursor;
-// page.items, page.hasMore, page.hasPrevious
-```
-
-## Aggregations
-
-```ts
-const byStatus = await db.posts.groupBy({
-  by: ["status"],
-  _count: true,
-  orderBy: { _count: "desc" },
-});
-
-const stats = await db.posts.aggregate({
-  _count: true,
-  _avg: { views: true },
-  where: { published: true },
-});
-```
-
-## Transactions
-
-Batch steps (single transaction):
-
-```ts
-let authorId!: string;
-const [author, post] = await db.$transaction([
-  async (tx) => {
-    const created = await tx.users.create({
-      data: {
-        email: "author@example.com",
-        name: "Author",
-        password: "secret",
-      },
-    });
-    authorId = created.id;
-    return created;
-  },
-  (tx) =>
-    tx.posts.create({
-      data: {
-        title: "Transactional post",
-        body: "...",
-        author: { connect: { id: authorId } },
-      },
-    }),
-]);
-```
-
-Interactive callback with rollback:
-
-```ts
-await db.$transaction(async (tx) => {
-  const user = await tx.users.create({
-    data: { email: "x@y.z", name: "Temp", password: "secret" },
-  });
-  await tx.posts.create({
-    data: {
-      title: "Draft",
-      body: "...",
-      author: { connect: { id: user.id } },
-    },
-  });
-  // throw to roll back everything
-});
-```
-
-Nested savepoints:
-
-```ts
-await db.$transaction(async (tx) => {
-  await tx.users.create({
-    data: { email: "outer@x.y", name: "Outer", password: "secret" },
-  });
-
-  await tx.$transaction(async (nested) => {
-    await nested.users.create({
-      data: { email: "inner@x.y", name: "Inner", password: "secret" },
-    });
-    throw new Error("roll back inner only");
-  }).catch(() => undefined);
-});
-```
-
-## Raw SQL
-
-Use `db.sql` when you need full SQL control. It uses the same compiler as `neoorm/sql` (`sql`, `sqlId`, nested fragments). `sqlBuilder` covers select/join/where/group/order/limit with bound params — interpolate `.compile()` into `db.sql` for HAVING or other raw tails.
-
-```ts
-import { sql, sqlBuilder, sqlId } from "neoorm/sql";
-
-const rows = await db.sql`
-  SELECT u.id, u.email, count(p.id) AS post_count
-  FROM users u
-  LEFT JOIN posts p ON p.author_id = u.id
-  GROUP BY u.id, u.email
-  ORDER BY post_count DESC
-`;
-
-const email = "a@b.com";
-const ident = sqlId("users");
-const filter = sql`email = ${email}`;
-const named = await db.sql`SELECT * FROM ${ident} WHERE ${filter}`;
-
-const grouped = sqlBuilder
-  .selectFrom("users")
-  .leftJoin("posts", "posts.author_id", "users.id")
-  .select(["users.id", "users.email"])
-  .where("users.email", "=", email)
-  .groupBy("users.id", "users.email")
-  .limit(10)
-  .compile();
-const dashboard = await db.sql`${grouped} HAVING count(posts.id) > ${0}`;
-```
-
-## API responses (`strip`)
-
-Hidden columns are omitted from default queries. For login, use `includeHidden: true`, verify, then strip before sending JSON:
-
-```ts
-const user = await db.users.findFirst({
-  where: { email: input.email },
-  includeHidden: true,
-});
-
-if (!user || !verifyPassword(input.password, user.password)) {
-  throw new Error("Invalid credentials");
-}
-
-return user.strip(); // plain object without password
-return user.strip({ refreshToken: true }); // hidden + extra fields
-```
-
-`.strip()` is non-enumerable and returns a plain object. See [Queries → API responses](queries.md#api-responses-strip).
-
-## Explicit junction table (many-to-many)
-
-Auto-junction works for most cases. For a custom junction table:
-
-```ts
-posts: table({
-  id: id(),
-  tags: many("tags", {
-    through: "postTags",
-    leftKey: "postId",
-    rightKey: "tagId",
-  }),
-}),
-postTags: table("post_tags", {
-  postId: fk("posts").primary(),
-  tagId: fk("tags").primary(),
-}),
-```
-
-`through` is the **accessor** (`postTags`), not the SQL name (`post_tags`).
-
-## SQLite
-
-Same schema and client API — point config at a file:
+The `neoorm.config.ts` file configures schema location, output directory, and datasource.
 
 ```ts
 // neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: process.env.DATABASE_URL!,
+    schema: "public",
+    enum: "check",
+  },
+});
+```
+
+CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. `createNeoOrmClient` (including the generated `db`) does the same from `process.cwd()` before it picks a connection URL, so a later `.env` edit is used without regenerating. Variables already present in the environment are not overwritten. Postgres, MySQL, and MariaDB require `connectionString` or `DATABASE_URL` (`MYSQL_URL` / `MARIADB_URL` for those engines). The connection URL is not written to `snapshot.json` or generated `manifest.ts`. SQLite may persist a plain file path or `:memory:` as `sqlitePath`.
+
+## Options
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `schema` | `string` | required | Path to the schema file |
+| `out` | `string` | required | Output directory for generated files |
+| `datasource.provider` | `"postgresql" \| "postgres" \| "sqlite" \| "mysql" \| "mariadb"` | required | Database provider. `"postgres"` is an alias of `"postgresql"`. |
+| `datasource.url` | `string` | required | Connection string (PostgreSQL / MySQL / MariaDB) or database file path / `:memory:` (SQLite) |
+| `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite, MySQL, and MariaDB: not applicable) |
+| `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
+| `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
+| `generate.typebox` | `boolean` | `false` | Emit Select/Create/Update TypeBox schemas to `out/typebox.ts`. See [TypeBox schemas](typebox.md). |
+| `generate.elysia` | `boolean` | `false` | Emit Select/Create/Update Elysia `t` schemas to `out/elysia.ts`. See [Elysia schemas](elysia.md). |
+| `seed.file` | `string` | unset | Default seed file, project-root relative. CLI `--file` overrides it. See [Seeding](seeding.md). |
+| `seed.env` | `string` | unset | Default environment: runs `seeds/<env>.ts` next to the schema. CLI `--env` overrides it. |
+
+### Validation emit
+
+Set `generate.zod` to write `out/zod.ts`, `generate.typebox` to write `out/typebox.ts`, and/or `generate.elysia` to write `out/elysia.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` (`^4`), `typebox` (`^1`), and/or `elysia` (`>=1.2`) in the app. If a printer is enabled and its peer is missing, generate still writes the file and warns. Codegen uses a library-agnostic IR; Zod, TypeBox 1.x, and Elysia `t` are the shipped printers. See [Zod schemas](zod.md), [TypeBox schemas](typebox.md), and [Elysia schemas](elysia.md).
+
+### SQLite
+
+Set `provider: "sqlite"` and `url` to a file path, a `file:` or `sqlite:` URI, or `":memory:"`. A `postgresql://`, `mysql://`, or other connection URL is rejected so it is not opened as a filename or silently dropped:
+
+```ts
 datasource: {
   provider: "sqlite",
   url: "./dev.db",
 },
 ```
 
-```ts
-import { createNeoOrmClient } from "neoorm";
-import { manifest } from "./neoorm/manifest.js";
+`datasource.schema` is PostgreSQL-only (ignored on SQLite, MySQL, and MariaDB). A non-public schema is created if needed, and index and enum DDL is schema-qualified (`DROP INDEX IF EXISTS "app"."posts_title_idx"`, `CREATE TYPE "app"."posts_status"`). Changing the schema moves each table with `ALTER TABLE … SET SCHEMA` and moves existing enum types the same way. `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL/MariaDB column `ENUM`. See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md).
 
-const db = createNeoOrmClient(manifest, {
-  provider: "sqlite",
-  databasePath: "./dev.db",
-});
+### Enum modes
+
+| Mode | SQL | DB enforcement |
+|------|-----|----------------|
+| `check` (default) | `TEXT` + `CHECK (...)` | yes |
+| `union` | `TEXT` | no (TypeScript union only) |
+| `native` | Postgres `CREATE TYPE ... AS ENUM` or MySQL/MariaDB column `ENUM` | yes |
+
+## Studio
+
+# Studio
+
+`neoorm studio` opens a local web UI for browsing and editing your data — a spreadsheet grid, a SQL console, a query playground, a schema explorer, an ER graph, and migrate status.
+
+```bash
+bunx neoorm studio --open
 ```
 
-See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md) for type mapping and limitations.
+Studio reads `neoorm.config.ts` (after `.env`, like the other commands) and compiles `schema.ts` live, so the tables you see always match the schema file you just saved. If `schema.ts` does not compile, Studio falls back to `snapshot.json` and shows a banner. It connects with the datasource URL from your config — the connection string is never sent to the browser.
 
-Log compiled SQL:
+## Data grid
 
-```ts
-const db = createNeoOrmClient(manifest, {
-  afterQuery: ({ sql, durationMs }) => {
-    if (durationMs > 50) console.warn(`slow ${durationMs.toFixed(1)}ms`, sql);
-  },
-});
-```
+- Spreadsheet-like browsing with pagination, multi-column sort (Shift+click), column reorder (drag headers), column show/hide, and wrap/truncate.
+- Filters map to real NeoOrm `where` operators: strings (`contains`, `startsWith`, `endsWith`, `search`, insensitive via advanced JSON), numbers/dates (`gt`, `gte`, `lt`, `lte`, `in`), nulls, enums, arrays (`has`, `hasEvery`, `hasSome`), JSON (`jsonContains`, `hasKey`, `path`), plus an advanced JSON box for relation filters (`some`/`every`/`none`), `AND`/`OR`/`NOT`.
+- Table-wide search runs `contains` across text-like columns.
+- Double-click a cell to edit. Edits are staged — press `Save` (or `⌘/Ctrl+S`) to write them, `Esc`-via-banner to discard. Cell editors are type-aware: booleans, enum selects, timestamps, JSON, arrays, UUID generation, `bytea` upload, decimals as strings.
+- Hidden columns (`.hidden()`) are visible in Studio but masked until you reveal them — useful for passwords and secrets, which are fetched with `includeHidden`.
+- `serial`/identity columns are omitted on create; `updatedAt` is read-only.
+- Foreign-key cells link to the referenced row. Trailing `View →` columns navigate has-many and many-to-many relations. Clicking a row opens a detail sheet with a Relations tab for nested writes (`connect`, `connectOrCreate`, `create`, `disconnect`, `set`, `delete`).
+- Select rows to copy as CSV, Markdown, JSON, or SQL `INSERT`s. Import CSV or JSON arrays (up to 5000 rows) with optional `skipDuplicates`. Export the current view in JSON, CSV, Markdown, or SQL. CSV cells that start with `=`, `+`, `-`, `@`, tab, or a carriage return are prefixed with `'` so a spreadsheet does not run them as formulas. Plain numbers such as `-12.50` are left unchanged.
+- Tables without a usable unique key are browse/create-only, and Studio tells you why.
 
-## PostGIS
+## SQL console
 
-```ts
-import "neoorm/plugins/postgis";
-import { geometry, point } from "neoorm/plugins/postgis";
+Run parameterized SQL with dialect-aware highlighting and schema autocomplete (`⌘/Ctrl+Enter` to run). Params are a JSON array (`$1`/`$2` on Postgres/SQLite, `?` on MySQL). Optional `EXPLAIN`. Analyze is `EXPLAIN ANALYZE` on Postgres and MySQL, `EXPLAIN QUERY PLAN` on SQLite, and `ANALYZE` on MariaDB. Query history is kept locally.
 
-places: table({
-  id: id(),
-  name: text().notNull(),
-  location: geometry({ subtype: "Point", srid: 4326 }).notNull(),
-}),
-```
+## Query playground
 
-```ts
-const nearby = await db.places.findMany({
-  where: {
-    location: {
-      dWithin: {
-        geometry: { type: "Point", coordinates: [-122.4, 37.8] },
-        distance: 1000,
-      },
-    },
-  },
-});
-```
+Build `findMany`, `findFirst`, `findUnique`, `findById`, `count`, `exists`, `aggregate`, `groupBy`, and `paginate` calls visually — `where`, `with`, `orderBy`, `select`, cursors — run them through the same client your app uses, and copy any working query as TypeScript (`db.users.findMany({ … })`). `take` is capped at 500, the same limit as the data grid. `findMany` and `groupBy` use that cap when `take` is omitted.
 
-See [Plugins](plugins.md).
+## Schema, ER, migrate
 
-## Schema extras
+- Schema explorer: columns, kinds, constraints, indexes (including partial `WHERE`), foreign keys, and relations per table. Read-only — schema changes belong in `schema.ts` plus `migrate dev`.
+- ER graph: tables as nodes, `1:1` / `1:n` / `n:n` edges, junction tables hidden by default. Click a node to open its data. Drag tables to rearrange — positions, the junction toggle, and the viewport (pan/zoom) persist in `localStorage` per schema. `Reset layout` restores the auto-grid; `Export`/`Import JSON` moves a layout between browsers.
+- Team-shared ER layout (opt-in): restart Studio with `neoorm studio --er-layout ./neoorm.er-layout.json`, switch Scope to `Team`, then `Push to team` / `Pull from team`. The file is committable so the whole team sees the same arrangement. Without the flag the server answers `404` and local layout still works.
+- Migrate status: applied, pending, and orphan migrations. Studio never applies, resets, or rolls back migrations — use the CLI.
 
-Composite unique constraint and partial unique (soft-delete emails):
+## Keyboard
 
-```ts
-import { bool, fk, id, table, text, unique } from "neoorm/schema";
+- `⌘/Ctrl+K` — command palette (jump to tables, views, actions)
+- `⌘/Ctrl+S` in the grid — save staged edits
+- `Esc` in the grid — discard staged edits
+- `⌘/Ctrl+R` in the grid — refresh rows
+- `Alt+N` in the grid — new row
+- `⌘/Ctrl+Enter` in SQL — run query
 
-posts: table(
-  {
-    id: id(),
-    authorId: fk("users").notNull(),
-    title: text().notNull(),
-    published: bool().notNull().default(false),
-  },
-  (t) => [
-    unique(t.authorId, t.title),
-    t.index(t.title).where({ published: true }),
-  ],
-),
+Views are deep-linkable: `#/tables/users?where=…&orderBy=…&q=…`, `#/sql`, `#/query`, `#/schema[/table]`, `#/er`, `#/migrate`.
 
-users: table(
-  {
-    id: id(),
-    email: text().notNull(),
-    deleted: bool().notNull().default(false),
-  },
-  (t) => [t.unique(t.email).where({ deleted: false })],
-),
-```
+## Security
 
-SQL name override when accessor differs from table name:
-
-```ts
-postTags: table("post_tags", {
-  postId: fk("posts").primary(),
-  tagId: fk("tags").primary(),
-}),
-```
-
-## Next steps
-
-| Topic | Doc |
-|-------|-----|
-| Schema DSL | [schema.md](schema.md) |
-| Queries | [queries.md](queries.md) |
-| Relation writes | [relations.md](relations.md) |
-| Migrations | [migrations.md](migrations.md) |
-| CLI | [cli.md](cli.md) |
+- Studio binds `127.0.0.1` by default with no auth token, like `neoorm docs`. Binding a non-loopback host generates a token printed in the terminal. `--open` does not put that token in the browser URL. Paste it into the token field; Studio stores it locally and sends it as a header, including for exports. A `?token=` query parameter is not accepted.
+- Every request must use a `Host` of loopback, the bind address, or (when listening on `0.0.0.0`/`::`) a literal IP on the listen port. API calls with an `Origin` must match the same allowlist. JSON bodies require `Content-Type: application/json`. Together this blocks website CSRF and DNS rebinding; a browser on another origin cannot run SQL or read rows.
+- `--read-only` blocks row mutations, imports, nested writes, and SQL that writes. `SELECT`, `EXPLAIN` of a read query, `PRAGMA`, `SHOW`, and `DESCRIBE` still work. `EXPLAIN` / `EXPLAIN ANALYZE` of a write, data-modifying `WITH` clauses, and `SELECT INTO` are rejected.
+- The browser never receives your datasource URL, and hidden columns stay masked until revealed.
+- Invalid parameters return 400 and oversized bodies return 413. Unexpected failures return a generic error, without filesystem paths or driver text.
 
 ## Schema DSL
 
-NeoOrm **0.8.0** and later uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
+# Schema DSL
+
+NeoORM **0.8.0** and later uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
+
+For foreign keys, composite keys, self-relations, and many-to-many tables, see [Schema relations](schema-relations.md).
 
 ## Tables and accessors
 
 `defineSchema` keys are TypeScript accessors. By default the SQL table name equals the accessor:
 
 ```ts
-import { defineSchema, fk, id, table, text, timestamps, uuid } from "neoorm/schema";
+import { defineSchema, fk, table, text, timestamps, uuid } from "neoorm/schema";
 
 export const schema = defineSchema({
   users: table({
@@ -766,7 +343,7 @@ export const schema = defineSchema({
 
 Generated row types are the English singular of the accessor: `users` → `User`, `status` → `Status` (not `Statu`).
 
-Column field names use camelCase in TypeScript. By default SQL column names are snake_case (`createdAt` → `created_at`). See [column naming](#column-naming-strategy).
+Column field names use camelCase in TypeScript. By default SQL column names are snake_case (`createdAt` → `created_at`). See [Column naming strategy](#column-naming-strategy).
 
 ## Column types
 
@@ -803,7 +380,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 
 All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, `.notEmpty()`, `.email()`, and `.url()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`, `real`, `double`) add `.min()`, `.max()`, and `.positive()`.
 
-`.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses.
+`.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses. See [Eager loading & projection](loading.md#sensitive-columns-hidden-and-api-responses-strip).
 
 ### Audit timestamps
 
@@ -838,13 +415,166 @@ orders: table({
 
 A hand-written trigger is still outside migrations, so `db pull` will not recreate it. Generated columns are readable and rejected on insert and update. They cannot also have a default, `updatedAt()`, or be `serial()`.
 
-Index it with GIN and query it with the `searchTs` where operator (see [Where clauses](queries.md#column-filters)):
+Index it with GIN and query it with the `searchTs` where operator (see [Filters & aggregates](filters.md#column-filters)):
 
 ```ts
 (t) => [index(t.body).using("gin")],
 // or over plain text without a tsvector column:
 (t) => [index(expr("to_tsvector('english', title)")).using("gin")],
 ```
+
+## Column checks
+
+Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not runtime validators by themselves. With [`generate.zod`](zod.md), [`generate.typebox`](typebox.md), or [`generate.elysia`](elysia.md), the same helpers are copied into generated validation schemas at your API boundary.
+
+### Typed constraint helpers
+
+| Method | Column types | Postgres | SQLite |
+|--------|--------------|----------|--------|
+| `.maxLength(n)` / `text({ maxLength: n })` | `text` | `VARCHAR(n)` | `TEXT` + `CHECK (length(col) <= n)` |
+| `.minLength(n)` | `text`, `citext` | CHECK | CHECK |
+| `.notEmpty()` | `text`, `citext` | CHECK | CHECK |
+| `.email()` | `text`, `citext` | — | — |
+| `.url()` | `text`, `citext` | — | — |
+| `.min(n)` / `.max(n)` | `int`, `bigint`, `serial`, `decimal` | CHECK | CHECK |
+| `.positive()` | same numeric types | CHECK | CHECK |
+
+```ts
+email: text({ maxLength: 255 }).notNull().unique()
+title: text().notNull().minLength(1).maxLength(200)
+bio: text().notEmpty()
+handle: text().notNull().email()
+website: text().notNull().url()
+views: int().notNull().min(0)
+price: decimal({ precision: 10, scale: 2 }).notNull().positive()
+```
+
+`.email()` and `.url()` are validation-only: they do not emit a SQL CHECK. With [`generate.zod`](zod.md), [`generate.typebox`](typebox.md), or [`generate.elysia`](elysia.md), columns named `email` or ending in `Email` (`contactEmail`) become email-format strings, and columns named `url` or ending in `Url` (`avatarUrl`) become URL-format strings. You can also mark any `text` / `citext` column with `.email()` or `.url()`. Foreign keys follow the **referenced** column (`authorEmail` pointing at a uuid PK stays a uuid).
+
+`citext` length helpers use CHECK only (no `VARCHAR`). NULL still bypasses CHECK — pair `.notEmpty()` with `.notNull()` to reject empty strings.
+
+Custom `.check()` expressions are combined with helpers and enum `check` mode using AND. Prefer helpers over raw SQL so constraints use the mapped SQL column name after `.map()`.
+
+```ts
+price: decimal({ precision: 10, scale: 2 }).notNull().check("price >= 0"),
+```
+
+## Indexes and composite keys
+
+Single-column indexes: `.index()` on a column.
+
+Composite constraints use an **array** extras callback:
+
+```ts
+posts: table(
+  {
+    id: id(),
+    authorId: fk("users").notNull(),
+    title: text().notNull(),
+    views: int().notNull().default(0),
+  },
+  (t) => [unique(t.authorId, t.title), index(t.views)],
+),
+```
+
+Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, `.with()` (bloom only), and `.where()` for partial indexes.
+
+### Index methods and expressions
+
+```ts
+(t) => [
+  index(t.tags).using("gin"),
+  index(t.metadata).using("gin").ops("jsonb_path_ops"),
+  index(t.location).using("gist"),
+  index(t.createdAt).using("brin"),
+  index(t.a, t.b).using("bloom").with({ length: 80, cols: [2, 2] }),
+  unique(expr("lower(email)")),
+  index(t.authorId, expr("date_trunc('day', created_at)")),
+],
+```
+
+Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, `hash`, and `bloom`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH`, `using("fulltext")` (`CREATE FULLTEXT INDEX`, which `searchTs` needs), and functional `(expr)` keys. They reject GIN/GiST/BRIN/bloom and partial `WHERE`.
+
+`unique()` cannot use `gin` / `gist` / `brin` / `bloom` / `fulltext`. Expression unique indexes are not `findUnique` / `upsert` targets.
+
+Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` maps positionally to the index keys (`col1`, `col2`, …) so its length must match the key count; omit `.with()` for server defaults. Using a bloom index automatically adds the `bloom` extension to the manifest (emitted as `CREATE EXTENSION IF NOT EXISTS "bloom"`).
+
+### Partial indexes
+
+```ts
+(t) => [
+  t.index(t.title).where({ published: true }),
+  t.unique(t.email).where({ deleted: false }),
+  // Full predicate syntax, like query `where`:
+  t.unique(t.email).where({
+    OR: [{ status: "banned" }, { status: "suspended" }],
+  }),
+  t.unique(t.slug).where({
+    AND: [{ deletedAt: { isNull: true } }, { score: { gt: 10 } }],
+    NOT: { status: "trial" },
+  }),
+],
+```
+
+Use `t.index` / `t.unique` or the top-level `index()` / `unique()` with `t.col` keys — in both cases the `where` predicate is typed: keys, scalar values, and operators autocomplete from the table's columns. Raw-string keys (`unique("email")`) still accept `.where()` with an untyped predicate.
+
+Flat equality (`{ published: true }`, `null` → `IS NULL`) plus `AND` / `OR` / `NOT` combinators and per-column operators: `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `isNull`, `isNotNull`, `contains`, `startsWith`, `endsWith`, `search`, and `mode: "insensitive"` on string operators. Compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
+
+## Column naming strategy
+
+```ts
+export const schema = defineSchema(
+  {
+    users: table({ emailAddress: text().notNull() }), // SQL: email_address
+    legacyUsers: table(
+      "legacy_users",
+      { emailAddress: text().notNull() },
+      { columnNaming: "camelCase" },
+    ),
+  },
+  { columnNaming: "snakeCase" },
+);
+```
+
+## Custom SQL column names (`.map()`)
+
+```ts
+emailAddress: text().notNull().map("email"),
+authorId: fk("users").as("author").map("author_ref"),
+```
+
+## Enum columns
+
+```ts
+status: enumType(["draft", "published", "archived"])
+  .notNull()
+  .default("draft"),
+```
+
+`datasource.enum` in config: `check` (default), `union`, or `native` (PostgreSQL `CREATE TYPE` / MySQL and MariaDB column `ENUM`).
+
+## PostgreSQL extensions
+
+```ts
+export const schema = defineSchema(
+  { /* tables */ },
+  { extensions: ["uuid-ossp", "pg_trgm"] },
+);
+```
+
+Column type plugins still register required extensions automatically.
+
+## Dialect type mapping
+
+Same DSL across all dialects; see [PostgreSQL](postgresql.md), [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md) for storage types and limitations.
+
+## Schema relations
+
+# Schema relations
+
+NeoORM models relations directly on your schema tables using `fk()`, table-level `foreignKey()`, and virtual `many()` columns. All targets reference **schema accessors**, never raw SQL table names.
+
+For reading relations with `with`, see [Eager loading & projection](loading.md). For writing nested relations, see [Nested writes](relations.md).
 
 ## Foreign keys
 
@@ -959,106 +689,6 @@ export const schema = defineSchema({
 });
 ```
 
-## Column checks
-
-Use `.check("sql expression")` for custom CHECK constraints, or the typed helpers below. Helpers compile to database CHECK constraints (and `VARCHAR(n)` for text length on Postgres). They are not runtime validators by themselves. With [`generate.zod`](zod.md), [`generate.typebox`](typebox.md), or [`generate.elysia`](elysia.md), the same helpers are copied into generated validation schemas at your API boundary.
-
-### Typed constraint helpers
-
-| Method | Column types | Postgres | SQLite |
-|--------|--------------|----------|--------|
-| `.maxLength(n)` / `text({ maxLength: n })` | `text` | `VARCHAR(n)` | `TEXT` + `CHECK (length(col) <= n)` |
-| `.minLength(n)` | `text`, `citext` | CHECK | CHECK |
-| `.notEmpty()` | `text`, `citext` | CHECK | CHECK |
-| `.email()` | `text`, `citext` | — | — |
-| `.url()` | `text`, `citext` | — | — |
-| `.min(n)` / `.max(n)` | `int`, `bigint`, `serial`, `decimal` | CHECK | CHECK |
-| `.positive()` | same numeric types | CHECK | CHECK |
-
-```ts
-email: text({ maxLength: 255 }).notNull().unique()
-title: text().notNull().minLength(1).maxLength(200)
-bio: text().notEmpty()
-handle: text().notNull().email()
-website: text().notNull().url()
-views: int().notNull().min(0)
-price: decimal({ precision: 10, scale: 2 }).notNull().positive()
-```
-
-`.email()` and `.url()` are validation-only: they do not emit a SQL CHECK. With [`generate.zod`](zod.md), [`generate.typebox`](typebox.md), or [`generate.elysia`](elysia.md), columns named `email` or ending in `Email` (`contactEmail`) become email-format strings, and columns named `url` or ending in `Url` (`avatarUrl`) become URL-format strings. You can also mark any `text` / `citext` column with `.email()` or `.url()`. Foreign keys follow the **referenced** column (`authorEmail` pointing at a uuid PK stays a uuid).
-
-`citext` length helpers use CHECK only (no `VARCHAR`). NULL still bypasses CHECK — pair `.notEmpty()` with `.notNull()` to reject empty strings.
-
-Custom `.check()` expressions are combined with helpers and enum `check` mode using AND. Prefer helpers over raw SQL so constraints use the mapped SQL column name after `.map()`.
-
-```ts
-price: decimal({ precision: 10, scale: 2 }).notNull().check("price >= 0"),
-```
-
-## Indexes and composite keys
-
-Single-column indexes: `.index()` on a column.
-
-Composite constraints use an **array** extras callback:
-
-```ts
-posts: table(
-  {
-    id: id(),
-    authorId: fk("users").notNull(),
-    title: text().notNull(),
-    views: int().notNull().default(0),
-  },
-  (t) => [unique(t.authorId, t.title), index(t.views)],
-),
-```
-
-Helpers: `unique(...cols)`, `index(...cols)`, `primaryKey(...cols)`, `expr("sql")`. `unique()` and `index()` support `.using()`, `.ops()`, `.with()` (bloom only), and `.where()` for partial indexes.
-
-### Index methods and expressions
-
-```ts
-(t) => [
-  index(t.tags).using("gin"),
-  index(t.metadata).using("gin").ops("jsonb_path_ops"),
-  index(t.location).using("gist"),
-  index(t.createdAt).using("brin"),
-  index(t.a, t.b).using("bloom").with({ length: 80, cols: [2, 2] }),
-  unique(expr("lower(email)")),
-  index(t.authorId, expr("date_trunc('day', created_at)")),
-],
-```
-
-Default method is btree (`USING btree` is omitted in SQL). Postgres also emits `gin`, `gist`, `brin`, `hash`, and `bloom`. SQLite allows expression keys and partial `WHERE`, but not those access methods. MySQL/MariaDB allow `USING HASH`, `using("fulltext")` (`CREATE FULLTEXT INDEX`, which `searchTs` needs), and functional `(expr)` keys. They reject GIN/GiST/BRIN/bloom and partial `WHERE`.
-
-`unique()` cannot use `gin` / `gist` / `brin` / `bloom` / `fulltext`. Expression unique indexes are not `findUnique` / `upsert` targets.
-
-Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` maps positionally to the index keys (`col1`, `col2`, …) so its length must match the key count; omit `.with()` for server defaults. Using a bloom index automatically adds the `bloom` extension to the manifest (emitted as `CREATE EXTENSION IF NOT EXISTS "bloom"`).
-
-### Partial indexes
-
-```ts
-(t) => [
-  t.index(t.title).where({ published: true }),
-  t.unique(t.email).where({ deleted: false }),
-  // Full predicate syntax, like query `where`:
-  t.unique(t.email).where({
-    OR: [{ status: "banned" }, { status: "suspended" }],
-  }),
-  t.unique(t.slug).where({
-    AND: [{ deletedAt: { isNull: true } }, { score: { gt: 10 } }],
-    NOT: { status: "trial" },
-  }),
-],
-```
-
-Use `t.index` / `t.unique` or the top-level `index()` / `unique()` with
-`t.col` keys — in both cases the `where` predicate is typed: keys, scalar
-values, and operators autocomplete from the table's columns. Raw-string keys
-(`unique("email")`) still accept `.where()` with an untyped predicate.
-
-Flat equality (`{ published: true }`, `null` → `IS NULL`) plus `AND` / `OR` / `NOT` combinators and per-column operators: `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `isNull`, `isNotNull`, `contains`, `startsWith`, `endsWith`, `search`, and `mode: "insensitive"` on string operators. Compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
-
 ## Many-to-many
 
 Declare a virtual column on the source table:
@@ -1097,456 +727,77 @@ postTags: table("post_tags", {
 
 Virtual M2M columns are relations only — they appear in `with`, relation filters, and relation writes, not in scalar `select`/`where`/`create` data.
 
-## Column naming strategy
+## Plugins
+
+# Plugins
+
+## Built-in `id()` and `timestamps()`
 
 ```ts
-export const schema = defineSchema(
-  {
-    users: table({ emailAddress: text().notNull() }), // SQL: email_address
-    legacyUsers: table(
-      "legacy_users",
-      { emailAddress: text().notNull() },
-      { columnNaming: "camelCase" },
-    ),
-  },
-  { columnNaming: "snakeCase" },
-);
-```
+import { defineSchema, id, table, timestamps, uuid } from "neoorm/schema";
 
-## Custom SQL column names (`.map()`)
-
-```ts
-emailAddress: text().notNull().map("email"),
-authorId: fk("users").as("author").map("author_ref"),
-```
-
-## Enum columns
-
-```ts
-status: enumType(["draft", "published", "archived"])
-  .notNull()
-  .default("draft"),
-```
-
-`datasource.enum` in config: `check` (default), `union`, or `native` (PostgreSQL `CREATE TYPE` / MySQL and MariaDB column `ENUM`).
-
-## PostgreSQL extensions
-
-```ts
-export const schema = defineSchema(
-  { /* tables */ },
-  { extensions: ["uuid-ossp", "pg_trgm"] },
-);
-```
-
-Column type plugins still register required extensions automatically.
-
-## SQLite type mapping
-
-Same DSL; see [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md) for storage types and limitations.
-
-## Zod schemas
-
-`neoorm generate` can print Select, Create, and Update **scalar** Zod schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; Zod, [TypeBox](typebox.md), and [Elysia `t`](elysia.md) are the printers shipped today.
-
-Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
-
-## Enable
-
-Install Zod 4 in the app, then opt in:
-
-```bash
-bun add zod
-```
-
-```ts
-// neoorm.config.ts
-import { defineConfig } from "neoorm";
-
-export default defineConfig({
-  schema: "./schema.ts",
-  out: "./neoorm",
-  datasource: {
-    provider: "postgresql",
-    url: process.env.DATABASE_URL!,
-  },
-  generate: {
-    zod: true,
-  },
+export const schema = defineSchema({
+  users: table({
+    id: uuid().primary(),
+    ...timestamps(),
+  }),
+  posts: table({
+    id: id(), // TEXT PK with {prefix}_{uuid}
+    title: text().notNull(),
+  }),
 });
 ```
 
-Re-run `neoorm generate` (or `neoorm migrate dev`). Output:
-
-- `out/zod.ts` — generated schemas
-- `out/client.ts` re-exports them
-
-Disable `generate.zod` and generate again to remove `zod.ts`.
-
-`zod` is an optional peer of NeoOrm. The generated file imports `zod` directly; NeoOrm does not bundle it. If `generate.zod` is on and `zod` is not installed, `neoorm generate` still writes `zod.ts` and prints a warning (`bun add zod`).
-
-## Usage
+## PostGIS
 
 ```ts
-import { db, UserCreateSchema, type UserCreate } from "./neoorm/client.js";
+import "neoorm/plugins/postgis";
+import { geometry, point } from "neoorm/plugins/postgis";
 
-const data: UserCreate = UserCreateSchema.parse(body);
-await db.users.create({ data });
-```
-
-Per table (accessor `users` → model `User`):
-
-| Export | Shape |
-|--------|--------|
-| `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
-| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
-| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
-
-`UserSelect` / `UserCreate` / `UserUpdate` are `z.infer` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
-
-`schemas.users.select` / `.create` / `.update` are the same objects.
-
-`.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
-
-`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
-
-Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
-
-## Junction (M2M) tables
-
-Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `z.object({})`.
-
-Codegen treats them as **link** tables:
-
-| Export | Shape |
-|--------|--------|
-| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
-| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
-| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
-| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
-
-Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
-
-Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction Zod is for the rare case you insert a link row yourself.
-
-## Types and constraints
-
-Timestamp columns accept both ORM `Date` values and JSON ISO-8601 strings (`2020-01-01T00:00:00.000Z`, including offsets). `parse` always returns a `Date`, so the same schema works for HTTP bodies and query results.
-
-`z.bigint()` and `Buffer` still match generated models, not JSON. Wrap those fields if the payload is a JSON number/string.
-
-Typed schema helpers map into Zod:
-
-| Schema | Zod |
-|--------|-----|
-| `.minLength()` / `.maxLength()` / `.notEmpty()` | `z.string().min()` / `.max()` |
-| `email` / `*Email` column names, or `.email()` on `text` / `citext` | `z.email()` |
-| `url` / `*Url` column names, or `.url()` on `text` / `citext` | `z.url()` |
-| `.min()` / `.max()` / `.positive()` on int/serial/bigint | matching number/bigint checks |
-| same helpers on `decimal()` | `z.string().refine(...)` |
-| `enumType([...])` | hoisted `z.enum` |
-| `json()` / `jsonb()` with no type arg | `z.record(z.string(), z.unknown())` |
-| `jsonb<Record<string, unknown>>()` | `z.record(z.string(), z.unknown())` |
-| `jsonb<{ featured: boolean }>()` (inline object type) | `z.object({ featured: z.boolean(), … })` |
-| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`z.object`, nested `z.record`, …); wins over generics |
-| `timestamp()` | `Date` or ISO datetime string → `Date` |
-
-Raw `.check("sql")` is not mapped. With `generate.zod: true`, `generate.typebox: true`, or `generate.elysia: true`, codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `z.object`, `Record<K,V>` to `z.record`, and primitives to the matching Zod types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
-
-```ts
-metadata: jsonb<{ featured: boolean; category?: string }>(),
-// → metadata: z.object({ featured: z.boolean(), category: z.string().optional() }).nullable()
-```
-
-For shapes codegen cannot infer from the generic, use `.schema()`:
-
-```ts
-metadata: jsonb().schema({
-  kind: "object",
-  fields: [
-    {
-      name: "featured",
-      type: { kind: "boolean" },
-      nullable: false,
-      optional: false,
-    },
-  ],
+places: table({
+  id: uuid().primary(),
+  location: geometry({ subtype: "Point", srid: 4326 }).notNull(),
+  boundary: point({ srid: 4326 }),
 }),
 ```
 
-## TypeBox schemas
+`srid` requires a whitelisted `subtype`. PostGIS typmod is `geometry(Point,4326)`, not `geometry(4326)`. Use `subtype: "Geometry"` to fix SRID without constraining the type. Allowed subtypes include `Point`, `LineString`, `Polygon`, `MultiPolygon`, `GeometryCollection`, and `Geometry`, optionally with `Z`, `M`, or `ZM` (e.g. `PointZ`).
 
-`neoorm generate` can print Select, Create, and Update **scalar** TypeBox schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; TypeBox 1.x is one printer (alongside [Zod](zod.md) and [Elysia `t`](elysia.md)).
+Spatial `where` operators: `intersects`, `within`, `dWithin`. Importing `neoorm/plugins/postgis` merges those keys into `WhereInput` for spatial columns.
 
-Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
-
-Schemas target **TypeBox 1.x** (`typebox` on npm), not `@sinclair/typebox` 0.x. For Elysia 1.x route `body:`, use [`generate.elysia`](elysia.md) instead.
-
-## Enable
-
-Install TypeBox 1.x in the app, then opt in:
-
-```bash
-bun add typebox
-```
+## Citext
 
 ```ts
-// neoorm.config.ts
-import { defineConfig } from "neoorm";
+import { citext, table } from "neoorm/schema";
 
-export default defineConfig({
-  schema: "./schema.ts",
-  out: "./neoorm",
-  datasource: {
-    provider: "postgresql",
-    url: process.env.DATABASE_URL!,
-  },
-  generate: {
-    typebox: true,
-  },
-});
-```
-
-Re-run `neoorm generate` (or `neoorm migrate dev`). Output:
-
-- `out/typebox.ts` — generated schemas
-- `out/client.ts` re-exports them
-
-Disable `generate.typebox` and generate again to remove `typebox.ts`.
-
-`typebox` is an optional peer of NeoOrm. The generated file imports `typebox` directly; NeoOrm does not bundle it. If `generate.typebox` is on and `typebox` is not installed, `neoorm generate` still writes `typebox.ts` and prints a warning (`bun add typebox`).
-
-You can enable Zod, TypeBox, and Elysia together. When Zod is on, `client.ts` keeps Zod as a flat `export *` and namespaces TypeBox and Elysia (`export * as typebox` / `export * as elysia`). TypeBox + Elysia without Zod keeps TypeBox flat and namespaces Elysia. Import TypeBox from `./typebox.js` (or `typebox.UserCreateSchema` from the client) when it is namespaced. For Elysia 1.x `body:`, use [`generate.elysia`](elysia.md).
-
-## Usage
-
-```ts
-import Value from "typebox/value";
-import { db, UserCreateSchema, type UserCreate } from "./neoorm/client.js";
-
-const data: UserCreate = Value.Decode(UserCreateSchema, body);
-await db.users.create({ data });
-```
-
-`Value.Check` returns a boolean and does not run codecs. Use `Value.Decode` when you need timestamp fields as `Date` (the TypeBox equivalent of Zod `parse`). Invalid data throws.
-
-Per table (accessor `users` → model `User`):
-
-| Export | Shape |
-|--------|--------|
-| `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
-| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
-| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
-
-`UserSelect` / `UserCreate` / `UserUpdate` are `Type.StaticDecode` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
-
-`schemas.users.select` / `.create` / `.update` are the same objects.
-
-`.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
-
-`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
-
-Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
-
-## Junction (M2M) tables
-
-Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `Type.Object({})`.
-
-Codegen treats them as **link** tables:
-
-| Export | Shape |
-|--------|--------|
-| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
-| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
-| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
-| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
-
-Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
-
-Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction TypeBox is for the rare case you insert a link row yourself.
-
-## Types and constraints
-
-Timestamp columns accept both ORM `Date` values and JSON ISO-8601 strings (`2020-01-01T00:00:00.000Z`, including offsets). `Value.Decode` always returns a `Date`, so the same schema works for HTTP bodies and query results. `Value.Check` accepts either form without converting.
-
-`Type.BigInt()` and `Buffer` still match generated models, not JSON. Wrap those fields if the payload is a JSON number/string.
-
-The generated file registers `uuid`, `email`, `url`, and `date-time` on TypeBox’s `Format` registry when those formats appear, without overwriting a format you already set.
-
-Typed schema helpers map into TypeBox:
-
-| Schema | TypeBox |
-|--------|---------|
-| `.minLength()` / `.maxLength()` / `.notEmpty()` | `Type.String({ minLength, maxLength })` |
-| `email` / `*Email` column names, or `.email()` on `text` / `citext` | `Type.String({ format: "email" })` |
-| `url` / `*Url` column names, or `.url()` on `text` / `citext` | `Type.String({ format: "url" })` |
-| `.min()` / `.max()` / `.positive()` on int/serial | `Type.Integer({ minimum, maximum, exclusiveMinimum: 0 })` |
-| same helpers on `bigint` | `Type.BigInt({ minimum, maximum, exclusiveMinimum: 0n })` |
-| same helpers on `decimal()` | `Type.Refine(Type.String(), …)` |
-| `enumType([...])` | hoisted `Type.Enum` |
-| `json()` / `jsonb()` with no type arg | `Type.Record(Type.String(), Type.Unknown())` |
-| `jsonb<Record<string, unknown>>()` | `Type.Record(Type.String(), Type.Unknown())` |
-| `jsonb<{ featured: boolean }>()` (inline object type) | `Type.Object({ featured: Type.Boolean(), … })` |
-| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`Type.Object`, nested `Type.Record`, …); wins over generics |
-| `timestamp()` | `Date` or ISO datetime string → `Date` (`Type.Codec` + `Value.Decode`) |
-| `bytea()` | `Type.Refine` + `Buffer.isBuffer` |
-
-Raw `.check("sql")` is not mapped. With `generate.typebox: true` (or `generate.zod` / `generate.elysia`), codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `Type.Object`, `Record<K,V>` to `Type.Record`, and primitives to the matching TypeBox types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
-
-```ts
-metadata: jsonb<{ featured: boolean; category?: string }>(),
-// → metadata: Type.Union([Type.Object({ featured: Type.Boolean(), category: Type.Optional(Type.String()) }), Type.Null()])
-```
-
-For shapes codegen cannot infer from the generic, use `.schema()`:
-
-```ts
-metadata: jsonb().schema({
-  kind: "object",
-  fields: [
-    {
-      name: "featured",
-      type: { kind: "boolean" },
-      nullable: false,
-      optional: false,
-    },
-  ],
+users: table({
+  email: citext().notNull().unique(),
 }),
 ```
 
-## Elysia schemas
+## Custom plugins
 
-`neoorm generate` can print Select, Create, and Update **scalar** Elysia `t` schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; this printer emits `import { t } from "elysia"` so the objects drop into route `body:` / `query:` the same way as hand-written `t.Object({ title: t.String() })`.
+See the plugin registry source for `ColumnTypePlugin` and `NeoOrmPlugin` interfaces.
 
-Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
+Column types may implement `columnValidation(col)` returning a validator-neutral IR node (`{ kind: "string" }`, `{ kind: "enum", values }`, GeoJSON `object` / `union`, and so on). Zod, TypeBox, and Elysia codegen print that IR. Omit the hook to fall back to `unknown`.
 
-This is the printer to use with **Elysia 1.x**. [TypeBox 1.x](typebox.md) (`import Type from "typebox"`) is a different package and will not type-check as Elysia `body:`.
-
-## Enable
-
-Install Elysia in the app, then opt in:
-
-```bash
-bun add elysia
-```
+To type `where` operators, augment `PluginColumnWhereOperators` on `neoorm/schema` with your column kind:
 
 ```ts
-// neoorm.config.ts
-import { defineConfig } from "neoorm";
-
-export default defineConfig({
-  schema: "./schema.ts",
-  out: "./neoorm",
-  datasource: {
-    provider: "postgresql",
-    url: process.env.DATABASE_URL!,
-  },
-  generate: {
-    elysia: true,
-  },
-});
+declare module "neoorm/schema" {
+  interface PluginColumnWhereOperators {
+    myKind: { overlaps?: string };
+  }
+}
 ```
 
-Re-run `neoorm generate` (or `neoorm migrate dev`). Output:
-
-- `out/elysia.ts` — generated schemas
-- `out/client.ts` re-exports them
-
-Disable `generate.elysia` and generate again to remove `elysia.ts`.
-
-`elysia` is an optional peer of NeoOrm. The generated file imports `elysia` directly; NeoOrm does not bundle it. If `generate.elysia` is on and `elysia` is not installed, `neoorm generate` still writes `elysia.ts` and prints a warning (`bun add elysia`).
-
-When Zod or TypeBox 1.x is also enabled, `client.ts` keeps those as documented and re-exports Elysia as `export * as elysia from "./elysia.js"` so names do not collide. Import from `./elysia.js` (or `elysia.UserCreateSchema`) in that case.
-
-## Usage
-
-```ts
-import { Elysia } from "elysia";
-import { db, UserCreateSchema, UserUpdateSchema } from "./neoorm/client.js";
-
-new Elysia()
-  .post("/users", ({ body }) => db.users.create({ data: body }), {
-    body: UserCreateSchema,
-  })
-  .patch("/users/:id", ({ params, body }) =>
-    db.users.update({
-      where: { id: params.id },
-      data: body,
-    }), {
-      body: UserUpdateSchema,
-    },
-  )
-  .listen(3000);
-```
-
-Elysia validates `body` against the `t.Object` schema. `t.Date()` accepts ISO-8601 strings, `Date` values, and epoch numbers, and decodes to `Date`.
-
-Per table (accessor `users` → model `User`):
-
-| Export | Shape |
-|--------|--------|
-| `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
-| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
-| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
-
-`UserSelect` / `UserCreate` / `UserUpdate` are `typeof Schema.static` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
-
-`schemas.users.select` / `.create` / `.update` are the same objects.
-
-`.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
-
-`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
-
-Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
-
-## Junction (M2M) tables
-
-Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `t.Object({})`.
-
-Codegen treats them as **link** tables:
-
-| Export | Shape |
-|--------|--------|
-| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
-| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
-| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
-| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
-
-Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
-
-Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction Elysia schemas are for the rare case you insert a link row yourself.
-
-## Types and constraints
-
-`t.BigInt()` and `Buffer` still match generated models, not JSON. Wrap those fields if the payload is a JSON number/string.
-
-Typed schema helpers map into Elysia `t`:
-
-| Schema | Elysia |
-|--------|--------|
-| `.minLength()` / `.maxLength()` / `.notEmpty()` | `t.String({ minLength, maxLength })` |
-| `email` / `*Email` column names, or `.email()` on `text` / `citext` | `t.String({ format: "email" })` |
-| `url` / `*Url` column names, or `.url()` on `text` / `citext` | `t.String({ format: "uri" })` |
-| `.min()` / `.max()` / `.positive()` on int/serial | `t.Integer({ minimum, maximum, exclusiveMinimum: 0 })` |
-| same helpers on `bigint` | `t.BigInt({ minimum, maximum, exclusiveMinimum: 0n })` |
-| same helpers on `decimal()` | `t.Transform(t.String()).Decode(...)` |
-| `enumType([...])` | hoisted `t.UnionEnum` |
-| `json()` / `jsonb()` with no type arg | `t.Record(t.String(), t.Unknown())` |
-| `jsonb<Record<string, unknown>>()` | `t.Record(t.String(), t.Unknown())` |
-| `jsonb<{ featured: boolean }>()` (inline object type) | `t.Object({ featured: t.Boolean(), … })` |
-| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`t.Object`, nested `t.Record`, …); wins over generics |
-| `timestamp()` | `t.Date()` (ISO string / Date / epoch → `Date`) |
-| `bytea()` | `t.Transform(t.Any())` + `Buffer.isBuffer` |
-| nullable / optional | `t.Nullable` / `t.Optional` |
-
-Raw `.check("sql")` is not mapped. With `generate.elysia: true` (or Zod/TypeBox), codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts`. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
-
-```ts
-metadata: jsonb<{ featured: boolean; category?: string }>(),
-// → metadata: t.Nullable(t.Object({ featured: t.Boolean(), category: t.Optional(t.String()) }))
-```
+`registerPlugin` records the module that called it. Generate writes those specifiers on the manifest and the generated client imports them before `createNeoOrmClient`. Operator, select, write, and serialize hooks are then registered when the client loads.
 
 ## Queries
+
+# Queries
+
+Every table in your schema generates a typed repository on `db` (`db.users`, `db.posts`, …). This page covers core CRUD operations. For deeper query features, see [Filters & aggregates](filters.md), [Eager loading & projection](loading.md), [Nested writes](relations.md), and [Raw SQL & logging](raw-sql.md).
 
 ## Find
 
@@ -1689,7 +940,6 @@ await db.posts.updateMany({
 On dialects without `RETURNING` (MySQL; MariaDB for updates), `returnUpdated` / `updateManyAndReturn` re-select the rows after writing: by primary key when the table has one (composite keys included), otherwise by the original predicate. PK-less re-selects return currently-matching rows, so if `data` changed a filtered column the result may differ from the pre-update set.
 
 Top-level to-one relation filters in `updateMany` compile to `UPDATE..JOIN` on MySQL/MariaDB (automatic) instead of `EXISTS` subqueries; pass `useJoin: true` for the `UPDATE..FROM` form on PostgreSQL (`useJoin: false` forces `EXISTS`). To-many (`some`/`every`/`none`), M2M, and nested filters always use `EXISTS`. SQLite has no join form — `useJoin: true` fails there.
-```
 
 ## Delete
 
@@ -1753,6 +1003,12 @@ const { record, created } = await db.tags.findOrCreate({
 });
 // created: true if a new row was inserted, false if an existing row was returned
 ```
+
+## Filters & aggregates
+
+# Filters & aggregates
+
+Filter rows with typed column and relation operators, paginate feeds with offset or keyset cursors, and compute `count`, `exists`, `aggregate`, and `groupBy` summaries.
 
 ## Where clauses
 
@@ -1920,117 +1176,6 @@ await db.users.findMany({
 
 Not supported on MySQL or MariaDB (`DISTINCT ON` is PostgreSQL-only; SQLite emulates it with `ROW_NUMBER()`). Use `groupBy({ by: [...] })` or a raw `db.sql` query instead.
 
-## Eager loading with `with`
-
-Relations are eagerly loaded in `findMany`, `findFirst`, and `findById` via the `with` option.
-
-### Strategy
-
-NeoORM uses a relation-loading planner that picks the fewest round-trips per `with` tree:
-
-- **LEFT JOIN** — to-one relations where the parent table owns the foreign key are resolved in the main query. No additional round-trips.
-- **JOIN + `json_agg`** — a single inverse has-many include may use one collection `LEFT JOIN` with `GROUP BY`. A second collection is a correlated subquery so sizes N and M do not become N×M rows.
-- **Correlated `json_agg` subquery** — inverse has-many relations (and simple linear nested chains) are embedded in the main `SELECT` as correlated subqueries. Multiple top-level relations can be inlined in the same query alongside JOINs.
-- **Inline `COUNT` subquery** — simple `_count` on has-many relations is embedded in the main `SELECT`. At most one `_count` collection uses a `LEFT JOIN`; additional counts are correlated `COUNT(*)` subqueries.
-- **Batch query** — many-to-many, nested `with` on to-one, sibling-heavy trees, and other complex shapes fall back to batched `WHERE IN (...)` queries (one per relation level). Sibling batch queries at the same level run in parallel. Nested `take`/`skip` on those batches apply **per parent** (window ranking), not to the whole `IN` list.
-
-Typical query counts:
-
-- `with: { author: true }` → **1** query (JOIN)
-- `with: { posts: true }` → **1** query (`json_agg` subquery)
-- `with: { author: true, comments: true }` → **1** query (JOIN + `json_agg`)
-- `with: { posts: { with: { comments: { with: { author: true } } } } }` on a linear chain → **1** query (nested `json_agg`)
-- M2M or sibling nested relations → **1 + batch levels** (parallel per level)
-
-```ts
-// Single query — author via LEFT JOIN
-const posts = await db.posts.findMany({ with: { author: true } });
-
-// Last 5 published comments per post
-const posts = await db.posts.findMany({
-  with: {
-    comments: {
-      where: { published: true },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    },
-  },
-});
-
-// Single query — author via JOIN, comments via correlated json_agg
-const posts = await db.posts.findMany({
-  with: { author: true, comments: { with: { author: true } } },
-});
-```
-
-To-one includes with `where` load as a batch query: the relation is the matching row, or `null`.
-
-### Selective return types
-
-Root `select` and `omit` project the parent row. Relation shapes still come from `with` (including nested `select`). `select` and `omit` cannot be used together.
-
-```ts
-const users = await db.users.findMany({
-  select: { id: true, email: true },
-  with: { posts: { select: { title: true } } },
-});
-// { id, email, posts: Array<{ title }> }
-
-const publicUsers = await db.users.findMany({
-  omit: { createdAt: true, updatedAt: true },
-});
-```
-
-Nested relation `select` also narrows the TypeScript return type:
-
-```ts
-const users = await db.users.findMany({
-  with: { posts: { select: { title: true } } },
-});
-// users[0].posts[0].title is string; .body is excluded from the type
-```
-
-### Sensitive columns (`.hidden()`) and API responses (`strip`)
-
-Mark sensitive columns in the schema with `.hidden()`:
-
-```ts
-password: text().notNull().hidden(),
-```
-
-By default, queries **omit** hidden columns from the result (root table and nested `with` includes). Pass `includeHidden: true` when the app needs them (for example password verification on login):
-
-```ts
-const user = await db.users.findFirst({
-  where: { email: input.email },
-  includeHidden: true,
-});
-```
-
-Nested includes follow the same rule:
-
-```ts
-const posts = await db.posts.findMany({
-  with: { author: true }, // author.password omitted
-});
-
-const posts = await db.posts.findMany({
-  with: { author: { includeHidden: true } },
-});
-```
-
-You can still use `select` to fetch a subset that includes hidden columns. Use query `omit` to skip non-hidden columns you do not want fetched. Use `.strip()` when you fetched sensitive fields internally but want a safe object for the response:
-
-```ts
-const user = await db.users.findById(id, { includeHidden: true });
-if (!user) return null;
-return user.strip(); // plain object without password
-
-return user.strip({ refreshToken: true }); // hidden + extra column keys
-```
-
-`.strip()` is attached when the table has `.hidden()` columns (and on nested `with` rows that do). It is non-enumerable, recurses into nested relations, and returns a plain object (no `.strip` method) suitable for JSON responses.
-
 ## Offset pagination
 
 Page numbers, admin tables, and **Paginated Read** benchmarks should use `findMany({ take, skip, orderBy })`. That path is `LIMIT`/`OFFSET` on the same cached SELECT as find-all (no extra row, no cursor encoding).
@@ -2118,7 +1263,7 @@ const stats = await db.posts.aggregate({
 
 `_count: true` is still `COUNT(*)` and returns `_count: number`. A field map uses `COUNT(col)` (nulls are skipped) — not `DISTINCT`.
 
-Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db.sql` (same compiler as `neoorm/sql`) or `sqlBuilder` composed into `db.sql`.
+Single-table grouped stats use `groupBy()`. Cross-table dashboards still use `db.sql` (same compiler as `neoorm/sql`) or `sqlBuilder` composed into `db.sql`. See [Raw SQL & logging](raw-sql.md).
 
 ### `groupBy()`
 
@@ -2156,45 +1301,126 @@ const taken = await db.users.exists({ where: { email: "a@b.com" } });
 
 `exists()` runs `SELECT 1 … LIMIT 1` and returns a boolean. Use `count()` when you need the actual number of matches.
 
-## Raw SQL
+## Eager loading & projection
 
-`db.sql` and `import { sql } from "neoorm/sql"` share one compiler. Interpolate values, `sqlId("table")`, nested `sql\`...\`` fragments, or `sqlBuilder.compile()`. `sqlBuilder` covers select/join/where/group/order/limit with bound params; use `db.sql` for HAVING and other raw tails.
+# Eager loading & projection
+
+Load related records in minimal SQL round-trips with `with`, narrow returned columns with `select` or `omit`, and keep sensitive fields out of API responses with `.hidden()` and `.strip()`.
+
+## Eager loading with `with`
+
+Relations are eagerly loaded in `findMany`, `findFirst`, and `findById` via the `with` option.
+
+### Strategy
+
+NeoORM uses a relation-loading planner that picks the fewest round-trips per `with` tree:
+
+- **LEFT JOIN** — to-one relations where the parent table owns the foreign key are resolved in the main query. No additional round-trips.
+- **JOIN + `json_agg`** — a single inverse has-many include may use one collection `LEFT JOIN` with `GROUP BY`. A second collection is a correlated subquery so sizes N and M do not become N×M rows.
+- **Correlated `json_agg` subquery** — inverse has-many relations (and simple linear nested chains) are embedded in the main `SELECT` as correlated subqueries. Multiple top-level relations can be inlined in the same query alongside JOINs.
+- **Inline `COUNT` subquery** — simple `_count` on has-many relations is embedded in the main `SELECT`. At most one `_count` collection uses a `LEFT JOIN`; additional counts are correlated `COUNT(*)` subqueries.
+- **Batch query** — many-to-many, nested `with` on to-one, sibling-heavy trees, and other complex shapes fall back to batched `WHERE IN (...)` queries (one per relation level). Sibling batch queries at the same level run in parallel. Nested `take`/`skip` on those batches apply **per parent** (window ranking), not to the whole `IN` list.
+
+Typical query counts:
+
+- `with: { author: true }` → **1** query (JOIN)
+- `with: { posts: true }` → **1** query (`json_agg` subquery)
+- `with: { author: true, comments: true }` → **1** query (JOIN + `json_agg`)
+- `with: { posts: { with: { comments: { with: { author: true } } } } }` on a linear chain → **1** query (nested `json_agg`)
+- M2M or sibling nested relations → **1 + batch levels** (parallel per level)
 
 ```ts
-import { sql, sqlBuilder, sqlId } from "neoorm/sql";
+// Single query — author via LEFT JOIN
+const posts = await db.posts.findMany({ with: { author: true } });
 
-const ident = sqlId("users");
-const filter = sql`email = ${"a@b.com"}`;
-const rows = await db.sql`SELECT * FROM ${ident} WHERE ${filter}`;
-
-const grouped = sqlBuilder
-  .selectFrom("users")
-  .select(["id", "email"])
-  .where("email", "=", "a@b.com")
-  .orWhere(sql`role = ${"admin"}`)
-  .groupBy("id", "email")
-  .limit(10)
-  .compile();
-await db.sql`${grouped} HAVING count(*) > ${0}`;
-```
-
-`db.execute({ text, params })` runs already-compiled SQL. With PostgreSQL tenant `schema`, `db.sql` / `db.execute` qualify unqualified manifest table names (same as `db.sqlId("users")`). Already-qualified `schema.table` identifiers are unchanged.
-
-## Logging SQL
-
-Pass `beforeQuery` / `afterQuery` when creating the client. They run for repository methods and `db.sql` / `db.execute`, including queries inside `$transaction`. BEGIN/COMMIT/SAVEPOINT are not included.
-
-```ts
-const db = createNeoOrmClient(manifest, {
-  afterQuery: ({ sql, params, durationMs, error }) => {
-    if (error || durationMs > 100) {
-      console.warn({ sql, params, durationMs, error });
-    }
+// Last 5 published comments per post
+const posts = await db.posts.findMany({
+  with: {
+    comments: {
+      where: { published: true },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    },
   },
+});
+
+// Single query — author via JOIN, comments via correlated json_agg
+const posts = await db.posts.findMany({
+  with: { author: true, comments: { with: { author: true } } },
 });
 ```
 
-## Relation writes
+To-one includes with `where` load as a batch query: the relation is the matching row, or `null`.
+
+## Selective return types
+
+Root `select` and `omit` project the parent row. Relation shapes still come from `with` (including nested `select`). `select` and `omit` cannot be used together.
+
+```ts
+const users = await db.users.findMany({
+  select: { id: true, email: true },
+  with: { posts: { select: { title: true } } },
+});
+// { id, email, posts: Array<{ title }> }
+
+const publicUsers = await db.users.findMany({
+  omit: { createdAt: true, updatedAt: true },
+});
+```
+
+Nested relation `select` also narrows the TypeScript return type:
+
+```ts
+const users = await db.users.findMany({
+  with: { posts: { select: { title: true } } },
+});
+// users[0].posts[0].title is string; .body is excluded from the type
+```
+
+## Sensitive columns (`.hidden()`) and API responses (`strip`)
+
+Mark sensitive columns in the schema with `.hidden()`:
+
+```ts
+password: text().notNull().hidden(),
+```
+
+By default, queries **omit** hidden columns from the result (root table and nested `with` includes). Pass `includeHidden: true` when the app needs them (for example password verification on login):
+
+```ts
+const user = await db.users.findFirst({
+  where: { email: input.email },
+  includeHidden: true,
+});
+```
+
+Nested includes follow the same rule:
+
+```ts
+const posts = await db.posts.findMany({
+  with: { author: true }, // author.password omitted
+});
+
+const posts = await db.posts.findMany({
+  with: { author: { includeHidden: true } },
+});
+```
+
+You can still use `select` to fetch a subset that includes hidden columns. Use query `omit` to skip non-hidden columns you do not want fetched. Use `.strip()` when you fetched sensitive fields internally but want a safe object for the response:
+
+```ts
+const user = await db.users.findById(id, { includeHidden: true });
+if (!user) return null;
+return user.strip(); // plain object without password
+
+return user.strip({ refreshToken: true }); // hidden + extra column keys
+```
+
+`.strip()` is attached when the table has `.hidden()` columns (and on nested `with` rows that do). It is non-enumerable, recurses into nested relations, and returns a plain object (no `.strip` method) suitable for JSON responses.
+
+## Nested writes
+
+# Nested writes
 
 `create` and `update` accept nested relation writes alongside scalar fields. Relation-only updates are supported (no scalar `SET` required). Nested to-one `create` on `update` (and `create`) runs in the same transaction as the parent row so a failed parent write does not leave an orphan.
 
@@ -2291,6 +1517,8 @@ Within a single relation field, operations run in order: `delete` → `disconnec
 
 ## Transactions
 
+# Transactions
+
 ## Interactive callback
 
 ```ts
@@ -2355,113 +1583,53 @@ SQLite has no `BEGIN READ ONLY` and no SQL isolation levels. Outer `$transaction
 
 After the transaction commits or rolls back, `query_only` is turned off so later writes succeed.
 
-## Migrations
+## Raw SQL & logging
 
-## Commands
+# Raw SQL & logging
 
-| Command | Description |
-|---------|-------------|
-| `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
-| `neoorm generate [--name <name>]` | Emit manifest, typed client, models, includes, and migrations (`--name` only when a migration is created) |
-| `neoorm migrate dev [--name <name>]` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed (`--name` only when a new migration is created) |
-| `neoorm migrate diff [--accept-data-loss] [--json]` | Preview the SQL a new migration would contain — no files written, no `--name` needed |
-| `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
-| `neoorm migrate status` | List applied vs pending migrations |
-| `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
-| `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite / MySQL / MariaDB) and re-apply migrations (local dev) |
-| `neoorm db push` | Push the current `schema.ts` to the database (no migration file) |
-| `neoorm db pull` | Introspect the database into a schema file |
+Drop down to parameterized SQL whenever a query needs CTEs, window functions, or custom reporting, and hook into query execution with `beforeQuery` / `afterQuery`.
 
-## Generate outcomes
+## Raw SQL
 
-`neoorm generate` always refreshes generated TypeScript files. It prints one of four outcomes:
+`db.sql` and `import { sql } from "neoorm/sql"` share one compiler. Interpolate values, `sqlId("table")`, nested `sql\`...\`` fragments, or `sqlBuilder.compile()`. `sqlBuilder` covers select/join/where/group/order/limit with bound params; use `db.sql` for `HAVING` and other raw tails.
 
-| Outcome | Meaning |
-|---------|---------|
-| Schema unchanged | Snapshot hash matches — no manifest or migration changes |
-| Client regenerated | Manifest changed but no database DDL needed |
-| Migration created | New `migrations/<timestamp>_<name>/migration.sql` written |
-| Migration blocked | Destructive or manual changes prevented writing SQL |
+```ts
+import { sql, sqlBuilder, sqlId } from "neoorm/sql";
 
-Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is only needed when a migration is created: the CLI prompts on a TTY at that point (after pending migrations are applied in `dev`) and errors in non-interactive runs. Runs with no schema changes (client regeneration only) and pending-apply-only `dev` runs succeed without `--name` and never prompt. Older `*_migration` folders still apply in order.
+const ident = sqlId("users");
+const filter = sql`email = ${"a@b.com"}`;
+const rows = await db.sql`SELECT * FROM ${ident} WHERE ${filter}`;
 
-`migrate dev` holds its lock from before pending reconciliation through the optional name prompt, generation, and post-generation reconciliation/application.
-For the implementation ordering and regression coverage, see [the workflow guide](migrate-dev-workflow.md).
-
-When migration is blocked, the CLI explains why. Re-run with `--accept-data-loss` to include destructive DDL such as table and column drops:
-
-```bash
-neoorm generate --name add_users --accept-data-loss
+const grouped = sqlBuilder
+  .selectFrom("users")
+  .select(["id", "email"])
+  .where("email", "=", "a@b.com")
+  .orWhere(sql`role = ${"admin"}`)
+  .groupBy("id", "email")
+  .limit(10)
+  .compile();
+await db.sql`${grouped} HAVING count(*) > ${0}`;
 ```
 
-Appending a native enum value is ordinary DDL: `ALTER TYPE … ADD VALUE` on PostgreSQL, and `MODIFY … ENUM(...)` on MySQL and MariaDB. Removing or reordering values stays blocked after `--accept-data-loss`, and so do primary key changes (`primaryKey()` or a `.primary()` toggle), unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL`. Generate writes no SQL for those and leaves `snapshot.json` unchanged. Dropping the last use of a PostgreSQL enum emits `DROP TYPE` after the column or table that used it is dropped. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first. Renaming a table's SQL name while keeping its accessor emits `ALTER TABLE … RENAME TO` and keeps the rows. It is not a drop. Indexes keep their shape and are renamed with the table (`posts_title_idx` becomes `articles_title_idx`), so a later drop uses the name that exists in the database. SQLite has no `RENAME INDEX`, so that rename is a drop of the old name and a create of the new one. Changing `datasource.schema` moves the tables and existing enum types into the new schema instead of leaving them in `public`. Index and enum statements in a non-public schema are schema-qualified.
+`db.execute({ text, params })` runs already-compiled SQL. With PostgreSQL tenant `schema`, `db.sql` / `db.execute` qualify unqualified manifest table names (same as `db.sqlId("users")`). Already-qualified `schema.table` identifiers are unchanged.
 
-To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
+## Logging SQL
 
-```bash
-neoorm migrate diff
-neoorm migrate diff --json
+Pass `beforeQuery` / `afterQuery` when creating the client. They run for repository methods and `db.sql` / `db.execute`, including queries inside `$transaction`. `BEGIN` / `COMMIT` / `SAVEPOINT` are not included.
+
+```ts
+const db = createNeoOrmClient(manifest, {
+  afterQuery: ({ sql, params, durationMs, error }) => {
+    if (error || durationMs > 100) {
+      console.warn({ sql, params, durationMs, error });
+    }
+  },
+});
 ```
-
-## Existing tables vs pending CREATE TABLE
-
-`generate` diffs `snapshot.json`. If that file is missing, the first migration is a full `CREATE TABLE` script. `migrate deploy` will not run that SQL when those relations already exist (for example after `db push`). It throws `migration_drift` before any user statement.
-
-`neoorm migrate dev` detects the same collision, diffs the live database to `schema.ts`, applies that catch-up SQL (often none, sometimes `ALTER`), records the pending files in `_neoorm_migrations` using the on-disk checksums, and writes `snapshot.json`. Destructive catch-up still requires `--accept-data-loss`. Empty databases still run `CREATE TABLE` as before.
-
-## Deploy locking and checksums
-
-`neoorm migrate deploy` serializes concurrent runs and records a SHA-256 checksum of each applied `migration.sql`:
-
-| Dialect | Lock |
-|---------|------|
-| PostgreSQL | `pg_advisory_xact_lock` on the deploy transaction |
-| SQLite | `BEGIN IMMEDIATE` around the whole deploy (after `PRAGMA foreign_keys = OFF`) |
-| MySQL | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
-| MariaDB | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
-
-The ledger table `_neoorm_migrations` stores `name`, a SHA-256 `checksum` of `migration.sql`, and `down_checksum` for `down.sql`. Deploy refuses a missing `migration.sql`, a null checksum, or a checksum that does not match the file. It also refuses a pending migration that sorts before one already applied, so an earlier file cannot run after a later one. `migrate down` runs `down.sql` only when its checksum matches the value stored at apply time.
-
-PostgreSQL and SQLite apply pending files inside the deploy lock transaction: if a later statement fails, none of that run's new ledger rows remain. MySQL and MariaDB cannot roll back InnoDB DDL (`CREATE TABLE`, `ALTER`, `CREATE INDEX`) — each statement autocommits. After each committed statement, deploy records the count in `_neoorm_migration_progress`. The ledger row is inserted when the file finishes, and that progress row is removed. The next deploy skips the recorded statements and continues. A changed `migration.sql` is refused while progress for that file exists. `GET_LOCK` is session-scoped and still serializes concurrent deploys; migration SQL does not run under a savepoint. A `MODIFY` that clears a column default does not also emit `ALTER COLUMN … DROP DEFAULT`, because the `MODIFY` already restates the column without one.
-
-## Status
-
-```bash
-neoorm migrate status
-```
-
-Shows applied migrations (with timestamps), pending folders on disk, and warnings for drift (applied in DB but missing on disk).
-
-## Reset
-
-```bash
-neoorm migrate reset --force
-```
-
-Drops the `public` schema (PostgreSQL) or all tables (SQLite, MySQL, and MariaDB) and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop without re-applying.
-
-PostgreSQL reset recreates the schema owned by the connecting role. It does not `GRANT ALL ON SCHEMA … TO PUBLIC`.
-
-## Rollback
-
-`down.sql` and `snapshot.before.json` are written when `neoorm generate` or `neoorm migrate dev` creates a migration whose reverse diff is complete. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration. If that reverse needs a manual change — adding back a `NOT NULL` column with no default, setting `NOT NULL`, or another change `--accept-data-loss` does not emit — NeoORM writes neither file. `migrate down` then refuses the rollback and leaves `snapshot.json` unchanged.
-
-```bash
-neoorm migrate down
-neoorm migrate down --steps 2
-```
-
-Rolls back the most recently applied migration(s) by running each migration folder's `down.sql`, removing the ledger entry from `_neoorm_migrations`, and restoring `snapshot.json` from `snapshot.before.json`. A `down.sql` that omitted a manual change is refused before any SQL runs, and `snapshot.json` stays as it is.
-
-Legacy migrations without `down.sql` cannot be rolled back — re-generate the migration or add `down.sql` manually.
-
-Migration folders are not deleted on rollback (same as Prisma). Re-run `neoorm migrate deploy` to re-apply rolled-back migrations.
-
-After rollback, `schema.ts` may still describe a newer schema than the restored snapshot; `neoorm migrate dev` may generate a new forward migration. `db push` and `migrate down` are independent — push ignores the migration ledger. `db push` compiles `schema.ts` (not `snapshot.json`) and updates `snapshot.json` after a successful push so a later `generate` does not emit DDL already applied to the database.
-
-For a full wipe during local development, use `neoorm migrate reset --force` instead.
 
 ## Common errors
+
+# Common errors
 
 NeoOrm surfaces structured errors with dialect-agnostic codes, optional subclasses for constraint violations, and fix suggestions. Catch them programmatically or read the CLI output after `neoorm generate` / query failures.
 
@@ -2589,7 +1757,186 @@ If migrations are enabled, create and apply them:
 neoorm migrate dev
 ```
 
+## Migrations
+
+# Migrations
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `neoorm init` | Scaffold `neoorm.config.ts`, `schema.ts`, `.env.example` only (no codegen or migrations; run `neoorm migrate dev` after) |
+| `neoorm generate [--name <name>]` | Emit manifest, typed client, models, includes, and migrations (`--name` only when a migration is created) |
+| `neoorm migrate dev [--name <name>]` | Apply pending migrations (or record colliding CREATE TABLE files against the live schema), then generate a new one if `schema.ts` changed (`--name` only when a new migration is created) |
+| `neoorm migrate diff [--accept-data-loss] [--json]` | Preview the SQL a new migration would contain — no files written, no `--name` needed |
+| `neoorm migrate deploy` | Apply pending migrations (throws `migration_drift` if a pending `CREATE TABLE` targets a relation that already exists) |
+| `neoorm migrate status` | List applied vs pending migrations |
+| `neoorm migrate down [--steps N]` | Roll back the last N applied migrations (default 1) |
+| `neoorm migrate reset --force` | Drop the `public` schema (PostgreSQL) or all tables (SQLite / MySQL / MariaDB) and re-apply migrations (local dev) |
+| `neoorm db push` | Push the current `schema.ts` to the database (no migration file) |
+| `neoorm db pull` | Introspect the database into a schema file |
+
+## Generate outcomes
+
+`neoorm generate` always refreshes generated TypeScript files. It prints one of four outcomes:
+
+| Outcome | Meaning |
+|---------|---------|
+| Schema unchanged | Snapshot hash matches — no manifest or migration changes |
+| Client regenerated | Manifest changed but no database DDL needed |
+| Migration created | New `migrations/<timestamp>_<name>/migration.sql` written |
+| Migration blocked | Destructive or manual changes prevented writing SQL |
+
+Migration names are slugified (`Add Users` → `add_users`, capped at 50 chars) and prefixed with a timestamp so folders sort in apply order. `--name` is only needed when a migration is created: the CLI prompts on a TTY at that point (after pending migrations are applied in `dev`) and errors in non-interactive runs. Runs with no schema changes (client regeneration only) and pending-apply-only `dev` runs succeed without `--name` and never prompt. Older `*_migration` folders still apply in order.
+
+`migrate dev` holds its lock from before pending reconciliation through the optional name prompt, generation, and post-generation reconciliation/application.
+
+When migration is blocked, the CLI explains why. Re-run with `--accept-data-loss` to include destructive DDL such as table and column drops:
+
+```bash
+neoorm generate --name add_users --accept-data-loss
+```
+
+Appending a native enum value is ordinary DDL: `ALTER TYPE … ADD VALUE` on PostgreSQL, and `MODIFY … ENUM(...)` on MySQL and MariaDB. Removing or reordering values stays blocked after `--accept-data-loss`, and so do primary key changes (`primaryKey()` or a `.primary()` toggle), unsafe column type changes, `ADD COLUMN … NOT NULL` without a default, and `SET NOT NULL`. Generate writes no SQL for those and leaves `snapshot.json` unchanged. Dropping the last use of a PostgreSQL enum emits `DROP TYPE` after the column or table that used it is dropped. A default makes the new column safe on existing rows. `SET NOT NULL` needs a hand-written migration that updates existing nulls first. Renaming a table's SQL name while keeping its accessor emits `ALTER TABLE … RENAME TO` and keeps the rows. It is not a drop. Indexes keep their shape and are renamed with the table (`posts_title_idx` becomes `articles_title_idx`), so a later drop uses the name that exists in the database. SQLite has no `RENAME INDEX`, so that rename is a drop of the old name and a create of the new one. Changing `datasource.schema` moves the tables and existing enum types into the new schema instead of leaving them in `public`. Index and enum statements in a non-public schema are schema-qualified.
+
+To inspect the SQL before naming the migration, preview it first (read-only, needs no `--name`):
+
+```bash
+neoorm migrate diff
+neoorm migrate diff --json
+```
+
+## Existing tables vs pending CREATE TABLE
+
+`generate` diffs `snapshot.json`. If that file is missing, the first migration is a full `CREATE TABLE` script. `migrate deploy` will not run that SQL when those relations already exist (for example after `db push`). It throws `migration_drift` before any user statement.
+
+`neoorm migrate dev` detects the same collision, diffs the live database to `schema.ts`, applies that catch-up SQL (often none, sometimes `ALTER`), records the pending files in `_neoorm_migrations` using the on-disk checksums, and writes `snapshot.json`. Destructive catch-up still requires `--accept-data-loss`. Empty databases still run `CREATE TABLE` as before.
+
+## Deploy locking and checksums
+
+`neoorm migrate deploy` serializes concurrent runs and records a SHA-256 checksum of each applied `migration.sql`:
+
+| Dialect | Lock |
+|---------|------|
+| PostgreSQL | `pg_advisory_xact_lock` on the deploy transaction |
+| SQLite | `BEGIN IMMEDIATE` around the whole deploy (after `PRAGMA foreign_keys = OFF`) |
+| MySQL | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
+| MariaDB | `GET_LOCK('neoorm.migrate.<db>', timeout)` / `RELEASE_LOCK` on the deploy connection |
+
+The ledger table `_neoorm_migrations` stores `name`, a SHA-256 `checksum` of `migration.sql`, and `down_checksum` for `down.sql`. Deploy refuses a missing `migration.sql`, a null checksum, or a checksum that does not match the file. It also refuses a pending migration that sorts before one already applied, so an earlier file cannot run after a later one. `migrate down` runs `down.sql` only when its checksum matches the value stored at apply time.
+
+PostgreSQL and SQLite apply pending files inside the deploy lock transaction: if a later statement fails, none of that run's new ledger rows remain. MySQL and MariaDB cannot roll back InnoDB DDL (`CREATE TABLE`, `ALTER`, `CREATE INDEX`) — each statement autocommits. After each committed statement, deploy records the count in `_neoorm_migration_progress`. The ledger row is inserted when the file finishes, and that progress row is removed. The next deploy skips the recorded statements and continues. A changed `migration.sql` is refused while progress for that file exists. `GET_LOCK` is session-scoped and still serializes concurrent deploys; migration SQL does not run under a savepoint. A `MODIFY` that clears a column default does not also emit `ALTER COLUMN … DROP DEFAULT`, because the `MODIFY` already restates the column without one.
+
+## Status
+
+```bash
+neoorm migrate status
+```
+
+Shows applied migrations (with timestamps), pending folders on disk, and warnings for drift (applied in DB but missing on disk).
+
+## Reset
+
+```bash
+neoorm migrate reset --force
+```
+
+Drops the `public` schema (PostgreSQL) or all tables (SQLite, MySQL, and MariaDB) and re-applies all migrations from disk. Requires `--force`. Use `--skip-apply` to only drop without re-applying.
+
+PostgreSQL reset recreates the schema owned by the connecting role. It does not `GRANT ALL ON SCHEMA … TO PUBLIC`.
+
+## Rollback
+
+`down.sql` and `snapshot.before.json` are written when `neoorm generate` or `neoorm migrate dev` creates a migration whose reverse diff is complete. The down SQL is the reverse schema diff (`next → prev`), with destructive changes accepted so rollbacks can drop columns or tables added in the forward migration. If that reverse needs a manual change — adding back a `NOT NULL` column with no default, setting `NOT NULL`, or another change `--accept-data-loss` does not emit — NeoORM writes neither file. `migrate down` then refuses the rollback and leaves `snapshot.json` unchanged.
+
+```bash
+neoorm migrate down
+neoorm migrate down --steps 2
+```
+
+Rolls back the most recently applied migration(s) by running each migration folder's `down.sql`, removing the ledger entry from `_neoorm_migrations`, and restoring `snapshot.json` from `snapshot.before.json`. A `down.sql` that omitted a manual change is refused before any SQL runs, and `snapshot.json` stays as it is.
+
+Legacy migrations without `down.sql` cannot be rolled back — re-generate the migration or add `down.sql` manually.
+
+Migration folders are not deleted on rollback (same as Prisma). Re-run `neoorm migrate deploy` to re-apply rolled-back migrations.
+
+After rollback, `schema.ts` may still describe a newer schema than the restored snapshot; `neoorm migrate dev` may generate a new forward migration. `db push` and `migrate down` are independent — push ignores the migration ledger. `db push` compiles `schema.ts` (not `snapshot.json`) and updates `snapshot.json` after a successful push so a later `generate` does not emit DDL already applied to the database.
+
+For a full wipe during local development, use `neoorm migrate reset --force` instead.
+
+## Seeding
+
+# Seeding
+
+`neoorm seed` runs a seed script against the database inside a single transaction. Any failure rolls the whole seed back, so failed runs are safe to retry.
+
+```
+neoorm seed [--env <name>] [--file <path>]
+```
+
+## Seed files
+
+By convention the seed lives next to the schema as `seed.ts` and exports a `seed(db)` function. `db` is a transaction-scoped client, so every write in the file is atomic:
+
+```ts
+// seed.ts
+import type { TransactionClient } from "neoorm";
+import { schema } from "./schema.js";
+
+export async function seed(db: TransactionClient<typeof schema._tables>) {
+	await db.users.upsert({
+		where: { email: "admin@example.com" },
+		create: { email: "admin@example.com", name: "Admin" },
+		update: {},
+	});
+	await db.tags.createMany({
+		data: [
+			{ slug: "news", name: "News" },
+			{ slug: "guides", name: "Guides" },
+		],
+		skipDuplicates: true,
+	});
+}
+```
+
+Annotating with `TransactionClient<typeof schema._tables>` gives fully typed repositories — the same types as the generated client. A default-exported function works too, and `SeedContext` from `neoorm` is available for manifest-agnostic helpers.
+
+## Environments
+
+`--env <name>` runs `seeds/<name>.ts` instead of `seed.ts`:
+
+```bash
+neoorm seed --env dev
+neoorm seed --file ./seeds/manual.ts
+```
+
+`--file` wins over `--env`, and both win over config (see below).
+
+## Idempotency
+
+Seeds are re-run by convention — there is no seed ledger. Write seeds so running them twice is safe: `upsert`, `findOrCreate`, and `createMany({ skipDuplicates: true })` are the building blocks. The transaction guarantees all-or-nothing per run, not across runs.
+
+## Configuration
+
+Pin defaults in `neoorm.config.ts` (CLI flags override them):
+
+```ts
+export default defineConfig({
+	// ...
+	seed: { env: "dev", file: "./seeds/base.ts" },
+});
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `seed.file` | `string` | Default seed file, project-root relative |
+| `seed.env` | `string` | Default environment, runs `seeds/<env>.ts` next to the schema |
+
+See [Configuration](configuration.md) for the full config reference.
+
 ## CLI reference
+
+# CLI reference
 
 Commands that read `neoorm.config.ts` load `.env` from the current working directory first. Existing environment variables take precedence.
 
@@ -2755,65 +2102,70 @@ Introspect the database and write a schema file.
 neoorm db pull
 ```
 
-## Studio
+## Validation
 
-`neoorm studio` opens a local web UI for browsing and editing your data — a spreadsheet grid, a SQL console, a query playground, a schema explorer, an ER graph, and migrate status.
+# Validation
 
-```bash
-bunx neoorm studio --open
+`neoorm generate` can emit runtime validation schemas alongside your typed client from a single validator-neutral IR. Each table gets **Select**, **Create**, and **Update** scalar schemas that stay in sync with your database columns and constraints.
+
+## Supported printers
+
+| Printer | Config flag | Output file | Peer dependency | Guide |
+|---------|-------------|-------------|-----------------|-------|
+| **Zod 4** | `generate.zod: true` | `out/zod.ts` | `zod@^4` | [Zod schemas](zod.md) |
+| **TypeBox 1.x** | `generate.typebox: true` | `out/typebox.ts` | `typebox@^1` | [TypeBox schemas](typebox.md) |
+| **Elysia `t`** | `generate.elysia: true` | `out/elysia.ts` | `elysia>=1.2` | [Elysia schemas](elysia.md) |
+
+> [!TIP]
+> Building an Elysia 1.x server? Use `generate.elysia` rather than `generate.typebox` — Elysia bundles its own `t` schema types, so standalone TypeBox 1.x objects will not type-check as route `body:`.
+
+## Enabling codegen
+
+```ts
+// neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: { provider: "postgresql", url: process.env.DATABASE_URL! },
+  generate: {
+    zod: true,
+    // typebox: true,
+    // elysia: true,
+  },
+});
 ```
 
-Studio reads `neoorm.config.ts` (after `.env`, like the other commands) and compiles `schema.ts` live, so the tables you see always match the schema file you just saved. If `schema.ts` does not compile, Studio falls back to `snapshot.json` and shows a banner. It connects with the datasource URL from your config — the connection string is never sent to the browser.
+## Shared constraints from `schema.ts`
 
-## Data grid
+Column helpers in [Schema DSL](schema.md#typed-constraint-helpers) flow directly into all three printers:
 
-- Spreadsheet-like browsing with pagination, multi-column sort (Shift+click), column reorder (drag headers), column show/hide, and wrap/truncate.
-- Filters map to real NeoOrm `where` operators: strings (`contains`, `startsWith`, `endsWith`, `search`, insensitive via advanced JSON), numbers/dates (`gt`, `gte`, `lt`, `lte`, `in`), nulls, enums, arrays (`has`, `hasEvery`, `hasSome`), JSON (`jsonContains`, `hasKey`, `path`), plus an advanced JSON box for relation filters (`some`/`every`/`none`), `AND`/`OR`/`NOT`.
-- Table-wide search runs `contains` across text-like columns.
-- Double-click a cell to edit. Edits are staged — press `Save` (or `⌘/Ctrl+S`) to write them, `Esc`-via-banner to discard. Cell editors are type-aware: booleans, enum selects, timestamps, JSON, arrays, UUID generation, `bytea` upload, decimals as strings.
-- Hidden columns (`.hidden()`) are visible in Studio but masked until you reveal them — useful for passwords and secrets, which are fetched with `includeHidden`.
-- `serial`/identity columns are omitted on create; `updatedAt` is read-only.
-- Foreign-key cells link to the referenced row. Trailing `View →` columns navigate has-many and many-to-many relations. Clicking a row opens a detail sheet with a Relations tab for nested writes (`connect`, `connectOrCreate`, `create`, `disconnect`, `set`, `delete`).
-- Select rows to copy as CSV, Markdown, JSON, or SQL `INSERT`s. Import CSV or JSON arrays (up to 5000 rows) with optional `skipDuplicates`. Export the current view in JSON, CSV, Markdown, or SQL. CSV cells that start with `=`, `+`, `-`, `@`, tab, or a carriage return are prefixed with `'` so a spreadsheet does not run them as formulas. Plain numbers such as `-12.50` are left unchanged.
-- Tables without a usable unique key are browse/create-only, and Studio tells you why.
+- `.maxLength(n)`, `.minLength(n)`, `.notEmpty()` → string length rules
+- `.min(n)`, `.max(n)`, `.positive()` → numeric bounds
+- `.email()` / `.url()` (and columns named `email`, `*Email`, `url`, `*Url`) → email / URL string formats
+- `.notNull()`, `.default(...)`, `id()`, `serial()`, `timestamps()` → required vs optional fields on Create and Update schemas
+- `enumType([...])` → literal union / enum validators
 
-## SQL console
+## Combining multiple printers
 
-Run parameterized SQL with dialect-aware highlighting and schema autocomplete (`⌘/Ctrl+Enter` to run). Params are a JSON array (`$1`/`$2` on Postgres/SQLite, `?` on MySQL). Optional `EXPLAIN`. Analyze is `EXPLAIN ANALYZE` on Postgres and MySQL, `EXPLAIN QUERY PLAN` on SQLite, and `ANALYZE` on MariaDB. Query history is kept locally.
+You can enable more than one printer at the same time. When Zod is enabled, `out/client.ts` re-exports Zod schemas flat (`export *`) and namespaces TypeBox and Elysia (`export * as typebox`, `export * as elysia`) to avoid symbol collisions. When TypeBox and Elysia are enabled without Zod, TypeBox is flat and Elysia is namespaced.
 
-## Query playground
+## Zod schemas
 
-Build `findMany`, `findFirst`, `findUnique`, `findById`, `count`, `exists`, `aggregate`, `groupBy`, and `paginate` calls visually — `where`, `with`, `orderBy`, `select`, cursors — run them through the same client your app uses, and copy any working query as TypeScript (`db.users.findMany({ … })`). `take` is capped at 500, the same limit as the data grid. `findMany` and `groupBy` use that cap when `take` is omitted.
+# Zod schemas
 
-## Schema, ER, migrate
+`neoorm generate` can print Select, Create, and Update **scalar** Zod schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; Zod, [TypeBox](typebox.md), and [Elysia `t`](elysia.md) are the printers shipped today.
 
-- Schema explorer: columns, kinds, constraints, indexes (including partial `WHERE`), foreign keys, and relations per table. Read-only — schema changes belong in `schema.ts` plus `migrate dev`.
-- ER graph: tables as nodes, `1:1` / `1:n` / `n:n` edges, junction tables hidden by default. Click a node to open its data. Drag tables to rearrange — positions, the junction toggle, and the viewport (pan/zoom) persist in `localStorage` per schema. `Reset layout` restores the auto-grid; `Export`/`Import JSON` moves a layout between browsers.
-- Team-shared ER layout (opt-in): restart Studio with `neoorm studio --er-layout ./neoorm.er-layout.json`, switch Scope to `Team`, then `Push to team` / `Pull from team`. The file is committable so the whole team sees the same arrangement. Without the flag the server answers `404` and local layout still works.
-- Migrate status: applied, pending, and orphan migrations. Studio never applies, resets, or rolls back migrations — use the CLI.
+Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
 
-## Keyboard
+## Enable
 
-- `⌘/Ctrl+K` — command palette (jump to tables, views, actions)
-- `⌘/Ctrl+S` in the grid — save staged edits
-- `Esc` in the grid — discard staged edits
-- `⌘/Ctrl+R` in the grid — refresh rows
-- `Alt+N` in the grid — new row
-- `⌘/Ctrl+Enter` in SQL — run query
+Install Zod 4 in the app, then opt in:
 
-Views are deep-linkable: `#/tables/users?where=…&orderBy=…&q=…`, `#/sql`, `#/query`, `#/schema[/table]`, `#/er`, `#/migrate`.
-
-## Security
-
-- Studio binds `127.0.0.1` by default with no auth token, like `neoorm docs`. Binding a non-loopback host generates a token printed in the terminal. `--open` does not put that token in the browser URL. Paste it into the token field; Studio stores it locally and sends it as a header, including for exports. A `?token=` query parameter is not accepted.
-- Every request must use a `Host` of loopback, the bind address, or (when listening on `0.0.0.0`/`::`) a literal IP on the listen port. API calls with an `Origin` must match the same allowlist. JSON bodies require `Content-Type: application/json`. Together this blocks website CSRF and DNS rebinding; a browser on another origin cannot run SQL or read rows.
-- `--read-only` blocks row mutations, imports, nested writes, and SQL that writes. `SELECT`, `EXPLAIN` of a read query, `PRAGMA`, `SHOW`, and `DESCRIBE` still work. `EXPLAIN` / `EXPLAIN ANALYZE` of a write, data-modifying `WITH` clauses, and `SELECT INTO` are rejected.
-- The browser never receives your datasource URL, and hidden columns stay masked until revealed.
-- Invalid parameters return 400 and oversized bodies return 413. Unexpected failures return a generic error, without filesystem paths or driver text.
-
-## Configuration
-
-The `neoorm.config.ts` file configures schema location, output directory, and datasource.
+```bash
+bun add zod
+```
 
 ```ts
 // neoorm.config.ts
@@ -2825,56 +2177,453 @@ export default defineConfig({
   datasource: {
     provider: "postgresql",
     url: process.env.DATABASE_URL!,
-    schema: "public",
-    enum: "check",
+  },
+  generate: {
+    zod: true,
   },
 });
 ```
 
-CLI commands load `.env` from the project directory before evaluating this file, so `process.env.DATABASE_URL` is set after `cp .env.example .env`. `createNeoOrmClient` (including the generated `db`) does the same from `process.cwd()` before it picks a connection URL, so a later `.env` edit is used without regenerating. Variables already present in the environment are not overwritten. Postgres, MySQL, and MariaDB require `connectionString` or `DATABASE_URL` (`MYSQL_URL` / `MARIADB_URL` for those engines). The connection URL is not written to `snapshot.json` or generated `manifest.ts`. SQLite may persist a plain file path or `:memory:` as `sqlitePath`.
+Re-run `neoorm generate` (or `neoorm migrate dev`). Output:
 
-## Options
+- `out/zod.ts` — generated schemas
+- `out/client.ts` re-exports them
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `schema` | `string` | required | Path to the schema file |
-| `out` | `string` | required | Output directory for generated files |
-| `datasource.provider` | `"postgresql" \| "postgres" \| "sqlite" \| "mysql" \| "mariadb"` | required | Database provider. `"postgres"` is an alias of `"postgresql"`. |
-| `datasource.url` | `string` | required | Connection string (PostgreSQL / MySQL / MariaDB) or database file path / `:memory:` (SQLite) |
-| `datasource.schema` | `string` | `"public"` | PostgreSQL schema for migrations and queries (SQLite, MySQL, and MariaDB: not applicable) |
-| `datasource.enum` | `"check" \| "union" \| "native"` | `"check"` | How to store enum columns |
-| `generate.zod` | `boolean` | `false` | Emit Select/Create/Update Zod schemas to `out/zod.ts`. See [Zod schemas](zod.md). |
-| `generate.typebox` | `boolean` | `false` | Emit Select/Create/Update TypeBox schemas to `out/typebox.ts`. See [TypeBox schemas](typebox.md). |
-| `generate.elysia` | `boolean` | `false` | Emit Select/Create/Update Elysia `t` schemas to `out/elysia.ts`. See [Elysia schemas](elysia.md). |
-| `seed.file` | `string` | unset | Default seed file, project-root relative. CLI `--file` overrides it. See [Seeding](seeding.md). |
-| `seed.env` | `string` | unset | Default environment: runs `seeds/<env>.ts` next to the schema. CLI `--env` overrides it. |
+Disable `generate.zod` and generate again to remove `zod.ts`.
 
-### Validation emit
+`zod` is an optional peer of NeoOrm. The generated file imports `zod` directly; NeoOrm does not bundle it. If `generate.zod` is on and `zod` is not installed, `neoorm generate` still writes `zod.ts` and prints a warning (`bun add zod`).
 
-Set `generate.zod` to write `out/zod.ts`, `generate.typebox` to write `out/typebox.ts`, and/or `generate.elysia` to write `out/elysia.ts` on `neoorm generate` / `neoorm migrate dev`. Install `zod` (`^4`), `typebox` (`^1`), and/or `elysia` (`>=1.2`) in the app. If a printer is enabled and its peer is missing, generate still writes the file and warns. Codegen uses a library-agnostic IR; Zod, TypeBox 1.x, and Elysia `t` are the shipped printers. See [Zod schemas](zod.md), [TypeBox schemas](typebox.md), and [Elysia schemas](elysia.md).
-
-### SQLite
-
-Set `provider: "sqlite"` and `url` to a file path, a `file:` or `sqlite:` URI, or `":memory:"`. A `postgresql://`, `mysql://`, or other connection URL is rejected so it is not opened as a filename or silently dropped:
+## Usage
 
 ```ts
-datasource: {
-  provider: "sqlite",
-  url: "./dev.db",
-},
+import { db, UserCreateSchema, type UserCreate } from "./neoorm/client.js";
+
+const data: UserCreate = UserCreateSchema.parse(body);
+await db.users.create({ data });
 ```
 
-`datasource.schema` is PostgreSQL-only (ignored on SQLite, MySQL, and MariaDB). A non-public schema is created if needed, and index and enum DDL is schema-qualified (`DROP INDEX IF EXISTS "app"."posts_title_idx"`, `CREATE TYPE "app"."posts_status"`). Changing the schema moves each table with `ALTER TABLE … SET SCHEMA` and moves existing enum types the same way. `datasource.enum: "native"` is PostgreSQL `CREATE TYPE` or MySQL/MariaDB column `ENUM`. See [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md).
+Per table (accessor `users` → model `User`):
 
-### Enum modes
+| Export | Shape |
+|--------|--------|
+| `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
+| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
+| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
 
-| Mode | SQL | DB enforcement |
-|------|-----|----------------|
-| `check` (default) | `TEXT` + `CHECK (...)` | yes |
-| `union` | `TEXT` | no (TypeScript union only) |
-| `native` | Postgres `CREATE TYPE ... AS ENUM` or MySQL/MariaDB column `ENUM` | yes |
+`UserSelect` / `UserCreate` / `UserUpdate` are `z.infer` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
+
+`schemas.users.select` / `.create` / `.update` are the same objects.
+
+`.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
+
+`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
+
+Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
+
+## Junction (M2M) tables
+
+Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `z.object({})`.
+
+Codegen treats them as **link** tables:
+
+| Export | Shape |
+|--------|--------|
+| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
+| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
+| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
+| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
+
+Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
+
+Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction Zod is for the rare case you insert a link row yourself.
+
+## Types and constraints
+
+Timestamp columns accept both ORM `Date` values and JSON ISO-8601 strings (`2020-01-01T00:00:00.000Z`, including offsets). `parse` always returns a `Date`, so the same schema works for HTTP bodies and query results.
+
+`z.bigint()` and `Buffer` still match generated models, not JSON. Wrap those fields if the payload is a JSON number/string.
+
+Typed schema helpers map into Zod:
+
+| Schema | Zod |
+|--------|-----|
+| `.minLength()` / `.maxLength()` / `.notEmpty()` | `z.string().min()` / `.max()` |
+| `email` / `*Email` column names, or `.email()` on `text` / `citext` | `z.email()` |
+| `url` / `*Url` column names, or `.url()` on `text` / `citext` | `z.url()` |
+| `.min()` / `.max()` / `.positive()` on int/serial/bigint | matching number/bigint checks |
+| same helpers on `decimal()` | `z.string().refine(...)` |
+| `enumType([...])` | hoisted `z.enum` |
+| `json()` / `jsonb()` with no type arg | `z.record(z.string(), z.unknown())` |
+| `jsonb<Record<string, unknown>>()` | `z.record(z.string(), z.unknown())` |
+| `jsonb<{ featured: boolean }>()` (inline object type) | `z.object({ featured: z.boolean(), … })` |
+| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`z.object`, nested `z.record`, …); wins over generics |
+| `timestamp()` | `Date` or ISO datetime string → `Date` |
+
+Raw `.check("sql")` is not mapped. With `generate.zod: true`, `generate.typebox: true`, or `generate.elysia: true`, codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `z.object`, `Record<K,V>` to `z.record`, and primitives to the matching Zod types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
+
+```ts
+metadata: jsonb<{ featured: boolean; category?: string }>(),
+// → metadata: z.object({ featured: z.boolean(), category: z.string().optional() }).nullable()
+```
+
+For shapes codegen cannot infer from the generic, use `.schema()`:
+
+```ts
+metadata: jsonb().schema({
+  kind: "object",
+  fields: [
+    {
+      name: "featured",
+      type: { kind: "boolean" },
+      nullable: false,
+      optional: false,
+    },
+  ],
+}),
+```
+
+## TypeBox schemas
+
+# TypeBox schemas
+
+`neoorm generate` can print Select, Create, and Update **scalar** TypeBox schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; TypeBox 1.x is one printer (alongside [Zod](zod.md) and [Elysia `t`](elysia.md)).
+
+Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
+
+Schemas target **TypeBox 1.x** (`typebox` on npm), not `@sinclair/typebox` 0.x. For Elysia 1.x route `body:`, use [`generate.elysia`](elysia.md) instead.
+
+## Enable
+
+Install TypeBox 1.x in the app, then opt in:
+
+```bash
+bun add typebox
+```
+
+```ts
+// neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: process.env.DATABASE_URL!,
+  },
+  generate: {
+    typebox: true,
+  },
+});
+```
+
+Re-run `neoorm generate` (or `neoorm migrate dev`). Output:
+
+- `out/typebox.ts` — generated schemas
+- `out/client.ts` re-exports them
+
+Disable `generate.typebox` and generate again to remove `typebox.ts`.
+
+`typebox` is an optional peer of NeoOrm. The generated file imports `typebox` directly; NeoOrm does not bundle it. If `generate.typebox` is on and `typebox` is not installed, `neoorm generate` still writes `typebox.ts` and prints a warning (`bun add typebox`).
+
+You can enable Zod, TypeBox, and Elysia together. When Zod is on, `client.ts` keeps Zod as a flat `export *` and namespaces TypeBox and Elysia (`export * as typebox` / `export * as elysia`). TypeBox + Elysia without Zod keeps TypeBox flat and namespaces Elysia. Import TypeBox from `./typebox.js` (or `typebox.UserCreateSchema` from the client) when it is namespaced. For Elysia 1.x `body:`, use [`generate.elysia`](elysia.md).
+
+## Usage
+
+```ts
+import Value from "typebox/value";
+import { db, UserCreateSchema, type UserCreate } from "./neoorm/client.js";
+
+const data: UserCreate = Value.Decode(UserCreateSchema, body);
+await db.users.create({ data });
+```
+
+`Value.Check` returns a boolean and does not run codecs. Use `Value.Decode` when you need timestamp fields as `Date` (the TypeBox equivalent of Zod `parse`). Invalid data throws.
+
+Per table (accessor `users` → model `User`):
+
+| Export | Shape |
+|--------|--------|
+| `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
+| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
+| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
+
+`UserSelect` / `UserCreate` / `UserUpdate` are `Type.StaticDecode` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
+
+`schemas.users.select` / `.create` / `.update` are the same objects.
+
+`.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
+
+`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
+
+Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
+
+## Junction (M2M) tables
+
+Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `Type.Object({})`.
+
+Codegen treats them as **link** tables:
+
+| Export | Shape |
+|--------|--------|
+| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
+| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
+| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
+| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
+
+Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
+
+Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction TypeBox is for the rare case you insert a link row yourself.
+
+## Types and constraints
+
+Timestamp columns accept both ORM `Date` values and JSON ISO-8601 strings (`2020-01-01T00:00:00.000Z`, including offsets). `Value.Decode` always returns a `Date`, so the same schema works for HTTP bodies and query results. `Value.Check` accepts either form without converting.
+
+`Type.BigInt()` and `Buffer` still match generated models, not JSON. Wrap those fields if the payload is a JSON number/string.
+
+The generated file registers `uuid`, `email`, `url`, and `date-time` on TypeBox’s `Format` registry when those formats appear, without overwriting a format you already set.
+
+Typed schema helpers map into TypeBox:
+
+| Schema | TypeBox |
+|--------|---------|
+| `.minLength()` / `.maxLength()` / `.notEmpty()` | `Type.String({ minLength, maxLength })` |
+| `email` / `*Email` column names, or `.email()` on `text` / `citext` | `Type.String({ format: "email" })` |
+| `url` / `*Url` column names, or `.url()` on `text` / `citext` | `Type.String({ format: "url" })` |
+| `.min()` / `.max()` / `.positive()` on int/serial | `Type.Integer({ minimum, maximum, exclusiveMinimum: 0 })` |
+| same helpers on `bigint` | `Type.BigInt({ minimum, maximum, exclusiveMinimum: 0n })` |
+| same helpers on `decimal()` | `Type.Refine(Type.String(), …)` |
+| `enumType([...])` | hoisted `Type.Enum` |
+| `json()` / `jsonb()` with no type arg | `Type.Record(Type.String(), Type.Unknown())` |
+| `jsonb<Record<string, unknown>>()` | `Type.Record(Type.String(), Type.Unknown())` |
+| `jsonb<{ featured: boolean }>()` (inline object type) | `Type.Object({ featured: Type.Boolean(), … })` |
+| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`Type.Object`, nested `Type.Record`, …); wins over generics |
+| `timestamp()` | `Date` or ISO datetime string → `Date` (`Type.Codec` + `Value.Decode`) |
+| `bytea()` | `Type.Refine` + `Buffer.isBuffer` |
+
+Raw `.check("sql")` is not mapped. With `generate.typebox: true` (or `generate.zod` / `generate.elysia`), codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts` and maps object literals to `Type.Object`, `Record<K,V>` to `Type.Record`, and primitives to the matching TypeBox types. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
+
+```ts
+metadata: jsonb<{ featured: boolean; category?: string }>(),
+// → metadata: Type.Union([Type.Object({ featured: Type.Boolean(), category: Type.Optional(Type.String()) }), Type.Null()])
+```
+
+For shapes codegen cannot infer from the generic, use `.schema()`:
+
+```ts
+metadata: jsonb().schema({
+  kind: "object",
+  fields: [
+    {
+      name: "featured",
+      type: { kind: "boolean" },
+      nullable: false,
+      optional: false,
+    },
+  ],
+}),
+```
+
+## Elysia schemas
+
+# Elysia schemas
+
+`neoorm generate` can print Select, Create, and Update **scalar** Elysia `t` schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; this printer emits `import { t } from "elysia"` so the objects drop into route `body:` / `query:` the same way as hand-written `t.Object({ title: t.String() })`.
+
+Generated schemas match the TypeScript shapes of row / insert / update scalars — not nested relation writes (`connect`, `create`, `set`). Those stay TypeScript-only.
+
+This is the printer to use with **Elysia 1.x**. [TypeBox 1.x](typebox.md) (`import Type from "typebox"`) is a different package and will not type-check as Elysia `body:`.
+
+## Enable
+
+Install Elysia in the app, then opt in:
+
+```bash
+bun add elysia
+```
+
+```ts
+// neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: process.env.DATABASE_URL!,
+  },
+  generate: {
+    elysia: true,
+  },
+});
+```
+
+Re-run `neoorm generate` (or `neoorm migrate dev`). Output:
+
+- `out/elysia.ts` — generated schemas
+- `out/client.ts` re-exports them
+
+Disable `generate.elysia` and generate again to remove `elysia.ts`.
+
+`elysia` is an optional peer of NeoOrm. The generated file imports `elysia` directly; NeoOrm does not bundle it. If `generate.elysia` is on and `elysia` is not installed, `neoorm generate` still writes `elysia.ts` and prints a warning (`bun add elysia`).
+
+When Zod or TypeBox 1.x is also enabled, `client.ts` keeps those as documented and re-exports Elysia as `export * as elysia from "./elysia.js"` so names do not collide. Import from `./elysia.js` (or `elysia.UserCreateSchema`) in that case.
+
+## Usage
+
+```ts
+import { Elysia } from "elysia";
+import { db, UserCreateSchema, UserUpdateSchema } from "./neoorm/client.js";
+
+new Elysia()
+  .post("/users", ({ body }) => db.users.create({ data: body }), {
+    body: UserCreateSchema,
+  })
+  .patch("/users/:id", ({ params, body }) =>
+    db.users.update({
+      where: { id: params.id },
+      data: body,
+    }), {
+      body: UserUpdateSchema,
+    },
+  )
+  .listen(3000);
+```
+
+Elysia validates `body` against the `t.Object` schema. `t.Date()` accepts ISO-8601 strings, `Date` values, and epoch numbers, and decodes to `Date`.
+
+Per table (accessor `users` → model `User`):
+
+| Export | Shape |
+|--------|--------|
+| `UserSchema` / `UserSelect` | Select row (default query output: no `.hidden()`, includes `timestamps()`) |
+| `UserCreateSchema` / `UserCreate` | Insert scalars (no primary / serial / `updatedAt`; `defaultNow` defaults optional; includes `.hidden()`) |
+| `UserUpdateSchema` / `UserUpdate` | Update scalars (no primary / `updatedAt`; all optional; includes `.hidden()`) |
+
+`UserSelect` / `UserCreate` / `UserUpdate` are `typeof Schema.static` aliases. They are named that way so they do not collide with the model type `User` from `models.ts`. Hoisted enums also get a type (`PostStatus` from `PostStatusSchema`).
+
+`schemas.users.select` / `.create` / `.update` are the same objects.
+
+`.hidden()` columns (for example `password`) are omitted from select schemas so they match default query results. They stay on create and update so login/register and password-change payloads can still be parsed. Use `includeHidden: true` on the query when the app needs those fields internally.
+
+`updatedAt` from `timestamps()` (and any `.updatedAt()` column) is ORM-managed. It appears on select schemas only — create and update parsers reject it so API clients cannot stamp it. A `timestamp().defaultNow()` without `.updatedAt()` is just a SQL default: optional on create, writable on update.
+
+Create with `author: { connect: { id } }` is not in `PostCreateSchema`. Pass the FK scalar (`authorId`) or keep nested writes in TypeScript.
+
+## Junction (M2M) tables
+
+Many-to-many through tables (auto `posts_tags` from `tags: many("tags")`, or an explicit `through` table) are not ordinary entities. Both FK columns are usually the composite primary key, so a naive Create/Update export would be `t.Object({})`.
+
+Codegen treats them as **link** tables:
+
+| Export | Shape |
+|--------|--------|
+| `{Model}Schema` / `{Model}Select` | Junction row (both FK ids, plus extras like `priority`) |
+| `{Model}LinkCreateSchema` / `{Model}LinkCreate` | Both FK ids required; extra create-allowed columns |
+| `{Model}CreateSchema` / `{Model}Create` | Alias of `LinkCreateSchema` |
+| `{Model}UpdateSchema` | Extra scalar columns only. **Omitted** when the junction has no updatable fields |
+
+Generated comments point at nested writes on the parent (`db.posts.update({ data: { tags: { connect: [{ id }] } } })`). Direct `db.posts_tags.create` is rarely needed. `schemas.posts_tags` has `select` and `create`; `update` is present only when the through table has extra columns.
+
+Prefer validating parent payloads in TypeScript (`tags: { connect, set, … }`). Junction Elysia schemas are for the rare case you insert a link row yourself.
+
+## Types and constraints
+
+`t.BigInt()` and `Buffer` still match generated models, not JSON. Wrap those fields if the payload is a JSON number/string.
+
+Typed schema helpers map into Elysia `t`:
+
+| Schema | Elysia |
+|--------|--------|
+| `.minLength()` / `.maxLength()` / `.notEmpty()` | `t.String({ minLength, maxLength })` |
+| `email` / `*Email` column names, or `.email()` on `text` / `citext` | `t.String({ format: "email" })` |
+| `url` / `*Url` column names, or `.url()` on `text` / `citext` | `t.String({ format: "uri" })` |
+| `.min()` / `.max()` / `.positive()` on int/serial | `t.Integer({ minimum, maximum, exclusiveMinimum: 0 })` |
+| same helpers on `bigint` | `t.BigInt({ minimum, maximum, exclusiveMinimum: 0n })` |
+| same helpers on `decimal()` | `t.Transform(t.String()).Decode(...)` |
+| `enumType([...])` | hoisted `t.UnionEnum` |
+| `json()` / `jsonb()` with no type arg | `t.Record(t.String(), t.Unknown())` |
+| `jsonb<Record<string, unknown>>()` | `t.Record(t.String(), t.Unknown())` |
+| `jsonb<{ featured: boolean }>()` (inline object type) | `t.Object({ featured: t.Boolean(), … })` |
+| `json()` / `jsonb()` with `.schema()` validation IR | same as IR (`t.Object`, nested `t.Record`, …); wins over generics |
+| `timestamp()` | `t.Date()` (ISO string / Date / epoch → `Date`) |
+| `bytea()` | `t.Transform(t.Any())` + `Buffer.isBuffer` |
+| nullable / optional | `t.Nullable` / `t.Optional` |
+
+Raw `.check("sql")` is not mapped. With `generate.elysia: true` (or Zod/TypeBox), codegen reads inline `json()` / `jsonb()` type arguments from `schema.ts`. Type aliases and imported types are not resolved yet — use an inline type or `.schema()` for those.
+
+```ts
+metadata: jsonb<{ featured: boolean; category?: string }>(),
+// → metadata: t.Nullable(t.Object({ featured: t.Boolean(), category: t.Optional(t.String()) }))
+```
+
+## PostgreSQL
+
+# PostgreSQL
+
+PostgreSQL is NeoORM's default dialect. It uses the `pg` driver, `$1, $2` positional parameters, `RETURNING` on all writes, and native support for JSONB, arrays, enums, ranges, full-text search, and extensions.
+
+## Install and configure
+
+```bash
+bun add neoorm pg
+bun add -d @types/pg
+```
+
+```ts
+// neoorm.config.ts
+import { defineConfig } from "neoorm";
+
+export default defineConfig({
+  schema: "./schema.ts",
+  out: "./neoorm",
+  datasource: {
+    provider: "postgresql",
+    url: process.env.DATABASE_URL!,
+    // schema: "app",       // optional non-public schema
+    // enum: "native",      // "check" (default) | "union" | "native"
+  },
+});
+```
+
+## Connecting with a pool
+
+Pass a connection string or an existing `pg.Pool` to the generated client:
+
+```ts
+import { Pool } from "pg";
+import { createNeoOrmClientFromPool } from "neoorm";
+import { manifest } from "./neoorm/manifest.js";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = createNeoOrmClientFromPool(manifest, pool);
+```
+
+## Non-public schemas and multi-tenancy
+
+Set `datasource.schema` (e.g. `"app"`) to place tables, indexes, and native enums in a dedicated PostgreSQL schema. NeoORM creates the schema if missing and schema-qualifies index and enum DDL. Changing `datasource.schema` generates `ALTER TABLE … SET SCHEMA` and moves existing enum types with the tables.
+
+At runtime, `db.sql` and `db.execute` automatically qualify unqualified manifest table names with the configured tenant schema.
+
+## PostgreSQL-specific capabilities
+
+| Feature | How it works in NeoORM |
+|---------|------------------------|
+| **Arrays** | Native `TEXT[]`, `INTEGER[]`, `UUID[]`, and enum arrays with `has`, `hasEvery`, `hasSome` (`= ANY`, `@>`, `&&`) |
+| **JSONB** | Native `JSONB` with `jsonContains` (`@>`), `hasKey` (`?`), `hasAnyKeys`, `hasAllKeys`, and `path` (`#>` / `#>>`) |
+| **Ranges** | `int4Range()`, `int8Range()`, `numRange()`, `tsRange()`, `tstzRange()`, `dateRange()` (PostgreSQL-only) |
+| **Full-text search** | `tsvector()` + `.generated("to_tsvector(...)")` + GIN index + `searchTs` (`plain`, `phrase`, `websearch`) |
+| **Indexes** | `btree`, `gin`, `gist`, `brin`, `hash`, `bloom` (auto-adds `bloom` extension), expression keys, and partial `WHERE` |
+| **Native enums** | `datasource.enum: "native"` emits `CREATE TYPE` and `ALTER TYPE … ADD VALUE` |
+| **Extensions** | `defineSchema(tables, { extensions: ["uuid-ossp", "pg_trgm"] })`; plugins like [PostGIS](plugins.md) register their extensions automatically |
+| **DISTINCT ON** | `findMany({ distinct: ["email"], orderBy: { email: "asc" } })` |
+| **Migrations** | Transactional DDL under `pg_advisory_xact_lock`; full rollback on failure |
+| **Atomic findOrCreate** | Single-statement `INSERT … ON CONFLICT DO UPDATE` with `(xmax = 0)` |
 
 ## SQLite
+
+# SQLite
 
 SQLite is a first-class dialect for local development, testing, and single-file deployments. Everything in the schema DSL, codegen, migrations, and query client works against SQLite with no extra database server.
 
@@ -3009,6 +2758,8 @@ bunx neoorm migrate reset --force
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, upsert, `findOrCreate`, savepoint-based nested transactions — behaves identically.
 
 ## MySQL
+
+# MySQL
 
 MySQL 8.0+ is a first-class dialect via the optional `mysql2` driver. Schema DSL, codegen, migrations, and the query client work against MySQL the same way they do against PostgreSQL, with the storage and SQL differences below.
 
@@ -3147,6 +2898,8 @@ Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, savepoint-based nested transactions — behaves the same as on PostgreSQL.
 
 ## MariaDB
+
+# MariaDB
 
 MariaDB 10.11 LTS is a first-class dialect via the optional official `mariadb` connector. Schema DSL, codegen, migrations, and the query client work the same way as PostgreSQL, with the storage and SQL differences below.
 
@@ -3301,71 +3054,211 @@ Offset pages (`findMany({ take, skip })`) are `LIMIT`/`OFFSET`; `paginate` stays
 
 Everything else — relations, nested writes, cursor pagination, aggregates, `groupBy`, savepoint-based nested transactions — behaves the same as on PostgreSQL.
 
-## Plugins
+## Cookbook
 
-## Built-in `id()` and `timestamps()`
+# Cookbook
+
+Focused, copy-paste recipes for common application patterns. For a complete runnable schema and query suite, see [`examples/blog/`](https://github.com/xmreur/neoorm/tree/main/examples/blog) and [`examples/postgis/`](https://github.com/xmreur/neoorm/tree/main/examples/postgis).
+
+## Auth login with `.hidden()` and `.strip()`
+
+Keep password hashes out of default queries, opt in during login, and strip sensitive fields before returning JSON:
 
 ```ts
-import { defineSchema, id, table, timestamps, uuid } from "neoorm/schema";
+// schema.ts
+users: table({
+  id: uuid().primary(),
+  email: text().notNull().unique(),
+  password: text().notNull().hidden(),
+  refreshToken: text(),
+  ...timestamps(),
+}),
+```
 
-export const schema = defineSchema({
-  users: table({
+```ts
+const user = await db.users.findFirst({
+  where: { email: input.email },
+  includeHidden: true,
+});
+
+if (!user || !verifyPassword(input.password, user.password)) {
+  throw new Error("Invalid credentials");
+}
+
+return user.strip({ refreshToken: true }); // plain object without password or refreshToken
+```
+
+See [Eager loading & projection](loading.md#sensitive-columns-hidden-and-api-responses-strip).
+
+## Soft-delete unique emails with partial indexes
+
+Allow re-registering an email after an account is soft-deleted, while keeping `findUnique` and `upsert` working on active accounts:
+
+```ts
+users: table(
+  {
     id: uuid().primary(),
-    ...timestamps(),
-  }),
-  posts: table({
-    id: id(), // TEXT PK with {prefix}_{uuid}
-    title: text().notNull(),
-  }),
+    email: text().notNull(),
+    deleted: bool().notNull().default(false),
+  },
+  (t) => [t.unique(t.email).where({ deleted: false })],
+),
+```
+
+```ts
+// Automatically applies `AND "deleted" = false`
+const active = await db.users.findUnique({ where: { email: "ada@example.com" } });
+```
+
+See [Partial indexes](schema.md#partial-indexes).
+
+## Cursor-paginated feed with nested authors
+
+Use keyset pagination for infinite scroll and feeds, encoding cursors for HTTP query params:
+
+```ts
+import { decodeCursor, encodeCursor } from "neoorm";
+
+const after = query.cursor ? decodeCursor(query.cursor) : undefined;
+
+const page = await db.posts.paginate({
+  where: { published: true },
+  orderBy: { createdAt: "desc" },
+  take: 20,
+  ...(after ? { after } : {}),
+  omit: { body: true },
+  with: {
+    author: { select: { id: true, name: true } },
+    _count: { comments: true },
+  },
+});
+
+return {
+  items: page.items,
+  nextCursor: page.nextCursor ? encodeCursor(page.nextCursor) : null,
+  hasMore: page.hasMore,
+};
+```
+
+See [Cursor pagination](filters.md#cursor-pagination).
+
+## Create a post with tags in one call
+
+Connect an existing author and upsert tags via `connectOrCreate` inside a single call:
+
+```ts
+const post = await db.posts.create({
+  data: {
+    title: "Typed SQL without the ceremony",
+    body: "…",
+    published: true,
+    author: { connect: { id: authorId } },
+    tags: {
+      connectOrCreate: [
+        { where: { slug: "orm" }, create: { slug: "orm", name: "ORM" } },
+        { where: { slug: "sql" }, create: { slug: "sql", name: "SQL" } },
+      ],
+    },
+  },
+  with: { author: true, tags: true },
 });
 ```
 
-## PostGIS
+See [Nested writes](relations.md).
+
+## Transactional checkout with savepoints
+
+Wrap multi-table writes in `$transaction`, using a nested savepoint when an optional step should not abort the outer work:
+
+```ts
+await db.$transaction(async (tx) => {
+  const order = await tx.orders.create({
+    data: { userId, totalCents: 4900 },
+    returnCreated: true,
+  });
+
+  await tx
+    .$transaction(async (sp) => {
+      await sp.auditEvents.create({
+        data: { kind: "order.created", refId: order.id },
+      });
+    })
+    .catch(() => undefined); // roll back savepoint only
+});
+```
+
+See [Transactions](transactions.md).
+
+## Full-text search on PostgreSQL
+
+Store a generated `tsvector` column, index it with GIN, and query it with `searchTs`:
+
+```ts
+docs: table(
+  {
+    id: id(),
+    title: text().notNull(),
+    searchDoc: tsvector().notNull().generated("to_tsvector('english', title)"),
+  },
+  (t) => [index(t.searchDoc).using("gin")],
+),
+```
+
+```ts
+const hits = await db.docs.findMany({
+  where: {
+    searchDoc: { searchTs: { query: "typed sql", parser: "websearch" } },
+  },
+});
+```
+
+See [Full-text search](schema.md#full-text-search) and [Filters & aggregates](filters.md#column-filters).
+
+## Nearby places with PostGIS
 
 ```ts
 import "neoorm/plugins/postgis";
-import { geometry, point } from "neoorm/plugins/postgis";
+import { geometry } from "neoorm/plugins/postgis";
 
 places: table({
-  id: uuid().primary(),
+  id: id(),
+  name: text().notNull(),
   location: geometry({ subtype: "Point", srid: 4326 }).notNull(),
-  boundary: point({ srid: 4326 }),
 }),
 ```
 
-`srid` requires a whitelisted `subtype`. PostGIS typmod is `geometry(Point,4326)`, not `geometry(4326)`. Use `subtype: "Geometry"` to fix SRID without constraining the type. Allowed subtypes include `Point`, `LineString`, `Polygon`, `MultiPolygon`, `GeometryCollection`, and `Geometry`, optionally with `Z`, `M`, or `ZM` (e.g. `PointZ`).
-
-Spatial `where` operators: `intersects`, `within`, `dWithin`. Importing `neoorm/plugins/postgis` merges those keys into `WhereInput` for spatial columns.
-
-## Citext
-
 ```ts
-import { citext, table } from "neoorm/schema";
-
-users: table({
-  email: citext().notNull().unique(),
-}),
+const nearby = await db.places.findMany({
+  where: {
+    location: {
+      dWithin: {
+        geometry: { type: "Point", coordinates: [-122.4, 37.8] },
+        distance: 1000,
+      },
+    },
+  },
+});
 ```
 
-## Custom plugins
+See [Plugins](plugins.md).
 
-See the plugin registry source for `ColumnTypePlugin` and `NeoOrmPlugin` interfaces.
-
-Column types may implement `columnValidation(col)` returning a validator-neutral IR node (`{ kind: "string" }`, `{ kind: "enum", values }`, GeoJSON `object` / `union`, and so on). Zod, TypeBox, and Elysia codegen print that IR. Omit the hook to fall back to `unknown`.
-
-To type `where` operators, augment `PluginColumnWhereOperators` on `neoorm/schema` with your column kind:
+## Slow-query logging
 
 ```ts
-declare module "neoorm/schema" {
-  interface PluginColumnWhereOperators {
-    myKind: { overlaps?: string };
-  }
-}
+const db = createNeoOrmClient(manifest, {
+  afterQuery: ({ sql, durationMs }) => {
+    if (durationMs > 50) {
+      console.warn(`slow ${durationMs.toFixed(1)}ms`, sql);
+    }
+  },
+});
 ```
 
-`registerPlugin` records the module that called it. Generate writes those specifiers on the manifest and the generated client imports them before `createNeoOrmClient`. Operator, select, write, and serialize hooks are then registered when the client loads.
+See [Raw SQL & logging](raw-sql.md#logging-sql).
 
 ## API docstring conventions
+
+# API docstring conventions
 
 Contributor guide for TSDoc on NeoOrm public exports. Docstrings appear in IDE hovers and emitted `.d.ts` files.
 
@@ -3405,160 +3298,7 @@ Each entry barrel starts with:
 
 ## Do not
 
-- Duplicate full [docs/](.) prose into comments.
+- Duplicate full [docs](getting-started.md) prose into comments.
 - Document generated client output under `neoorm/client`.
 - Add runtime behavior changes alongside docstrings.
-
-## `migrate dev` Workflow
-
-This guide records the workflow contract and the implementation changes behind `neoorm migrate dev`. The refactor preserves the command's migration order and user-visible output timing.
-
-## Runtime contract
-
-`runMigrateDev` derives `migrationsDir` from `outDir` and runs the complete sequence inside `withMigrateDevLock`:
-
-1. Read the snapshot, compile the target schema, reconcile pending `CREATE TABLE` migrations against the live database, then apply remaining pending migrations.
-2. Generate from the current schema. If generation fails with the existing missing-migration-name error, no explicit name was supplied, and the CLI provided an interactive prompt callback, ask once and retry once. Other errors propagate unchanged. If generation needs no migration, it does not prompt.
-3. Emit the generation summary and warnings, then reconcile a newly written migration against existing tables or apply it when reconciliation did not record it.
-4. Return whether destructive changes were blocked; the CLI sets `process.exitCode` after the workflow completes.
-
-The lock covers snapshot reading, both reconciliation/deployment phases, generation, and the optional prompt. Progress events keep the CLI output at the same stage as before: pending-migration output precedes a possible prompt, while generation output precedes post-generation reconciliation/application.
-
-## File-by-file changes
-
-### `src/migrate/dev-workflow.ts`
-
-- **Before:** The ordered `migrate dev` sequence had no dedicated workflow module; the CLI path coordinated it.
-- **After:** `runMigrateDev` owns snapshot reading, initial reconciliation/deployment, generation, the optional one-shot prompt/retry, and post-generation reconciliation/deployment. A typed progress-event union reports completed stages, while existing migration and code-generation helpers remain responsible for their work. The migration directory is derived from `outDir`.
-- **Why it is useful:** The lock scope and ordering have one owner, and the workflow can be tested through a small interface without a CLI/TTY harness.
-
-### `src/bin/neoorm.ts`
-
-- **Before:** The CLI command path contained the `migrate dev` orchestration alongside the separate `migrate deploy` path.
-- **After:** `migrate dev` calls `runMigrateDev`, adapts its progress events to the existing console output, supplies the prompt callback only for interactive runs, and handles the returned destructive-blocked status. `migrate deploy` remains on its separate path.
-- **Why it is useful:** Terminal interaction and presentation stay in the CLI, while moving orchestration does not delay or reorder output around the prompt.
-
-### `src/codegen/generate.ts`
-
-- **Before:** The missing-migration-name predicate lived in the CLI even though both regular `generate` and `migrate dev` use it.
-- **After:** The same predicate lives beside `missingMigrationNameError` in the code-generation module and is shared by both callers.
-- **Why it is useful:** There is one definition of the narrow prompt-eligibility check; its error conditions are unchanged, not broadened into general error handling.
-
-### `test/migrate-dev-workflow.test.ts`
-
-- **Before:** Existing tests covered migration, generation, and lock helpers separately, but not their ordering at the workflow boundary.
-- **After:** Real in-memory SQLite tests verify that a pending migration is applied and the lock remains held when the controlled name prompt runs, and that an unchanged schema completes without prompting or creating another migration.
-- **Why it is useful:** The regression coverage checks observable database state and timing rather than mocked helper forwarding or CLI wiring.
-
-### `docs/migrations.md`
-
-- **Before:** The migration guide described command behavior but did not state the full `migrate dev` lock interval.
-- **After:** It documents that the lock starts before pending reconciliation and remains held through the optional name prompt, generation, and post-generation reconciliation/application; it links to this implementation guide.
-- **Why it is useful:** Readers can reason about concurrency and prompt timing from the documented contract.
-
-### `llms-full.txt`
-
-- **Before:** The generated documentation aggregate did not include the updated lock-lifetime note or this guide.
-- **After:** Regeneration mirrors the migration-guide update and includes the new workflow page.
-- **Why it is useful:** The aggregate stays aligned with the source documentation instead of presenting stale workflow details.
-
-### `examples/blog/seed.ts`
-
-- **Before:** The schema was imported as a runtime value even though it was used only for a type.
-- **After:** The import is type-only.
-- **Why it is useful:** TypeScript erases the import from emitted JavaScript, and lint no longer reports the type-only usage.
-
-### `docs/migrate-dev-workflow.md`
-
-- **Before:** There was no durable, file-by-file record of the workflow ownership, preserved behavior, and verification.
-- **After:** This page records the execution contract, concrete before/after changes, and their rationale.
-- **Why it is useful:** Future maintenance can distinguish an ownership refactor from an intended behavior change.
-
-## Preserved behavior and scope
-
-- Pending migrations are reconciled and applied before a missing name can be requested.
-- The prompt is limited to the existing missing-name condition and is attempted at most once; unchanged schemas do not prompt.
-- The migrate-dev lock remains held during the prompt and until post-generation reconciliation/application finishes.
-- The existing second schema compilation remains; this change does not optimize it.
-- `migrate deploy` keeps its separate execution path.
-
-## Verification
-
-The implementation verification below was recorded before this documentation continuation; it was not rerun as part of the documentation-only changes:
-
-- `bun run build` — passed.
-- `bun run test` — 128 files passed, 4 skipped; 1,215 tests passed, 42 skipped.
-- `bun run typecheck` and `bun run lint` — passed; lint was clean.
-- Focused migration suites — 4 files and 34 tests passed.
-- CLI fixture smoke — `migrate dev --name initial`, a no-name no-op `migrate dev`, and a no-op `migrate deploy` each exited 0; the SQLite database had the expected table and one applied ledger entry.
-
-The generated documentation is refreshed with `bun run docs:llms` after editing this page.
-
-## Seeding
-
-`neoorm seed` runs a seed script against the database inside a single transaction. Any failure rolls the whole seed back, so failed runs are safe to retry.
-
-```
-neoorm seed [--env <name>] [--file <path>]
-```
-
-## Seed files
-
-By convention the seed lives next to the schema as `seed.ts` and exports a `seed(db)` function. `db` is a transaction-scoped client, so every write in the file is atomic:
-
-```ts
-// seed.ts
-import type { TransactionClient } from "neoorm";
-import { schema } from "./schema.js";
-
-export async function seed(db: TransactionClient<typeof schema._tables>) {
-	await db.users.upsert({
-		where: { email: "admin@example.com" },
-		create: { email: "admin@example.com", name: "Admin" },
-		update: {},
-	});
-	await db.tags.createMany({
-		data: [
-			{ slug: "news", name: "News" },
-			{ slug: "guides", name: "Guides" },
-		],
-		skipDuplicates: true,
-	});
-}
-```
-
-Annotating with `TransactionClient<typeof schema._tables>` gives fully typed repositories — the same types as the generated client. A default-exported function works too, and `SeedContext` from `neoorm` is available for manifest-agnostic helpers.
-
-## Environments
-
-`--env <name>` runs `seeds/<name>.ts` instead of `seed.ts`:
-
-```bash
-neoorm seed --env dev
-neoorm seed --file ./seeds/manual.ts
-```
-
-`--file` wins over `--env`, and both win over config (see below).
-
-## Idempotency
-
-Seeds are re-run by convention — there is no seed ledger. Write seeds so running them twice is safe: `upsert`, `findOrCreate`, and `createMany({ skipDuplicates: true })` are the building blocks. The transaction guarantees all-or-nothing per run, not across runs.
-
-## Configuration
-
-Pin defaults in `neoorm.config.ts` (CLI flags override them):
-
-```ts
-export default defineConfig({
-	// ...
-	seed: { env: "dev", file: "./seeds/base.ts" },
-});
-```
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `seed.file` | `string` | Default seed file, project-root relative |
-| `seed.env` | `string` | Default environment, runs `seeds/<env>.ts` next to the schema |
-
-See [Configuration](configuration.md) for the full config reference.
 

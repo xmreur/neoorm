@@ -1,3 +1,10 @@
+---
+title: Seeding
+description: Run idempotent, transactional seed scripts.
+group: tooling
+order: 20
+---
+
 # Seeding
 
 `neoorm seed` runs a seed script against the database inside a single transaction. Any failure rolls the whole seed back, so failed runs are safe to retry.

@@ -1,3 +1,10 @@
+---
+title: Configuration
+description: Configure the schema path, output directory, and datasource.
+group: start
+order: 20
+---
+
 # Configuration
 
 The `neoorm.config.ts` file configures schema location, output directory, and datasource.
