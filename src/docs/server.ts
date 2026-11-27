@@ -5,9 +5,18 @@ import {
 } from "node:http";
 import { openBrowser } from "../studio/open-browser.js";
 import { type DocsPage, hydratePageTitles, loadDocsPages } from "./pages.js";
-import { renderDocsIndex, renderDocsPage } from "./render.js";
+import {
+	docsAssets,
+	renderDocsIndex,
+	renderDocsPage,
+	renderNotFound,
+} from "./render.js";
 import { resolveDocsDir } from "./resolve-docs-dir.js";
-import { buildSearchIndex, type DocsSearchRecord } from "./search.js";
+import {
+	buildSearchIndex,
+	type DocsSearchRecord,
+	searchDocs,
+} from "./search.js";
 
 export type DocsServerOptions = {
 	port?: number;
@@ -16,8 +25,17 @@ export type DocsServerOptions = {
 	version: string;
 };
 
+const ASSETS = docsAssets();
+
+const SECURITY_HEADERS = {
+	"X-Content-Type-Options": "nosniff",
+	"Referrer-Policy": "no-referrer",
+	"X-Frame-Options": "DENY",
+};
+
 function sendHtml(res: ServerResponse, status: number, html: string): void {
 	res.writeHead(status, {
+		...SECURITY_HEADERS,
 		"Content-Type": "text/html; charset=utf-8",
 		"Cache-Control": "no-cache",
 	});
@@ -25,7 +43,34 @@ function sendHtml(res: ServerResponse, status: number, html: string): void {
 }
 
 function sendText(res: ServerResponse, status: number, body: string): void {
-	res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+	res.writeHead(status, {
+		...SECURITY_HEADERS,
+		"Content-Type": "text/plain; charset=utf-8",
+		"Cache-Control": "no-cache",
+	});
+	res.end(body);
+}
+
+function sendJson(res: ServerResponse, status: number, body: unknown): void {
+	res.writeHead(status, {
+		...SECURITY_HEADERS,
+		"Content-Type": "application/json; charset=utf-8",
+		"Cache-Control": "no-cache",
+	});
+	res.end(JSON.stringify(body));
+}
+
+function sendAsset(
+	res: ServerResponse,
+	status: number,
+	contentType: string,
+	body: string,
+): void {
+	res.writeHead(status, {
+		...SECURITY_HEADERS,
+		"Content-Type": contentType,
+		"Cache-Control": "no-cache",
+	});
 	res.end(body);
 }
 
@@ -34,19 +79,16 @@ function parseSlug(pathname: string): string | null {
 	if (!match) {
 		return null;
 	}
-	const slug = match[1];
+	let slug: string;
+	try {
+		slug = decodeURIComponent(match[1] ?? "");
+	} catch {
+		return null;
+	}
 	if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
 		return null;
 	}
 	return slug;
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-	res.writeHead(status, {
-		"Content-Type": "application/json; charset=utf-8",
-		"Cache-Control": "no-cache",
-	});
-	res.end(JSON.stringify(body));
 }
 
 export function createRequestHandler(
@@ -55,6 +97,7 @@ export function createRequestHandler(
 	searchIndex: DocsSearchRecord[],
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
 	const bySlug = new Map(pages.map((page) => [page.slug, page]));
+	const pageCache = new Map<string, string>();
 
 	return async (req, res) => {
 		try {
@@ -67,8 +110,42 @@ export function createRequestHandler(
 			}
 			const { pathname } = url;
 
+			if (pathname === "/assets/docs.css") {
+				sendAsset(res, 200, "text/css; charset=utf-8", ASSETS.css);
+				return;
+			}
+
+			if (pathname === "/assets/docs.js") {
+				sendAsset(
+					res,
+					200,
+					"text/javascript; charset=utf-8",
+					ASSETS.js,
+				);
+				return;
+			}
+
+			if (pathname === "/favicon.svg") {
+				sendAsset(
+					res,
+					200,
+					"image/svg+xml; charset=utf-8",
+					ASSETS.favicon,
+				);
+				return;
+			}
+
 			if (pathname === "/search-index.json") {
 				sendJson(res, 200, searchIndex);
+				return;
+			}
+
+			if (pathname === "/search") {
+				const query = url.searchParams.get("q") ?? "";
+				sendJson(res, 200, {
+					query,
+					hits: searchDocs(query, searchIndex),
+				});
 				return;
 			}
 
@@ -79,17 +156,22 @@ export function createRequestHandler(
 
 			const slug = parseSlug(pathname);
 			if (!slug) {
-				sendText(res, 404, "Not found");
+				sendHtml(res, 404, renderNotFound(pages, version, pathname));
 				return;
 			}
 
 			const page = bySlug.get(slug);
 			if (!page) {
-				sendText(res, 404, `Unknown docs page "${slug}"`);
+				sendHtml(res, 404, renderNotFound(pages, version, pathname));
 				return;
 			}
 
-			sendHtml(res, 200, await renderDocsPage(page, pages, version));
+			let html = pageCache.get(slug);
+			if (!html) {
+				html = await renderDocsPage(page, pages, version);
+				pageCache.set(slug, html);
+			}
+			sendHtml(res, 200, html);
 		} catch (err) {
 			console.error(err);
 			if (res.headersSent) {

@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { renderMarkdown } from "../src/docs/markdown.js";
 import { hydratePageTitles, loadDocsPages } from "../src/docs/pages.js";
 import { renderDocsPage } from "../src/docs/render.js";
 import {
@@ -13,6 +14,7 @@ import {
 	buildSearchIndex,
 	plainTextFromMarkdown,
 	rankSearchResults,
+	searchDocs,
 	slugifyHeading,
 } from "../src/docs/search.js";
 import { createRequestHandler } from "../src/docs/server.js";
@@ -54,6 +56,11 @@ describe("docs server", () => {
 			{
 				slug: "xss",
 				title: "Hello",
+				description: "",
+				group: "start",
+				order: 10,
+				keywords: "",
+				hidden: false,
 				fileName: "xss.md",
 				sourcePath,
 			},
@@ -209,3 +216,164 @@ More text.
 		);
 	});
 });
+
+describe("docs rendering", () => {
+	it("adds heading ids, anchor links, and a table of contents", async () => {
+		const docsDir = await resolveDocsDir();
+		const pages = await loadDocsPages(docsDir);
+		await hydratePageTitles(pages);
+		const schema = pages.find((page) => page.slug === "schema");
+		expect(schema).toBeDefined();
+		const html = await renderDocsPage(
+			schema as NonNullable<typeof schema>,
+			pages,
+			"0.0.0-test",
+		);
+		expect(html).toContain('<h2 id="foreign-keys">');
+		expect(html).toContain('href="#foreign-keys"');
+		expect(html).toContain('class="toc-link depth-2"');
+		expect(html).toContain("brand-lockup");
+	});
+
+	it("supports explicit heading anchors", async () => {
+		const parsed = await renderMarkdown(
+			"# Title\n\n## Custom heading {#custom-id}\n\nBody text.\n",
+			{ highlightCode: false },
+		);
+		expect(parsed.html).toContain('<h2 id="custom-id">');
+		expect(parsed.headings[0]?.id).toBe("custom-id");
+		expect(parsed.headings[0]?.text).toBe("Custom heading");
+	});
+
+	it("renders GitHub-style callouts without the marker", async () => {
+		const parsed = await renderMarkdown(
+			"> [!WARNING]\n> Check the migration first.\n",
+			{ highlightCode: false },
+		);
+		expect(parsed.html).toContain('class="callout callout-warning"');
+		expect(parsed.html).toContain("Check the migration first.");
+		expect(parsed.html).not.toContain("[!WARNING]");
+	});
+
+	it("highlights code blocks and adds copy controls", async () => {
+		const docsDir = await resolveDocsDir();
+		const pages = await loadDocsPages(docsDir);
+		await hydratePageTitles(pages);
+		const gettingStarted = pages.find(
+			(page) => page.slug === "getting-started",
+		);
+		expect(gettingStarted).toBeDefined();
+		const html = await renderDocsPage(
+			gettingStarted as NonNullable<typeof gettingStarted>,
+			pages,
+			"0.0.0-test",
+		);
+		expect(html).toContain('class="code-block"');
+		expect(html).toContain('class="shiki');
+		expect(html).toContain("data-copy");
+		expect(html).toContain('class="code-block-lang"');
+	});
+
+	it("serves css, js, favicon, and a styled 404", async () => {
+		const docsDir = await resolveDocsDir();
+		const pages = await loadDocsPages(docsDir);
+		await hydratePageTitles(pages);
+		const searchIndex = await buildSearchIndex(pages);
+		const handler = createRequestHandler(pages, "0.0.0-test", searchIndex);
+
+		const css = await request(handler, "/assets/docs.css");
+		expect(css.statusCode).toBe(200);
+		expect(css.headers["Content-Type"]).toContain("text/css");
+		expect(css.body).toContain("--primary");
+		expect(css.body).toContain("#8550FF");
+		expect(css.body).toContain("#F4F3EF");
+		expect(css.body).toContain("#111114");
+
+		const js = await request(handler, "/assets/docs.js");
+		expect(js.statusCode).toBe(200);
+		expect(js.headers["Content-Type"]).toContain("text/javascript");
+
+		const favicon = await request(handler, "/favicon.svg");
+		expect(favicon.statusCode).toBe(200);
+		expect(favicon.headers["Content-Type"]).toContain("image/svg+xml");
+		expect(favicon.body).toContain("#8550FF");
+		expect(favicon.body).toContain("#111114");
+
+		const missing = await request(handler, "/docs/nope");
+		expect(missing.statusCode).toBe(404);
+		expect(missing.headers["Content-Type"]).toContain("text/html");
+		expect(missing.body).toContain("Page not found");
+	});
+});
+
+describe("docs search endpoint", () => {
+	it("finds code identifiers such as findMany", async () => {
+		const docsDir = await resolveDocsDir();
+		const pages = await loadDocsPages(docsDir);
+		await hydratePageTitles(pages);
+		const index = await buildSearchIndex(pages);
+
+		const hits = searchDocs("findMany", index);
+		expect(hits.length).toBeGreaterThan(0);
+		expect(hits.some((hit) => hit.slug === "queries")).toBe(true);
+		const first = hits[0];
+		expect(first).toBeDefined();
+		expect(first?.excerpt.toLowerCase()).toContain("findmany");
+		expect(first?.highlights.length).toBeGreaterThan(0);
+	});
+
+	it("serves ranked results from /search", async () => {
+		const docsDir = await resolveDocsDir();
+		const pages = await loadDocsPages(docsDir);
+		await hydratePageTitles(pages);
+		const searchIndex = await buildSearchIndex(pages);
+		const handler = createRequestHandler(pages, "0.0.0-test", searchIndex);
+
+		const response = await request(handler, "/search?q=foreign+key");
+		expect(response.statusCode).toBe(200);
+		expect(response.headers["Content-Type"]).toContain("application/json");
+		const payload = JSON.parse(response.body) as {
+			query: string;
+			hits: { slug: string; highlights: unknown[] }[];
+		};
+		expect(payload.query).toBe("foreign key");
+		expect(payload.hits.length).toBeGreaterThan(0);
+		expect(payload.hits[0]?.slug).toBe("schema");
+		expect(payload.hits[0]?.highlights.length).toBeGreaterThan(0);
+	});
+});
+
+async function request(
+	handler: ReturnType<typeof createRequestHandler>,
+	url: string,
+): Promise<{
+	statusCode: number;
+	headers: Record<string, string>;
+	body: string;
+}> {
+	const chunks: Buffer[] = [];
+	const res = {
+		statusCode: 0,
+		headers: {} as Record<string, string>,
+		headersSent: false,
+		writeHead(status: number, headers: Record<string, string>) {
+			this.statusCode = status;
+			this.headersSent = true;
+			Object.assign(this.headers, headers);
+		},
+		end(body?: string) {
+			if (body !== undefined) {
+				chunks.push(Buffer.from(body));
+			}
+		},
+		destroy() {
+			this.headersSent = true;
+		},
+	};
+	await handler({ url } as IncomingMessage, res as unknown as ServerResponse);
+	return {
+		statusCode: res.statusCode,
+		headers: res.headers,
+		body: Buffer.concat(chunks).toString("utf-8"),
+	};
+}
