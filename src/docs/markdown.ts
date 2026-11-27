@@ -8,6 +8,10 @@ import {
 } from "marked";
 import { createHighlighter, type Highlighter } from "shiki";
 import { escapeAttribute, escapeHtml, safeHref } from "./html.js";
+import {
+	renderPackageManagerBlock,
+	renderPackageManagerInline,
+} from "./package-manager.js";
 import { createSlugger, slugifyHeading } from "./slug.js";
 import {
 	extractCodeIdentifiers,
@@ -131,6 +135,13 @@ async function highlightCode(
 	}
 }
 
+export async function highlightSnippet(
+	code: string,
+	lang: string,
+): Promise<string> {
+	return highlightCode(code, lang, true);
+}
+
 function wrapCodeBlock(html: string, lang: string | undefined): string {
 	return `<div class="code-block" data-lang="${escapeAttribute(
 		normalizeLang(lang) || "text",
@@ -218,12 +229,20 @@ class DocsRenderer extends Renderer {
 	code(token: Tokens.Code): string {
 		return (
 			this.codeHtml.get(token) ??
+			renderPackageManagerBlock(token.text) ??
 			wrapCodeBlock(
 				`<pre class="shiki shiki-fallback"><code>${escapeHtml(
 					token.text,
 				)}</code></pre>`,
 				token.lang,
 			)
+		);
+	}
+
+	codespan(token: Tokens.Codespan): string {
+		return (
+			renderPackageManagerInline(token.text) ??
+			`<code>${escapeHtml(token.text)}</code>`
 		);
 	}
 
@@ -365,6 +384,14 @@ export async function renderMarkdown(
 	});
 	await Promise.all(
 		codeTokens.map(async (token) => {
+			const shell = normalizeLang(token.lang) === "bash";
+			const packageManagerBlock = shell
+				? renderPackageManagerBlock(token.text)
+				: null;
+			if (packageManagerBlock) {
+				codeHtml.set(token, packageManagerBlock);
+				return;
+			}
 			const html = await highlightCode(
 				token.text,
 				token.lang,

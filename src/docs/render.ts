@@ -3,7 +3,7 @@ import { brandLockup, brandSymbol, FAVICON_SVG } from "./brand.js";
 import { DOCS_JS } from "./client.js";
 import { escapeAttribute, escapeHtml } from "./html.js";
 import type { DocsHeading } from "./markdown.js";
-import { renderMarkdown } from "./markdown.js";
+import { highlightSnippet, renderMarkdown } from "./markdown.js";
 import {
 	DOC_GROUPS,
 	type DocsGroupId,
@@ -11,6 +11,7 @@ import {
 	orderedVisiblePages,
 	visiblePages,
 } from "./nav.js";
+import { renderInstallCard } from "./package-manager.js";
 import type { DocsPage } from "./pages.js";
 import { DOCS_CSS } from "./styles.js";
 
@@ -23,6 +24,90 @@ const ICON_CLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_SUN = `<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path></svg>`;
 const ICON_MOON = `<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"></path></svg>`;
 const ICON_GITHUB = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.3 9.3 0 0 1 12 6.96a9.3 9.3 0 0 1 2.5.35c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.49A10.25 10.25 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z"></path></svg>`;
+const ICON_ARROW_RIGHT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="m13 6 6 6-6 6"></path></svg>`;
+
+const HERO_SNIPPETS = [
+	{
+		id: "schema",
+		label: "schema.ts",
+		lang: "typescript",
+		code: `export const schema = defineSchema({
+  users: table({
+    id: id(),
+    email: text().notNull().unique(),
+  }),
+  posts: table({
+    id: id(),
+    authorId: fk("users").notNull(),
+    title: text().notNull(),
+    published: bool().notNull().default(false),
+  }),
+});`,
+	},
+	{
+		id: "query",
+		label: "query.ts",
+		lang: "typescript",
+		code: `const posts = await db.posts.findMany({
+  where: { published: true },
+  with: { author: { select: { email: true } } },
+  orderBy: { id: "desc" },
+  take: 20,
+});
+// Post & { author: { email: string } }`,
+	},
+] as const;
+
+const HERO_SQL_DIALECTS = [
+	{
+		id: "pg",
+		label: "PostgreSQL",
+		code: `-- PostgreSQL · $1, $2 placeholders
+SELECT "posts".*, "author"."email" AS "author__email"
+FROM "posts"
+LEFT JOIN "users" AS "author"
+  ON "author"."id" = "posts"."author_id"
+WHERE "posts"."published" = $1
+ORDER BY "posts"."id" DESC
+LIMIT $2`,
+	},
+	{
+		id: "sqlite",
+		label: "SQLite",
+		code: `-- SQLite · ? placeholders
+SELECT "posts".*, "author"."email" AS "author__email"
+FROM "posts"
+LEFT JOIN "users" AS "author"
+  ON "author"."id" = "posts"."author_id"
+WHERE "posts"."published" = ?
+ORDER BY "posts"."id" DESC
+LIMIT ?`,
+	},
+	{
+		id: "mysql",
+		label: "MySQL 8",
+		code: `-- MySQL 8 · backticks, ? placeholders
+SELECT \`posts\`.*, \`author\`.\`email\` AS \`author__email\`
+FROM \`posts\`
+LEFT JOIN \`users\` AS \`author\`
+  ON \`author\`.\`id\` = \`posts\`.\`author_id\`
+WHERE \`posts\`.\`published\` = ?
+ORDER BY \`posts\`.\`id\` DESC
+LIMIT ?`,
+	},
+	{
+		id: "mariadb",
+		label: "MariaDB",
+		code: `-- MariaDB 10.11 · backticks, ? placeholders
+SELECT \`posts\`.*, \`author\`.\`email\` AS \`author__email\`
+FROM \`posts\`
+LEFT JOIN \`users\` AS \`author\`
+  ON \`author\`.\`id\` = \`posts\`.\`author_id\`
+WHERE \`posts\`.\`published\` = ?
+ORDER BY \`posts\`.\`id\` DESC
+LIMIT ?`,
+	},
+] as const;
 
 const THEME_INIT_SCRIPT = `(function(){try{var key="neoorm-docs-theme";var stored=localStorage.getItem(key);var dark=window.matchMedia("(prefers-color-scheme: dark)").matches;var theme=stored==="light"||stored==="dark"?stored:(dark?"dark":"light");var root=document.documentElement;root.setAttribute("data-theme",theme);root.style.colorScheme=theme;var meta=document.querySelector('meta[name="theme-color"]');if(meta) meta.setAttribute("content",theme==="dark"?"#111114":"#F4F3EF");}catch(error){}})();`;
 
@@ -289,7 +374,75 @@ function renderCardSection(
 <div class="card-grid">${landingCards(pages, slugs)}</div>`;
 }
 
-export function renderDocsIndex(nav: DocsPage[], version: string): string {
+async function renderHeroSpecimen(): Promise<string> {
+	const [snippets, sqlDialects] = await Promise.all([
+		Promise.all(
+			HERO_SNIPPETS.map(async (snippet) => ({
+				...snippet,
+				html: await highlightSnippet(snippet.code, snippet.lang),
+			})),
+		),
+		Promise.all(
+			HERO_SQL_DIALECTS.map(async (dialect) => ({
+				...dialect,
+				html: await highlightSnippet(dialect.code, "sql"),
+			})),
+		),
+	]);
+	const topTabs = [
+		...snippets.map((snippet, index) => ({
+			id: snippet.id,
+			label: snippet.label,
+			selected: index === 0,
+		})),
+		{ id: "sql", label: "SQL", selected: false },
+	];
+	const tabs = topTabs
+		.map(
+			(tab) =>
+				`<button type="button" class="specimen-tab" role="tab" data-hero-tab="${tab.id}" aria-selected="${
+					tab.selected ? "true" : "false"
+				}" tabindex="${tab.selected ? "0" : "-1"}">${escapeHtml(
+					tab.label,
+				)}</button>`,
+		)
+		.join("");
+	const snippetPanels = snippets
+		.map((snippet, index) => {
+			const active = index === 0;
+			return `<div class="specimen-panel" role="tabpanel" data-hero-panel="${snippet.id}" data-active="${
+				active ? "true" : "false"
+			}" aria-hidden="${active ? "false" : "true"}">${snippet.html}</div>`;
+		})
+		.join("");
+	const sqlPanels = sqlDialects
+		.map(
+			(dialect) =>
+				`<div class="specimen-panel" role="tabpanel" data-hero-panel="sql" data-hero-dialect-panel="${dialect.id}" data-active="false" aria-hidden="true">${dialect.html}</div>`,
+		)
+		.join("");
+	const dialectButtons = sqlDialects
+		.map(
+			(dialect, index) =>
+				`<button type="button" class="specimen-dialect" data-hero-dialect="${dialect.id}" aria-pressed="${
+					index === 0 ? "true" : "false"
+				}">${escapeHtml(dialect.label)}</button>`,
+		)
+		.join("");
+	return `<div class="hero-specimen" data-hero-specimen data-active-tab="schema" data-active-dialect="pg">
+  <div class="specimen-head">
+    <div class="specimen-tabs" role="tablist" aria-label="NeoORM workflow">${tabs}</div>
+    <button type="button" class="code-copy" data-copy-specimen>Copy</button>
+  </div>
+  <div class="specimen-body">${snippetPanels}${sqlPanels}</div>
+  <div class="specimen-foot" role="group" aria-label="SQL dialect">${dialectButtons}</div>
+</div>`;
+}
+
+export async function renderDocsIndex(
+	nav: DocsPage[],
+	version: string,
+): Promise<string> {
 	const pages = visiblePages(nav);
 	const groups = groupPages(nav)
 		.filter((group) => group.id !== "start" && group.id !== "contributing")
@@ -305,16 +458,19 @@ export function renderDocsIndex(nav: DocsPage[], version: string): string {
 		})
 		.join("");
 
-	const main = `<section class="hero">
-  ${brandSymbol("hero-mark")}
-  <div class="hero-eyebrow"><span class="dot"></span>PostgreSQL · SQLite · MySQL · MariaDB</div>
-  <h1>Type-safe SQL, without the ORM baggage.</h1>
-  <p>NeoOrm gives you a TypeScript schema, a generated typed client, and real SQL. You keep control of the query; the types keep up.</p>
-  <div class="hero-actions">
-    <a class="button primary" href="/docs/getting-started">Get started</a>
-    <a class="button" href="${GITHUB_URL}" target="_blank" rel="noreferrer">View on GitHub</a>
+	const install = renderInstallCard("bun add neoorm pg");
+	const specimen = await renderHeroSpecimen();
+	const main = `<section class="hero-grid">
+  <div class="hero-copy">
+    <h1 class="docs-lockup">${brandLockup()}<span class="sr-only">NeoORM</span></h1>
+    <p class="hero-lead">TypeScript schema, generated typed client, and real SQL. You keep control of the query; the types keep up.</p>
+    <div class="hero-actions">
+      <a class="button primary" href="/docs/getting-started">Get started${ICON_ARROW_RIGHT}</a>
+      <a class="button" href="${GITHUB_URL}" target="_blank" rel="noreferrer">${ICON_GITHUB}View on GitHub</a>
+    </div>
+    ${install ?? ""}
   </div>
-  <div class="install"><span class="prompt">$</span><code>bun add neoorm pg</code></div>
+  ${specimen}
 </section>
 ${renderCardSection(
 	"Start here",
@@ -322,14 +478,7 @@ ${renderCardSection(
 	pages,
 	["getting-started", "configuration", "studio"],
 )}
-${groups}
-<div class="section-heading"><h2>Why NeoOrm</h2><p>Concrete tradeoffs, not magic</p></div>
-<div class="feature-grid">
-  <div class="feature"><h3>Schema as code</h3><p>One TypeScript schema drives the database, the generated client, and validation output.</p></div>
-  <div class="feature"><h3>Typed, not abstracted</h3><p>You write SQL-shaped queries. NeoOrm compiles them and keeps the result types honest.</p></div>
-  <div class="feature"><h3>Built-in migrations</h3><p>Diff the schema, inspect the SQL, deploy it, and roll it back when you need to.</p></div>
-</div>
-<div class="dialects"><span class="dialect">PostgreSQL</span><span class="dialect">SQLite</span><span class="dialect">MySQL 8</span><span class="dialect">MariaDB 10.11</span></div>`;
+${groups}`;
 
 	return renderShell({
 		title: "NeoOrm documentation",

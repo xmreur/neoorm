@@ -245,6 +245,23 @@ describe("docs rendering", () => {
 		expect(parsed.headings[0]?.text).toBe("Custom heading");
 	});
 
+	it("switches package-manager commands across npm, yarn, pnpm, and bun", async () => {
+		const parsed = await renderMarkdown(
+			"```bash\nbun add neoorm pg\nbunx neoorm init\ncp .env.example .env\n```\n\nInstall with `bun add zod`.\n",
+			{ highlightCode: false },
+		);
+		expect(parsed.html).toContain("npm install neoorm pg");
+		expect(parsed.html).toContain("yarn add neoorm pg");
+		expect(parsed.html).toContain("pnpm add neoorm pg");
+		expect(parsed.html).toContain("npx neoorm init");
+		expect(parsed.html).toContain("yarn dlx neoorm init");
+		expect(parsed.html).toContain("pnpm dlx neoorm init");
+		expect(parsed.html).toContain("cp .env.example .env");
+		expect(parsed.html).toContain('class="pm-inline"');
+		expect(parsed.html).toContain("npm install zod");
+		expect(parsed.html).toContain('data-pm-choice="bun"');
+	});
+
 	it("renders GitHub-style callouts without the marker", async () => {
 		const parsed = await renderMarkdown(
 			"> [!WARNING]\n> Check the migration first.\n",

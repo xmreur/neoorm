@@ -7,6 +7,8 @@ export const DOCS_JS = String.raw`
   var body = document.body;
   var docsData = window.__NEOORM_DOCS__ || { pages: [], slug: "" };
   var THEME_KEY = "neoorm-docs-theme";
+  var PM_KEY = "neoorm-docs-pm";
+  var PACKAGE_MANAGERS = ["npm", "yarn", "pnpm", "bun"];
   var RECENT_KEY = "neoorm-docs-recent";
   var systemMedia = window.matchMedia("(prefers-color-scheme: dark)");
   var isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || "");
@@ -97,6 +99,81 @@ export const DOCS_JS = String.raw`
   }
 
   applyTheme();
+
+  function currentPackageManager() {
+    var stored = safeStorageGet(PM_KEY);
+    return PACKAGE_MANAGERS.indexOf(stored) >= 0 ? stored : "bun";
+  }
+
+  function applyPackageManager(pm) {
+    var nodes = document.querySelectorAll("[data-pm-code]");
+    for (var i = 0; i < nodes.length; i += 1) {
+      var text = nodes[i].getAttribute("data-" + pm);
+      if (text !== null) {
+        nodes[i].textContent = text;
+      }
+    }
+    var tabs = document.querySelectorAll("[data-pm-choice]");
+    for (var tabIndex = 0; tabIndex < tabs.length; tabIndex += 1) {
+      var tab = tabs[tabIndex];
+      var selected = tab.getAttribute("data-pm-choice") === pm;
+      tab.setAttribute("aria-selected", selected ? "true" : "false");
+      tab.tabIndex = selected ? 0 : -1;
+    }
+  }
+
+  function setPackageManager(pm) {
+    safeStorageSet(PM_KEY, pm);
+    applyPackageManager(pm);
+  }
+
+  applyPackageManager(currentPackageManager());
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var tab = target.closest("[data-pm-choice]");
+    if (!tab) {
+      return;
+    }
+    var choice = tab.getAttribute("data-pm-choice");
+    if (PACKAGE_MANAGERS.indexOf(choice) >= 0) {
+      setPackageManager(choice);
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) {
+      return;
+    }
+    var tab = target.closest("[data-pm-choice]");
+    if (!tab) {
+      return;
+    }
+    var index = PACKAGE_MANAGERS.indexOf(tab.getAttribute("data-pm-choice"));
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") {
+      return;
+    }
+    event.preventDefault();
+    var next = event.key === "ArrowRight" ? index + 1 : index - 1;
+    if (next < 0) {
+      next = PACKAGE_MANAGERS.length - 1;
+    }
+    if (next >= PACKAGE_MANAGERS.length) {
+      next = 0;
+    }
+    var pm = PACKAGE_MANAGERS[next];
+    setPackageManager(pm);
+    var list = tab.closest("[role='tablist']");
+    var nextTab = list ? list.querySelector('[data-pm-choice="' + pm + '"]') : null;
+    if (nextTab) {
+      nextTab.focus();
+    }
+  });
+
   systemMedia.addEventListener("change", function () {
     if (!storedTheme()) {
       applyTheme();
@@ -262,17 +339,101 @@ export const DOCS_JS = String.raw`
     if (!target || !target.closest) {
       return;
     }
+    function syncSpecimen(specimen, tabId, dialectId) {
+      specimen.setAttribute("data-active-tab", tabId);
+      specimen.setAttribute("data-active-dialect", dialectId);
+      var heroTabs = specimen.querySelectorAll("[data-hero-tab]");
+      for (var t = 0; t < heroTabs.length; t += 1) {
+        var active = heroTabs[t].getAttribute("data-hero-tab") === tabId;
+        heroTabs[t].setAttribute("aria-selected", active ? "true" : "false");
+        heroTabs[t].tabIndex = active ? 0 : -1;
+      }
+      var dialectButtons = specimen.querySelectorAll("[data-hero-dialect]");
+      for (var d = 0; d < dialectButtons.length; d += 1) {
+        var isDialect =
+          dialectButtons[d].getAttribute("data-hero-dialect") === dialectId;
+        dialectButtons[d].setAttribute(
+          "aria-pressed",
+          isDialect ? "true" : "false"
+        );
+      }
+      var heroPanels = specimen.querySelectorAll("[data-hero-panel]");
+      for (var p = 0; p < heroPanels.length; p += 1) {
+        var panelTab = heroPanels[p].getAttribute("data-hero-panel");
+        var panelDialect = heroPanels[p].getAttribute(
+          "data-hero-dialect-panel"
+        );
+        var isPanelActive =
+          panelTab === tabId &&
+          (tabId !== "sql" || panelDialect === dialectId);
+        heroPanels[p].setAttribute(
+          "data-active",
+          isPanelActive ? "true" : "false"
+        );
+        heroPanels[p].setAttribute(
+          "aria-hidden",
+          isPanelActive ? "false" : "true"
+        );
+      }
+    }
+    var specimenTab = target.closest("[data-hero-tab]");
+    if (specimenTab) {
+      var specimen = specimenTab.closest("[data-hero-specimen]");
+      var id = specimenTab.getAttribute("data-hero-tab");
+      if (specimen && id) {
+        var currentDialect =
+          specimen.getAttribute("data-active-dialect") || "pg";
+        syncSpecimen(specimen, id, currentDialect);
+      }
+      return;
+    }
+    var specimenDialect = target.closest("[data-hero-dialect]");
+    if (specimenDialect) {
+      var dialectSpecimen = specimenDialect.closest("[data-hero-specimen]");
+      var dialect = specimenDialect.getAttribute("data-hero-dialect");
+      if (dialectSpecimen && dialect) {
+        syncSpecimen(dialectSpecimen, "sql", dialect);
+      }
+      return;
+    }
+    var specimenCopy = target.closest("[data-copy-specimen]");
+    if (specimenCopy) {
+      var container = specimenCopy.closest("[data-hero-specimen]");
+      var visiblePanel = container
+        ? container.querySelector('[data-hero-panel][data-active="true"] pre')
+        : null;
+      if (!visiblePanel) {
+        return;
+      }
+      var prevLabel = specimenCopy.textContent;
+      copyText(visiblePanel.innerText)
+        .then(function () {
+          specimenCopy.textContent = "Copied";
+          specimenCopy.classList.add("copied");
+          window.setTimeout(function () {
+            specimenCopy.textContent = prevLabel;
+            specimenCopy.classList.remove("copied");
+          }, 1600);
+        })
+        .catch(function () {
+          specimenCopy.textContent = "Copy failed";
+          window.setTimeout(function () {
+            specimenCopy.textContent = prevLabel;
+          }, 1600);
+        });
+      return;
+    }
     var button = target.closest("[data-copy]");
     if (!button) {
       return;
     }
-    var block = button.closest(".code-block");
-    var pre = block ? block.querySelector("pre") : null;
-    if (!pre) {
+    var block = button.closest("[data-pm-block], .code-block");
+    var source = block ? block.querySelector("[data-pm-code], pre") : null;
+    if (!source) {
       return;
     }
     var original = button.textContent;
-    copyText(pre.innerText)
+    copyText(source.innerText)
       .then(function () {
         button.textContent = "Copied";
         button.classList.add("copied");

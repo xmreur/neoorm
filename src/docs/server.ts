@@ -98,6 +98,7 @@ export function createRequestHandler(
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
 	const bySlug = new Map(pages.map((page) => [page.slug, page]));
 	const pageCache = new Map<string, string>();
+	let indexCache: string | undefined;
 
 	return async (req, res) => {
 		try {
@@ -150,7 +151,10 @@ export function createRequestHandler(
 			}
 
 			if (pathname === "/" || pathname === "/index.html") {
-				sendHtml(res, 200, renderDocsIndex(pages, version));
+				if (!indexCache) {
+					indexCache = await renderDocsIndex(pages, version);
+				}
+				sendHtml(res, 200, indexCache);
 				return;
 			}
 
