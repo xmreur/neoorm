@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160">
+  <title>NeoORM</title>
   <rect x="0.5" y="0.5" width="639" height="159" rx="14" fill="#111114" stroke="#26262E" />
   <g transform="translate(134 49) scale(0.7)">
     <g transform="scale(3.8458)">
