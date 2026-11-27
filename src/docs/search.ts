@@ -1,139 +1,256 @@
 import { readFile } from "node:fs/promises";
+import { renderMarkdown } from "./markdown.js";
 import type { DocsPage } from "./pages.js";
+import { slugifyHeading } from "./slug.js";
+import { plainTextFromMarkdown } from "./text.js";
 
 export type DocsSearchRecord = {
 	slug: string;
 	title: string;
+	description: string;
+	group: string;
 	heading?: string;
 	anchor?: string;
 	excerpt: string;
 	text: string;
+	code: string;
+	keywords: string;
+	pageOrder: number;
+	sectionOrder: number;
+};
+
+export type DocsSearchHighlight = {
+	start: number;
+	end: number;
 };
 
 export type DocsSearchHit = DocsSearchRecord & {
 	score: number;
+	highlights: DocsSearchHighlight[];
 };
 
-const EXCERPT_LENGTH = 120;
-const MAX_RESULTS = 8;
+const MAX_RESULTS = 10;
+const EXCERPT_LENGTH = 190;
 
-type MarkdownSection = {
-	heading?: string;
-	body: string;
+type FieldWeights = {
+	exact: number;
+	prefix: number;
+	wordPrefix: number;
+	includes: number;
 };
 
-export function slugifyHeading(text: string): string {
-	return text
-		.toLowerCase()
-		.trim()
-		.replace(/[^\w\s-]/g, "")
-		.replace(/\s+/g, "-")
-		.replace(/-+/g, "-")
-		.replace(/^-|-$/g, "");
+const TITLE_WEIGHTS: FieldWeights = {
+	exact: 120,
+	prefix: 80,
+	wordPrefix: 60,
+	includes: 40,
+};
+const HEADING_WEIGHTS: FieldWeights = {
+	exact: 90,
+	prefix: 60,
+	wordPrefix: 45,
+	includes: 30,
+};
+const DESCRIPTION_WEIGHTS: FieldWeights = {
+	exact: 40,
+	prefix: 28,
+	wordPrefix: 20,
+	includes: 12,
+};
+const CODE_WEIGHTS: FieldWeights = {
+	exact: 48,
+	prefix: 36,
+	wordPrefix: 32,
+	includes: 14,
+};
+const KEYWORD_WEIGHTS: FieldWeights = {
+	exact: 40,
+	prefix: 30,
+	wordPrefix: 22,
+	includes: 12,
+};
+const TEXT_WEIGHTS: FieldWeights = {
+	exact: 24,
+	prefix: 16,
+	wordPrefix: 12,
+	includes: 6,
+};
+
+export { plainTextFromMarkdown, slugifyHeading };
+
+function normalize(value: string): string {
+	return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-export function plainTextFromMarkdown(markdown: string): string {
-	let text = markdown;
-	text = text.replace(/^---[\s\S]*?---\n?/m, "");
-	text = text.replace(/```[\s\S]*?```/g, " ");
-	text = text.replace(/`[^`]*`/g, " ");
-	text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1");
-	text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-	text = text.replace(/^#{1,6}\s+/gm, "");
-	text = text.replace(/^\s*[-*+]\s+/gm, "");
-	text = text.replace(/^\s*\d+\.\s+/gm, "");
-	text = text.replace(/[*_~]/g, "");
-	text = text.replace(/\|/g, " ");
-	text = text.replace(/\s+/g, " ");
-	return text.trim();
+function tokenizeQuery(query: string): string[] {
+	return normalize(query).match(/[\p{L}\p{N}_#]+/gu) ?? [];
 }
 
-function excerptFromText(text: string): string {
-	const normalized = text.replace(/\s+/g, " ").trim();
-	if (normalized.length <= EXCERPT_LENGTH) {
-		return normalized;
+function isWordCharacter(value: string | undefined): boolean {
+	return value !== undefined && /[\p{L}\p{N}_]/u.test(value);
+}
+
+function scoreField(
+	field: string,
+	token: string,
+	weights: FieldWeights,
+): number {
+	if (field === "") {
+		return 0;
 	}
-	return `${normalized.slice(0, EXCERPT_LENGTH).trimEnd()}…`;
+	if (field === token) {
+		return weights.exact;
+	}
+	if (field.startsWith(token) && !isWordCharacter(field[token.length])) {
+		const rest = field.slice(token.length).trim();
+		return rest === "" ? weights.prefix : weights.wordPrefix;
+	}
+	if (field.startsWith(token)) {
+		return weights.prefix;
+	}
+	let index = field.indexOf(token);
+	while (index >= 0) {
+		if (!isWordCharacter(field[index - 1])) {
+			return weights.wordPrefix;
+		}
+		index = field.indexOf(token, index + 1);
+	}
+	return field.includes(token) ? weights.includes : 0;
 }
 
-function parseMarkdownSections(markdown: string): MarkdownSection[] {
-	const lines = markdown.split("\n");
-	const sections: MarkdownSection[] = [];
-	let intro: string[] = [];
-	let currentHeading: string | undefined;
-	let currentBody: string[] = [];
+function scoreRecord(record: DocsSearchRecord, tokens: string[]): number {
+	if (tokens.length === 0) {
+		return 0;
+	}
+	const title = normalize(record.title);
+	const heading = normalize(record.heading ?? "");
+	const description = normalize(record.description);
+	const text = normalize(record.text);
+	const code = normalize(record.code);
+	const keywords = normalize(record.keywords);
 
-	const flush = () => {
-		const body = currentBody.join("\n").trim();
-		if (currentHeading !== undefined || body.length > 0) {
-			sections.push({
-				...(currentHeading ? { heading: currentHeading } : {}),
-				body,
-			});
-		}
-		currentHeading = undefined;
-		currentBody = [];
-	};
+	let score = 0;
+	let matched = 0;
+	let strongMatches = 0;
 
-	for (const line of lines) {
-		const headingMatch = line.match(/^#{2,3}\s+(.+)$/);
-		if (headingMatch) {
-			if (currentHeading === undefined && intro.length > 0) {
-				sections.push({ body: intro.join("\n").trim() });
-				intro = [];
-			} else if (currentHeading !== undefined || currentBody.length > 0) {
-				flush();
+	for (const token of tokens) {
+		const fieldScore = Math.max(
+			scoreField(title, token, TITLE_WEIGHTS),
+			scoreField(heading, token, HEADING_WEIGHTS),
+			scoreField(description, token, DESCRIPTION_WEIGHTS),
+			scoreField(keywords, token, KEYWORD_WEIGHTS),
+			scoreField(code, token, CODE_WEIGHTS),
+			scoreField(text, token, TEXT_WEIGHTS),
+		);
+		if (fieldScore > 0) {
+			matched += 1;
+			if (fieldScore >= DESCRIPTION_WEIGHTS.wordPrefix) {
+				strongMatches += 1;
 			}
-			currentHeading = headingMatch[1]?.trim();
-			continue;
+			score += fieldScore;
 		}
-
-		if (
-			currentHeading === undefined &&
-			sections.length === 0 &&
-			!line.match(/^#\s+/)
-		) {
-			intro.push(line);
-			continue;
-		}
-
-		currentBody.push(line);
 	}
 
-	if (currentHeading === undefined && intro.length > 0) {
-		sections.push({ body: intro.join("\n").trim() });
+	if (matched === 0) {
+		return 0;
+	}
+	if (matched < tokens.length) {
+		if (strongMatches === 0 || matched < Math.ceil(tokens.length / 2)) {
+			return 0;
+		}
+		score = Math.round(score * (matched / tokens.length));
 	} else {
-		flush();
+		score += 50;
 	}
 
-	return sections.filter(
-		(section) => section.body.length > 0 || section.heading,
-	);
+	return score;
+}
+
+function levenshteinWithinOne(a: string, b: string): boolean {
+	if (Math.abs(a.length - b.length) > 1) {
+		return false;
+	}
+	let i = 0;
+	let j = 0;
+	let edits = 0;
+	while (i < a.length && j < b.length) {
+		if (a[i] === b[j]) {
+			i += 1;
+			j += 1;
+			continue;
+		}
+		edits += 1;
+		if (edits > 1) {
+			return false;
+		}
+		if (a.length > b.length) {
+			i += 1;
+		} else if (b.length > a.length) {
+			j += 1;
+		} else {
+			i += 1;
+			j += 1;
+		}
+	}
+	return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function fuzzyScore(record: DocsSearchRecord, tokens: string[]): number {
+	const fields = [
+		normalize(record.title),
+		normalize(record.heading ?? ""),
+		normalize(record.description),
+		normalize(record.text),
+		normalize(record.code),
+		normalize(record.keywords),
+	];
+	let matched = 0;
+	for (const token of tokens) {
+		if (token.length < 4) {
+			continue;
+		}
+		const words = fields.flatMap((field) =>
+			field.split(/[^\p{L}\p{N}_]+/u),
+		);
+		if (
+			words.some(
+				(word) => word.length >= 3 && levenshteinWithinOne(word, token),
+			)
+		) {
+			matched += 1;
+		}
+	}
+	return matched > 0 && matched >= Math.ceil(tokens.length / 2)
+		? matched * 8
+		: 0;
 }
 
 function buildRecord(
 	page: DocsPage,
-	section: MarkdownSection,
-): DocsSearchRecord | null {
-	const bodyText = plainTextFromMarkdown(section.body);
-	if (!bodyText && !section.heading) {
-		return null;
-	}
-
+	pageOrder: number,
+	sectionOrder: number,
+	section: {
+		heading?: { text: string; id: string };
+		text: string;
+		code: string;
+		excerpt: string;
+	},
+): DocsSearchRecord {
 	const heading = section.heading;
-	const searchableParts = [page.title];
-	if (heading) searchableParts.push(heading);
-	if (bodyText) searchableParts.push(bodyText);
-
-	const text = searchableParts.join(" ");
-	const excerptSource = bodyText || heading || page.title;
-
 	return {
 		slug: page.slug,
 		title: page.title,
-		...(heading ? { heading, anchor: slugifyHeading(heading) } : {}),
-		excerpt: excerptFromText(excerptSource),
-		text,
+		description: page.description,
+		group: page.group,
+		...(heading ? { heading: heading.text, anchor: heading.id } : {}),
+		excerpt: section.excerpt || page.description,
+		text: [page.title, page.description, heading?.text, section.text]
+			.filter((part): part is string => Boolean(part))
+			.join(" "),
+		code: section.code,
+		keywords: page.keywords,
+		pageOrder,
+		sectionOrder,
 	};
 }
 
@@ -141,79 +258,75 @@ export async function buildSearchIndex(
 	pages: DocsPage[],
 ): Promise<DocsSearchRecord[]> {
 	const records: DocsSearchRecord[] = [];
+	const pageSlugs = new Set(pages.map((page) => page.slug));
 
-	for (const page of pages) {
-		const markdown = await readFile(page.sourcePath, "utf-8");
-		const sections = parseMarkdownSections(markdown);
-
-		for (const section of sections) {
-			const record = buildRecord(page, section);
-			if (record) {
-				records.push(record);
-			}
+	for (const [pageOrder, page] of pages.entries()) {
+		if (page.hidden) {
+			continue;
 		}
-
-		if (sections.length === 0) {
-			const text = plainTextFromMarkdown(markdown);
-			if (text) {
-				records.push({
-					slug: page.slug,
-					title: page.title,
-					excerpt: excerptFromText(text),
-					text: `${page.title} ${text}`,
-				});
-			}
+		const markdown = await readFile(page.sourcePath, "utf-8");
+		const parsed = await renderMarkdown(markdown, {
+			pageSlugs,
+			highlightCode: false,
+		});
+		for (const [sectionOrder, section] of parsed.sections.entries()) {
+			records.push(buildRecord(page, pageOrder, sectionOrder, section));
 		}
 	}
 
 	return records;
 }
 
-function tokenizeQuery(query: string): string[] {
-	return query
-		.toLowerCase()
-		.split(/\s+/)
-		.map((token) => token.trim())
-		.filter((token) => token.length > 0);
+function makeExcerpt(text: string, tokens: string[]): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (normalized.length <= EXCERPT_LENGTH) {
+		return normalized;
+	}
+	const lower = normalized.toLowerCase();
+	let firstMatch = -1;
+	for (const token of tokens) {
+		const index = lower.indexOf(token);
+		if (index >= 0 && (firstMatch < 0 || index < firstMatch)) {
+			firstMatch = index;
+		}
+	}
+	const start = Math.max(
+		0,
+		firstMatch >= 0 ? firstMatch - Math.floor(EXCERPT_LENGTH / 3) : 0,
+	);
+	const end = Math.min(normalized.length, start + EXCERPT_LENGTH);
+	const prefix = start > 0 ? "…" : "";
+	const suffix = end < normalized.length ? "…" : "";
+	return `${prefix}${normalized.slice(start, end).trim()}${suffix}`;
 }
 
-function scoreRecord(record: DocsSearchRecord, tokens: string[]): number {
-	if (tokens.length === 0) {
-		return 0;
-	}
-
-	const title = record.title.toLowerCase();
-	const heading = record.heading?.toLowerCase() ?? "";
-	const text = record.text.toLowerCase();
-	let score = 0;
-
+function highlightRanges(
+	text: string,
+	tokens: string[],
+): DocsSearchHighlight[] {
+	const lower = text.toLowerCase();
+	const ranges: DocsSearchHighlight[] = [];
 	for (const token of tokens) {
-		if (title === token) {
-			score += 10;
-		} else if (title.startsWith(token)) {
-			score += 8;
-		} else if (title.includes(token)) {
-			score += 5;
+		if (token.length < 2) {
+			continue;
 		}
-
-		if (heading === token) {
-			score += 6;
-		} else if (heading.startsWith(token)) {
-			score += 5;
-		} else if (heading.includes(token)) {
-			score += 4;
-		}
-
-		if (text.includes(token)) {
-			score += 3;
-			const occurrences = text.split(token).length - 1;
-			if (occurrences > 1) {
-				score += Math.min(occurrences - 1, 3);
-			}
+		let index = lower.indexOf(token);
+		while (index >= 0) {
+			ranges.push({ start: index, end: index + token.length });
+			index = lower.indexOf(token, index + token.length);
 		}
 	}
-
-	return score;
+	ranges.sort((a, b) => a.start - b.start || b.end - a.end);
+	const merged: DocsSearchHighlight[] = [];
+	for (const range of ranges) {
+		const last = merged[merged.length - 1];
+		if (last && range.start <= last.end) {
+			last.end = Math.max(last.end, range.end);
+		} else {
+			merged.push({ ...range });
+		}
+	}
+	return merged.slice(0, 24);
 }
 
 export function rankSearchResults(
@@ -229,7 +342,16 @@ export function rankSearchResults(
 	for (const record of records) {
 		const score = scoreRecord(record, tokens);
 		if (score > 0) {
-			hits.push({ ...record, score });
+			hits.push({ ...record, score, highlights: [] });
+		}
+	}
+
+	if (hits.length === 0) {
+		for (const record of records) {
+			const score = fuzzyScore(record, tokens);
+			if (score > 0) {
+				hits.push({ ...record, score, highlights: [] });
+			}
 		}
 	}
 
@@ -237,8 +359,31 @@ export function rankSearchResults(
 		if (b.score !== a.score) {
 			return b.score - a.score;
 		}
-		return a.title.localeCompare(b.title);
+		if (a.pageOrder !== b.pageOrder) {
+			return a.pageOrder - b.pageOrder;
+		}
+		return a.sectionOrder - b.sectionOrder;
 	});
 
 	return hits.slice(0, MAX_RESULTS);
+}
+
+export function searchDocs(
+	query: string,
+	records: DocsSearchRecord[],
+): DocsSearchHit[] {
+	const tokens = tokenizeQuery(query);
+	return rankSearchResults(query, records).map((hit) => {
+		const candidates = [hit.excerpt, hit.text, hit.code];
+		const source =
+			candidates.find((candidate) =>
+				tokens.some((token) => candidate.toLowerCase().includes(token)),
+			) ?? hit.excerpt;
+		const excerpt = makeExcerpt(source || hit.text, tokens);
+		return {
+			...hit,
+			excerpt,
+			highlights: highlightRanges(excerpt, tokens),
+		};
+	});
 }
