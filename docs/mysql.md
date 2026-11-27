@@ -1,3 +1,10 @@
+---
+title: MySQL
+description: MySQL 8 setup, type mapping, and limitations.
+group: dialects
+order: 30
+---
+
 # MySQL
 
 MySQL 8.0+ is a first-class dialect via the optional `mysql2` driver. Schema DSL, codegen, migrations, and the query client work against MySQL the same way they do against PostgreSQL, with the storage and SQL differences below.

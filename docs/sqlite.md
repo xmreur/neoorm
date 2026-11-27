@@ -1,3 +1,10 @@
+---
+title: SQLite
+description: SQLite drivers, configuration, and type mapping.
+group: dialects
+order: 20
+---
+
 # SQLite
 
 SQLite is a first-class dialect for local development, testing, and single-file deployments. Everything in the schema DSL, codegen, migrations, and query client works against SQLite with no extra database server.

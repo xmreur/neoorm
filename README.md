@@ -1,6 +1,9 @@
-# NeoOrm
+<p align="center">
+  <img alt="NeoORM" src="docs/assets/logo-banner.svg" width="360" />
+</p>
+
 <p>
-  <strong>NeoOrm</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
+  <strong>NeoORM</strong> is a TypeScript-first SQL ORM built for people who want <strong>type safety without the complexity</strong>.
   Schema → codegen → typed client — you own the SQL, we handle the boilerplate.
 
   PostgreSQL, SQLite, MySQL 8, and MariaDB 10.11 dialects ship today.
@@ -107,16 +110,21 @@ const posts = await db.posts.findMany({
 | Topic | |
 |-------|-|
 | [Getting started](docs/getting-started.md) | Setup, manual config, env vars, tenant schemas |
-| [Examples](docs/examples.md) | Copy-paste patterns for schema, queries, relations, and more |
-| [Schema DSL](docs/schema.md) | Tables, columns, foreign keys, many-to-many |
-| [Queries](docs/queries.md) | CRUD, where clauses, pagination, aggregates, groupBy, distinct |
-| [Relation writes](docs/relations.md) | Nested connect/create/disconnect/set/delete |
+| [Cookbook](docs/examples.md) | Recipes for auth, feeds, soft deletes, search, and PostGIS |
+| [Schema DSL](docs/schema.md) | Tables, column types, checks, indexes, enums |
+| [Schema relations](docs/schema-relations.md) | Foreign keys, composite keys, self-relations, many-to-many |
+| [Queries](docs/queries.md) | Find, create, update, delete, upsert, findOrCreate |
+| [Filters & aggregates](docs/filters.md) | Where operators, relation filters, pagination, count, groupBy |
+| [Eager loading & projection](docs/loading.md) | `with` planner, `select`/`omit`, `.hidden()`, `.strip()` |
+| [Nested writes](docs/relations.md) | Nested connect/create/disconnect/set/delete |
 | [Transactions](docs/transactions.md) | Interactive, batch, nested, isolation levels |
+| [Raw SQL & logging](docs/raw-sql.md) | `db.sql`, `sqlBuilder`, `db.execute`, query logging |
 | [Migrations](docs/migrations.md) | Deploy, dev, status, rollback, reset |
 | [CLI reference](docs/cli.md) | All commands and flags |
 | [Studio](docs/studio.md) | Local data browser (`neoorm studio`) |
-| [Documentation site](docs/getting-started.md) | Run `neoorm docs` for a local docs browser |
+| [Validation](docs/validation.md) | Zod, TypeBox 1.x, and Elysia `t` schema codegen |
 | [Configuration](docs/configuration.md) | Config file options reference |
+| [PostgreSQL](docs/postgresql.md) | Pools, tenant schemas, extensions, JSONB, ranges |
 | [SQLite](docs/sqlite.md) | SQLite dialect, drivers, type mapping, limitations |
 | [MySQL](docs/mysql.md) | MySQL 8 dialect, mysql2, type mapping, limitations |
 | [MariaDB](docs/mariadb.md) | MariaDB 10.11 dialect, official mariadb connector, type mapping, limitations |

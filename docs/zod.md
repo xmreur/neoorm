@@ -1,3 +1,10 @@
+---
+title: Zod schemas
+description: Generate Zod 4 schemas for rows, inserts, and updates.
+group: validation
+order: 20
+---
+
 # Zod schemas
 
 `neoorm generate` can print Select, Create, and Update **scalar** Zod schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; Zod, [TypeBox](typebox.md), and [Elysia `t`](elysia.md) are the printers shipped today.

@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { type DocsGroupId, PAGE_META } from "./nav.js";
+import { type DocsGroupId, isDocsGroupId, PAGE_META } from "./nav.js";
 import { firstParagraph, parseFrontmatter } from "./text.js";
 
 export type DocsPage = {
@@ -63,7 +63,10 @@ function titleFromSlug(slug: string): string {
 		.join(" ");
 }
 
-function metaFor(slug: string): {
+function metaFor(
+	slug: string,
+	frontmatter: Record<string, string>,
+): {
 	group: DocsGroupId;
 	order: number;
 	description: string;
@@ -71,9 +74,14 @@ function metaFor(slug: string): {
 	hidden: boolean;
 } {
 	const meta = PAGE_META[slug];
+	const fmGroup = frontmatter.group;
+	const group =
+		fmGroup && isDocsGroupId(fmGroup) ? fmGroup : (meta?.group ?? "guides");
+	const fmOrder = frontmatter.order ? Number(frontmatter.order) : Number.NaN;
+	const order = Number.isFinite(fmOrder) ? fmOrder : (meta?.order ?? 999);
 	return {
-		group: meta?.group ?? "guides",
-		order: meta?.order ?? 999,
+		group,
+		order,
 		description: meta?.description ?? "",
 		keywords: meta?.keywords ?? "",
 		hidden: meta?.hidden ?? false,
@@ -91,7 +99,8 @@ export async function loadDocsPages(docsDir: string): Promise<DocsPage[]> {
 		const slug = basename(entry.name, ".md");
 		const sourcePath = join(docsDir, entry.name);
 		const content = await readFile(sourcePath, "utf-8");
-		const meta = metaFor(slug);
+		const { data } = parseFrontmatter(content);
+		const meta = metaFor(slug, data);
 		pages.push({
 			slug,
 			title: titleFromMarkdown(content, titleFromSlug(slug)),
@@ -125,7 +134,8 @@ export async function loadDocsPages(docsDir: string): Promise<DocsPage[]> {
 export async function hydratePageTitles(pages: DocsPage[]): Promise<void> {
 	for (const page of pages) {
 		const content = await readFile(page.sourcePath, "utf-8");
-		const meta = metaFor(page.slug);
+		const { data } = parseFrontmatter(content);
+		const meta = metaFor(page.slug, data);
 		page.title = titleFromMarkdown(content, page.title);
 		page.description = descriptionFromMarkdown(content, meta.description);
 	}

@@ -1,3 +1,10 @@
+---
+title: Common errors
+description: Structured error codes, constraint subclasses, and fixes.
+group: queries
+order: 70
+---
+
 # Common errors
 
 NeoOrm surfaces structured errors with dialect-agnostic codes, optional subclasses for constraint violations, and fix suggestions. Catch them programmatically or read the CLI output after `neoorm generate` / query failures.

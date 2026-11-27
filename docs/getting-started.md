@@ -1,3 +1,10 @@
+---
+title: Getting started
+description: Install NeoORM, scaffold a project, and run your first migration.
+group: start
+order: 10
+---
+
 # Getting started
 
 ## Scaffold a new project
@@ -159,7 +166,7 @@ Raw `db.sql` uses the same compiler as `neoorm/sql`. With PostgreSQL `schema: "t
 
 Reuse an existing `pg` pool with `createNeoOrmClientFromPool(manifest, pool)`, or an existing SQLite handle with `createNeoOrmClientFromSqlite(manifest, database)`. `$disconnect()` does not close a borrowed pool or database — close it yourself when every consumer is done.
 
-Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Queries](queries.md#logging-sql)).
+Log compiled SQL with `beforeQuery` / `afterQuery` on the same options object (see [Raw SQL & logging](raw-sql.md#logging-sql)).
 
 PostgreSQL data queries use named prepared statements by default. Set `preparedStatements: false` if you use transaction-mode PgBouncer (named prepares are not supported there).
 

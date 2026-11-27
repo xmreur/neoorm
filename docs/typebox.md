@@ -1,3 +1,10 @@
+---
+title: TypeBox schemas
+description: Generate TypeBox 1.x schemas for rows, inserts, and updates.
+group: validation
+order: 30
+---
+
 # TypeBox schemas
 
 `neoorm generate` can print Select, Create, and Update **scalar** TypeBox schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; TypeBox 1.x is one printer (alongside [Zod](zod.md) and [Elysia `t`](elysia.md)).
