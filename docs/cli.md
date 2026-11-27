@@ -1,3 +1,10 @@
+---
+title: CLI reference
+description: Every `neoorm` command and flag.
+group: tooling
+order: 30
+---
+
 # CLI reference
 
 Commands that read `neoorm.config.ts` load `.env` from the current working directory first. Existing environment variables take precedence.

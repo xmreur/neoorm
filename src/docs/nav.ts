@@ -13,6 +13,12 @@ export const DOC_GROUPS = [
 
 export type DocsGroupId = (typeof DOC_GROUPS)[number]["id"];
 
+const GROUP_IDS = new Set<string>(DOC_GROUPS.map((group) => group.id));
+
+export function isDocsGroupId(value: string): value is DocsGroupId {
+	return GROUP_IDS.has(value);
+}
+
 export type DocsPageMeta = {
 	group: DocsGroupId;
 	order: number;
@@ -22,16 +28,15 @@ export type DocsPageMeta = {
 };
 
 /**
- * Sidebar placement and card copy for each page. Frontmatter can override
- * title/description later, but group and order stay here so navigation is
- * deterministic even for a partially written page.
+ * Default sidebar placement, card copy, and search keywords per slug.
+ * Frontmatter (`title`, `description`, `group`, `order`) can override these.
  */
 export const PAGE_META: Record<string, DocsPageMeta> = {
 	"getting-started": {
 		group: "start",
 		order: 10,
 		description:
-			"Install NeoOrm, scaffold a project, and run your first migration.",
+			"Install NeoORM, scaffold a project, and run your first migration.",
 	},
 	configuration: {
 		group: "start",
@@ -50,17 +55,17 @@ export const PAGE_META: Record<string, DocsPageMeta> = {
 		group: "schema",
 		order: 10,
 		description:
-			"Tables, columns, foreign keys, indexes, and many-to-many relations.",
+			"Tables, column types, checks, indexes, enums, and naming strategies.",
 		keywords:
-			"table column fk foreignKey many index unique primaryKey enum check timestamps",
+			"table column index unique primaryKey enum check timestamps tsvector generated map",
 	},
-	relations: {
+	"schema-relations": {
 		group: "schema",
 		order: 20,
 		description:
-			"Nested connect, create, set, disconnect, and delete writes.",
+			"Foreign keys, composite keys, self-relations, and many-to-many tables.",
 		keywords:
-			"connect connectOrCreate create disconnect set delete nested writes",
+			"fk foreignKey many through junction composite self relation inverse hoisted",
 	},
 	plugins: {
 		group: "schema",
@@ -70,21 +75,53 @@ export const PAGE_META: Record<string, DocsPageMeta> = {
 	queries: {
 		group: "queries",
 		order: 10,
-		description:
-			"Find, create, update, delete, filter, paginate, and aggregate.",
+		description: "Find, create, update, delete, upsert, and findOrCreate.",
 		keywords:
-			"findMany findFirst findUnique create createMany update updateMany delete deleteMany upsert findOrCreate",
+			"findMany findFirst findUnique findById create createMany createManyAndReturn update updateMany delete deleteMany upsert findOrCreate",
 	},
-	transactions: {
+	filters: {
 		group: "queries",
 		order: 20,
 		description:
+			"Where operators, relation filters, pagination, count, and aggregates.",
+		keywords:
+			"where filter contains searchTs jsonContains some every none paginate cursor groupBy aggregate count exists distinct",
+	},
+	loading: {
+		group: "queries",
+		order: 30,
+		description:
+			"Eager loading with `with`, `select`/`omit`, `.hidden()`, and `.strip()`.",
+		keywords:
+			"with eager loading join json_agg select omit hidden includeHidden strip",
+	},
+	relations: {
+		group: "queries",
+		order: 40,
+		description:
+			"Nested connect, create, set, disconnect, and delete writes.",
+		keywords:
+			"connect connectOrCreate create disconnect set delete nested writes",
+	},
+	transactions: {
+		group: "queries",
+		order: 50,
+		description:
 			"Interactive, batch, nested, and isolation-level transactions.",
-		keywords: "$transaction isolation serializable repeatable read",
+		keywords:
+			"$transaction isolation serializable repeatable read savepoint",
+	},
+	"raw-sql": {
+		group: "queries",
+		order: 60,
+		description:
+			"Parameterized `db.sql`, `sqlBuilder`, `db.execute`, and query logging.",
+		keywords:
+			"sql sqlId sqlBuilder execute raw beforeQuery afterQuery logging",
 	},
 	errors: {
 		group: "queries",
-		order: 30,
+		order: 70,
 		description:
 			"Structured error codes, constraint subclasses, and fixes.",
 		keywords:
@@ -109,54 +146,63 @@ export const PAGE_META: Record<string, DocsPageMeta> = {
 		description: "Every `neoorm` command and flag.",
 		keywords: "init generate migrate seed studio docs db push pull",
 	},
-	zod: {
+	validation: {
 		group: "validation",
 		order: 10,
+		description: "Compare Zod, TypeBox 1.x, and Elysia `t` schema codegen.",
+		keywords: "validation zod typebox elysia ir schema codegen",
+	},
+	zod: {
+		group: "validation",
+		order: 20,
 		description: "Generate Zod 4 schemas for rows, inserts, and updates.",
 	},
 	typebox: {
 		group: "validation",
-		order: 20,
+		order: 30,
 		description:
 			"Generate TypeBox 1.x schemas for rows, inserts, and updates.",
 	},
 	elysia: {
 		group: "validation",
-		order: 30,
+		order: 40,
 		description:
 			"Generate Elysia `t` schemas for route bodies and queries.",
 	},
-	sqlite: {
+	postgresql: {
 		group: "dialects",
 		order: 10,
+		description:
+			"PostgreSQL setup, pools, schemas, extensions, JSONB, and ranges.",
+		keywords:
+			"postgres postgresql pg pool schema extensions jsonb array range",
+	},
+	sqlite: {
+		group: "dialects",
+		order: 20,
 		description: "SQLite drivers, configuration, and type mapping.",
 	},
 	mysql: {
 		group: "dialects",
-		order: 20,
+		order: 30,
 		description: "MySQL 8 setup, type mapping, and limitations.",
 	},
 	mariadb: {
 		group: "dialects",
-		order: 30,
+		order: 40,
 		description: "MariaDB 10.11 setup, type mapping, and limitations.",
 	},
 	examples: {
 		group: "guides",
 		order: 10,
 		description:
-			"Copy-paste schema, query, relation, and migration patterns.",
+			"End-to-end recipes for auth, feeds, soft deletes, search, and PostGIS.",
+		keywords: "cookbook recipes examples auth feed soft delete postgis",
 	},
 	"api-docstrings": {
 		group: "contributing",
 		order: 10,
-		description: "TSDoc conventions for public NeoOrm exports.",
-	},
-	"migrate-dev-workflow": {
-		group: "contributing",
-		order: 90,
-		description: "Internal migrate dev implementation record.",
-		hidden: true,
+		description: "TSDoc conventions for public NeoORM exports.",
 	},
 };
 

@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderMarkdown } from "../src/docs/markdown.js";
+import { isDocsGroupId } from "../src/docs/nav.js";
 import { hydratePageTitles, loadDocsPages } from "../src/docs/pages.js";
 import { renderDocsPage } from "../src/docs/render.js";
 import {
@@ -18,6 +19,7 @@ import {
 	slugifyHeading,
 } from "../src/docs/search.js";
 import { createRequestHandler } from "../src/docs/server.js";
+import { parseFrontmatter } from "../src/docs/text.js";
 
 describe("docs server", () => {
 	it("finds the bundled docs directory", async () => {
@@ -124,13 +126,13 @@ More text.
 		expect(
 			index.some(
 				(record) =>
-					record.slug === "schema" &&
+					record.slug === "schema-relations" &&
 					record.heading === "Foreign keys",
 			),
 		).toBe(true);
 	});
 
-	it("ranks schema for foreign key queries", async () => {
+	it("ranks schema-relations for foreign key queries", async () => {
 		const docsDir = await resolveDocsDir();
 		const pages = await loadDocsPages(docsDir);
 		await hydratePageTitles(pages);
@@ -138,7 +140,7 @@ More text.
 
 		const hits = rankSearchResults("foreign key", index);
 		expect(hits.length).toBeGreaterThan(0);
-		expect(hits[0]?.slug).toBe("schema");
+		expect(hits[0]?.slug).toBe("schema-relations");
 	});
 
 	it("ranks migrations page for migration queries", async () => {
@@ -222,10 +224,12 @@ describe("docs rendering", () => {
 		const docsDir = await resolveDocsDir();
 		const pages = await loadDocsPages(docsDir);
 		await hydratePageTitles(pages);
-		const schema = pages.find((page) => page.slug === "schema");
-		expect(schema).toBeDefined();
+		const schemaRelations = pages.find(
+			(page) => page.slug === "schema-relations",
+		);
+		expect(schemaRelations).toBeDefined();
 		const html = await renderDocsPage(
-			schema as NonNullable<typeof schema>,
+			schemaRelations as NonNullable<typeof schemaRelations>,
 			pages,
 			"0.0.0-test",
 		);
@@ -355,8 +359,77 @@ describe("docs search endpoint", () => {
 		};
 		expect(payload.query).toBe("foreign key");
 		expect(payload.hits.length).toBeGreaterThan(0);
-		expect(payload.hits[0]?.slug).toBe("schema");
+		expect(payload.hits[0]?.slug).toBe("schema-relations");
 		expect(payload.hits[0]?.highlights.length).toBeGreaterThan(0);
+	});
+});
+
+describe("docs content integrity", () => {
+	it("requires valid frontmatter and resolving internal links/anchors on every doc page", async () => {
+		const docsDir = await resolveDocsDir();
+		const pages = await loadDocsPages(docsDir);
+		const anchorsBySlug = new Map<string, Set<string>>();
+		const bodiesBySlug = new Map<string, string>();
+
+		for (const page of pages) {
+			const raw = await readFile(page.sourcePath, "utf-8");
+			const { data, body } = parseFrontmatter(raw);
+			expect(data.title, `${page.fileName} missing title`).toBeTruthy();
+			expect(
+				data.description,
+				`${page.fileName} missing description`,
+			).toBeTruthy();
+			expect(
+				data.group && isDocsGroupId(data.group),
+				`${page.fileName} invalid group: ${data.group}`,
+			).toBe(true);
+			expect(
+				Number.isFinite(Number(data.order)),
+				`${page.fileName} invalid order: ${data.order}`,
+			).toBe(true);
+
+			const parsed = await renderMarkdown(body, { highlightCode: false });
+			anchorsBySlug.set(
+				page.slug,
+				new Set(parsed.headings.map((heading) => heading.id)),
+			);
+			bodiesBySlug.set(page.slug, body);
+		}
+
+		const linkPattern = /\]\(([^)\s]+)\)/g;
+		const broken: string[] = [];
+		for (const page of pages) {
+			const body = (bodiesBySlug.get(page.slug) ?? "")
+				.replace(/```[\s\S]*?```/g, "")
+				.replace(/`[^`]*`/g, "");
+			for (const match of body.matchAll(linkPattern)) {
+				const href = match[1];
+				if (
+					!href ||
+					href.startsWith("http://") ||
+					href.startsWith("https://") ||
+					href.startsWith("mailto:")
+				) {
+					continue;
+				}
+				const [targetPath, hash] = href.split("#");
+				const targetSlug = targetPath
+					? targetPath.replace(/\.md$/, "")
+					: page.slug;
+				const anchors = anchorsBySlug.get(targetSlug);
+				if (!anchors) {
+					broken.push(`${page.fileName}: missing target ${href}`);
+					continue;
+				}
+				if (hash && !anchors.has(hash)) {
+					broken.push(
+						`${page.fileName}: missing anchor #${hash} in ${targetSlug}.md`,
+					);
+				}
+			}
+		}
+
+		expect(broken).toEqual([]);
 	});
 });
 

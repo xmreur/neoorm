@@ -1,3 +1,10 @@
+---
+title: API docstring conventions
+description: TSDoc conventions for public NeoORM exports.
+group: contributing
+order: 10
+---
+
 # API docstring conventions
 
 Contributor guide for TSDoc on NeoOrm public exports. Docstrings appear in IDE hovers and emitted `.d.ts` files.
@@ -38,6 +45,6 @@ Each entry barrel starts with:
 
 ## Do not
 
-- Duplicate full [docs/](.) prose into comments.
+- Duplicate full [docs](getting-started.md) prose into comments.
 - Document generated client output under `neoorm/client`.
 - Add runtime behavior changes alongside docstrings.

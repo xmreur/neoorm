@@ -1,3 +1,10 @@
+---
+title: Plugins
+description: PostGIS, citext, and custom column-type plugins.
+group: schema
+order: 30
+---
+
 # Plugins
 
 ## Built-in `id()` and `timestamps()`

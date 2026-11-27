@@ -1,3 +1,10 @@
+---
+title: Elysia schemas
+description: Generate Elysia `t` schemas for route bodies and queries.
+group: validation
+order: 40
+---
+
 # Elysia schemas
 
 `neoorm generate` can print Select, Create, and Update **scalar** Elysia `t` schemas next to the typed client. Codegen maps your schema to a validator-neutral IR first; this printer emits `import { t } from "elysia"` so the objects drop into route `body:` / `query:` the same way as hand-written `t.Object({ title: t.String() })`.

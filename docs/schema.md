@@ -1,13 +1,22 @@
+---
+title: Schema DSL
+description: Tables, column types, checks, indexes, enums, and naming strategies.
+group: schema
+order: 10
+---
+
 # Schema DSL
 
-NeoOrm **0.8.0** and later uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
+NeoORM **0.8.0** and later uses accessor-based identity: schema keys, `fk("users")`, `many("tags")`, and `through: "postTags"` all refer to **accessors**, not raw SQL names. `schemaToManifest` resolves accessors to SQL before migrations and the typed client are generated.
+
+For foreign keys, composite keys, self-relations, and many-to-many tables, see [Schema relations](schema-relations.md).
 
 ## Tables and accessors
 
 `defineSchema` keys are TypeScript accessors. By default the SQL table name equals the accessor:
 
 ```ts
-import { defineSchema, fk, id, table, text, timestamps, uuid } from "neoorm/schema";
+import { defineSchema, fk, table, text, timestamps, uuid } from "neoorm/schema";
 
 export const schema = defineSchema({
   users: table({
@@ -28,7 +37,7 @@ export const schema = defineSchema({
 
 Generated row types are the English singular of the accessor: `users` → `User`, `status` → `Status` (not `Statu`).
 
-Column field names use camelCase in TypeScript. By default SQL column names are snake_case (`createdAt` → `created_at`). See [column naming](#column-naming-strategy).
+Column field names use camelCase in TypeScript. By default SQL column names are snake_case (`createdAt` → `created_at`). See [Column naming strategy](#column-naming-strategy).
 
 ## Column types
 
@@ -65,7 +74,7 @@ Column field names use camelCase in TypeScript. By default SQL column names are 
 
 All column builders support `.notNull()`, `.unique()`, `.default(value)`, `.primary()`, `.map(name)`, `.hidden()`, `.index()`, and `.check("sql expression")`. Text columns add `.maxLength()`, `.minLength()`, `.notEmpty()`, `.email()`, and `.url()`. Numeric columns (`int`, `bigint`, `serial`, `decimal`, `real`, `double`) add `.min()`, `.max()`, and `.positive()`.
 
-`.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses.
+`.hidden()` marks a column as sensitive. It is omitted from default query output on the root table and on nested `with` includes. Pass `includeHidden: true` when the app needs the value (for example password verification on login). Use `.strip()` to remove any remaining sensitive fields before JSON responses. See [Eager loading & projection](loading.md#sensitive-columns-hidden-and-api-responses-strip).
 
 ### Audit timestamps
 
@@ -100,125 +109,12 @@ orders: table({
 
 A hand-written trigger is still outside migrations, so `db pull` will not recreate it. Generated columns are readable and rejected on insert and update. They cannot also have a default, `updatedAt()`, or be `serial()`.
 
-Index it with GIN and query it with the `searchTs` where operator (see [Where clauses](queries.md#column-filters)):
+Index it with GIN and query it with the `searchTs` where operator (see [Filters & aggregates](filters.md#column-filters)):
 
 ```ts
 (t) => [index(t.body).using("gin")],
 // or over plain text without a tsvector column:
 (t) => [index(expr("to_tsvector('english', title)")).using("gin")],
-```
-
-## Foreign keys
-
-`fk()` targets are **schema accessors**, never SQL table names.
-
-| Target | Example | Resolves to |
-|--------|---------|-------------|
-| accessor | `fk("users")` | target table PK |
-| accessor + column | `fk("users.id")` | that column |
-| hoisted table | `fk(users)` | target PK |
-| hoisted column | `fk(users.id)` | that column |
-
-```ts
-posts: table({
-  id: id(),
-  authorId: fk("users")
-    .notNull()
-    .index()
-    .onDelete("restrict"),
-}),
-```
-
-Relation names are inferred — no `.inverse()` needed on the happy path:
-
-- `authorId` → `author` on `posts` (`with: { author: true }`)
-- inverse on `users` → `posts` (`with: { posts: true }`)
-
-Fluent modifiers (no options bag):
-
-| Method | Effect |
-|--------|--------|
-| `.as("author")` | override relation name on this table (default: strip `Id` from column name) |
-| `.inverse("articles")` | override relation name on the target table (rare — see defaults below) |
-| `.onDelete("cascade" \| "restrict" \| "set null" \| "no action")` | FK `ON DELETE` |
-| `.onUpdate("cascade" \| "restrict" \| "set null" \| "no action")` | FK `ON UPDATE` |
-| `.deferrable("immediate" \| "deferred")` | `DEFERRABLE` (Postgres and SQLite; rejected on MySQL/MariaDB) |
-| `.notNull()` | `NOT NULL` |
-| `.unique()` | `UNIQUE` — unique FKs infer a **singular** inverse (`profiles.userId` → `users.profile`) |
-| `.primary()` | part of composite PK |
-| `.index()` | single-column index |
-
-Default inference when `.as()` / `.inverse()` are omitted:
-
-- **this table:** `authorId` → `author` (strip trailing `Id`)
-- **target table (to-many):** source accessor (`posts.authorId` → `users.posts`)
-- **target table (unique to-one):** singular of source accessor (`profiles.userId` → `users.profile`)
-
-### Composite primary keys with FKs
-
-```ts
-postTags: table("post_tags", {
-  postId: fk("posts").primary(),
-  tagId: fk("tags").primary(),
-}),
-```
-
-Multiple `.primary()` columns infer a composite key. `primaryKey(t.colA, t.colB)` in extras is optional when you want to name the key without marking every column.
-
-### Composite foreign keys
-
-Use table extras `foreignKey()` when several local columns form one constraint (and one relation). Do not also mark those columns `fk()`.
-
-```ts
-orders: table(
-  {
-    id: id(),
-    tenantId: text().notNull(),
-    userId: text().notNull(),
-  },
-  (t) => [
-    foreignKey(t.tenantId, t.userId)
-      .references("users", "tenantId", "id")
-      .as("user")
-      .inverse("orders")
-      .onDelete("cascade")
-      .onUpdate("cascade"),
-  ],
-),
-```
-
-The target column list must match a primary key or unique index. `.as()` and `.inverse()` are required. Connect still uses the target table's full primary key:
-
-```ts
-await db.orders.create({
-  data: {
-    tenantId: "acme",
-    user: { connect: { tenantId: "acme", id: userId } },
-  },
-});
-```
-
-### Self-relations
-
-```ts
-comments: table({
-  id: id(),
-  parentId: fk("comments").as("parent").inverse("children"),
-  body: text().notNull(),
-}),
-```
-
-### Hoisted table references
-
-```ts
-const users = table({ id: uuid().primary() });
-
-export const schema = defineSchema({
-  users,
-  posts: table({
-    authorId: fk(users).notNull().index(),
-  }),
-});
 ```
 
 ## Column checks
@@ -314,50 +210,9 @@ Bloom indexes (Postgres only) are tuned with `.with({ length, cols })`: `cols` m
 ],
 ```
 
-Use `t.index` / `t.unique` or the top-level `index()` / `unique()` with
-`t.col` keys — in both cases the `where` predicate is typed: keys, scalar
-values, and operators autocomplete from the table's columns. Raw-string keys
-(`unique("email")`) still accept `.where()` with an untyped predicate.
+Use `t.index` / `t.unique` or the top-level `index()` / `unique()` with `t.col` keys — in both cases the `where` predicate is typed: keys, scalar values, and operators autocomplete from the table's columns. Raw-string keys (`unique("email")`) still accept `.where()` with an untyped predicate.
 
 Flat equality (`{ published: true }`, `null` → `IS NULL`) plus `AND` / `OR` / `NOT` combinators and per-column operators: `equals`, `gt`, `gte`, `lt`, `lte`, `in`, `notIn`, `isNull`, `isNotNull`, `contains`, `startsWith`, `endsWith`, `search`, and `mode: "insensitive"` on string operators. Compiled to `WHERE "published" = true` (or `= 1` on SQLite). Partial uniques emit as `CREATE UNIQUE INDEX ... WHERE ...`, not table-level `UNIQUE (...)`. They are valid `findUnique` / `upsert` / `findOrCreate` targets: `where` uses the indexed columns, and the index predicate is applied automatically (`AND` on lookups, `ON CONFLICT (…) WHERE …` on Postgres and SQLite).
-
-## Many-to-many
-
-Declare a virtual column on the source table:
-
-```ts
-posts: table({
-  id: id(),
-  title: text().notNull(),
-  tags: many("tags"),
-}),
-tags: table({ id: id(), slug: text().notNull().unique() }),
-```
-
-- `"tags"` is the **target accessor**.
-- Junction table is auto-generated when `through` is omitted.
-- SQL name: alpha-sorted SQL table names joined with `_` (e.g. `posts_tags` — no leading `_`).
-- Accessor equals that identifier (`posts_tags`).
-
-Reuse an existing junction by **accessor**:
-
-```ts
-posts: table({
-  tags: many("tags", {
-    through: "postTags",
-    leftKey: "postId",
-    rightKey: "tagId",
-  }),
-}),
-postTags: table("post_tags", {
-  postId: fk("posts").primary(),
-  tagId: fk("tags").primary(),
-}),
-```
-
-`as` / `inverse` override relation names on source and target tables.
-
-Virtual M2M columns are relations only — they appear in `with`, relation filters, and relation writes, not in scalar `select`/`where`/`create` data.
 
 ## Column naming strategy
 
@@ -403,6 +258,6 @@ export const schema = defineSchema(
 
 Column type plugins still register required extensions automatically.
 
-## SQLite type mapping
+## Dialect type mapping
 
-Same DSL; see [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md) for storage types and limitations.
+Same DSL across all dialects; see [PostgreSQL](postgresql.md), [SQLite](sqlite.md), [MySQL](mysql.md), and [MariaDB](mariadb.md) for storage types and limitations.

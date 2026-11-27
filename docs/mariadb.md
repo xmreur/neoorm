@@ -1,3 +1,10 @@
+---
+title: MariaDB
+description: MariaDB 10.11 setup, type mapping, and limitations.
+group: dialects
+order: 40
+---
+
 # MariaDB
 
 MariaDB 10.11 LTS is a first-class dialect via the optional official `mariadb` connector. Schema DSL, codegen, migrations, and the query client work the same way as PostgreSQL, with the storage and SQL differences below.

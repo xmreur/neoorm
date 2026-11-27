@@ -1,3 +1,10 @@
+---
+title: Studio
+description: Browse and edit data with the local Studio UI.
+group: start
+order: 30
+---
+
 # Studio
 
 `neoorm studio` opens a local web UI for browsing and editing your data — a spreadsheet grid, a SQL console, a query playground, a schema explorer, an ER graph, and migrate status.
