@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2
+
+### Changed
+
+- Rebuilt the local docs site (`neoorm docs`) with updated branding, navigation, search, and restructured documentation with link validation.
+- Restyled the Studio UI (`neoorm studio`) to match the docs brand palette, wordmark, symbol, favicon, and dark/light surfaces.
+
 ## 0.10.1
 
 ### Added
