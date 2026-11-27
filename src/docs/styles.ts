@@ -856,12 +856,14 @@ kbd {
 /* Mobile nav */
 .nav-backdrop { display: none; }
 @media (max-width: 1200px) {
-  .layout { grid-template-columns: 250px minmax(0, 1fr); }
+  .layout,
+  .layout:not(:has(.toc)) { grid-template-columns: 250px minmax(0, 1fr); }
   .toc { display: none; }
   .content { padding: 34px 40px 80px; }
 }
 @media (max-width: 900px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout,
+  .layout:not(:has(.toc)) { grid-template-columns: minmax(0, 1fr); }
   .content { padding: 28px 22px 72px; }
   .menu-button { display: inline-flex; }
   .search-trigger { min-width: 0; width: 34px; padding: 0; justify-content: center; }
