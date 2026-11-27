@@ -788,6 +788,12 @@ export const DOCS_JS = String.raw`
     if (!target || !target.closest) {
       return;
     }
+    var closeButton = target.closest("[data-search-close]");
+    if (closeButton && searchOpen) {
+      event.preventDefault();
+      closeSearch();
+      return;
+    }
     var trigger = target.closest("[data-search-open]");
     if (trigger && !searchOpen) {
       event.preventDefault();

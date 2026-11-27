@@ -234,7 +234,8 @@ function renderSearchDialog(): string {
     <div class="search-input-row">
       ${ICON_SEARCH}
       <input class="search-input" id="search-input" type="search" placeholder="Search documentation…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-controls="search-results" aria-expanded="false" />
-      <kbd>Esc</kbd>
+      <kbd class="search-esc">Esc</kbd>
+      <button class="icon-button search-close" type="button" data-search-close aria-label="Close search">${ICON_CLOSE}</button>
     </div>
     <div class="search-body">
       <div class="search-hint" id="search-hint">Type to search the docs…</div>

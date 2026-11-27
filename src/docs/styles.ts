@@ -800,6 +800,7 @@ kbd {
   border-bottom: 1px solid var(--border);
 }
 .search-input-row svg { width: 18px; height: 18px; flex: none; color: var(--text-subtle); }
+.search-close { display: none; flex: none; }
 .search-input {
   flex: 1;
   min-width: 0;
@@ -901,6 +902,8 @@ kbd {
   }
   .search-overlay { padding: 0; }
   .search-dialog { max-width: none; max-height: none; height: 100%; border: 0; border-radius: 0; }
+  .search-esc { display: none; }
+  .search-close { display: inline-flex; }
   .search-footer { padding-bottom: 14px; }
   .page-nav { grid-template-columns: 1fr; }
   .page-nav-link.next { text-align: left; }
