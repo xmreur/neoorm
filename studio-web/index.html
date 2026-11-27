@@ -3,7 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#111114" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>NeoOrm Studio</title>
+    <script>
+      (() => {
+        const meta = document.querySelector('meta[name="theme-color"]');
+        try {
+          if (localStorage.getItem("neoorm-studio-theme") === "light") {
+            document.documentElement.classList.remove("dark");
+            if (meta) meta.setAttribute("content", "#F4F3EF");
+          }
+        } catch (_error) {
+          /* keep the default dark theme */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

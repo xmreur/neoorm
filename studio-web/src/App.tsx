@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BrandSymbol } from "./components/BrandMark";
 import { CommandPalette } from "./components/CommandPalette";
 import { DataGrid } from "./components/DataGrid";
 import { ErGraph } from "./components/ErGraph";
@@ -20,7 +21,8 @@ export function App(): React.JSX.Element {
 		const needsToken = /401|unauthorized|token/i.test(metaError);
 		return (
 			<div className="flex h-screen items-center justify-center p-4">
-				<div className="flex w-full max-w-md flex-col gap-2 rounded-lg border border-border bg-card p-4">
+				<div className="studio-overlay flex w-full max-w-md flex-col gap-3 rounded-lg border border-border bg-card p-5">
+					<BrandSymbol />
 					<h1 className="text-sm font-semibold">
 						Could not connect to Studio
 					</h1>
@@ -54,8 +56,11 @@ export function App(): React.JSX.Element {
 
 	if (!meta) {
 		return (
-			<div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
-				<Spinner /> <span className="ml-2">Loading Studio…</span>
+			<div className="flex h-screen flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+				<BrandSymbol />
+				<span className="inline-flex items-center">
+					<Spinner /> <span className="ml-2">Loading Studio…</span>
+				</span>
 			</div>
 		);
 	}
@@ -72,7 +77,10 @@ export function App(): React.JSX.Element {
 		<div className="flex h-screen flex-col">
 			<TopBar meta={meta} />
 			{meta.metaSource === "snapshot" ? (
-				<p className="border-b border-border bg-card px-3 py-1.5 text-xs">
+				<p className="studio-callout-warning border-b border-border px-3 py-1.5 text-xs">
+					<span className="font-semibold text-warning">
+						Snapshot fallback:
+					</span>{" "}
 					schema.ts did not compile; Studio is showing snapshot.json
 					and may be stale. Fix schema.ts and restart, or run{" "}
 					<span className="mono">neoorm generate</span>.

@@ -128,6 +128,9 @@ export function StudioProvider({
 	useEffect(() => {
 		document.documentElement.classList.toggle("dark", theme === "dark");
 		localStorage.setItem("neoorm-studio-theme", theme);
+		document
+			.querySelector('meta[name="theme-color"]')
+			?.setAttribute("content", theme === "dark" ? "#111114" : "#F4F3EF");
 	}, [theme]);
 
 	useEffect(() => {

@@ -1229,12 +1229,13 @@ export function DataGrid({
 											<tr
 												key={key}
 												className={cn(
-													"border-b border-border hover:bg-accent/40",
-													isSelected &&
-														"bg-accent/60",
-													Object.keys(rowEdits)
-														.length > 0 &&
-														"bg-accent/30",
+													"border-b border-border",
+													isSelected
+														? "bg-accent/60"
+														: Object.keys(rowEdits)
+																	.length > 0
+															? "bg-accent/30 hover:bg-accent/45"
+															: "hover:bg-secondary/60",
 												)}
 												onClick={() =>
 													setSheetRow({
@@ -1618,7 +1619,7 @@ function ColumnMenu({
 				Columns
 			</Button>
 			{open ? (
-				<span className="absolute left-0 top-8 z-20 flex max-h-72 w-56 flex-col gap-1 overflow-auto rounded-md border border-border bg-popover p-2 shadow-xl">
+				<span className="studio-overlay absolute left-0 top-8 z-20 flex max-h-72 w-56 flex-col gap-1 overflow-auto rounded-md border border-border bg-popover p-2">
 					<Button
 						variant="ghost"
 						size="sm"

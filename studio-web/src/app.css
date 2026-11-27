@@ -3,48 +3,62 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-	--background: #f7f8fc;
-	--foreground: #172033;
-	--card: #ffffff;
-	--card-foreground: #172033;
-	--popover: #ffffff;
-	--popover-foreground: #172033;
-	--primary: #245bdb;
+	--background: #f4f3ef;
+	--foreground: #111114;
+	--card: #fffdf8;
+	--card-foreground: #111114;
+	--popover: #fffdf8;
+	--popover-foreground: #111114;
+	--primary: #8550ff;
+	--primary-hover: #7038f5;
 	--primary-foreground: #ffffff;
-	--secondary: #e9edf6;
-	--secondary-foreground: #2a3752;
-	--muted: #eef1f7;
-	--muted-foreground: #5b6a89;
-	--accent: #e4eafb;
-	--accent-foreground: #1c46b5;
-	--destructive: #c92a2a;
+	--secondary: #ebe9e3;
+	--secondary-foreground: #111114;
+	--muted: #ebe9e3;
+	--muted-foreground: #3f3f46;
+	--accent: #efe8ff;
+	--accent-foreground: #5c28c9;
+	--destructive: #a32020;
 	--destructive-foreground: #ffffff;
-	--border: #d9e0ef;
-	--input: #d9e0ef;
-	--ring: #245bdb;
-	--radius: 0.625rem;
+	--warning: #8a5a00;
+	--success: #0f7b4f;
+	--border: #d9d6ce;
+	--border-strong: #c4c1b8;
+	--input: #d9d6ce;
+	--ring: #8550ff;
+	--scrim: rgba(17, 17, 20, 0.46);
+	--shadow-lg: 0 24px 64px rgba(17, 17, 20, 0.16);
+	--radius: 10px;
+	color-scheme: light;
 }
 
 .dark {
-	--background: #0b1020;
-	--foreground: #e8edf8;
-	--card: #121933;
-	--card-foreground: #e8edf8;
-	--popover: #141c38;
-	--popover-foreground: #e8edf8;
-	--primary: #5b8cff;
-	--primary-foreground: #0b1020;
-	--secondary: #1b2547;
-	--secondary-foreground: #d5ddf2;
-	--muted: #161e3a;
-	--muted-foreground: #93a1c4;
-	--accent: #1e2a55;
-	--accent-foreground: #bcd0ff;
-	--destructive: #ff6b6b;
-	--destructive-foreground: #22090b;
-	--border: #24304d;
-	--input: #24304d;
-	--ring: #5b8cff;
+	--background: #111114;
+	--foreground: #f4f3ef;
+	--card: #1a1a1f;
+	--card-foreground: #f4f3ef;
+	--popover: #1a1a1f;
+	--popover-foreground: #f4f3ef;
+	--primary: #8550ff;
+	--primary-hover: #9a6bff;
+	--primary-foreground: #ffffff;
+	--secondary: #232329;
+	--secondary-foreground: #f4f3ef;
+	--muted: #232329;
+	--muted-foreground: #c6c4bc;
+	--accent: #2a2144;
+	--accent-foreground: #cdb6ff;
+	--destructive: #ff8b8b;
+	--destructive-foreground: #111114;
+	--warning: #e6b15a;
+	--success: #5dcca0;
+	--border: #2e2e36;
+	--border-strong: #45454f;
+	--input: #2e2e36;
+	--ring: #8550ff;
+	--scrim: rgba(0, 0, 0, 0.62);
+	--shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55);
+	color-scheme: dark;
 }
 
 @theme inline {
@@ -55,6 +69,7 @@
 	--color-popover: var(--popover);
 	--color-popover-foreground: var(--popover-foreground);
 	--color-primary: var(--primary);
+	--color-primary-hover: var(--primary-hover);
 	--color-primary-foreground: var(--primary-foreground);
 	--color-secondary: var(--secondary);
 	--color-secondary-foreground: var(--secondary-foreground);
@@ -64,20 +79,112 @@
 	--color-accent-foreground: var(--accent-foreground);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
+	--color-warning: var(--warning);
+	--color-success: var(--success);
 	--color-border: var(--border);
+	--color-border-strong: var(--border-strong);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+	--color-scrim: var(--scrim);
+	--radius-sm: 7px;
+	--radius-md: 8px;
+	--radius-lg: 10px;
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
 }
 
 body {
 	background: var(--background);
 	color: var(--foreground);
 	font-family:
-		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+		"Helvetica Neue", Arial, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+button:not(:disabled) {
+	cursor: pointer;
+}
+
+::selection {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+input,
+textarea {
+	caret-color: var(--primary);
 }
 
 .mono {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-family:
+		ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+		"Liberation Mono", monospace;
+}
+
+.studio-topbar {
+	background: color-mix(in srgb, var(--background) 92%, transparent);
+	backdrop-filter: blur(10px);
+}
+
+.studio-overlay {
+	box-shadow: var(--shadow-lg);
+}
+
+.studio-callout-warning {
+	background: color-mix(in srgb, var(--warning) 8%, var(--card));
+	border-color: color-mix(in srgb, var(--warning) 28%, var(--border));
+}
+
+.studio-callout-success {
+	background: color-mix(in srgb, var(--success) 8%, var(--card));
+	border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+}
+
+.brand-logo,
+.brand-symbol-wrap {
+	align-items: center;
+	line-height: 0;
+}
+
+.brand-symbol-wrap {
+	display: inline-flex;
+}
+
+.brand-lockup {
+	display: block;
+	height: 26px;
+	width: auto;
+}
+
+.brand-symbol {
+	display: block;
+	width: 24px;
+	height: 24px;
+}
+
+.brand-lockup-dark,
+.brand-symbol-dark {
+	display: none;
+}
+
+.dark .brand-lockup-light,
+.dark .brand-symbol-light {
+	display: none;
+}
+
+.dark .brand-lockup-dark,
+.dark .brand-symbol-dark {
+	display: block;
 }
 
 .grid-cell-null {
@@ -99,4 +206,52 @@ body {
 	font-size: 12px;
 	min-width: 180px;
 	max-width: 260px;
+}
+
+html .react-flow,
+html .react-flow.dark {
+	--xy-background-color: var(--background);
+	--xy-background-color-default: var(--background);
+	--xy-background-pattern-dots-color-default: var(--border-strong);
+	--xy-background-pattern-lines-color-default: var(--border);
+	--xy-background-pattern-cross-color-default: var(--border);
+	--xy-edge-stroke-default: var(--border-strong);
+	--xy-edge-stroke-selected-default: var(--primary);
+	--xy-connectionline-stroke-default: var(--primary);
+	--xy-edge-label-background-color-default: var(--card);
+	--xy-edge-label-color-default: var(--foreground);
+	--xy-minimap-background-color-default: var(--card);
+	--xy-minimap-mask-background-color-default: color-mix(
+		in srgb,
+		var(--background) 55%,
+		transparent
+	);
+	--xy-minimap-node-background-color-default: var(--primary);
+	--xy-minimap-node-stroke-color-default: transparent;
+	--xy-node-color-default: var(--foreground);
+	--xy-node-border-default: 1px solid var(--border);
+	--xy-node-background-color-default: var(--card);
+	--xy-node-boxshadow-selected-default: 0 0 0 1px var(--primary);
+	--xy-handle-background-color-default: var(--primary);
+	--xy-handle-border-color-default: var(--card);
+	--xy-selection-background-color-default: color-mix(
+		in srgb,
+		var(--primary) 14%,
+		transparent
+	);
+	--xy-selection-border-default: 1px dotted var(--primary);
+	--xy-controls-button-background-color-default: var(--card);
+	--xy-controls-button-background-color-hover-default: var(--secondary);
+	--xy-controls-button-color-default: var(--foreground);
+	--xy-controls-button-color-hover-default: var(--foreground);
+	--xy-controls-button-border-color-default: var(--border);
+	--xy-controls-box-shadow-default: 0 1px 2px rgba(17, 17, 20, 0.08);
+	--xy-attribution-background-color-default: transparent;
+}
+
+.react-flow__controls,
+.react-flow__minimap {
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	overflow: hidden;
 }

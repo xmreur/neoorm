@@ -32,7 +32,7 @@ export function ResultTable({
 						<tr
 							// biome-ignore lint/suspicious/noArrayIndexKey: result rows are positional snapshots with no stable id
 							key={i}
-							className="border-b border-border hover:bg-accent/40"
+							className="border-b border-border hover:bg-secondary/60"
 						>
 							{columns.map((c) => {
 								const v = row[c];
